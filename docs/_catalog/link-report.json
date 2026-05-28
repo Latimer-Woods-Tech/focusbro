@@ -1,0 +1,588 @@
+{
+  "version": 1,
+  "generated_by": "scripts/docs/health.mjs#writeLinkReport",
+  "generated_at": "source-derived",
+  "ok": false,
+  "counts": {
+    "broken": 63,
+    "canonical": 0,
+    "active": 63,
+    "archive": 0,
+    "generated": 0
+  },
+  "by_owner": {
+    "focusbro": 63
+  },
+  "by_status": {
+    "active": 63
+  },
+  "broken": [
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 22,
+      "target": "api/src/index.js#L331",
+      "reason": "anchor #L331 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 22,
+      "target": "api/src/extended-routes.js#L154",
+      "reason": "anchor #L154 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 49,
+      "target": "api/src/index.js#L180-L200",
+      "reason": "anchor #L180-L200 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 85,
+      "target": "api/src/extended-routes.js#L154-L175",
+      "reason": "anchor #L154-L175 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 106,
+      "target": "public/index.html#L1869",
+      "reason": "anchor #L1869 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 129,
+      "target": "public/index.html#L1301-L1310",
+      "reason": "anchor #L1301-L1310 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 166,
+      "target": "api/src/index.js#L211-L227",
+      "reason": "anchor #L211-L227 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 195,
+      "target": "public/index.html#L1257",
+      "reason": "anchor #L1257 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 195,
+      "target": "public/index.html#L3128",
+      "reason": "anchor #L3128 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 223,
+      "target": "public/index.html#L2800",
+      "reason": "anchor #L2800 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 255,
+      "target": "public/index.html#L1270",
+      "reason": "anchor #L1270 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 276,
+      "target": "public/index.html#L1730",
+      "reason": "anchor #L1730 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 303,
+      "target": "public/index.html#L1343",
+      "reason": "anchor #L1343 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 340,
+      "target": "public/index.html#L2646",
+      "reason": "anchor #L2646 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 340,
+      "target": "api/src/index.js#L350+",
+      "reason": "anchor #L350+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 362,
+      "target": "public/index.html#L1392",
+      "reason": "anchor #L1392 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 397,
+      "target": "api/src/index.js#L60",
+      "reason": "anchor #L60 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 427,
+      "target": "api/src/extended-routes.js#L212-L240",
+      "reason": "anchor #L212-L240 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 456,
+      "target": "api/src/extended-routes.js#L990",
+      "reason": "anchor #L990 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 493,
+      "target": "public/index.html#L1340",
+      "reason": "anchor #L1340 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 557,
+      "target": "public/index.html#L3280",
+      "reason": "anchor #L3280 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 590,
+      "target": "public/index.html#L2620",
+      "reason": "anchor #L2620 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 644,
+      "target": "api/src/middleware.js#L60+",
+      "reason": "anchor #L60+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 672,
+      "target": "public/index.html#L3470",
+      "reason": "anchor #L3470 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 752,
+      "target": "public/index.html#L2425",
+      "reason": "anchor #L2425 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 800,
+      "target": "api/src/index.js#L217",
+      "reason": "anchor #L217 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 820,
+      "target": "api/src/index.js#L187",
+      "reason": "anchor #L187 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 820,
+      "target": "api/src/middleware.js#L144",
+      "reason": "anchor #L144 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 843,
+      "target": "workers/src/index.js#L108",
+      "reason": "anchor #L108 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 859,
+      "target": "public/index.html#L2030+",
+      "reason": "anchor #L2030+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 910,
+      "target": "api/src/extended-routes.js#L460",
+      "reason": "anchor #L460 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 931,
+      "target": "api/src/extended-routes.js#L10+",
+      "reason": "anchor #L10+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 959,
+      "target": "api/src/index.js#L331+",
+      "reason": "anchor #L331+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 976,
+      "target": "public/index.html#L1987+",
+      "reason": "anchor #L1987+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 993,
+      "target": "api/src/index.js#L420",
+      "reason": "anchor #L420 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1006,
+      "target": "api/src/index.js#L331+",
+      "reason": "anchor #L331+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1024,
+      "target": "api/src/middleware.js#L221",
+      "reason": "anchor #L221 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1090,
+      "target": "public/index.html#L2580+",
+      "reason": "anchor #L2580+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1135,
+      "target": "public/index.html#L1987",
+      "reason": "anchor #L1987 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1148,
+      "target": "data,",
+      "reason": "file not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1195,
+      "target": "api/src/index.js#L231",
+      "reason": "anchor #L231 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "CODE_AUDIT_REPORT.md",
+      "line": 1204,
+      "target": "api/src/extended-routes.js#L1110+",
+      "reason": "anchor #L1110+ not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "PHASE4_COMPLETION_REPORT.md",
+      "line": 412,
+      "target": "../API_DOCUMENTATION.md",
+      "reason": "file not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "PHASE4_COMPLETION_REPORT.md",
+      "line": 413,
+      "target": "../api/TESTING.md",
+      "reason": "file not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "PHASE4_COMPLETION_REPORT.md",
+      "line": 414,
+      "target": "../SECURITY_GUIDE.md",
+      "reason": "file not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "PHASE4_COMPLETION_REPORT.md",
+      "line": 415,
+      "target": "../IMPROVEMENT_IMPLEMENTATION_LOG.md",
+      "reason": "file not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "POLISH_PASS_SUMMARY.md",
+      "line": 32,
+      "target": "public/index.html#L2727",
+      "reason": "anchor #L2727 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 15,
+      "target": "public/index.html#L3847",
+      "reason": "anchor #L3847 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 41,
+      "target": "public/index.html#L3524",
+      "reason": "anchor #L3524 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 68,
+      "target": "public/index.html#L3621",
+      "reason": "anchor #L3621 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 92,
+      "target": "public/index.html#L3475",
+      "reason": "anchor #L3475 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 122,
+      "target": "public/index.html#L2920",
+      "reason": "anchor #L2920 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 161,
+      "target": "public/index.html#L2956",
+      "reason": "anchor #L2956 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 214,
+      "target": "public/index.html#L2895",
+      "reason": "anchor #L2895 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 249,
+      "target": "public/index.html#L3995",
+      "reason": "anchor #L3995 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 273,
+      "target": "public/index.html#L3040-3100",
+      "reason": "anchor #L3040-3100 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 274,
+      "target": "api/src/index.js#L320-380",
+      "reason": "anchor #L320-380 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 342,
+      "target": "public/index.html#L3180",
+      "reason": "anchor #L3180 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 378,
+      "target": "api/src/extended-routes.js#L1715",
+      "reason": "anchor #L1715 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 408,
+      "target": "public/index.html#L2973",
+      "reason": "anchor #L2973 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 440,
+      "target": "public/index.html#L2206",
+      "reason": "anchor #L2206 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 471,
+      "target": "api/src/extended-routes.js#L865",
+      "reason": "anchor #L865 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    },
+    {
+      "file": "RESILIENCE_AUDIT_FINDINGS.md",
+      "line": 532,
+      "target": "api/src/extended-routes.js#L945",
+      "reason": "anchor #L945 not found",
+      "owner": "focusbro",
+      "status": "active",
+      "fidelity": "unverified"
+    }
+  ]
+}
