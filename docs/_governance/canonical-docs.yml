@@ -1,0 +1,14 @@
+version: 1
+last_updated: 2026-05-28
+policy: docs/_catalog/agent-truth-map.json
+defaults:
+  owner: focusbro
+  status: canonical
+  fidelity: owner-reviewed
+  quality: usable
+canonical_docs:
+  - path: README.md
+    owner: focusbro
+    scope: Repo entry point and current orientation.
+    truth_sources:
+      - manual-review
