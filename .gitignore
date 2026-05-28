@@ -10,4 +10,9 @@ dist/
 coverage/
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+yarn-error.log*docs-quality-report.json
+docs/_catalog/docs-health.json
+docs/_catalog/docs-health-summary.md
+docs/_catalog/freshness.json
+docs/_catalog/freshness.md
+docs/_catalog/metadata.json
