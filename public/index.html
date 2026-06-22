@@ -1955,6 +1955,7 @@
 </div>
 
 <!-- TOP AD SLOT (Leaderboard 728x90) -->
+<!-- TODO: Replace XXXXXXXXXX with real AdSense slot IDs from dashboard -->
 <div class="ad-slot" id="ad-top" data-views="home">
   <!-- Ad Slot: Top Leaderboard -->
   <ins class="adsbygoogle" style="display:inline-block;width:728px;height:90px" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
@@ -1979,14 +1980,14 @@
 
       <!-- Teams Presence Options -->
       <div class="teams-presence-row" id="teamsPresenceRow">
-        <div class="teams-presence-label">Keep Teams/Slack green:</div>
+        <div class="teams-presence-label">Companion Tools:</div>
         <div class="teams-presence-opts">
           <label class="presence-opt" title="Hold an active audio session — may suppress system idle detection on Windows & macOS">
             <input type="checkbox" id="teamsAudioCapture" onchange="toggleAudioCapture(this.checked)" />
             <span>🎙️ Audio session</span>
             <span class="presence-opt-hint">in-browser</span>
           </label>
-          <button class="btn btn-sm" onclick="downloadPresenceScript()" style="font-size:11px;" title="Download script that sends safe keystrokes to keep Teams active. See Terms of Service for policy disclaimers.">
+          <button class="btn btn-sm" onclick="downloadPresenceScript()" style="font-size:11px;" title="Download companion script for system-level screen-awake prevention. See Terms of Service for usage disclaimers.">
             💾 Companion script
           </button>
         </div>
@@ -2068,6 +2069,7 @@
     </div>
 
     <!-- INLINE AD SLOT -->
+    <!-- TODO: Replace XXXXXXXXXX with real AdSense slot IDs from dashboard -->
     <div class="ad-slot ad-slot-inline" id="ad-inline">
       <ins class="adsbygoogle" style="display:block" data-ad-format="fluid" data-ad-layout-key="-6t+ed+2i-1n-4w" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
       <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
@@ -2154,6 +2156,7 @@
     </div>
 
     <!-- SIDEBAR AD -->
+    <!-- TODO: Replace XXXXXXXXXX with real AdSense slot IDs from dashboard -->
     <div class="ad-slot ad-slot-sidebar" id="ad-sidebar" data-views="home">
       <ins class="adsbygoogle" style="display:block" data-ad-format="auto" data-full-width-responsive="true" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
       <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
@@ -2815,6 +2818,7 @@
   <a href="/privacy.html">Privacy</a> &nbsp;|&nbsp; 
   <a href="/terms.html">Terms</a> &nbsp;|&nbsp; 
   <a href="/contact.html">Contact</a> &nbsp;|&nbsp; 
+  <a href="/articles/">ADHD Guides</a> &nbsp;|&nbsp; 
   Local data stays in your browser by default. Ads may use cookies per Google policy.
 </div>
 
@@ -3048,7 +3052,7 @@ function downloadPresenceScript() {
   if (isMac) {
     // macOS: AppleScript + shell loop sends F6 (safe function key) every 4 min
     const script = `#!/bin/bash
-# FocusBro Companion — Keep Teams/Slack Active (macOS)
+# FocusBro Companion — Prevent Screen Sleep (macOS)
 # Sends a safe F15 keypress every 4 minutes to reset OS idle timer.
 # F15 has no effect in any modern app.
 #
@@ -3060,7 +3064,7 @@ function downloadPresenceScript() {
 #
 # Run: bash focusbro-active.sh  (stop with Ctrl+C)
 
-echo "FocusBro Companion running. Teams/Slack will stay green. Press Ctrl+C to stop."
+echo "FocusBro Companion running (Prevent Screen Sleep). Press Ctrl+C to stop."
 
 while true; do
   osascript -e 'tell application "System Events" to key code 113' 2>/dev/null
@@ -3078,7 +3082,7 @@ done
     // Windows: PowerShell — sends Scroll Lock every 4 minutes
     // Scroll Lock: F14 equivalent, invisible in all applications,
     // but GetLastInputInfo() registers it as a real physical keypress.
-    const script = `# FocusBro Companion — Keep Teams/Slack Active (Windows)
+    const script = `# FocusBro Companion — Prevent Screen Sleep (Windows)
 # Sends a Scroll Lock keystroke every 4 minutes to reset OS idle timer.
 # Scroll Lock has no visible effect in any modern application.
 #
@@ -3097,7 +3101,7 @@ Write-Host "⚠️  DISCLAIMER:"
 Write-Host "This script is for personal use during legitimate work sessions."
 Write-Host "Check your organization's policies before use."
 Write-Host ""
-Write-Host "FocusBro Companion running. Teams/Slack will stay green. Close window to stop."
+Write-Host "FocusBro Companion running (Prevent Screen Sleep). Close window to stop."
 Write-Host ""
 
 while ($true) {
@@ -5665,6 +5669,18 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+</script>
+
+<!-- Cookie Consent Banner -->
+<div id="cookie-banner" style="display:none; position:fixed; bottom:0; left:0; right:0; background:#141d3f; border-top:1px solid #2a3a6f; padding:16px 24px; z-index:9999; align-items:center; gap:16px; flex-wrap:wrap;">
+  <p style="flex:1; color:#94a3b8; font-size:13px; margin:0;">We use cookies to personalize ads and analyze traffic. See our <a href="/privacy.html" style="color:#0ea5e9;">Privacy Policy</a>. By using FocusBro you agree to our <a href="/terms.html" style="color:#0ea5e9;">Terms</a>.</p>
+  <button onclick="document.getElementById('cookie-banner').style.display='none'; localStorage.setItem('cookieConsent','true');" style="background:#0ea5e9; color:#000; border:none; padding:8px 20px; border-radius:8px; font-weight:600; cursor:pointer; white-space:nowrap;">Accept</button>
+  <button onclick="document.getElementById('cookie-banner').style.display='none'; localStorage.setItem('cookieConsent','declined');" style="background:transparent; color:#94a3b8; border:1px solid #2a3a6f; padding:8px 20px; border-radius:8px; cursor:pointer; white-space:nowrap;">Decline</button>
+</div>
+<script>
+  if(!localStorage.getItem('cookieConsent')) {
+    document.getElementById('cookie-banner').style.display='flex';
+  }
 </script>
 
 </body>
