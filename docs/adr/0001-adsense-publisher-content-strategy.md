@@ -1,5 +1,5 @@
 ---
-last_updated: 2026-07-04
+last_updated: "2026-07-04"
 ---
 
 # ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics
