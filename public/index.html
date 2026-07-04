@@ -1928,7 +1928,6 @@
     <div class="status-pill" id="presencePill" style="background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(59,130,246,0.2);" title="Focus session screen protection active">
       <span>🟢</span>
       <span>Focus</span>
-      <span id="presencePulse" style="font-family:var(--mono);font-size:11px;opacity:0.7;">—</span>
     </div>
     <div class="status-pill" id="offlinePill" style="display:none; background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25);" title="No internet connection — your data is saved locally">
       <span>📡</span>
@@ -1957,9 +1956,6 @@
 <!-- TOP AD SLOT (Leaderboard 728x90) -->
 <div class="ad-slot" id="ad-top" data-views="home">
   <!-- Ad Slot: Top Leaderboard -->
-  <ins class="adsbygoogle" style="display:inline-block;width:728px;height:90px" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
-  <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-  <span style="position:absolute;">Ad Space — 728×90 Leaderboard</span>
 </div>
 
 <div class="dashboard">
@@ -1977,21 +1973,6 @@
       <div class="awake-sub">Keeps your screen active during deep focus sessions so you don't lose flow. Uses the Screen Wake Lock API to prevent display sleep while you work, study, or meditate.</div>
       <div class="awake-timer" id="awakeTimer">Active for 00:00:00</div>
 
-      <!-- Teams Presence Options -->
-      <div class="teams-presence-row" id="teamsPresenceRow">
-        <div class="teams-presence-label">Keep Teams/Slack green:</div>
-        <div class="teams-presence-opts">
-          <label class="presence-opt" title="Hold an active audio session — may suppress system idle detection on Windows & macOS">
-            <input type="checkbox" id="teamsAudioCapture" onchange="toggleAudioCapture(this.checked)" />
-            <span>🎙️ Audio session</span>
-            <span class="presence-opt-hint">in-browser</span>
-          </label>
-          <button class="btn btn-sm" onclick="downloadPresenceScript()" style="font-size:11px;" title="Download script that sends safe keystrokes to keep Teams active. See Terms of Service for policy disclaimers.">
-            💾 Companion script
-          </button>
-        </div>
-        <div class="presence-status" id="teamsPresenceStatus"></div>
-      </div>
     </div>
 
     <!-- TOP ROW: POMODORO + MEETING COUNTDOWN -->
@@ -2069,9 +2050,6 @@
 
     <!-- INLINE AD SLOT -->
     <div class="ad-slot ad-slot-inline" id="ad-inline">
-      <ins class="adsbygoogle" style="display:block" data-ad-format="fluid" data-ad-layout-key="-6t+ed+2i-1n-4w" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
-      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-      <span style="position:absolute;">Ad Space — In-Feed / Fluid</span>
     </div>
 
     <!-- AMBIENT SOUNDS + BREAK REMINDER -->
@@ -2155,9 +2133,6 @@
 
     <!-- SIDEBAR AD -->
     <div class="ad-slot ad-slot-sidebar" id="ad-sidebar" data-views="home">
-      <ins class="adsbygoogle" style="display:block" data-ad-format="auto" data-full-width-responsive="true" data-ad-client="ca-pub-1346297152611586" data-ad-slot="XXXXXXXXXX"></ins>
-      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-      <span style="position:absolute;">Ad Space — 300×250</span>
     </div>
 
     <!-- ADHD TIP -->
@@ -2767,8 +2742,6 @@
   </div>
 </div>
 
-<!-- Hidden activity canvas — drives continuous rAF rendering loop -->
-<canvas id="activityCanvas" width="20" height="20" style="position:fixed;bottom:0;right:0;opacity:0;pointer-events:none;width:1px;height:1px;"></canvas>
 
 <!-- ONBOARDING MODAL -->
 <div class="onboarding-modal" id="onboardingModal">
@@ -2846,10 +2819,7 @@ let wakeLock = null;
 let awakeActive = false;
 let awakeStart = null;
 let awakeInterval = null;
-let activityInterval = null;
-let activityRafId = null;
 let silentAudioNode = null;
-let lastSimulatedAt = null;
 
 async function toggleWakeLock() {
   if (awakeActive) {
@@ -2884,8 +2854,7 @@ async function activateWake() {
   awakeActive = true;
   awakeStart = Date.now();
 
-  // Show warning about presence impact
-  showToast('Screen will stay awake, but you may appear "away" in Teams/Slack during focus sessions', 'warning');
+  showToast('Screen will stay awake during your focus session.', 'success');
 
   try {
     // Update UI with defensive null checks
@@ -2915,15 +2884,6 @@ async function activateWake() {
 
   awakeInterval = setInterval(updateAwakeTimer, 1000);
 
-  // ── Continuous rAF canvas loop (keeps rendering pipeline alive) ──
-  startActivityCanvas();
-
-  // ── Silent audio keepalive (maintains audio session) ──
-  startSilentAudio();
-
-  // ── Randomized activity simulation (human-like jitter) ──
-  scheduleNextActivity();
-
   saveStats();
 }
 
@@ -2931,13 +2891,7 @@ function deactivateWake() {
   awakeActive = false;
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
   clearInterval(awakeInterval);
-  clearInterval(activityInterval);
-  if (_activityTimeout) { clearTimeout(_activityTimeout); _activityTimeout = null; }
-  _burstRemaining = 0;
-  _prevCx = null; _prevCy = null;
-  stopActivityCanvas();
   stopSilentAudio();
-  stopAudioCapture(); // also stop mic capture if active
 
   try {
     const ring = document.getElementById('awakeRing');
@@ -2960,329 +2914,9 @@ function deactivateWake() {
     
     const statusText = document.getElementById('awakeStatusText');
     if (statusText) statusText.textContent = 'Inactive';
-    
-    const pulse = document.getElementById('presencePulse');
-    if (pulse) pulse.textContent = '—';
-
-    // Reset Teams presence UI
-    const cap = document.getElementById('teamsAudioCapture');
-    if (cap) cap.checked = false;
-    
-    const status = document.getElementById('teamsPresenceStatus');
-    if (status) status.textContent = '';
   } catch (e) {
     console.warn('Error updating wake UI on deactivation:', e.message);
   }
-}
-
-// ══════════════════════════════════════
-// TEAMS / SLACK PRESENCE — KEEP GREEN
-// ══════════════════════════════════════
-//
-// Strategy 1 (in-browser): getUserMedia audio capture
-//   Holds an active mic session. Windows & macOS suppress the system idle
-//   timer while an audio-capture stream is open, preventing Teams/Slack
-//   from seeing the user as Away.  Shows a mic indicator in the browser
-//   tab — user must be informed and consent.
-//
-// Strategy 2 (companion script — download):
-//   Generates a PowerShell / Bash script the user runs beside FocusBro.
-//   Sends a real Scroll Lock keystroke (invisible in all apps) to the OS
-//   every 4 minutes.  Scroll Lock registers in GetLastInputInfo() (Windows)
-//   and IOKit / CGEventSourceSecondsSinceLastEventType() (macOS), which is
-//   exactly what Teams desktop reads.  This is the only reliable method
-//   from outside the Teams process.
-//
-// Both are opt-in and clearly disclosed.
-
-let audioCaptureStream = null;
-
-async function toggleAudioCapture(enable) {
-  if (enable) {
-    await startAudioCapture();
-  } else {
-    stopAudioCapture();
-  }
-}
-
-async function startAudioCapture() {
-  const statusEl = document.getElementById('teamsPresenceStatus');
-  try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      if (statusEl) statusEl.textContent = '⚠️ getUserMedia not supported in this browser.';
-      const cap = document.getElementById('teamsAudioCapture');
-      if (cap) cap.checked = false;
-      return;
-    }
-    audioCaptureStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    // Don't actually process audio — just hold the stream open to signal activity
-    if (statusEl) statusEl.textContent = '🎙️ Active audio session open. Teams should stay green on supported systems.';
-    showToast('Audio session active — Teams should stay green', 'success');
-  } catch (err) {
-    const cap = document.getElementById('teamsAudioCapture');
-    if (cap) cap.checked = false;
-    if (err.name === 'NotAllowedError') {
-      if (statusEl) statusEl.textContent = '⚠️ Mic permission denied. Allow microphone access to use this feature.';
-      showToast('Mic permission needed for audio session', 'warning');
-    } else {
-      if (statusEl) statusEl.textContent = `⚠️ Could not open audio session: ${err.message}`;
-      console.warn('getUserMedia failed:', err.message);
-    }
-  }
-}
-
-function stopAudioCapture() {
-  if (audioCaptureStream) {
-    audioCaptureStream.getTracks().forEach(t => t.stop());
-    audioCaptureStream = null;
-  }
-  const statusEl = document.getElementById('teamsPresenceStatus');
-  if (statusEl && statusEl.textContent.startsWith('🎙️')) statusEl.textContent = '';
-}
-
-function downloadPresenceScript() {
-  // Detect platform hint from userAgent
-  const ua = navigator.userAgent.toLowerCase();
-  const isMac = /mac/.test(ua);
-
-  if (isMac) {
-    // macOS: AppleScript + shell loop sends F6 (safe function key) every 4 min
-    const script = `#!/bin/bash
-# FocusBro Companion — Keep Teams/Slack Active (macOS)
-# Sends a safe F15 keypress every 4 minutes to reset OS idle timer.
-# F15 has no effect in any modern app.
-#
-# ⚠️  IMPORTANT DISCLAIMER:
-# - This script is intended for personal use during legitimate work sessions.
-# - Check your organization's policies before use. Some employers may prohibit idle-detection bypass.
-# - FocusBro is not responsible for policy violations or employment consequences.
-# - Use responsibly and ethically.
-#
-# Run: bash focusbro-active.sh  (stop with Ctrl+C)
-
-echo "FocusBro Companion running. Teams/Slack will stay green. Press Ctrl+C to stop."
-
-while true; do
-  osascript -e 'tell application "System Events" to key code 113' 2>/dev/null
-  sleep 240
-done
-`;
-    const blob = new Blob([script], { type: 'text/plain' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'focusbro-active.sh';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showToast('Downloaded focusbro-active.sh — run it in Terminal alongside FocusBro', 'success');
-  } else {
-    // Windows: PowerShell — sends Scroll Lock every 4 minutes
-    // Scroll Lock: F14 equivalent, invisible in all applications,
-    // but GetLastInputInfo() registers it as a real physical keypress.
-    const script = `# FocusBro Companion — Keep Teams/Slack Active (Windows)
-# Sends a Scroll Lock keystroke every 4 minutes to reset OS idle timer.
-# Scroll Lock has no visible effect in any modern application.
-#
-# ⚠️  IMPORTANT DISCLAIMER:
-# - This script is intended for personal use during legitimate work sessions.
-# - Check your organization's policies before use. Some employers may prohibit idle-detection bypass.
-# - FocusBro is not responsible for policy violations or employment consequences.
-# - Use responsibly and ethically.
-#
-# Run: Right-click > "Run with PowerShell"  (stop by closing window)
-
-Add-Type -AssemblyName System.Windows.Forms
-
-Write-Host ""
-Write-Host "⚠️  DISCLAIMER:"
-Write-Host "This script is for personal use during legitimate work sessions."
-Write-Host "Check your organization's policies before use."
-Write-Host ""
-Write-Host "FocusBro Companion running. Teams/Slack will stay green. Close window to stop."
-Write-Host ""
-
-while ($true) {
-    [System.Windows.Forms.SendKeys]::SendWait('{SCROLLLOCK}')
-    Start-Sleep -Milliseconds 100
-    [System.Windows.Forms.SendKeys]::SendWait('{SCROLLLOCK}')
-    Start-Sleep -Seconds 240
-}
-`;
-    const blob = new Blob([script], { type: 'text/plain' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'focusbro-active.ps1';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showToast('Downloaded focusbro-active.ps1 — right-click > Run with PowerShell alongside FocusBro', 'success');
-  }
-}
-
-// ── Activity simulation helpers ──
-
-// Human typing/mousing sessions cluster then pause.
-// We model this with two tiers:
-//   • Within a micro-burst: 1–4 events spaced 800 ms–3 s apart
-//   • Between bursts:       8–45 s gap (person reading, thinking, away)
-//
-// This produces an irregular pattern that does NOT repeat on a fixed
-// clock period, making metronomic-detection heuristics much less likely
-// to flag it as synthetic.
-
-let _activityTimeout = null;
-let _burstRemaining = 0;
-_prevCx = null; _prevCy = null; // tracked across a burst for smooth arcs
-
-function scheduleNextActivity() {
-  if (!awakeActive) return;
-
-  let delay;
-  if (_burstRemaining > 0) {
-    // Still inside a burst — short gap, mimics fast cursor drifts
-    _burstRemaining--;
-    delay = randInt(800, 3000);
-  } else {
-    // Start a new burst after a longer human-style idle gap
-    // Occasionally simulate a very short idle (person glancing away briefly)
-    // Occasionally a longer one (bathroom break, reading)
-    const roll = Math.random();
-    if (roll < 0.15) {
-      delay = randInt(3000, 8000);   // short pause
-    } else if (roll < 0.85) {
-      delay = randInt(8000, 25000);  // typical inter-burst gap
-    } else {
-      delay = randInt(25000, 50000); // longer idle, still realistic
-    }
-    _burstRemaining = randInt(1, 4); // 1–4 events in the coming burst
-  }
-
-  _activityTimeout = setTimeout(() => {
-    simulateActivity();
-    scheduleNextActivity();
-  }, delay);
-}
-
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-// Weighted random pick — makes some events rarer than others
-function weightedPick(items) {
-  const total = items.reduce((s, i) => s + i.w, 0);
-  let r = Math.random() * total;
-  for (const item of items) {
-    r -= item.w;
-    if (r <= 0) return item.v;
-  }
-  return items[items.length - 1].v;
-}
-
-function simulateActivity() {
-  // ── Mouse position: smooth drift from last known point ──
-  // Real mouse movement arcs across the screen gradually, not teleports.
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  if (_prevCx === null) {
-    _prevCx = randInt(Math.floor(W * 0.2), Math.floor(W * 0.8));
-    _prevCy = randInt(Math.floor(H * 0.2), Math.floor(H * 0.8));
-  }
-  // Drift: up to 15% of viewport in each axis, biased toward center
-  const driftX = randInt(-Math.floor(W * 0.12), Math.floor(W * 0.12));
-  const driftY = randInt(-Math.floor(H * 0.12), Math.floor(H * 0.12));
-  const cx = Math.min(W - 1, Math.max(0, _prevCx + driftX));
-  const cy = Math.min(H - 1, Math.max(0, _prevCy + driftY));
-  const mx = cx - _prevCx;
-  const my = cy - _prevCy;
-  _prevCx = cx;
-  _prevCy = cy;
-
-  // ── Choose which event types to fire this tick ──
-  const eventSet = weightedPick([
-    { v: ['mousemove', 'pointermove'],         w: 35 }, // most common
-    { v: ['mousemove'],                        w: 20 }, // sometimes only mouse
-    { v: ['pointermove'],                      w: 8  }, // sometimes only pointer
-    { v: ['mousemove', 'pointermove', 'wheel'],w: 15 }, // move + scroll
-    { v: ['wheel'],                            w: 4  }, // scroll only (rare)
-    { v: ['mousemove', 'keydown'],             w: 3  }  // mouse + safe key (very rare)
-  ]);
-
-  // Defensive check: ensure eventSet is an array
-  if (!Array.isArray(eventSet)) return;
-
-  if (eventSet.includes('mousemove') || eventSet.includes('pointermove')) {
-    (eventSet || [])
-      .filter(t => t && t !== 'wheel')
-      .forEach(type => {
-        if (!type) return; // Skip if type is falsy
-        document.body.dispatchEvent(new MouseEvent(type, {
-          bubbles: true, cancelable: true,
-          clientX: cx, clientY: cy,
-          screenX: cx + (window.screenX || 0),
-          screenY: cy + (window.screenY || 0),
-          movementX: mx, movementY: my
-        }));
-      });
-  }
-
-  if (eventSet && eventSet.includes('wheel')) {
-    // Real scroll: small, non-zero delta — looks like someone scrolling
-    const deltaY = (Math.random() < 0.5 ? 1 : -1) * randInt(3, 40);
-    document.body.dispatchEvent(new WheelEvent('wheel', {
-      bubbles: true, cancelable: true,
-      deltaX: 0, deltaY,
-      deltaMode: WheelEvent.DOM_DELTA_PIXEL,
-      clientX: cx, clientY: cy
-    }));
-  }
-
-  if (eventSet && eventSet.includes('keydown')) {
-    // Safe modifier key press (Shift) - won't interfere with typing
-    document.body.dispatchEvent(new KeyboardEvent('keydown', {
-      bubbles: true, cancelable: true,
-      key: 'Shift', code: 'ShiftLeft', keyCode: 16, which: 16,
-      shiftKey: true
-    }));
-    // Immediately release it
-    setTimeout(() => {
-      document.body.dispatchEvent(new KeyboardEvent('keyup', {
-        bubbles: true, cancelable: true,
-        key: 'Shift', code: 'ShiftLeft', keyCode: 16, which: 16,
-        shiftKey: true
-      }));
-    }, 50);
-  }
-
-  // Title nudge (invisible zero-width space)
-  document.title = document.title.endsWith('\u200b')
-    ? document.title.slice(0, -1)
-    : document.title + '\u200b';
-
-  lastSimulatedAt = Date.now();
-  const pulse = document.getElementById('presencePulse');
-  if (pulse) pulse.textContent = '● now';
-}
-
-let _activityAngle = 0;
-function startActivityCanvas() {
-  const canvas = document.getElementById('activityCanvas');
-  const ctx = canvas.getContext('2d');
-  function draw() {
-    _activityAngle += 0.08;
-    ctx.clearRect(0, 0, 20, 20);
-    ctx.fillStyle = 'rgba(34,197,94,0.015)';
-    ctx.beginPath();
-    ctx.arc(
-      10 + Math.cos(_activityAngle) * 7,
-      10 + Math.sin(_activityAngle) * 7,
-      1.5, 0, Math.PI * 2
-    );
-    ctx.fill();
-    activityRafId = requestAnimationFrame(draw);
-  }
-  draw();
-}
-
-function stopActivityCanvas() {
-  if (activityRafId) { cancelAnimationFrame(activityRafId); activityRafId = null; }
 }
 
 function startSilentAudio() {
@@ -3323,12 +2957,6 @@ function updateAwakeTimer() {
     if (timerEl) timerEl.textContent = `Active for ${str}`;
     if (statEl) statEl.textContent = `${h}:${String(m).padStart(2,'0')}`;
 
-    // Update presence pulse: show seconds since last simulated event
-    if (lastSimulatedAt) {
-      const secAgo = Math.round((Date.now() - lastSimulatedAt) / 1000);
-      const pulse = document.getElementById('presencePulse');
-      if (pulse) pulse.textContent = secAgo < 2 ? '● now' : `${secAgo}s ago`;
-    }
   } catch (e) {
     console.warn('updateAwakeTimer error:', e.message);
   }
@@ -5598,7 +5226,7 @@ if (document.head) document.head.appendChild(confettiStyle);
         <p>In no event shall The Factory or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use FocusBro.</p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Companion Script</h3>
-        <p>The optional companion script (for Teams/Slack presence) is provided as-is. Users assume all responsibility for its use. We recommend testing in a non-production environment first. The script sends safe, invisible keystrokes and does not modify system files.</p>
+        <p>FocusBro uses the browser Screen Wake Lock API to keep your display awake during focus sessions so it does not sleep while you work, study, or meditate. This affects only your local display and does not modify system files or interact with third-party applications.</p>
         
         <p style="margin-top:16px; font-size:12px; color:var(--text-muted);">Questions? Contact us at support@focusbro.net</p>
       </div>
