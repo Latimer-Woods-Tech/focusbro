@@ -7,7 +7,7 @@ doc_type: diagram
 fidelity: generated
 title: "Factory Documentation Trust Map"
 generator: npm run docs:diagrams
-last_generated: 2026-05-28
+last_generated: 2026-07-04
 source:
   - docs/_catalog/docs-graph.json
   - docs/_governance/canonical-docs.yml
@@ -24,7 +24,7 @@ flowchart LR
   active --> stale["Stale Docs"]
   stale --> archive["Archive Docs"]
   canonical["Canonical Docs\n1"]
-  active["Active Docs\n39"]
+  active["Active Docs\n43"]
   stale["Stale Docs\n0"]
   archive["Archive Docs\n0"]
   generated["Generated Docs\n2"]
