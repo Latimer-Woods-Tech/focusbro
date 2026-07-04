@@ -4,7 +4,7 @@
 
 **Generated:** source-derived
 
-## focusbro (42)
+## focusbro (46)
 
 | Path | Status | Fidelity | Last Updated | Title |
 |---|---|---|---|---|
@@ -26,6 +26,10 @@
 | [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) | active | unverified | unknown | FocusBro API Deployment Guide |
 | [docs/_generated/docs-trust-map.md](_generated/docs-trust-map.md) | generated | generated | unknown | Factory Documentation Trust Map |
 | [docs/_generated/workflow-map.md](_generated/workflow-map.md) | generated | generated | unknown | Factory Workflow Map |
+| [docs/adr/0001-adsense-publisher-content-strategy.md](adr/0001-adsense-publisher-content-strategy.md) | active | unverified | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics |
+| [docs/ARCHITECTURE.md](ARCHITECTURE.md) | active | unverified | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Architecture |
+| [docs/REQUIREMENTS.md](REQUIREMENTS.md) | active | unverified | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Requirements |
+| [docs/VISION.md](VISION.md) | active | unverified | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Vision |
 | [ENV_CONFIG.md](../ENV_CONFIG.md) | active | unverified | unknown | FocusBro API Environment Configuration |
 | [ERROR_HANDLING_GUIDE.md](../ERROR_HANDLING_GUIDE.md) | active | unverified | unknown | Error Handling Guide |
 | [EXECUTION_SUMMARY.md](../EXECUTION_SUMMARY.md) | active | unverified | unknown | FocusBro Execution Summary (Tasks 1-4 Complete) |

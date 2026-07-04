@@ -1,3 +1,7 @@
+---
+last_updated: 2026-07-04
+---
+
 # FocusBro — Vision
 
 > One page. Changes rarely. Founder-voice: build loops may propose edits via PR but never merge thesis changes silently.

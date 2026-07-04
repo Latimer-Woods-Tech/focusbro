@@ -1,3 +1,7 @@
+---
+last_updated: 2026-07-04
+---
+
 # FocusBro — Requirements
 
 > The real and true requirements this build is held accountable to. Numbered, testable, statused. Every control-issue slice references the requirement IDs it advances; every `live` flip needs verification evidence in the control-issue comment. Status ∈ `live | building | roadmap | rejected | parked`. `rejected` rows stay here with their reason — rejected scope is a guardrail.

@@ -9,9 +9,9 @@
     "docs/_governance/doc-overrides.yml": "sha256:38d8d8e536a4e412c905a01c75e8d2cd7bdebcad9932598f4ea3484a854c1391"
   },
   "counts": {
-    "total_docs": 42,
+    "total_docs": 46,
     "canonical": 1,
-    "active": 39,
+    "active": 43,
     "stale": 0,
     "archive": 0,
     "generated": 2,
@@ -369,7 +369,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:3e0a5e9a99e0d511606ce9910dca38bd4bfc001666acb1c962c697ec58e0902d",
+      "content_hash": "sha256:ec08a11c0ad346d32dcb609132a23429174982839949886cb8bceeb035ff482e",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
@@ -390,11 +390,95 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:7945b346e188fda2e44fdfb926205f44791eb803b9b075cdddfacd59e0008c84",
+      "content_hash": "sha256:4473e4bb06e9049caf721bae0f718de9c499f114b3b506f2802aaac97478a4d8",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
         "override": "docs/_generated/**"
+      },
+      "errors": []
+    },
+    {
+      "path": "docs/adr/0001-adsense-publisher-content-strategy.md",
+      "title": "ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics",
+      "status": "active",
+      "owner": "focusbro",
+      "doc_type": "decision",
+      "fidelity": "unverified",
+      "quality": "usable",
+      "last_updated": "2026-07-04T00:00:00.000Z",
+      "last_verified": null,
+      "scope": null,
+      "truth_sources": [],
+      "verified_by": [],
+      "content_hash": "sha256:7b5861225cb90ad761cc7110bf79c2bdda2a92d8bffe8d7ac97c1d1ca0f72e79",
+      "source": {
+        "frontmatter": true,
+        "canonical_allowlist": false,
+        "override": "docs/**"
+      },
+      "errors": []
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "title": "FocusBro — Architecture",
+      "status": "active",
+      "owner": "focusbro",
+      "doc_type": "reference",
+      "fidelity": "unverified",
+      "quality": "usable",
+      "last_updated": "2026-07-04T00:00:00.000Z",
+      "last_verified": null,
+      "scope": null,
+      "truth_sources": [],
+      "verified_by": [],
+      "content_hash": "sha256:439406c8cd050fb22b9976315488d5356bf2e6d1162df135260b7aa7cc76c328",
+      "source": {
+        "frontmatter": true,
+        "canonical_allowlist": false,
+        "override": "docs/**"
+      },
+      "errors": []
+    },
+    {
+      "path": "docs/REQUIREMENTS.md",
+      "title": "FocusBro — Requirements",
+      "status": "active",
+      "owner": "focusbro",
+      "doc_type": "reference",
+      "fidelity": "unverified",
+      "quality": "usable",
+      "last_updated": "2026-07-04T00:00:00.000Z",
+      "last_verified": null,
+      "scope": null,
+      "truth_sources": [],
+      "verified_by": [],
+      "content_hash": "sha256:d07e223fc213cae005459f09b549994c9db89e1b44f93384ba575d667a4bff9e",
+      "source": {
+        "frontmatter": true,
+        "canonical_allowlist": false,
+        "override": "docs/**"
+      },
+      "errors": []
+    },
+    {
+      "path": "docs/VISION.md",
+      "title": "FocusBro — Vision",
+      "status": "active",
+      "owner": "focusbro",
+      "doc_type": "reference",
+      "fidelity": "unverified",
+      "quality": "usable",
+      "last_updated": "2026-07-04T00:00:00.000Z",
+      "last_verified": null,
+      "scope": null,
+      "truth_sources": [],
+      "verified_by": [],
+      "content_hash": "sha256:3dacacaf591ee9d1953e93edb7c55419dfeea87a9d35ebe69bdb7538d8517610",
+      "source": {
+        "frontmatter": true,
+        "canonical_allowlist": false,
+        "override": "docs/**"
       },
       "errors": []
     },
