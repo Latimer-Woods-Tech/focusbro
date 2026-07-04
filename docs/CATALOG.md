@@ -43,10 +43,10 @@
 | [CONFIGURATION_GUIDE.md](../CONFIGURATION_GUIDE.md) | active | unverified | focusbro | unknown | FocusBro Environment Configuration Guide |
 | [DEPLOYMENT_CHECKLIST.md](../DEPLOYMENT_CHECKLIST.md) | active | unverified | focusbro | unknown | FocusBro Deployment Checklist |
 | [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) | active | unverified | focusbro | unknown | FocusBro API Deployment Guide |
-| [docs/adr/0001-adsense-publisher-content-strategy.md](adr/0001-adsense-publisher-content-strategy.md) | active | unverified | focusbro | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics |
-| [docs/ARCHITECTURE.md](ARCHITECTURE.md) | active | unverified | focusbro | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Architecture |
-| [docs/REQUIREMENTS.md](REQUIREMENTS.md) | active | unverified | focusbro | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Requirements |
-| [docs/VISION.md](VISION.md) | active | unverified | focusbro | Fri Jul 03 2026 20:00:00 GMT-0400 (Eastern Daylight Time) | FocusBro — Vision |
+| [docs/adr/0001-adsense-publisher-content-strategy.md](adr/0001-adsense-publisher-content-strategy.md) | active | unverified | focusbro | 2026-07-04 | ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics |
+| [docs/ARCHITECTURE.md](ARCHITECTURE.md) | active | unverified | focusbro | 2026-07-04 | FocusBro — Architecture |
+| [docs/REQUIREMENTS.md](REQUIREMENTS.md) | active | unverified | focusbro | 2026-07-04 | FocusBro — Requirements |
+| [docs/VISION.md](VISION.md) | active | unverified | focusbro | 2026-07-04 | FocusBro — Vision |
 | [ENV_CONFIG.md](../ENV_CONFIG.md) | active | unverified | focusbro | unknown | FocusBro API Environment Configuration |
 | [ERROR_HANDLING_GUIDE.md](../ERROR_HANDLING_GUIDE.md) | active | unverified | focusbro | unknown | Error Handling Guide |
 | [EXECUTION_SUMMARY.md](../EXECUTION_SUMMARY.md) | active | unverified | focusbro | unknown | FocusBro Execution Summary (Tasks 1-4 Complete) |

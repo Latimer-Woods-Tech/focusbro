@@ -1,7 +1,7 @@
 ---
-verified: 2026-07-04
+verified: "2026-07-04"
 verified_by: agent (design-spine session; live curl + CF API + repo inspection)
-last_updated: 2026-07-04
+last_updated: "2026-07-04"
 ---
 
 # FocusBro — Architecture
