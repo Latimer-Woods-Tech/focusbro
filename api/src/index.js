@@ -6,6 +6,7 @@
 import { Router } from 'itty-router';
 import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
+import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -1542,6 +1543,24 @@ router.get('/contact.html', async () => {
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });
 
+// ── GUIDES (content layer) ──
+const GUIDE_HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' };
+
+// Guides index: /guides/ and /guides
+router.get('/guides/', async () => {
+  return new Response(renderGuidesIndex(guides), { status: 200, headers: GUIDE_HTML_HEADERS });
+});
+router.get('/guides', async () => {
+  return new Response(null, { status: 301, headers: { Location: '/guides/' } });
+});
+
+// Individual guide pages, registered generically from the guides array.
+guides.forEach((guide) => {
+  router.get(`/guides/${guide.slug}.html`, async () => {
+    return new Response(renderGuidePage(guide), { status: 200, headers: GUIDE_HTML_HEADERS });
+  });
+});
+
 router.get('/ads.txt', async () => {
   return new Response('google.com, pub-1346297152611586, DIRECT, f08c47fec0942fa0\n', {
     status: 200,
@@ -1557,6 +1576,9 @@ router.get('/robots.txt', async () => {
 });
 
 router.get('/sitemap.xml', async () => {
+  const guideUrls = guides.map((g) =>
+    `  <url><loc>https://focusbro.net/guides/${g.slug}.html</loc><lastmod>${g.lastmod}</lastmod></url>`
+  ).join('\n');
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://focusbro.net/</loc></url>
@@ -1564,6 +1586,8 @@ router.get('/sitemap.xml', async () => {
   <url><loc>https://focusbro.net/terms.html</loc></url>
   <url><loc>https://focusbro.net/about.html</loc></url>
   <url><loc>https://focusbro.net/contact.html</loc></url>
+  <url><loc>https://focusbro.net/guides/</loc></url>
+${guideUrls}
 </urlset>`;
   return new Response(sitemap, {
     status: 200,
