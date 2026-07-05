@@ -8,6 +8,7 @@ import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes } from './accountability.js';
+import { runDueCheckins } from './checkins-cron.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -249,6 +250,9 @@ async function initializeDatabase(env) {
         status TEXT DEFAULT 'pending',
         responded_at DATETIME,
         note TEXT DEFAULT '',
+        delivered_at DATETIME,
+        attempts INTEGER DEFAULT 0,
+        last_error TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -266,6 +270,7 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_commitments_checkin_at ON commitments(checkin_at)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for)`,
       // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
@@ -300,7 +305,14 @@ async function initializeDatabase(env) {
 
     // Try to add columns - will fail silently if they already exist
     const alterTableStatements = [
-      // Placeholder for future ALTER statements
+      // ── ACCOUNTABILITY delivery cron (Contender #10, Phase A · R-205) ──
+      // New columns on the existing production commitment_checkins table so the
+      // delivery cron can track send state without recreating the table.
+      `ALTER TABLE commitment_checkins ADD COLUMN delivered_at DATETIME`,
+      `ALTER TABLE commitment_checkins ADD COLUMN attempts INTEGER DEFAULT 0`,
+      `ALTER TABLE commitment_checkins ADD COLUMN last_error TEXT`,
+      // Phone for the 'text' check-in channel (Telnyx); null until a user adds one.
+      `ALTER TABLE users ADD COLUMN phone TEXT`,
     ];
     
     for (const sql of alterTableStatements) {
@@ -1358,6 +1370,24 @@ router.get('/api/billing/tier', async (request, env) => {
 // (/api/commitments*, /api/accountability/streak) so router order is safe.
 registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
+// ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
+// The same delivery pass the scheduled() handler runs, exposed for verification.
+// Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
+// it can't be probed. Lets the founder curl a delivery pass on demand instead
+// of waiting for the next cron tick.
+router.post('/api/internal/run-checkins', async (request, env) => {
+  if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
+  const key = request.headers.get('x-cron-key') || '';
+  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  try {
+    const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
+    return jsonResponse({ ok: true, summary }, 200);
+  } catch (err) {
+    console.error('[cron] manual trigger failed:', err && err.message);
+    return jsonResponse({ error: 'Delivery pass failed' }, 500);
+  }
+});
+
 router.get('/health', async (request, env) => {
   return new Response(JSON.stringify({
     status: 'ok',
@@ -2005,5 +2035,19 @@ export default {
     // Call the router's fetch method which handles request routing
     const response = await router.fetch(request, env);
     return response;
+  },
+
+  // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──
+  // Runs on the wrangler cron trigger. Finds pending check-ins whose time has
+  // come and delivers the warm, anti-shame nudge (push/text). Fully guarded:
+  // an error here never affects the fetch path or the timer product.
+  async scheduled(event, env, ctx) {
+    try {
+      await initializeDatabase(env);
+      const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
+      console.log('[cron] check-in delivery:', JSON.stringify(summary));
+    } catch (err) {
+      console.error('[cron] check-in delivery failed:', err && err.message);
+    }
   }
 };
