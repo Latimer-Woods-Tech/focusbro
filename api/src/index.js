@@ -1430,14 +1430,57 @@ router.get('/index.html', async () => {
 router.get('/privacy.html', async () => {
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FocusBro Privacy Policy</title><meta name="description" content="Privacy Policy for FocusBro." /></head>
-<body style="font-family:Arial,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.6;color:#111827;">
-<nav><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
-<h1>Privacy Policy</h1><p><strong>Last updated: May 5, 2026</strong></p>
-<p>FocusBro is designed as a browser-first productivity app. By default, your notes, tasks, timer history, and preferences are stored locally in your browser.</p>
-<h2>Advertising and cookies</h2>
-<p>We use Google AdSense to show ads. Google and its partners may use cookies or device identifiers to personalize ads and measure performance.</p>
-<h2>Contact</h2><p>Privacy questions: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
+<title>FocusBro Privacy Policy</title><meta name="description" content="How FocusBro handles your data, cookies, and third-party advertising, plus your GDPR and CCPA rights and ad opt-out links." /></head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
+<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
+<h1>Privacy Policy</h1>
+<p><strong>Last updated: July 5, 2026</strong></p>
+
+<p>FocusBro (focusbro.net) is a browser-first focus and wellness app operated by Latimer Woods Tech. This policy explains what data we handle, how cookies and third-party advertising work on the site, and the choices and rights you have.</p>
+
+<h2>Data stored in your browser</h2>
+<p>By default, the content you create in FocusBro &mdash; timer history, notes, gratitude entries, check-ins, and preferences &mdash; is stored locally in your browser using <em>localStorage</em>. This data stays on your device, is not transmitted to us, and is cleared when you clear your browser storage.</p>
+
+<h2>Data sent to our servers</h2>
+<p>Some data reaches our servers only when you deliberately use a connected feature:</p>
+<ul>
+<li><strong>Account &amp; cloud sync</strong> (optional): if you create an account, we store an email address and the synced data you choose to back up, so your sessions are available across devices.</li>
+<li><strong>Payments</strong> (optional): paid plans are processed by Stripe. We do not store full card numbers; Stripe handles card data under its own privacy policy.</li>
+<li><strong>Basic request logs</strong>: like most websites, our servers may temporarily log IP address, browser type, and requested pages for security and reliability.</li>
+</ul>
+
+<h2>Cookies and advertising</h2>
+<p>FocusBro displays ads served by <strong>Google AdSense</strong>. To do this, Google and its partners use cookies and similar technologies. Specifically:</p>
+<ul>
+<li>Third-party vendors, <strong>including Google</strong>, use cookies to serve ads based on a user's prior visits to this website and other websites on the internet.</li>
+<li>Google's use of advertising cookies &mdash; including the <strong>DoubleClick</strong> advertising cookie &mdash; enables it and its partners to serve ads to you based on your visit to this site and/or other sites on the internet.</li>
+<li>These cookies may be used to measure ad performance and to limit how often you see the same ad.</li>
+</ul>
+
+<h2>Your advertising choices &amp; opt-out</h2>
+<p>You can control or opt out of personalized advertising:</p>
+<ul>
+<li>Manage Google's ad personalization at <a href="https://adssettings.google.com" rel="noopener noreferrer" target="_blank">https://adssettings.google.com</a>.</li>
+<li>Opt out of interest-based advertising from participating third-party vendors at <a href="https://www.aboutads.info/choices" rel="noopener noreferrer" target="_blank">https://www.aboutads.info/choices</a> (Digital Advertising Alliance).</li>
+<li>European users can review vendor choices at <a href="https://www.youronlinechoices.eu" rel="noopener noreferrer" target="_blank">https://www.youronlinechoices.eu</a>.</li>
+<li>Most browsers also let you block or delete cookies in their settings.</li>
+</ul>
+<p>You can read more about how Google uses information from sites that use its services at <a href="https://policies.google.com/technologies/partner-sites" rel="noopener noreferrer" target="_blank">policies.google.com/technologies/partner-sites</a>.</p>
+
+<h2>Your rights (GDPR)</h2>
+<p>If you are in the European Economic Area or the UK, you have the right to access, correct, export, restrict, or delete the personal data we hold, to object to certain processing, and to withdraw consent for advertising cookies at any time. To exercise these rights, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
+
+<h2>Your rights (CCPA)</h2>
+<p>If you are a California resident, you have the right to know what personal information is collected, to request deletion, and to opt out of the "sale" or "sharing" of personal information as those terms are defined by the CCPA/CPRA. We do not sell your personal information for money. To make a request, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
+
+<h2>Children</h2>
+<p>FocusBro is not directed to children under 13, and we do not knowingly collect personal information from them.</p>
+
+<h2>Changes to this policy</h2>
+<p>We may update this policy as the service evolves. Material changes will be reflected by updating the "Last updated" date above.</p>
+
+<h2>Contact</h2>
+<p>Privacy questions or data requests: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });
@@ -1459,11 +1502,20 @@ router.get('/terms.html', async () => {
 router.get('/about.html', async () => {
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>About FocusBro</title><meta name="description" content="About FocusBro ADHD-friendly focus toolkit." /></head>
-<body style="font-family:Arial,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.6;color:#111827;">
-<nav><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/terms.html">Terms</a> | <a href="/contact.html">Contact</a></nav>
+<title>About FocusBro</title><meta name="description" content="What FocusBro is, the focus method behind it, and who builds it." /></head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
+<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/terms.html">Terms</a> | <a href="/contact.html">Contact</a></nav>
 <h1>About FocusBro</h1>
-<p>FocusBro is an ADHD-friendly focus and productivity toolkit to help users structure work sessions, reduce distractions, and build sustainable routines.</p>
+
+<p>FocusBro is a browser-based focus and wellness toolkit. It brings together the small set of practices that reliably help people start work, stay with it, and recover between efforts: a Pomodoro timer, box and 4-7-8 breathing, a 5-4-3-2-1 grounding exercise, body scans, short movement breaks, a gratitude journal, and reminders to rest your eyes and drink water. Everything runs in the browser, so you can open a session and begin without installing anything or creating an account.</p>
+
+<h2>The method</h2>
+<p>The design follows a simple idea from attention research: focus is a finite resource that is spent by sustained effort and restored by deliberate rest. Instead of trying to concentrate for hours at a stretch, FocusBro structures work into timed intervals with real breaks in between, and gives you a short menu of ways to reset &mdash; a few paced breaths, a brief walk, or a moment of grounding &mdash; before the next interval begins. The tools are intentionally short and repeatable, because a practice you will actually do beats an ideal routine you abandon.</p>
+
+<p>We keep the app calm and low-friction on purpose. There are no streak-shaming mechanics, no accounts required for the core tools, and your notes and history stay in your browser by default. The goal is to support your attention, not to compete for it.</p>
+
+<h2>Who builds it</h2>
+<p>FocusBro is built and maintained by Latimer Woods Tech. If you have feedback, a bug report, or a request for a tool you wish existed, we would like to hear it &mdash; see the <a href="/contact.html">Contact</a> page. To understand how we handle data and advertising, read our <a href="/privacy.html">Privacy Policy</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });
@@ -1471,12 +1523,21 @@ router.get('/about.html', async () => {
 router.get('/contact.html', async () => {
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Contact FocusBro</title><meta name="description" content="Contact information for FocusBro." /></head>
-<body style="font-family:Arial,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.6;color:#111827;">
-<nav><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a></nav>
+<title>Contact FocusBro</title><meta name="description" content="How to reach FocusBro for support, privacy requests, and business inquiries." /></head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
+<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a></nav>
 <h1>Contact</h1>
-<p>Support and policy requests: <a href="mailto:support@focusbro.net">support@focusbro.net</a></p>
-<p>General business inquiries: <a href="mailto:hello@focusbro.net">hello@focusbro.net</a></p>
+
+<p>FocusBro is built and maintained by Latimer Woods Tech. The best way to reach us is by email, and we read every message.</p>
+
+<h2>Support</h2>
+<p>Questions about using the app, bug reports, or feature ideas: <a href="mailto:support@focusbro.net">support@focusbro.net</a>. We aim to reply within two business days.</p>
+
+<h2>Privacy &amp; data requests</h2>
+<p>To access, export, or delete your data, or to ask a privacy question, email <a href="mailto:support@focusbro.net">support@focusbro.net</a> with "Privacy" in the subject line. See our <a href="/privacy.html">Privacy Policy</a> for the rights available to you.</p>
+
+<h2>Business inquiries</h2>
+<p>Partnerships and other business matters: <a href="mailto:hello@focusbro.net">hello@focusbro.net</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });

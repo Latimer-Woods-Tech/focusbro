@@ -5295,5 +5295,51 @@ document.addEventListener('keydown', (e) => {
 });
 </script>
 
+<!-- COOKIE CONSENT BANNER -->
+<style>
+.cookie-consent{position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#111827;color:#f9fafb;box-shadow:0 -2px 12px rgba(0,0,0,.35);font-family:Arial,Helvetica,sans-serif;}
+.cookie-consent__inner{max-width:960px;margin:0 auto;padding:16px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;justify-content:space-between;}
+.cookie-consent__text{margin:0;font-size:14px;line-height:1.5;flex:1 1 320px;}
+.cookie-consent__text a{color:#93c5fd;text-decoration:underline;}
+.cookie-consent__actions{display:flex;gap:10px;align-items:center;flex:0 0 auto;}
+.cookie-consent__btn{font-size:14px;padding:9px 18px;border-radius:8px;cursor:pointer;border:0;text-decoration:none;display:inline-block;}
+.cookie-consent__btn--accept{background:#2563eb;color:#fff;font-weight:600;}
+.cookie-consent__btn--accept:hover{background:#1d4ed8;}
+.cookie-consent__btn--link{background:transparent;color:#d1d5db;border:1px solid #374151;}
+.cookie-consent__btn--link:hover{color:#fff;border-color:#6b7280;}
+</style>
+<div id="cookieConsent" class="cookie-consent" role="dialog" aria-live="polite" aria-label="Cookie notice" style="display:none;">
+  <div class="cookie-consent__inner">
+    <p class="cookie-consent__text">
+      FocusBro keeps your notes and timer history in your browser by default. We use Google AdSense, which may set cookies to serve and measure ads. See our <a href="/privacy.html">Privacy Policy</a> for details and opt-out links.
+    </p>
+    <div class="cookie-consent__actions">
+      <button type="button" id="cookieConsentAccept" class="cookie-consent__btn cookie-consent__btn--accept">Got it</button>
+      <a href="/privacy.html" class="cookie-consent__btn cookie-consent__btn--link">Learn more</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  try {
+    var KEY = 'focusbro_cookie_consent_v1';
+    var banner = document.getElementById('cookieConsent');
+    if (!banner) return;
+    var stored = null;
+    try { stored = localStorage.getItem(KEY); } catch (e) { stored = null; }
+    if (stored === 'dismissed') return;
+    banner.style.display = 'block';
+    function dismiss() {
+      banner.style.display = 'none';
+      try { localStorage.setItem(KEY, 'dismissed'); } catch (e) {}
+    }
+    var acceptBtn = document.getElementById('cookieConsentAccept');
+    if (acceptBtn) acceptBtn.addEventListener('click', dismiss);
+  } catch (e) {
+    console.warn('cookie consent init failed:', e && e.message);
+  }
+})();
+</script>
+
 </body>
 </html>
