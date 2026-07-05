@@ -1,5 +1,5 @@
 ---
-last_updated: "2026-07-04"
+last_updated: "2026-07-05"
 ---
 
 # FocusBro — Requirements
@@ -29,6 +29,19 @@ last_updated: "2026-07-04"
 | R-101 | `/sitemap.xml` and `/robots.txt` valid; sitemap includes every public page incl. all guides | building | Curl both; count URLs. Sitemap route updated 2026-07-05 (`2dd7351`) to append `/guides/` + every guide URL (with `<lastmod>`) via `guides.map`; deployed template confirmed in `focusbro-production` bundle. Now lists all **16** guide URLs (batch 3 `94e6846` completed the set); sitemap `guides.map` renders the full array. |
 | R-102 | No secrets in source or wrangler vars: `JWT_SECRET` removed from `wrangler.toml` (root and `api/`) and set via `wrangler secret put` with a new random value; `node_modules/` + `.wrangler/` gitignored and untracked | roadmap | `grep JWT_SECRET wrangler.toml api/wrangler.toml` → no plaintext values; `git ls-files \| grep node_modules` → empty. Live 2026-07-04: **plaintext secret present in both files; node_modules committed** |
 | R-103 | `/health` returns 200 on the branded domain | live | `curl -A "<browser UA>" https://focusbro.net/health` → 200 (verified 2026-07-04) |
+
+## Accountability Core (Contender track — [issue #10](https://github.com/Latimer-Woods-Tech/focusbro/issues/10), Phase A)
+
+> The reframe: FocusBro is a focus + accountability companion. These rows are engine-independent (push/text now; the voice call is Phase B, gated on `@latimer-woods-tech/voice-agent`). Shipped to source + tests 2026-07-05; `building` until a founder/live curl confirms the deployed API (this loop session's egress can't reach focusbro.net). Mechanic transplanted from wordis-bond (suite→scheduled-run→scored-outcome).
+
+| ID | Requirement | Status | Verification |
+|---|---|---|---|
+| R-200 | Commitments model: `POST/GET /api/commitments` and `GET /api/commitments/:id` (auth-gated) persist a "word given" (title, start_at, checkin_at, channel, persona, timezone) in D1 `commitments`, and schedule a pending `commitment_checkins` row | building | `curl -H 'Authorization: Bearer …' -X POST https://focusbro.net/api/commitments -d '{"title":"start taxes","start_at":"…"}'` → 201 with commitment + warm prompt. Shipped (`api/src/accountability.js`, tables in `schema.sql` + `initializeDatabase`). Unit-tested (validation, defaults, voice-channel gate); **live curl pending** |
+| R-201 | Check-in resolution: `POST /api/commitments/:id/checkin` with outcome `kept`/`missed`/`reschedule` updates the check-in + commitment status and transitions the kept-word streak in `accountability_streaks`; `GET /api/accountability/streak` returns it | building | `curl` the check-in endpoint per outcome; assert streak math. Shipped; `computeStreakAfter` unit-tested (kept +1/longest tracked, reschedule protected, miss resets current only). **Live curl pending** |
+| R-202 | No-shame reschedule flow: a `reschedule` outcome PROTECTS the streak (never breaks the chain) and creates a follow-up commitment carrying the word forward; a `missed` outcome still offers to try again (never a dead end) | building | Assert reschedule leaves `current_streak` unchanged + spawns a new `active` commitment with `rescheduled_from` set; miss response has `offer_reschedule:true`. Unit-tested. **Live curl pending** |
+| R-203 | The design LAW, enforced in code: no user-facing string shames, tallies misses, says "AI", or makes a clinical/treatment claim | building | `accountability.test.js` renders every copy path × both personas × edge streaks and fails the build on any shame word / `\bAI\b` / clinical term. Green: 18/18 accountability tests, 71/71 suite (2026-07-05). `accountability_streaks` has NO miss counter by design |
+| R-204 | Configurable persona (`ally` calm / `hype` friend), both warm; the `voice` channel is politely gated until Phase B | building | Create with `persona:'hype'` → hype copy; `channel:'voice'` → 400 "coming soon". Unit-tested. **Live curl pending** |
+| R-205 | Scheduled check-in delivery (a cron reads due `commitment_checkins` and sends the push/text nudge) | roadmap | Next Phase A slice: a Worker cron over `scheduled_for <= now AND status='pending'` → send via existing push infra + a text provider; mark `sent`. Data model + prompt copy already in place |
 
 ## Rejected (do-not-build guardrails)
 
