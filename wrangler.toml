@@ -5,6 +5,10 @@ workers_dev = true
 preview_urls = true
 account_id = "a1c8a33cbe8a3c9e260480433a0dbb06"
 
+# Cron: accountability check-in delivery (Contender #10, Phase A · R-205).
+# Every minute — a check-in scheduled for 2:00 should fire at ~2:00, not 2:05.
+triggers = { crontab = ["* * * * *"] }
+
 # Note: Removed 'site' config - Worker handles all routes including static HTML serving
 # This prevents conflicts between Worker routes and static file serving
 
@@ -29,6 +33,7 @@ routes = [
 d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db" }]
 kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
 vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", JWT_SECRET = "focusbro-secret-key-prod-2024" }
+triggers = { crontab = ["* * * * *"] }
 
 [env.development]
 vars = { ENV = "development", API_ORIGIN = "http://localhost:8787", JWT_SECRET = "focusbro-secret-key-dev" }
