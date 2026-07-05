@@ -380,6 +380,251 @@ export const guides = [
 <li><a href="/guides/the-20-20-20-rule.html">The 20-20-20 rule for screen eye strain</a></li>
 </ul>
 </div>`
+  },
+
+  {
+    slug: 'why-we-procrastinate',
+    title: 'Why We Procrastinate — and What Actually Helps',
+    description: 'Procrastination is an emotion-regulation problem, not laziness. Temporal Motivation Theory, the research of Piers Steel and Tim Pychyl, and practical fixes that work with your psychology.',
+    lastmod: '2026-07-05',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">Procrastination feels like a character defect — proof that you are lazy or undisciplined. The research says something more useful and more forgiving: it is a failure of managing your <em>mood</em>, not your time, and once you understand the mechanism you can design around it.</p>
+
+<h2>It is not a time-management problem</h2>
+<p>The most important finding in the modern study of procrastination is that it is fundamentally about emotion. Chronic procrastinators are not worse at making schedules; they put things off to escape a bad feeling in the present. The task is boring, frustrating, ambiguous, or threatening to your sense of competence, and avoiding it delivers instant relief. The psychologists Tim Pychyl and Fuschia Sirois describe procrastination as <strong>short-term mood repair</strong>: you trade a small hit of relief now for a larger cost later. Sirois and Pychyl's work argues that "giving in to feel good" is the engine of the whole cycle.</p>
+<p>This is why willpower lectures rarely help. If the problem were laziness, "just try harder" might work. Because the problem is an aversive emotion, the effective moves are the ones that lower the aversiveness of starting or that let you tolerate the discomfort without fleeing.</p>
+
+<h2>The procrastination equation</h2>
+<p>The psychologist Piers Steel, whose 2007 meta-analysis in <em>Psychological Bulletin</em> pulled together decades of studies, helped formalize a model called <strong>Temporal Motivation Theory</strong> (developed with Cornelius König). It captures why we delay in a single compact idea. Your motivation to do a task rises with how much you <em>expect</em> to succeed and how much you <em>value</em> the reward, and it falls with how <em>impulsive</em> you are and how far away in time the payoff is:</p>
+<blockquote>Motivation ≈ (Expectancy × Value) ÷ (1 + Impulsiveness × Delay)</blockquote>
+<p>You do not need the algebra to use it. The equation tells you exactly which levers to pull when a task keeps sliding: raise your expectancy of success, raise the value of doing it, reduce impulsive distractions, or shrink the delay between effort and reward. Every effective anti-procrastination tactic maps onto one of those four.</p>
+
+<h2>Raise expectancy: make success feel likely</h2>
+<p>We avoid tasks we quietly expect to fail at, or that feel too big to get a grip on. The fix is to shrink the task until the next step is obviously doable. "Write the report" is a wall; "open the document and write one bad paragraph" is a step. Lowering the bar for what counts as starting is not cheating — it is directly raising the expectancy term. Momentum does the rest, because the hardest moment is almost always the transition into the work, not the work itself.</p>
+
+<h2>Raise value: make the task less aversive</h2>
+<p>If the task is dull, bundle it with something that is not: a specific playlist, a good coffee, a pleasant place to sit. If it is meaningful but the meaning has gone abstract, reconnect it to why it matters to you. And give yourself a concrete reward on the other side of the block, so the payoff is not months away.</p>
+
+<h2>Cut impulsiveness: remove the escape hatches</h2>
+<p>Procrastination needs somewhere to run. The single highest-leverage change for most people is to make the easy escape harder to reach: put the phone in another room, close the tabs, use a site blocker during a focus block. You are not relying on willpower to resist the distraction in the moment — you are removing the choice before the moment arrives. This is why a bounded, timed work interval helps so much: it turns "work indefinitely on this dreadful thing" into "work until the timer rings," which is a far smaller emotional ask.</p>
+
+<h2>Shrink delay: bring the finish line closer</h2>
+<p>Rewards that are far away barely register against a distraction available right now. Deadlines work because they collapse the delay, which is why the frantic productivity of the night before something is due is so reliable. You can manufacture the same effect on purpose with self-imposed, near-term deadlines and by breaking a distant goal into this-week and today-sized pieces, each with its own small close.</p>
+
+<h2>Forgive the last lapse</h2>
+<p>One of the more surprising findings is that <strong>self-compassion beats self-criticism</strong> for actually stopping the cycle. In a study of students across an exam period, those who forgave themselves for procrastinating on the first exam procrastinated less on the next one. Beating yourself up adds another layer of bad feeling to the task — and since bad feeling is what you were fleeing in the first place, harshness quietly feeds the very behavior it is trying to punish. Treat a lapse as information, not a verdict, and start the next block clean.</p>
+
+<h2>Put it together</h2>
+<p>The next time a task keeps sliding, run the checklist instead of reaching for guilt: shrink the first step until it is trivially doable, strip the nearest distraction out of arm's reach, set a short timer so the commitment is bounded, and give yourself a real reward at the ring. Notice, too, which of the four levers the task is failing on — a job you are avoiding because you doubt you can do it needs a smaller first step (expectancy), while one you keep trading away for your phone needs the phone gone (impulsiveness). Naming the specific reason a task feels aversive turns a vague sense of "I just can't make myself" into a concrete problem with a matching fix. You are not fixing a broken character; you are lowering the emotional cost of starting, which is the only thing that was ever really in the way.</p>
+
+<p><a class="app-cta" href="/">Start a two-minute focus block</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How a bounded timer lowers the cost of starting</a></li>
+<li><a href="/guides/time-blocking.html">Time blocking: give every task a home on the calendar</a></li>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and the hidden cost of switching tasks</a></li>
+</ul>
+</div>`
+  },
+
+  {
+    slug: 'deep-work-and-attention-residue',
+    title: 'Deep Work and Attention Residue: The Hidden Cost of Switching',
+    description: 'Cal Newport’s idea of deep work and Sophie Leroy’s research on attention residue — why switching tasks quietly drags down your focus, and how rituals protect it.',
+    lastmod: '2026-07-05',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">You sit down to write, glance at one email, answer it, and return to the document — but part of your mind stays behind with the email. That lingering drag has a name in the research literature, and understanding it is the key to why uninterrupted, single-tasked work produces so much more than the same hours sliced into fragments.</p>
+
+<h2>What "deep work" means</h2>
+<p>The term was popularized by the computer scientist Cal Newport in his 2016 book <em>Deep Work</em>. He defines it as professional activity performed in a state of distraction-free concentration that pushes your cognitive abilities to their limit — the kind of effortful, high-value focus that produces real results and is genuinely hard to replicate. He contrasts it with "shallow work": the logistical, low-cognitive tasks (routine email, status meetings, administrative busywork) that are easy to do while distracted and easy to replace, but that quietly consume most people's days.</p>
+<p>Newport's argument is not that shallow work is worthless — it has to get done — but that most of us let it crowd out the deep work entirely, then wonder why we feel busy without producing anything that matters. The scarce, trainable skill is the ability to go deep on demand and protect that time from the constant pull of the shallow.</p>
+
+<h2>Attention residue: why switching costs more than it looks</h2>
+<p>The mechanism that makes fragmentation so costly was identified by the organizational psychologist Sophie Leroy. In a 2009 paper titled "Why is it so hard to do my work?", published in <em>Organizational Behavior and Human Decision Processes</em>, she described <strong>attention residue</strong>: when you switch from one task to another, a portion of your attention stays stuck on the first task, especially if you left it unfinished or under time pressure. Her experiments showed that people who switched tasks performed worse on the new task, because the leftover residue from the old one degraded their thinking.</p>
+<p>The practical implication is brutal for the way most people work. Every time you check a message "for one second" in the middle of a hard task, you are not paying a one-second cost. You are seeding residue that keeps a slice of your attention occupied for minutes afterward. Do that a few times an hour and you never give any task your full mind. This is the real reason multitasking feels productive but produces mediocre work: you are always operating with a fraction of your attention snagged on something else.</p>
+
+<h2>Batch the shallow, protect the deep</h2>
+<p>If switching is what leaks performance, the fix is to switch less — cluster similar work together and put walls around the deep blocks. In practice:</p>
+<ul>
+<li><strong>Schedule deep work as a block, not a hope.</strong> Give your most demanding task a defined, protected window — ideally when your alertness is highest — and treat it like an appointment you cannot move.</li>
+<li><strong>Batch shallow tasks.</strong> Instead of checking email continuously, process it in two or three dedicated sessions. Answering twenty messages in one block leaves far less residue than twenty interruptions scattered through the day.</li>
+<li><strong>Finish, or reach a clean stopping point.</strong> Leroy found the residue is worse when a task is left unfinished under time pressure. Reaching a natural pause — or jotting down exactly where you'll pick up — helps release your attention before you move on.</li>
+<li><strong>Make "deep" the default, not the exception.</strong> The goal is to reach a point where undistracted, single-tasked work is simply how you operate on anything that matters, rather than a heroic act you attempt occasionally.</li>
+</ul>
+
+<h2>The power of a ritual</h2>
+<p>Deep work is hard to start and easy to abandon, so Newport leans heavily on <strong>rituals</strong> — fixed routines that remove the moment-to-moment decision of whether to focus. A start ritual might be the same location, the same drink, the same first move (open the one document, phone in another room, timer on) every time, so that beginning becomes automatic rather than a fresh act of willpower.</p>
+<p>Just as important is a <strong>shutdown ritual</strong> at the end of the day: a deliberate routine of reviewing what is done, capturing every loose thread into a trusted list, and formally declaring work over. This is not just tidiness. Unfinished tasks tend to nag at the mind — the pull of open loops that keeps you half-working after hours — and a shutdown ritual works by getting every loop written down somewhere you trust, which lets your mind actually let go. The result is both better rest and, the next morning, a cleaner start with less residual clutter to clear.</p>
+
+<h2>Start small</h2>
+<p>You do not have to restructure your whole calendar tomorrow. Pick one task that genuinely matters, give it a single protected 60- to 90-minute block with the phone out of reach and notifications off, and simply notice how much more you produce than in a fragmented hour. That contrast is usually persuasive enough to build from. Over a few weeks the habit compounds: as protected deep blocks become normal, the shallow work that used to sprawl across the day gets squeezed into its own windows, and the residue that once drained every task quietly stops leaking. The aim is not a perfect day of unbroken concentration — few jobs allow that — but simply more genuinely deep hours than you get by drifting, and fewer of the fragmented ones that feel busy and produce little. Treat the number of real deep-work blocks you complete in a week as the metric that matters, rather than hours merely spent at a desk, and let everything else organize itself around protecting them.</p>
+
+<p><a class="app-cta" href="/">Start a distraction-free session</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/ultradian-rhythms-and-focus.html">Ultradian rhythms: pacing deep work in ~90-minute waves</a></li>
+<li><a href="/guides/time-blocking.html">Time blocking: give deep work a place on the calendar</a></li>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps</a></li>
+</ul>
+</div>`
+  },
+
+  {
+    slug: 'time-blocking',
+    title: 'Time Blocking: Give Every Task a Home on the Calendar',
+    description: 'Why an open to-do list expands to fill the day, what Parkinson’s Law and task-switching research say, and how to time-block without it falling apart by 10 a.m.',
+    lastmod: '2026-07-05',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">A to-do list tells you what to do; it says nothing about when. Time blocking closes that gap by giving every task a specific slot on the calendar — turning a vague pile of intentions into a concrete plan for the hours you actually have.</p>
+
+<h2>What time blocking is</h2>
+<p>Time blocking means dividing your day into named blocks and assigning each block to a specific task or type of work: 9:00–10:30 for the report, 10:30–11:00 for email, 11:00–12:00 for the design review. Instead of working from a list and picking whatever feels easiest next, you decide in advance where each thing lives. The advocate most associated with the practice is Cal Newport, who argues that a day planned in blocks routinely produces far more than an unplanned day of the same length, because you stop leaking hours to indecision and drift.</p>
+
+<h2>Why an open list expands to fill the day</h2>
+<p>There is an old observation, coined by the historian Cyril Northcote Parkinson in a 1955 essay in <em>The Economist</em>, that has held up remarkably well: <strong>"work expands so as to fill the time available for its completion."</strong> Give yourself an open-ended afternoon to write one email and, somehow, it takes the whole afternoon. A task with no boundary tends to sprawl — you over-polish, get distracted, and let it swell.</p>
+<p>Time blocking exploits Parkinson's Law in reverse. By assigning a task a fixed, and slightly tight, window, you create a boundary that concentrates effort. The block acts like a soft deadline every hour, which is exactly the near-term time pressure that focus and motivation respond to.</p>
+
+<h2>It also reduces costly switching</h2>
+<p>Blocking similar work together does more than keep you organized — it protects the quality of your thinking. Every time you jump between unrelated tasks, your brain pays a switching cost. In a set of well-known experiments published in 2001 in the <em>Journal of Experimental Psychology</em>, Joshua Rubinstein, David Meyer, and Jeffrey Evans measured how much time people lost toggling between tasks and found that the switches themselves ate meaningful chunks of productive time, more so as the tasks got more complex. Grouping your email into one block and your deep work into another means fewer of those costly transitions — and less of the lingering distraction that a switch leaves behind.</p>
+
+<h2>How to do it without it collapsing</h2>
+<p>The classic failure of time blocking is that reality wrecks the plan by mid-morning — one meeting runs long, one task explodes, and the pristine schedule is in ruins by 10 a.m. A few habits keep it workable:</p>
+<ul>
+<li><strong>Block the big rocks first.</strong> Put your one or two most important deep-work tasks on the calendar before anything else, ideally at your peak-energy time. Let shallow work fill in around them, not the reverse.</li>
+<li><strong>Leave deliberate white space.</strong> Do not schedule every minute. Leave open buffer blocks to absorb overruns, interruptions, and the tasks you did not see coming. A plan with no slack shatters on contact with a normal day.</li>
+<li><strong>Overestimate, don't underestimate.</strong> Most people badly underestimate how long things take. Give tasks more room than feels necessary; finishing early is a gift, running over is a cascade.</li>
+<li><strong>Re-block, don't abandon.</strong> When the day derails — and it will — the move is not to give up on the plan but to take thirty seconds and redraw the remaining blocks. Newport frames the schedule as a living plan you revise throughout the day, not a contract you have failed the moment it slips.</li>
+<li><strong>Batch the shallow stuff.</strong> Cluster email, messages, and small admin into one or two blocks rather than sprinkling them across the day, so they don't fragment your deep-work windows.</li>
+</ul>
+
+<h2>Task batching and theme days</h2>
+<p>Two extensions make blocking more powerful. <strong>Task batching</strong> groups similar small jobs — every phone call, every form, every quick reply — into a single block, so you stay in one mode instead of constantly shifting gears. <strong>Theme days</strong> take the idea up a level: dedicating whole days to categories of work (say, meetings on one day, heads-down building on another) when your role allows it, so deep work gets protected stretches instead of being nibbled to death by scattered obligations. Both reduce the number of costly context switches, which is the same lever Parkinson's Law and the switching research keep pointing to.</p>
+
+<h2>Why writing it down matters</h2>
+<p>Part of the benefit is simply that a decision made in the calm of planning is better than one made in the churn of the moment. When 2 p.m. arrives and you are tired, you do not have to decide what to do — you already decided this morning, when you had the perspective to weigh what actually mattered. Time blocking front-loads your judgment to a moment when your judgment is good, and then lets a tired-you follow a rested-you's plan.</p>
+
+<h2>Start with one block</h2>
+<p>You do not need to schedule your entire life. Tomorrow, block a single protected hour for your most important task and defend it like a meeting. Notice how much more gets done in that hour than in a typical unplanned one — then add a second block the day after. Time blocking is a skill, not a personality trait, and the early attempts will be badly calibrated: you will underestimate durations, over-schedule, and watch the plan buckle by lunch. That is expected and not a reason to quit. Each day of blocking teaches you something concrete about how long your work actually takes and where your day tends to fracture, and within a couple of weeks your estimates tighten and the plan holds together far more often. The goal is not a flawless calendar but a realistic one that steers your best hours toward your most important work — and that is a habit worth being patient with.</p>
+
+<p><a class="app-cta" href="/">Time-box a task now</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and the hidden cost of switching tasks</a></li>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How long should a Pomodoro be?</a></li>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps</a></li>
+</ul>
+</div>`
+  },
+
+  {
+    slug: 'caffeine-timing-and-focus',
+    title: 'Caffeine Timing: How to Get the Focus Without Wrecking Your Sleep',
+    description: 'How caffeine blocks adenosine, why its long half-life means an afternoon coffee can still cost you sleep, and how to time it — grounded in sleep research.',
+    lastmod: '2026-07-05',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">Caffeine is the most widely used focus aid in the world, and most people use it slightly wrong — not in dose, but in timing. Understanding how it works in the body explains why the 3 p.m. cup that saves your afternoon can quietly sabotage that night's sleep, and what to do instead.</p>
+
+<h2>How caffeine actually works</h2>
+<p>All day long, a molecule called <strong>adenosine</strong> builds up in your brain. It is a byproduct of your cells burning energy, and as it accumulates it binds to receptors that make you feel progressively more drowsy. This rising "sleep pressure" is part of what tells your body it is time to rest — the longer you have been awake, the more adenosine has piled up and the sleepier you feel.</p>
+<p>Caffeine works by <strong>blocking those adenosine receptors</strong>. It is shaped enough like adenosine to slot into the same docking sites, where it acts as an antagonist — occupying the receptor without activating it, so the drowsiness signal cannot land. You do not actually gain energy; you temporarily stop feeling the tiredness that was already there. This is a crucial distinction, because the adenosine has not gone anywhere. It is still accumulating behind the blockade.</p>
+
+<h2>The half-life problem</h2>
+<p>Here is the fact that changes how you should schedule caffeine: it lingers far longer than the buzz suggests. Caffeine's <strong>half-life is roughly five to six hours</strong> in a typical adult — meaning that six hours after a coffee, about half the caffeine is still circulating in your system. After another six hours, a quarter remains. (The exact figure varies a lot between people, driven largely by genetics and factors like pregnancy or certain medications, but the ballpark holds.)</p>
+<p>Run the arithmetic on an afternoon coffee. A strong 3 p.m. cup means a meaningful fraction of that caffeine is still active at 9 p.m. and beyond — still occupying adenosine receptors, still muffling the sleep pressure your body is trying to use to fall asleep. You may drop off anyway, but the depth and quality of that sleep can suffer.</p>
+
+<h2>What the research shows about sleep</h2>
+<p>This is not just theory. In a frequently cited 2013 study in the <em>Journal of Clinical Sleep Medicine</em>, researchers led by Christopher Drake gave people a dose of caffeine (400 mg, roughly a couple of strong coffees) at three timings: at bedtime, three hours before bed, and <strong>six hours before bed</strong>. Even the dose taken a full six hours before bedtime measurably reduced total sleep — and people often did not notice the disruption themselves. The takeaway is sobering: your late-afternoon coffee can be costing you sleep even when you feel like you slept fine.</p>
+<p>And poor sleep is precisely what drives you back to caffeine the next day. A short night means you wake with more residual sleep pressure and lean harder on the cup to mask it, which then dents the following night — the self-perpetuating loop that the sleep researcher Matthew Walker, among others, has described. The way out is not more caffeine; it is better timing.</p>
+
+<h2>Timing it well</h2>
+<ul>
+<li><strong>Set an afternoon cutoff.</strong> A practical rule that follows straight from the half-life is to stop caffeine at least eight to ten hours before bed — for many people that means no caffeine after early-to-mid afternoon. If you are sleep-sensitive, pull the cutoff earlier.</li>
+<li><strong>Use it deliberately, not by reflex.</strong> Caffeine is most valuable spent on a specific block of demanding work, rather than sipped continuously all day, which mostly builds tolerance without adding much alertness.</li>
+<li><strong>Mind the real dose.</strong> A large takeaway coffee can carry far more caffeine than a home cup, and energy drinks and pre-workouts more still. "One coffee" is not a fixed unit.</li>
+<li><strong>Watch what it does to the jitters.</strong> Past a certain dose, caffeine stops sharpening focus and starts fraying it into anxiety and a racing pulse. More is not more; find the amount that lifts you to alert without tipping into wired.</li>
+</ul>
+
+<h2>The caffeine crash</h2>
+<p>The afternoon slump many people blame on lunch is often partly a caffeine effect. Remember that the adenosine never stopped accumulating while caffeine held the door shut. When the caffeine finally clears the receptors, all that backed-up adenosine binds at once — and the tiredness it was masking arrives in a rush. That is the crash: not a lack of caffeine, but the sudden return of the sleep pressure it was hiding. The instinct is to reach for another cup, which starts the same cycle over again and pushes caffeine deeper into the evening.</p>
+<p>A gentler way through the mid-afternoon dip is to treat it as the trough of your natural energy rhythm rather than a caffeine emergency: a short walk, a few minutes outdoors, a slow-breathing reset, or a glass of water will often carry you through without borrowing against your sleep.</p>
+
+<h2>The bigger picture</h2>
+<p>Caffeine is a genuinely useful tool — well-timed, it can sharpen a demanding block of work. But it borrows alertness against your sleep, and if you borrow late in the day you repay it that night. Keep it in the morning and early afternoon, spend it on work that deserves it, and let real rest — not another cup — handle the evening. The most reliable focus aid, in the end, is the sleep that clears your adenosine to begin with.</p>
+
+<p><a class="app-cta" href="/">Set up your next focus session</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/ultradian-rhythms-and-focus.html">Ultradian rhythms: working with your natural energy waves</a></li>
+<li><a href="/guides/attention-restoration-nature-breaks.html">Beating the afternoon slump with a nature break</a></li>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: a fast reset without caffeine</a></li>
+</ul>
+</div>`
+  },
+
+  {
+    slug: 'adhd-focus-strategies',
+    title: 'Focus Strategies for ADHD: Working With Your Brain, Not Against It',
+    description: 'ADHD as a challenge of executive function and self-regulation, drawing on Russell Barkley’s model — plus externalizing, body doubling, and other practical strategies.',
+    lastmod: '2026-07-05',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">Generic productivity advice often fails people with ADHD, and then they blame themselves. But the difficulty is not a lack of effort or willpower — it is a difference in how the brain regulates attention, time, and action. Strategies that work start from that reality instead of fighting it. <em>This is general education, not medical advice; ADHD is a clinical condition and treatment decisions belong with a qualified professional.</em></p>
+
+<h2>Reframing what ADHD actually is</h2>
+<p>The name is misleading. ADHD is not really a deficit of attention — people with it can hyperfocus intensely on the right thing — but a difficulty <em>regulating</em> attention and behavior. The clinical researcher Russell Barkley has spent decades arguing that ADHD is best understood as a disorder of <strong>executive function and self-regulation</strong>: the mental control system that lets you inhibit impulses, hold goals in mind, manage emotion, and organize action toward the future. When that system works unreliably, the problem is not knowing what to do — it is getting yourself to do it, on time, in the face of something more immediately interesting.</p>
+<p>One consequence Barkley emphasizes is what is often called <strong>time blindness</strong>: a weakened felt sense of time passing and of future consequences. Deadlines that are not imminent barely register emotionally, which is why a task can feel genuinely unreal until it is suddenly, painfully urgent. Understanding this reframes the whole challenge — the fix is not to try harder to care about the future, but to make the future concrete and present in the environment.</p>
+
+<h2>Externalize everything</h2>
+<p>If the internal executive system is unreliable, the single most powerful principle is to <strong>move it outside your head</strong>. Barkley's practical advice follows directly from his theory: do not rely on remembering, estimating time internally, or feeling future stakes — build those functions into your surroundings where they are visible and unavoidable.</p>
+<ul>
+<li><strong>Make time visible.</strong> Use a physical or on-screen timer and clocks you can actually see. A countdown running in front of you converts abstract, invisible time into something concrete — directly countering time blindness.</li>
+<li><strong>Capture, don't remember.</strong> Every task, idea, and commitment goes immediately into one trusted external place — a list, a note, a calendar — the instant it appears, because the thought that is not written down is often gone. Relying on working memory is exactly the weak point.</li>
+<li><strong>Put cues in your path.</strong> Reminders, sticky notes, and objects left where you will physically encounter them work better than intentions. "Out of sight, out of mind" is unusually literal here, so keep what matters in sight.</li>
+</ul>
+
+<h2>Shrink the activation barrier</h2>
+<p>For many people with ADHD the hardest moment is <em>starting</em> — the gap between deciding to do something and actually beginning can feel like an invisible wall. The counter is to make the first step almost laughably small. Not "do the taxes" but "open the folder." Not "clean the kitchen" but "clear one plate." Lowering the bar to start is not lowering your standards; it is getting past the one point where the system tends to stall. A short, bounded timer helps for the same reason — committing to just a few minutes is a far smaller ask than committing to an open-ended task, and momentum usually carries you past the ring.</p>
+
+<h2>Body doubling</h2>
+<p>A strategy widely used in the ADHD community is <strong>body doubling</strong>: doing a task in the presence of another person, either physically or over a video call, even if they are working on something entirely different. Many people find that a quiet witness makes it dramatically easier to start and stay on task. The formal research base for body doubling is still thin, so it is best described honestly as a widely-reported practical technique rather than a proven intervention — but it costs nothing to try, and for a great many people it simply works. The likely ingredients are gentle accountability and a reduced pull toward distraction when someone else is present.</p>
+
+<h2>Work with interest and urgency, not against them</h2>
+<p>ADHD motivation tends to be driven by interest, novelty, challenge, and urgency far more than by importance alone. Rather than treating that as a flaw to suppress, you can engineer with it:</p>
+<ul>
+<li><strong>Manufacture urgency.</strong> Break distant deadlines into near-term, self-imposed ones, since the far-off due date does not generate enough pull on its own.</li>
+<li><strong>Add novelty.</strong> Change location, switch tools, or use music to make a dull task less flat. A boring task done somewhere new is easier to engage.</li>
+<li><strong>Bundle the aversive with the appealing.</strong> Pair a tedious task with something enjoyable — a favorite playlist, a good drink — so starting is less unpleasant.</li>
+<li><strong>Reward quickly.</strong> Give yourself an immediate, concrete payoff after a block; a reward months away barely registers, but one at the next break does.</li>
+</ul>
+
+<h2>Protect the environment</h2>
+<p>Because inhibiting distractions is exactly the hard part, willpower is the wrong tool — design is the right one. Remove the temptation before the moment of weakness rather than trying to resist it in real time: put the phone in another room, close the tabs, silence notifications for the block. You are not weak for being pulled by a buzzing phone; you are working with a system that finds inhibition costly, so the winning move is to not have the choice in front of you.</p>
+
+<h2>Be kind about the misses</h2>
+<p>People with ADHD accumulate years of "you're not trying hard enough" — often internalized as shame that makes everything harder. But the missed deadlines and forgotten tasks are features of how the brain self-regulates, not evidence of a bad character. Self-criticism only adds an aversive feeling to the work, which feeds avoidance. Treat a lapse as data about which external supports to strengthen, adjust the scaffolding, and start the next block clean. If ADHD is significantly affecting your life, a qualified clinician can help you build a plan — including options this general guide cannot responsibly cover.</p>
+
+<p><a class="app-cta" href="/">Start a short, timed block</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps</a></li>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How a bounded timer lowers the cost of starting</a></li>
+<li><a href="/guides/time-blocking.html">Time blocking: making time visible on the calendar</a></li>
+</ul>
+</div>`
   }
 ];
 
