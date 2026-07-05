@@ -7,6 +7,7 @@ import { Router } from 'itty-router';
 import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
+import { registerAccountabilityRoutes } from './accountability.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -222,6 +223,50 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id)`,
       // ── END PHASE 5 TABLES ──
+      // ── ACCOUNTABILITY CORE (Contender track, issue #10, Phase A) ──
+      `CREATE TABLE IF NOT EXISTS commitments (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        details TEXT DEFAULT '',
+        start_at DATETIME NOT NULL,
+        checkin_at DATETIME,
+        channel TEXT DEFAULT 'push',
+        persona TEXT DEFAULT 'ally',
+        timezone TEXT DEFAULT 'UTC',
+        status TEXT DEFAULT 'active',
+        rescheduled_from TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS commitment_checkins (
+        id TEXT PRIMARY KEY,
+        commitment_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        scheduled_for DATETIME NOT NULL,
+        channel TEXT DEFAULT 'push',
+        status TEXT DEFAULT 'pending',
+        responded_at DATETIME,
+        note TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS accountability_streaks (
+        user_id TEXT PRIMARY KEY,
+        current_streak INTEGER DEFAULT 0,
+        longest_streak INTEGER DEFAULT 0,
+        total_kept INTEGER DEFAULT 0,
+        last_kept_date TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_commitments_user ON commitments(user_id, status)`,
+      `CREATE INDEX IF NOT EXISTS idx_commitments_checkin_at ON commitments(checkin_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for)`,
+      // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)`,
@@ -1307,6 +1352,12 @@ router.get('/api/billing/tier', async (request, env) => {
 // ════════════════════════════════════════════════════════════
 
 // ── HEALTH CHECK ──
+// ── ACCOUNTABILITY CORE ROUTES (Contender track, issue #10, Phase A) ──
+// Registered here so the module-private helpers (getAuthToken, verifyToken,
+// jsonResponse, generateUUID) are all in scope. Paths are unique
+// (/api/commitments*, /api/accountability/streak) so router order is safe.
+registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+
 router.get('/health', async (request, env) => {
   return new Response(JSON.stringify({
     status: 'ok',
