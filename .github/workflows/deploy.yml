@@ -34,11 +34,15 @@ jobs:
     - name: Deploy Frontend Worker to Cloudflare Workers (Production)
       id: deploy-frontend
       run: |
-        # Deploy frontend worker from root directory
+        # Deploy frontend worker from root directory.
+        # pipefail + PIPESTATUS are REQUIRED: without them, `wrangler | tee`
+        # reports tee's exit code (always 0), so a failed deploy passes as
+        # green without deploying. See issue #6 (root cause of Phase 1 lie).
+        set -o pipefail
         echo "🚀 Deploying frontend worker..."
         npx wrangler deploy --env production 2>&1 | tee frontend-deploy.log
-        FRONTEND_EXIT=$?
-        echo "📋 Frontend deployment log:"
+        FRONTEND_EXIT=${PIPESTATUS[0]}
+        echo "📋 Frontend deployment log (wrangler exit ${FRONTEND_EXIT}):"
         cat frontend-deploy.log
         exit $FRONTEND_EXIT
       env:
@@ -84,9 +88,10 @@ jobs:
           -H "Content-Type: application/json" | jq -r '.result[]?.id // "NO_ACCOUNTS"'
         
         echo "🚀 Starting deployment..."
+        set -o pipefail
         npx wrangler deploy --env production 2>&1 | tee deploy.log
-        DEPLOY_EXIT=$?
-        echo "📋 Deployment log:"
+        DEPLOY_EXIT=${PIPESTATUS[0]}
+        echo "📋 Deployment log (wrangler exit ${DEPLOY_EXIT}):"
         cat deploy.log
         exit $DEPLOY_EXIT
       env:
