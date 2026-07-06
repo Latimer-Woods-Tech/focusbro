@@ -12,7 +12,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { runDueCheckins, deliverCheckin, MAX_ATTEMPTS } from '../checkins-cron.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
-function makeDB({ due = [], subs = [], phone = null }) {
+// `consent` is the row returned for the contact_consent gate query. It defaults
+// to a granted text consent with no quiet hours so the pre-consent text tests
+// still exercise the delivery path; pass `consent: null` to simulate no consent,
+// or a quiet-hours window to exercise the defer path.
+function makeDB({ due = [], subs = [], phone = null, consent = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'UTC' } }) {
   const runs = [];
   const prepared = [];
   const db = {
@@ -29,6 +33,7 @@ function makeDB({ due = [], subs = [], phone = null }) {
           return { results: [] };
         },
         async first() {
+          if (/FROM contact_consent/.test(sql)) return consent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
         },
@@ -68,7 +73,66 @@ describe('runDueCheckins — scan query shape', () => {
   it('reports an all-zero summary when nothing is due', async () => {
     const db = makeDB({ due: [] });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
-    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0 });
+    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0 });
+  });
+});
+
+describe('consent-by-construction gate (TCPA)', () => {
+  it('skips a text check-in with NO consent on record (never sends)', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ due: [textRow()], phone: '+15557654321', consent: null, ...{} });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    expect(s.skipped).toBe(1);
+    expect(s.sent).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(updateFor(db, 'ci1').params).toContain('no_consent');
+  });
+
+  it('skips a text check-in after the user opted out (revoked)', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ due: [textRow()], phone: '+15557654321', consent: { status: 'revoked' } });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    expect(s.skipped).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(updateFor(db, 'ci1').params).toContain('opted_out');
+  });
+
+  it('DEFERS (holds, no send, no attempt bump) inside recipient quiet hours', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    // 02:00 UTC, quiet 22→08 UTC → inside the window → held.
+    const db = makeDB({
+      due: [textRow()], phone: '+15557654321',
+      consent: { status: 'granted', quiet_start: 22, quiet_end: 8, timezone: 'UTC' },
+    });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T02:00:00.000Z' });
+    expect(s.deferred).toBe(1);
+    expect(s.sent).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // The row is untouched (still pending, no attempt bump) so a later tick delivers it.
+    expect(updateFor(db, 'ci1')).toBeUndefined();
+  });
+
+  it('sends once quiet hours have passed', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    // 14:00 UTC, quiet 22→08 UTC → outside the window → delivers.
+    const db = makeDB({
+      due: [textRow()], phone: '+15557654321',
+      consent: { status: 'granted', quiet_start: 22, quiet_end: 8, timezone: 'UTC' },
+    });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    expect(s.sent).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('never gates push (app UX, not TCPA-scoped) even with no consent row', async () => {
+    const db = makeDB({ due: [pushRow()], subs: [], consent: null });
+    const s = await runDueCheckins({ DB: db, ...VAPID_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    // Reaches the push path (skips only for no_subscription, not for consent).
+    expect(updateFor(db, 'ci1').params).toContain('no_subscription');
   });
 });
 
