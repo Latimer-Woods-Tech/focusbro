@@ -9,6 +9,7 @@ import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
+import { renderMePage } from './me.js';
 import { runDueCheckins } from './checkins-cron.js';
 import config from './config.js';
 import syncModule from './sync.js';
@@ -1655,6 +1656,17 @@ router.get('/contact.html', async () => {
 // token in localStorage ('focusbro_token'), and reads the /api/coach/* API.
 // Authed surface → noindex, not in the sitemap. DESIGN LAW: momentum only, no
 // miss tally. Full white-label (config, wholesale billing) is Phase C.
+// ── CONSUMER ACCOUNTABILITY FRONT DOOR (/me/ — Contender #10, Phase A) ──
+// The person-facing door to the accountability API: give your word, watch the
+// kept-word streak, resolve a check-in as did-it / not-yet / move-it. Reads the
+// same /api/commitments + /api/accountability/streak API the coach view reads.
+// Authed surface → noindex, no-store, not in the sitemap. DESIGN LAW: a missed
+// word is an open door here, never a failure tally.
+router.get('/me', async () => new Response(null, { status: 301, headers: { Location: '/me/' } }));
+router.get('/me/', async () => {
+  return new Response(renderMePage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+});
+
 router.get('/coach', async () => new Response(null, { status: 301, headers: { Location: '/coach/' } }));
 router.get('/coach/', async () => {
   const page = `<!doctype html>
