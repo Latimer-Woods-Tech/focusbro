@@ -28,6 +28,16 @@ export const PERSONAS = ['ally', 'hype'];
 /** Resolution outcomes for a check-in. */
 export const OUTCOMES = ['kept', 'missed', 'reschedule'];
 
+/**
+ * Check-in cadence. `none` = a one-shot commitment (the original behavior);
+ * `daily`/`weekdays` = "the bro who calls you every day at the same time" — the
+ * heart of the accountability product. Mechanic reused from wordis-bond's
+ * scheduled-run cadence (a cadence on the parent + materialized child rows),
+ * adapted to D1 and anchored to a recipient-local wall-clock time so it is
+ * DST-correct.
+ */
+export const RECURRENCES = ['none', 'daily', 'weekdays'];
+
 const MAX_TITLE = 200;
 const MAX_DETAILS = 2000;
 const DEFAULT_CHECKIN_OFFSET_MS = 60 * 60 * 1000; // check back ~1h after start by default
@@ -37,11 +47,121 @@ export function pickPersona(p) {
   return PERSONAS.includes(p) ? p : 'ally';
 }
 
+/** Normalize a recurrence value to a known cadence, defaulting to a one-shot. */
+export function pickRecurrence(r) {
+  return RECURRENCES.includes(r) ? r : 'none';
+}
+
+/** Parse an 'HH:MM' wall-clock string into {h, m}, or null if unusable. */
+export function parseLocalTime(v) {
+  if (typeof v !== 'string') return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+  return { h, m: mi };
+}
+
+/** Render {h,m} → zero-padded 'HH:MM'. */
+function fmtLocalTime(h, m) {
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * The recipient-local wall-clock fields of an instant in a given IANA zone.
+ * Uses Intl (Workers + Node support IANA zones); no Node built-ins. Returns
+ * null if the zone/instant is unusable so callers can fall back to UTC.
+ */
+function tzParts(dateMs, timeZone) {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: timeZone || 'UTC', hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short',
+    });
+    const map = {};
+    for (const p of dtf.formatToParts(new Date(dateMs))) map[p.type] = p.value;
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+/** Offset (ms) such that localWallAsUTC = instant + offset, at `dateMs` in `timeZone`. */
+function tzOffsetMs(dateMs, timeZone) {
+  const m = tzParts(dateMs, timeZone);
+  if (!m) return 0;
+  let hour = +m.hour;
+  if (hour === 24) hour = 0; // some ICU builds render midnight as 24 under h23
+  const asUTC = Date.UTC(+m.year, +m.month - 1, +m.day, hour, +m.minute, +m.second);
+  return asUTC - dateMs;
+}
+
+/**
+ * The UTC instant (ms) of a wall-clock Y-M-D H:M in `timeZone`. DST-correct:
+ * we guess, read the zone offset at the guess, correct, then re-read once to
+ * settle spring-forward / fall-back edges.
+ */
+function zonedWallToUtcMs(y, mo, d, h, mi, timeZone) {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, 0);
+  const utc1 = guess - tzOffsetMs(guess, timeZone);
+  const utc2 = guess - tzOffsetMs(utc1, timeZone);
+  return utc2;
+}
+
+/**
+ * The next occurrence of a recurring check-in, strictly after `afterISO`, at
+ * `localTime` wall-clock in `timezone`, honoring the weekday filter for
+ * 'weekdays'. Pure + DST-correct. Returns an ISO string, or null for a
+ * one-shot ('none') or unusable input.
+ *
+ * @param {object} p { recurrence, timezone, localTime, afterISO }
+ * @returns {string|null}
+ */
+export function nextOccurrenceISO({ recurrence, timezone, localTime, afterISO } = {}) {
+  const rec = pickRecurrence(recurrence);
+  if (rec === 'none') return null;
+  const t = parseLocalTime(localTime);
+  if (!t) return null;
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const after = new Date(afterISO);
+  if (Number.isNaN(after.getTime())) return null;
+
+  const start = tzParts(after.getTime(), tz);
+  if (!start) return null;
+  let y = +start.year, mo = +start.month, d = +start.day;
+
+  for (let i = 0; i < 14; i++) {
+    const cand = zonedWallToUtcMs(y, mo, d, t.h, t.m, tz);
+    if (cand > after.getTime()) {
+      const wd = (tzParts(cand, tz) || {}).weekday;
+      const isWeekend = wd === 'Sat' || wd === 'Sun';
+      if (!(rec === 'weekdays' && isWeekend)) return new Date(cand).toISOString();
+    }
+    // Advance one calendar day (label arithmetic; the wall instant is recomputed above).
+    const nextLabel = new Date(Date.UTC(y, mo - 1, d) + 24 * 60 * 60 * 1000);
+    y = nextLabel.getUTCFullYear(); mo = nextLabel.getUTCMonth() + 1; d = nextLabel.getUTCDate();
+  }
+  return null;
+}
+
+/** Derive an 'HH:MM' local-time anchor from an ISO instant in a zone. */
+export function localTimeFromISO(iso, timezone) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const m = tzParts(d.getTime(), (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC');
+  if (!m) return '';
+  let hour = +m.hour;
+  if (hour === 24) hour = 0;
+  return fmtLocalTime(hour, +m.minute);
+}
+
 /**
  * Validate + normalize the body of a create-commitment request.
  * @returns {{ ok: true, value: object } | { ok: false, error: string }}
  */
-export function validateCommitmentInput(body) {
+export function validateCommitmentInput(body, nowISO) {
   if (!body || typeof body !== 'object') {
     return { ok: false, error: 'A commitment needs at least a title and a start time.' };
   }
@@ -52,12 +172,35 @@ export function validateCommitmentInput(body) {
 
   const details = typeof body.details === 'string' ? body.details.trim().slice(0, MAX_DETAILS) : '';
 
-  const startAt = parseWhen(body.start_at);
-  if (!startAt) return { ok: false, error: 'When do you want to start? Give a valid start time.' };
+  const timezone = typeof body.timezone === 'string' && body.timezone.trim() ? body.timezone.trim() : 'UTC';
+  const recurrence = pickRecurrence(body.recurrence);
+  const localTimeIn = parseLocalTime(body.local_time);
+
+  // A recurring commitment can either be given an explicit first `start_at` or
+  // derive it from the local time-of-day anchor (the way the /me/ "repeat" UI
+  // sends it). Either way the check-in IS that moment — no +1h default.
+  let startAt = parseWhen(body.start_at);
+  if (!startAt && recurrence !== 'none' && localTimeIn) {
+    startAt = nextOccurrenceISO({
+      recurrence, timezone,
+      localTime: fmtLocalTime(localTimeIn.h, localTimeIn.m),
+      afterISO: nowISO || new Date().toISOString(),
+    });
+  }
+  if (!startAt) {
+    return {
+      ok: false,
+      error: recurrence !== 'none'
+        ? 'For a repeating check-in, tell me the time of day and pick daily or weekdays.'
+        : 'When do you want to start? Give a valid start time.',
+    };
+  }
 
   let checkinAt = parseWhen(body.checkin_at);
   if (!checkinAt) {
-    checkinAt = new Date(new Date(startAt).getTime() + DEFAULT_CHECKIN_OFFSET_MS).toISOString();
+    checkinAt = recurrence !== 'none'
+      ? startAt // the recurring check-in fires at the moment itself
+      : new Date(new Date(startAt).getTime() + DEFAULT_CHECKIN_OFFSET_MS).toISOString();
   }
 
   const channel = typeof body.channel === 'string' ? body.channel.toLowerCase() : 'push';
@@ -69,9 +212,14 @@ export function validateCommitmentInput(body) {
   }
 
   const persona = pickPersona(body.persona);
-  const timezone = typeof body.timezone === 'string' && body.timezone.trim() ? body.timezone.trim() : 'UTC';
 
-  return { ok: true, value: { title, details, startAt, checkinAt, channel, persona, timezone } };
+  // For a recurring commitment the cron needs a local-time anchor to compute
+  // each next occurrence; derive it from the start instant when not given.
+  const localTime = recurrence === 'none'
+    ? ''
+    : (localTimeIn ? fmtLocalTime(localTimeIn.h, localTimeIn.m) : localTimeFromISO(startAt, timezone));
+
+  return { ok: true, value: { title, details, startAt, checkinAt, channel, persona, timezone, recurrence, localTime } };
 }
 
 /** Parse a when-value into an ISO string, or null if unusable. */
@@ -209,6 +357,32 @@ export function registerAccountabilityRoutes(router, ctx) {
     return row || { current_streak: 0, longest_streak: 0, total_kept: 0, last_kept_date: null };
   }
 
+  // Ensure a recurring commitment always has its next pending check-in queued.
+  // Idempotent: a no-op for one-shots, and only inserts when no future pending
+  // check-in already exists for this commitment. Keeps the daily rhythm alive
+  // whether the user resolves in-app or the delivery cron sends it.
+  async function ensureNextOccurrence(env, userId, commitment, afterISO) {
+    if (pickRecurrence(commitment.recurrence) === 'none') return null;
+    const nextISO = nextOccurrenceISO({
+      recurrence: commitment.recurrence,
+      timezone: commitment.timezone,
+      localTime: commitment.local_time,
+      afterISO,
+    });
+    if (!nextISO) return null;
+    const existing = await env.DB.prepare(
+      `SELECT id FROM commitment_checkins
+        WHERE commitment_id = ? AND status = 'pending' AND scheduled_for > ? LIMIT 1`
+    ).bind(commitment.id, afterISO).first();
+    if (existing) return null;
+    const nid = generateUUID();
+    await env.DB.prepare(
+      `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    ).bind(nid, commitment.id, userId, nextISO, commitment.channel).run();
+    return { id: nid, scheduled_for: nextISO };
+  }
+
   async function saveStreak(env, userId, s) {
     await env.DB.prepare(
       `INSERT INTO accountability_streaks
@@ -239,11 +413,12 @@ export function registerAccountabilityRoutes(router, ctx) {
       const id = generateUUID();
       await env.DB.prepare(
         `INSERT INTO commitments
-           (id, user_id, title, details, start_at, checkin_at, channel, persona, timezone, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
-      ).bind(id, auth.userId, v.title, v.details, v.startAt, v.checkinAt, v.channel, v.persona, v.timezone).run();
+           (id, user_id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+      ).bind(id, auth.userId, v.title, v.details, v.startAt, v.checkinAt, v.channel, v.persona, v.timezone, v.recurrence, v.localTime || null).run();
 
-      // Schedule the check-in row (pending delivery; the delivery cron is a later slice).
+      // Schedule the first check-in row (pending delivery). For a recurring
+      // commitment the delivery cron materializes each subsequent occurrence.
       const checkinId = generateUUID();
       await env.DB.prepare(
         `INSERT INTO commitment_checkins
@@ -254,7 +429,8 @@ export function registerAccountabilityRoutes(router, ctx) {
       return jsonResponse({
         commitment: {
           id, title: v.title, details: v.details, start_at: v.startAt, checkin_at: v.checkinAt,
-          channel: v.channel, persona: v.persona, timezone: v.timezone, status: 'active',
+          channel: v.channel, persona: v.persona, timezone: v.timezone,
+          recurrence: v.recurrence, local_time: v.localTime || null, status: 'active',
         },
         checkin_id: checkinId,
         message: checkinPromptCopy({ title: v.title, persona: v.persona }),
@@ -272,7 +448,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (auth.error) return auth.error;
 
       const rows = await env.DB.prepare(
-        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, status, created_at
+        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
            FROM commitments WHERE user_id = ?
           ORDER BY (status = 'active') DESC, start_at DESC
           LIMIT 200`
@@ -293,7 +469,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       const id = request.params.id;
 
       const commitment = await env.DB.prepare(
-        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, status, created_at
+        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
            FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
@@ -327,12 +503,17 @@ export function registerAccountabilityRoutes(router, ctx) {
       const note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
 
       const commitment = await env.DB.prepare(
-        `SELECT id, title, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
+        `SELECT id, title, persona, channel, timezone, recurrence, local_time, status
+           FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
       const persona = pickPersona(commitment.persona);
-      const newCommitmentStatus = outcome === 'kept' ? 'kept'
+      const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
+      // A recurring commitment is never "done" — it keeps its rhythm. Only a
+      // one-shot commitment resolves to a terminal state.
+      const newCommitmentStatus = isRecurring ? 'active'
+        : outcome === 'kept' ? 'kept'
         : outcome === 'missed' ? 'missed' : 'rescheduled';
 
       // Record the resolution on the pending check-in (or the latest one).
@@ -357,7 +538,15 @@ export function registerAccountabilityRoutes(router, ctx) {
       const next = computeStreakAfter(prev, outcome, today);
       await saveStreak(env, auth.userId, next);
 
+      // Keep the daily rhythm alive: a recurring commitment always re-queues its
+      // next occurrence, whichever way this check-in resolved (never a dead end).
+      const nowISO = new Date().toISOString();
+      const nextOccurrence = isRecurring
+        ? await ensureNextOccurrence(env, auth.userId, commitment, nowISO)
+        : null;
+
       const response = { streak: next };
+      if (nextOccurrence) response.next_checkin = nextOccurrence;
 
       if (outcome === 'kept') {
         response.message = keptCopy({ persona, streak: next.current_streak });

@@ -7,7 +7,7 @@ import { Router } from 'itty-router';
 import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
-import { registerAccountabilityRoutes } from './accountability.js';
+import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerConsentRoutes } from './consent.js';
 import { renderMePage } from './me.js';
@@ -238,6 +238,8 @@ async function initializeDatabase(env) {
         channel TEXT DEFAULT 'push',
         persona TEXT DEFAULT 'ally',
         timezone TEXT DEFAULT 'UTC',
+        recurrence TEXT DEFAULT 'none',
+        local_time TEXT,
         status TEXT DEFAULT 'active',
         rescheduled_from TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -357,6 +359,11 @@ async function initializeDatabase(env) {
       `ALTER TABLE commitment_checkins ADD COLUMN last_error TEXT`,
       // Phone for the 'text' check-in channel (Telnyx); null until a user adds one.
       `ALTER TABLE users ADD COLUMN phone TEXT`,
+      // ── RECURRING CHECK-INS (Contender #10, Phase A) ──
+      // Cadence on the existing production commitments table so "the bro who
+      // calls you every day at the same time" works without recreating it.
+      `ALTER TABLE commitments ADD COLUMN recurrence TEXT DEFAULT 'none'`,
+      `ALTER TABLE commitments ADD COLUMN local_time TEXT`,
     ];
     
     for (const sql of alterTableStatements) {
@@ -1440,6 +1447,71 @@ router.post('/api/internal/run-checkins', async (request, env) => {
   } catch (err) {
     console.error('[cron] manual trigger failed:', err && err.message);
     return jsonResponse({ error: 'Delivery pass failed' }, 500);
+  }
+});
+
+// ── DOGFOOD SEED (Contender #10) ──
+// FocusBro's first real accountability user is the founder: a standing daily
+// commitment to "send one outreach item" at 08:40 America/New_York (Factory#1960).
+// This registers it as a recurring commitment so the moment a delivery channel
+// (Telnyx + granted text consent, or push) is configured, the bro starts
+// checking in. Guarded by the same shared secret as the manual cron trigger;
+// 404s when unset so it can't be probed. Idempotent: re-running returns the
+// existing commitment rather than creating a duplicate.
+router.post('/api/internal/seed-dogfood', async (request, env) => {
+  if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
+  const key = request.headers.get('x-cron-key') || '';
+  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  try {
+    let body;
+    try { body = await request.json(); } catch { body = {}; }
+    const email = (typeof body.email === 'string' && body.email.trim())
+      ? body.email.trim().toLowerCase()
+      : 'adrper79@gmail.com';
+    const title = (typeof body.title === 'string' && body.title.trim())
+      ? body.title.trim().slice(0, 200)
+      : 'Send one outreach item';
+    const timezone = (typeof body.timezone === 'string' && body.timezone.trim()) || 'America/New_York';
+    const localTime = (typeof body.local_time === 'string' && /^\d{1,2}:\d{2}$/.test(body.local_time.trim()))
+      ? body.local_time.trim()
+      : '08:40';
+    const channel = body.channel === 'push' ? 'push' : 'text';
+
+    const user = await env.DB.prepare(`SELECT id FROM users WHERE email = ?`).bind(email).first();
+    if (!user) {
+      return jsonResponse({ error: `No account for ${email} yet — sign up at /me/ first, then re-seed.` }, 404);
+    }
+
+    const existing = await env.DB.prepare(
+      `SELECT id, start_at FROM commitments
+        WHERE user_id = ? AND title = ? AND recurrence != 'none' AND status = 'active' LIMIT 1`
+    ).bind(user.id, title).first();
+    if (existing) {
+      return jsonResponse({ ok: true, already: true, commitment_id: existing.id, start_at: existing.start_at }, 200);
+    }
+
+    const startAt = nextOccurrenceISO({
+      recurrence: 'daily', timezone, localTime, afterISO: new Date().toISOString(),
+    });
+    if (!startAt) return jsonResponse({ error: 'Could not compute the first check-in time.' }, 500);
+
+    const id = generateUUID();
+    await env.DB.prepare(
+      `INSERT INTO commitments
+         (id, user_id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status)
+       VALUES (?, ?, ?, '', ?, ?, ?, 'ally', ?, 'daily', ?, 'active')`
+    ).bind(id, user.id, title, startAt, startAt, channel, timezone, localTime).run();
+
+    const checkinId = generateUUID();
+    await env.DB.prepare(
+      `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    ).bind(checkinId, id, user.id, startAt, channel).run();
+
+    return jsonResponse({ ok: true, commitment_id: id, checkin_id: checkinId, start_at: startAt, channel }, 201);
+  } catch (err) {
+    console.error('[seed-dogfood] failed:', err && err.message);
+    return jsonResponse({ error: 'Seed failed' }, 500);
   }
 });
 

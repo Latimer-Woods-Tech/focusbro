@@ -202,7 +202,16 @@ export function renderMePage() {
             <option value="text">Text</option>
           </select>
         </div>
+        <div>
+          <label for="repeat">Repeat</label>
+          <select id="repeat">
+            <option value="none">Just once</option>
+            <option value="daily">Every day</option>
+            <option value="weekdays">Weekdays</option>
+          </select>
+        </div>
       </div>
+      <p class="muted" id="repeatHint">Pick a repeat and I’ll check in at the same time each day — the same warm nudge, on a rhythm.</p>
       <div class="actions"><button type="submit">Give my word</button></div>
     </form>
     <p class="ok hidden" id="commitMsg"></p>
@@ -304,10 +313,12 @@ export function renderMePage() {
     for (var i = 0; i < commitments.length; i++) {
       var c = commitments[i];
       var p = present(c.status);
+      var cadence = c.recurrence === 'daily' ? ' · every day'
+        : c.recurrence === 'weekdays' ? ' · weekdays' : '';
       html += '<div class="card" data-id="' + esc(c.id) + '">'
         + '<div class="commit">'
         +   '<div><div class="name">' + esc(c.title) + '</div>'
-        +     '<div class="when">' + esc(fmtWhen(c.start_at)) + '</div></div>'
+        +     '<div class="when">' + esc(fmtWhen(c.start_at)) + esc(cadence) + '</div></div>'
         +   '<span class="pill ' + p.tone + '">' + esc(p.label) + '</span>'
         + '</div>';
       if (c.status === 'active') {
@@ -481,6 +492,10 @@ export function renderMePage() {
     if (!iso) { var e = el('commitErr'); e.textContent = 'When do you want to start? Pick a time.'; show(e); return; }
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
+    // For a repeating check-in, anchor to the local time-of-day the picker holds
+    // ("YYYY-MM-DDTHH:MM") so every occurrence lands at the same wall-clock time.
+    var repeat = el('repeat').value;
+    var localTime = (el('startAt').value || '').slice(11, 16);
     fetch('/api/commitments', {
       method: 'POST', headers: authHeaders(),
       body: JSON.stringify({
@@ -488,6 +503,8 @@ export function renderMePage() {
         start_at: iso,
         persona: el('persona').value,
         channel: el('channel').value,
+        recurrence: repeat,
+        local_time: localTime,
         timezone: tz
       })
     })

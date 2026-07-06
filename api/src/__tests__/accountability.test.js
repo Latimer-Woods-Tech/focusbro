@@ -10,7 +10,12 @@ import {
   CHANNELS,
   PERSONAS,
   OUTCOMES,
+  RECURRENCES,
   pickPersona,
+  pickRecurrence,
+  parseLocalTime,
+  nextOccurrenceISO,
+  localTimeFromISO,
   validateCommitmentInput,
   computeStreakAfter,
   checkinPromptCopy,
@@ -65,6 +70,107 @@ describe('validateCommitmentInput', () => {
     expect(r.value.channel).toBe('text');
     expect(r.value.persona).toBe('hype');
     expect(r.value.checkinAt).toBe('2026-07-05T11:30:00.000Z');
+  });
+});
+
+describe('recurring cadence — pickRecurrence / parseLocalTime', () => {
+  it('normalizes unknown cadences to a one-shot', () => {
+    expect(RECURRENCES).toContain('daily');
+    expect(RECURRENCES).toContain('weekdays');
+    expect(pickRecurrence('daily')).toBe('daily');
+    expect(pickRecurrence('weekdays')).toBe('weekdays');
+    expect(pickRecurrence('hourly')).toBe('none');
+    expect(pickRecurrence(undefined)).toBe('none');
+  });
+
+  it('parses valid HH:MM and rejects junk', () => {
+    expect(parseLocalTime('08:40')).toEqual({ h: 8, m: 40 });
+    expect(parseLocalTime('23:59')).toEqual({ h: 23, m: 59 });
+    expect(parseLocalTime('9:05')).toEqual({ h: 9, m: 5 });
+    expect(parseLocalTime('24:00')).toBeNull();
+    expect(parseLocalTime('08:60')).toBeNull();
+    expect(parseLocalTime('not-a-time')).toBeNull();
+    expect(parseLocalTime(undefined)).toBeNull();
+  });
+});
+
+describe('nextOccurrenceISO — DST-correct daily / weekday cadence', () => {
+  it('returns null for a one-shot or unusable input', () => {
+    expect(nextOccurrenceISO({ recurrence: 'none', timezone: 'UTC', localTime: '08:40', afterISO: '2026-07-06T00:00:00Z' })).toBeNull();
+    expect(nextOccurrenceISO({ recurrence: 'daily', timezone: 'UTC', localTime: 'bad', afterISO: '2026-07-06T00:00:00Z' })).toBeNull();
+    expect(nextOccurrenceISO({ recurrence: 'daily', timezone: 'UTC', localTime: '08:40', afterISO: 'not-a-date' })).toBeNull();
+  });
+
+  it('picks today when the local time is still ahead, tomorrow once it has passed', () => {
+    // 08:40 America/New_York = 12:40Z in summer (EDT, UTC-4).
+    const before = nextOccurrenceISO({ recurrence: 'daily', timezone: 'America/New_York', localTime: '08:40', afterISO: '2026-07-06T10:00:00Z' });
+    expect(before).toBe('2026-07-06T12:40:00.000Z');
+    const after = nextOccurrenceISO({ recurrence: 'daily', timezone: 'America/New_York', localTime: '08:40', afterISO: '2026-07-06T13:00:00Z' });
+    expect(after).toBe('2026-07-07T12:40:00.000Z');
+  });
+
+  it('holds the local wall-clock time across a US DST spring-forward (offset shifts, 08:40 local stays 08:40)', () => {
+    // 2026 US DST begins Sun Mar 8. Before: EST (UTC-5) → 08:40 local = 13:40Z.
+    const est = nextOccurrenceISO({ recurrence: 'daily', timezone: 'America/New_York', localTime: '08:40', afterISO: '2026-03-06T20:00:00Z' });
+    expect(est).toBe('2026-03-07T13:40:00.000Z');
+    // After the transition: EDT (UTC-4) → 08:40 local = 12:40Z (one hour earlier in UTC, same wall time).
+    const edt = nextOccurrenceISO({ recurrence: 'daily', timezone: 'America/New_York', localTime: '08:40', afterISO: '2026-03-09T20:00:00Z' });
+    expect(edt).toBe('2026-03-10T12:40:00.000Z');
+  });
+
+  it('skips Saturday and Sunday for the weekdays cadence', () => {
+    // 2026-07-10 is a Friday; next weekday occurrence after Fri 09:00 local is Monday.
+    const fri = nextOccurrenceISO({ recurrence: 'weekdays', timezone: 'UTC', localTime: '09:00', afterISO: '2026-07-10T12:00:00Z' });
+    expect(fri).toBe('2026-07-13T09:00:00.000Z'); // Monday, skipping Sat 11 + Sun 12
+    // Daily would instead land on Saturday the 11th.
+    const daily = nextOccurrenceISO({ recurrence: 'daily', timezone: 'UTC', localTime: '09:00', afterISO: '2026-07-10T12:00:00Z' });
+    expect(daily).toBe('2026-07-11T09:00:00.000Z');
+  });
+
+  it('round-trips a local-time anchor via localTimeFromISO', () => {
+    expect(localTimeFromISO('2026-07-06T12:40:00.000Z', 'America/New_York')).toBe('08:40');
+    expect(localTimeFromISO('2026-07-06T12:40:00.000Z', 'UTC')).toBe('12:40');
+  });
+});
+
+describe('validateCommitmentInput — recurring commitments', () => {
+  const NOW = '2026-07-06T10:00:00Z';
+
+  it('derives the first check-in from a local-time anchor when no start_at is given', () => {
+    const r = validateCommitmentInput(
+      { title: 'send one outreach item', recurrence: 'daily', local_time: '08:40', timezone: 'America/New_York' },
+      NOW,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.recurrence).toBe('daily');
+    expect(r.value.localTime).toBe('08:40');
+    // 08:40 ET is still ahead of 10:00Z (06:00 ET), so it schedules today.
+    expect(r.value.startAt).toBe('2026-07-06T12:40:00.000Z');
+    // A recurring check-in fires at the moment itself — no +1h default.
+    expect(r.value.checkinAt).toBe(r.value.startAt);
+  });
+
+  it('rejects a recurring commitment with neither a start_at nor a local time', () => {
+    const r = validateCommitmentInput({ title: 'x', recurrence: 'daily' }, NOW);
+    expect(r.ok).toBe(false);
+    expect(r.error.toLowerCase()).toContain('daily or weekdays');
+  });
+
+  it('derives the local-time anchor from an explicit start_at for a recurring commitment', () => {
+    const r = validateCommitmentInput(
+      { title: 'stretch', recurrence: 'weekdays', start_at: '2026-07-06T13:00:00Z', timezone: 'UTC' },
+      NOW,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.localTime).toBe('13:00');
+  });
+
+  it('leaves a one-shot commitment unchanged (no recurrence, empty local time, +1h check-in)', () => {
+    const r = validateCommitmentInput({ title: 'taxes', start_at: '2026-07-06T14:00:00Z' }, NOW);
+    expect(r.ok).toBe(true);
+    expect(r.value.recurrence).toBe('none');
+    expect(r.value.localTime).toBe('');
+    expect(new Date(r.value.checkinAt).getTime() - new Date(r.value.startAt).getTime()).toBe(60 * 60 * 1000);
   });
 });
 

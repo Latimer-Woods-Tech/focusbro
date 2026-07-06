@@ -143,7 +143,9 @@ CREATE TABLE IF NOT EXISTS commitments (
   channel          TEXT DEFAULT 'push',        -- push | text  (voice = Phase B, engine-gated)
   persona          TEXT DEFAULT 'ally',        -- ally | hype  (both warm; never shame)
   timezone         TEXT DEFAULT 'UTC',
-  status           TEXT DEFAULT 'active',      -- active | kept | missed | rescheduled | cancelled
+  recurrence       TEXT DEFAULT 'none',        -- none | daily | weekdays  (cadence; cf. wordis-bond scheduled runs)
+  local_time       TEXT,                        -- HH:MM wall-clock in `timezone`; anchors each recurring occurrence (DST-correct)
+  status           TEXT DEFAULT 'active',      -- active | kept | missed | rescheduled | cancelled  (a recurring commitment stays 'active')
   rescheduled_from TEXT,                        -- prior commitment id, if this is a no-shame retry
   created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
