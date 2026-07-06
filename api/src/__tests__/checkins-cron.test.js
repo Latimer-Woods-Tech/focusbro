@@ -73,7 +73,63 @@ describe('runDueCheckins — scan query shape', () => {
   it('reports an all-zero summary when nothing is due', async () => {
     const db = makeDB({ due: [] });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
-    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0 });
+    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, materialized: 0 });
+  });
+});
+
+describe('recurring cadence — materialize the next occurrence', () => {
+  // A recurring row that gets delivered (or skipped for lack of a channel)
+  // should queue its next occurrence so the daily rhythm never stalls.
+  const recurringRow = (over = {}) => pushRow({
+    recurrence: 'daily', timezone: 'UTC', local_time: '09:00', commitment_status: 'active', ...over,
+  });
+
+  function insertFor(db, commitmentId) {
+    return db.runs.find((r) => /INSERT INTO commitment_checkins/.test(r.sql) && r.params.includes(commitmentId));
+  }
+
+  it('queues the next pending check-in after a recurring row is skipped (no channel configured)', async () => {
+    // Push with no VAPID config → skipped; the row leaves pending, so materialize fires.
+    const db = makeDB({ due: [recurringRow()] });
+    const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T09:00:00.000Z' });
+    expect(s.skipped).toBe(1);
+    expect(s.materialized).toBe(1);
+    const ins = insertFor(db, 'cm1');
+    expect(ins).toBeTruthy();
+    // Next daily occurrence at 09:00Z is the following day.
+    expect(ins.params).toContain('2026-07-07T09:00:00.000Z');
+  });
+
+  it('does NOT materialize a one-shot commitment', async () => {
+    const db = makeDB({ due: [pushRow({ recurrence: 'none', commitment_status: 'active' })] });
+    const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T09:00:00.000Z' });
+    expect(s.materialized).toBe(0);
+    expect(insertFor(db, 'cm1')).toBeFalsy();
+  });
+
+  it('does NOT materialize when the commitment is no longer active', async () => {
+    const db = makeDB({ due: [recurringRow({ commitment_status: 'cancelled' })] });
+    const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T09:00:00.000Z' });
+    expect(s.materialized).toBe(0);
+  });
+
+  it('is idempotent: skips materializing when a future pending check-in already exists', async () => {
+    const db = makeDB({ due: [recurringRow()] });
+    // The existence probe (SELECT id FROM commitment_checkins ... scheduled_for > ?) uses .first().
+    // Override it to report an already-queued occurrence.
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      const stmt = origPrepare(sql);
+      if (/SELECT id FROM commitment_checkins/.test(sql) && /scheduled_for\s*>/.test(sql)) {
+        const origFirst = stmt.first.bind(stmt);
+        stmt.first = async () => ({ id: 'already-queued' });
+        void origFirst;
+      }
+      return stmt;
+    };
+    const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T09:00:00.000Z' });
+    expect(s.materialized).toBe(0);
+    expect(insertFor(db, 'cm1')).toBeFalsy();
   });
 });
 

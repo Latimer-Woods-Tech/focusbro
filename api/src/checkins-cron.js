@@ -20,9 +20,44 @@
 // channel marks the check-in `skipped`, never crashes, never touches the timer.
 // ════════════════════════════════════════════════════════════
 
-import { checkinPromptCopy } from './accountability.js';
+import { checkinPromptCopy, nextOccurrenceISO, pickRecurrence } from './accountability.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate } from './consent.js';
+import { generateUUID } from './middleware.js';
+
+/**
+ * Keep a recurring commitment's rhythm alive: once its due check-in has left
+ * `pending` (sent / skipped / failed), queue the next occurrence if one isn't
+ * already scheduled. Idempotent, and a no-op for one-shots or a commitment
+ * that is no longer active. This is the delivery-side safety net that
+ * complements the in-app resolve path — the chain continues even when a
+ * check-in is never answered or no channel is configured yet.
+ *
+ * @returns {Promise<boolean>} true if a new occurrence was inserted.
+ */
+export async function materializeNextOccurrence(env, row, nowISO) {
+  if (pickRecurrence(row.recurrence) === 'none') return false;
+  if (row.commitment_status && row.commitment_status !== 'active') return false;
+  const nextISO = nextOccurrenceISO({
+    recurrence: row.recurrence,
+    timezone: row.timezone,
+    localTime: row.local_time,
+    afterISO: nowISO,
+  });
+  if (!nextISO) return false;
+
+  const existing = await env.DB.prepare(
+    `SELECT id FROM commitment_checkins
+      WHERE commitment_id = ? AND status = 'pending' AND scheduled_for > ? LIMIT 1`
+  ).bind(row.commitment_id, nowISO).first();
+  if (existing) return false;
+
+  await env.DB.prepare(
+    `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`
+  ).bind(generateUUID(), row.commitment_id, row.user_id, nextISO, row.channel).run();
+  return true;
+}
 
 /** Max delivery attempts before a check-in is parked as `failed` (transient errors only). */
 export const MAX_ATTEMPTS = 3;
@@ -117,11 +152,12 @@ async function deliverText(env, row, message) {
 export async function runDueCheckins(env, opts = {}) {
   const now = opts.now || new Date().toISOString();
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, materialized: 0 };
 
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
-            COALESCE(c.attempts, 0) AS attempts, m.title, m.persona
+            COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
+            m.recurrence, m.timezone, m.local_time, m.status AS commitment_status
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
       WHERE c.status = 'pending' AND c.scheduled_for <= ?
@@ -173,6 +209,7 @@ export async function runDueCheckins(env, opts = {}) {
       }
     }
 
+    let leftPending = false;
     try {
       if (outcome.status === 'sent') {
         await env.DB.prepare(
@@ -181,6 +218,7 @@ export async function runDueCheckins(env, opts = {}) {
             WHERE id = ?`
         ).bind(now, row.checkin_id).run();
         summary.sent++;
+        leftPending = true;
       } else if (outcome.status === 'skipped') {
         // No channel available for this user — park it (terminal, no shame, no retry storm).
         await env.DB.prepare(
@@ -189,6 +227,7 @@ export async function runDueCheckins(env, opts = {}) {
             WHERE id = ?`
         ).bind(outcome.detail, row.checkin_id).run();
         summary.skipped++;
+        leftPending = true;
       } else {
         // Transient failure: bump attempts, park as 'failed' once the cap is hit.
         const nextAttempts = (Number(row.attempts) || 0) + 1;
@@ -198,11 +237,22 @@ export async function runDueCheckins(env, opts = {}) {
               SET status = ?, attempts = ?, last_error = ?
             WHERE id = ?`
         ).bind(terminal ? 'failed' : 'pending', nextAttempts, outcome.detail, row.checkin_id).run();
-        if (terminal) summary.failed++;
+        if (terminal) { summary.failed++; leftPending = true; }
         else summary.retry++;
       }
     } catch (err) {
       console.error('[checkins-cron] status update failed:', err && err.message);
+    }
+
+    // Once this occurrence is off the pending queue, keep a recurring
+    // commitment's rhythm going by queuing the next one (idempotent no-op
+    // otherwise). A materialize failure never aborts the batch.
+    if (leftPending) {
+      try {
+        if (await materializeNextOccurrence(env, row, now)) summary.materialized++;
+      } catch (err) {
+        console.error('[checkins-cron] materialize failed:', err && err.message);
+      }
     }
   }
 
