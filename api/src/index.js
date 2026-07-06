@@ -8,6 +8,7 @@ import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes } from './accountability.js';
+import { registerCoachRoutes } from './coach.js';
 import { runDueCheckins } from './checkins-cron.js';
 import config from './config.js';
 import syncModule from './sync.js';
@@ -271,6 +272,25 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for)`,
+      // ── COACH ROSTER (skeleton coach dashboard — Contender #10, Phase A) ──
+      // Consent-gated coach→client link; coach sees data only when status='active'.
+      // Full white-label/wholesale billing is Phase C (operator UNBLOCK gated).
+      `CREATE TABLE IF NOT EXISTS coach_clients (
+        id TEXT PRIMARY KEY,
+        coach_user_id TEXT NOT NULL,
+        client_user_id TEXT NOT NULL,
+        client_label TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        invited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        responded_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(coach_user_id, client_user_id),
+        FOREIGN KEY(coach_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(client_user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status)`,
+      `CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status)`,
       // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
@@ -1370,6 +1390,11 @@ router.get('/api/billing/tier', async (request, env) => {
 // (/api/commitments*, /api/accountability/streak) so router order is safe.
 registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
+// ── COACH ROSTER ROUTES (skeleton coach dashboard — Contender #10, Phase A) ──
+// Consent-gated coach→client roster + read-only client views. The dashboard
+// PAGE is /coach/ (below). Full white-label is Phase C (operator UNBLOCK gated).
+registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.
 // Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
@@ -1622,6 +1647,181 @@ router.get('/contact.html', async () => {
 <p>Partnerships and other business matters: <a href="mailto:hello@focusbro.net">hello@focusbro.net</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
+});
+
+// ── COACH DASHBOARD (skeleton, read-only — Contender #10, Phase A) ──
+// An operator-facing view of the clients a coach supports and each client's
+// kept-word momentum. Self-contained: signs in against /auth/login, stores the
+// token in localStorage ('focusbro_token'), and reads the /api/coach/* API.
+// Authed surface → noindex, not in the sitemap. DESIGN LAW: momentum only, no
+// miss tally. Full white-label (config, wholesale billing) is Phase C.
+router.get('/coach', async () => new Response(null, { status: 301, headers: { Location: '/coach/' } }));
+router.get('/coach/', async () => {
+  const page = `<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Coach dashboard — FocusBro</title>
+<meta name="description" content="A read-only view of the people you support and the words they're keeping." />
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 880px; margin: 0 auto; padding: 24px; line-height: 1.55; color: #111827; }
+  a { color: #4f46e5; }
+  h1 { margin-bottom: 4px; }
+  .intro { color: #4b5563; margin-top: 0; }
+  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; margin: 12px 0; }
+  .client { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .streak { font-size: 28px; font-weight: 700; color: #4f46e5; line-height: 1; }
+  .streak small { display: block; font-size: 12px; font-weight: 500; color: #6b7280; }
+  .name { font-weight: 600; }
+  .line { color: #4b5563; font-size: 14px; }
+  .pending { opacity: .7; }
+  .muted { color: #6b7280; font-size: 13px; }
+  input, button { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid #d1d5db; }
+  button { background: #4f46e5; color: #fff; border: none; cursor: pointer; }
+  button.secondary { background: #f3f4f6; color: #374151; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .hidden { display: none; }
+  .err { color: #b91c1c; font-size: 14px; }
+  .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+</style></head>
+<body>
+<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/about.html">About</a></nav>
+<h1>Coach dashboard</h1>
+<p class="intro" id="intro">The people you show up for, and the words they&rsquo;re keeping.</p>
+
+<div id="signin" class="card hidden">
+  <p class="muted">Sign in to see your roster.</p>
+  <form id="signinForm">
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="username" required />
+    <input id="password" type="password" placeholder="password" autocomplete="current-password" required />
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="err hidden" id="signinErr"></p>
+</div>
+
+<div id="app" class="hidden">
+  <div class="card">
+    <strong>Invite someone you support</strong>
+    <p class="muted">They accept before you see anything &mdash; consent comes first.</p>
+    <form id="inviteForm">
+      <input id="inviteEmail" type="email" placeholder="their@email.com" required />
+      <input id="inviteLabel" type="text" placeholder="a name for you (optional)" />
+      <button type="submit">Send invitation</button>
+    </form>
+    <p class="err hidden" id="inviteMsg"></p>
+  </div>
+  <div id="roster"></div>
+  <p class="muted"><a href="#" id="signout">Sign out</a></p>
+</div>
+
+<p class="footnote">
+  This is the early skeleton of the coach view. Voice check-ins and the full
+  white-label workspace (cadence, scripts, billing) are on the way. What you see
+  here is kept-word momentum only &mdash; we count the words people keep, never
+  the ones they don&rsquo;t, for you or for them.
+</p>
+
+<script>
+(function () {
+  var TOKEN_KEY = 'focusbro_token';
+  var el = function (id) { return document.getElementById(id); };
+  var show = function (n) { n.classList.remove('hidden'); };
+  var hide = function (n) { n.classList.add('hidden'); };
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  };
+  var token = function () { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
+  var authHeaders = function () { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; };
+
+  function render(data) {
+    if (data && data.intro) { el('intro').textContent = data.intro; }
+    var roster = (data && data.roster) || [];
+    var host = el('roster');
+    if (!roster.length) {
+      host.innerHTML = '<div class="card muted">' + esc((data && data.empty_message) || 'No one on your roster yet.') + '</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < roster.length; i++) {
+      var c = roster[i];
+      var name = c.label || c.email || 'A client';
+      if (c.status === 'active' && c.streak) {
+        html += '<div class="card client">'
+          + '<div><div class="name">' + esc(name) + '</div>'
+          + '<div class="line">' + esc(c.status_line || '') + '</div>'
+          + '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's') + '</div></div>'
+          + '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
+          + '</div>';
+      } else {
+        html += '<div class="card client pending">'
+          + '<div><div class="name">' + esc(name) + '</div>'
+          + '<div class="line">' + esc(c.status_line || 'Invited.') + '</div></div>'
+          + '<div class="muted">pending</div></div>';
+      }
+    }
+    host.innerHTML = html;
+  }
+
+  function loadRoster() {
+    fetch('/api/coach/clients', { headers: authHeaders() })
+      .then(function (r) {
+        if (r.status === 401) { throw new Error('unauthorized'); }
+        return r.json();
+      })
+      .then(function (data) { hide(el('signin')); show(el('app')); render(data); })
+      .catch(function () { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} show(el('signin')); hide(el('app')); });
+  }
+
+  el('signinForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    hide(el('signinErr'));
+    fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: el('email').value.trim(), password: el('password').value })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.b.token) { throw new Error(res.b.error || 'Sign in failed'); }
+        try { localStorage.setItem(TOKEN_KEY, res.b.token); } catch (e) {}
+        loadRoster();
+      })
+      .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
+  });
+
+  el('inviteForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var n = el('inviteMsg');
+    hide(n);
+    fetch('/api/coach/clients', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ email: el('inviteEmail').value.trim(), label: el('inviteLabel').value.trim() })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        n.textContent = res.b.message || res.b.error || 'Invitation sent.';
+        n.className = res.ok ? 'muted' : 'err';
+        show(n);
+        el('inviteEmail').value = ''; el('inviteLabel').value = '';
+        if (res.ok) { loadRoster(); }
+      })
+      .catch(function () { n.textContent = 'Could not send that invitation.'; n.className = 'err'; show(n); });
+  });
+
+  el('signout').addEventListener('click', function (ev) {
+    ev.preventDefault();
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    show(el('signin')); hide(el('app'));
+  });
+
+  if (token()) { loadRoster(); } else { show(el('signin')); }
+})();
+</script>
+</body></html>`;
+  return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 });
 
 // ── GUIDES (content layer) ──
