@@ -33,6 +33,15 @@
 // Phase B integration syncs to it. We do NOT hand-roll a competing CRM here.
 // ════════════════════════════════════════════════════════════
 
+import {
+  detectCheckinReply,
+  applyCheckinOutcome,
+  smsKeptReplyCopy,
+  smsRescheduleReplyCopy,
+  smsAmbiguousReplyCopy,
+  pickPersona,
+} from './accountability.js';
+
 /** Channels that are TCPA-scoped outbound contact. Push is app UX, not a call/text. */
 export const CONSENT_CHANNELS = ['text', 'voice'];
 
@@ -259,6 +268,33 @@ export async function verifyTelnyxSignature(publicKeyB64, rawBody, timestamp, si
   }
 }
 
+/**
+ * Send a one-off SMS via Telnyx. Guarded + fail-safe: with no Telnyx config it
+ * no-ops (returns false), and any transport error is swallowed — a reply that
+ * fails to send must NEVER break the state change it is confirming (the check-in
+ * is already resolved; the confirmation text is best-effort). Used to answer an
+ * inbound reply so a text check-in is a real two-way conversation.
+ * @returns {Promise<boolean>} true if the carrier accepted the message
+ */
+export async function sendSms(env, to, text) {
+  try {
+    if (!env || !env.TELNYX_API_KEY || !env.TELNYX_FROM_NUMBER) return false;
+    if (!to || !text) return false;
+    const res = await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.TELNYX_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from: env.TELNYX_FROM_NUMBER, to, text }),
+    }).catch(() => ({ ok: false }));
+    return !!(res && res.ok);
+  } catch (err) {
+    console.error('[consent] sendSms error:', err && err.message);
+    return false;
+  }
+}
+
 // ── ROUTES ───────────────────────────────────────────────────
 
 /**
@@ -424,23 +460,82 @@ export function registerConsentRoutes(router, ctx) {
       const user = await env.DB.prepare(`SELECT id FROM users WHERE phone = ?`).bind(phone).first();
       if (!user) return jsonResponse({ ok: true, ignored: 'unknown_number' }, 200);
 
-      let action = 'none';
+      // ── Compliance keywords first (STOP always wins; HELP is informational) ──
       if (isStopKeyword(text)) {
         await revokeConsent(env, { userId: user.id, channel: 'text', source: 'sms' });
-        action = 'opted_out';
-      } else if (isStartKeyword(text)) {
-        // Re-grant only if a prior consent exists for this channel (keeps its recorded language).
+        await sendSms(env, phone, optOutConfirmCopy());
+        return jsonResponse({ ok: true, action: 'opted_out' }, 200);
+      }
+      if (isHelpKeyword(text)) {
+        await sendSms(env, phone, helpReplyCopy());
+        return jsonResponse({ ok: true, action: 'help' }, 200);
+      }
+      // START/YES only means "resume" when the person is actually opted out.
+      // Otherwise a bare "yes" is an answer to a check-in, not a re-subscribe.
+      if (isStartKeyword(text)) {
         const res = await env.DB.prepare(
           `UPDATE contact_consent
               SET status = 'granted', revoked_at = NULL, revoke_source = NULL, updated_at = datetime('now')
-            WHERE user_id = ? AND channel = 'text'`
+            WHERE user_id = ? AND channel = 'text' AND status = 'revoked'`
         ).bind(user.id).run();
-        action = (res && res.meta && res.meta.changes) ? 'opted_in' : 'none';
-      } else if (isHelpKeyword(text)) {
-        action = 'help';
+        if (res && res.meta && res.meta.changes) {
+          await sendSms(env, phone, optInConfirmCopy());
+          return jsonResponse({ ok: true, action: 'opted_in' }, 200);
+        }
+        // not opted out → fall through and treat as a check-in reply
       }
 
-      return jsonResponse({ ok: true, action }, 200);
+      // ── Two-way check-in reply: resolve the person's open text check-in ──
+      // A text check-in is only half the loop if you can't answer it. Find the
+      // most recent delivered ('sent'), still-unanswered text check-in and read
+      // the reply. STOP/START/HELP already handled above, so they never land here.
+      const open = await env.DB.prepare(
+        `SELECT c.id AS checkin_id, c.commitment_id,
+                m.recurrence, m.timezone, m.local_time, m.channel, m.persona
+           FROM commitment_checkins c
+           JOIN commitments m ON m.id = c.commitment_id
+          WHERE c.user_id = ? AND c.channel = 'text'
+            AND c.status = 'sent' AND c.responded_at IS NULL
+          ORDER BY c.scheduled_for DESC LIMIT 1`
+      ).bind(user.id).first();
+
+      if (!open) {
+        // Nothing to answer — acknowledge silently (never text unprompted).
+        return jsonResponse({ ok: true, action: 'no_open_checkin' }, 200);
+      }
+
+      const persona = pickPersona(open.persona);
+      const reply = detectCheckinReply(text);
+
+      if (reply === null) {
+        // We couldn't read it — ask, warmly. NEVER assume a miss from a message
+        // we didn't understand; leave the check-in open for a real answer.
+        await sendSms(env, phone, smsAmbiguousReplyCopy({ persona }));
+        return jsonResponse({ ok: true, action: 'checkin_unclear' }, 200);
+      }
+
+      const commitment = {
+        id: open.commitment_id,
+        recurrence: open.recurrence,
+        timezone: open.timezone,
+        local_time: open.local_time,
+        channel: open.channel,
+        persona: open.persona,
+      };
+      const result = await applyCheckinOutcome(env, {
+        userId: user.id,
+        checkin: { id: open.checkin_id, commitment_id: open.commitment_id },
+        commitment,
+        outcome: reply,
+        note: 'via SMS reply',
+      });
+
+      const replyCopy = reply === 'kept'
+        ? smsKeptReplyCopy({ persona, streak: result.streak.current_streak })
+        : smsRescheduleReplyCopy({ persona });
+      await sendSms(env, phone, replyCopy);
+
+      return jsonResponse({ ok: true, action: `checkin_${reply}` }, 200);
     } catch (err) {
       console.error('[consent] inbound webhook error:', err && err.message);
       // Webhooks must not retry-storm on our errors; acknowledge.

@@ -19,6 +19,8 @@
 // accountability.test.js (banned-word + no-"AI" + no-clinical-claim assertions).
 // ════════════════════════════════════════════════════════════
 
+import { generateUUID } from './middleware.js';
+
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
 
@@ -315,6 +317,156 @@ export function streakSummaryCopy({ streak, persona } = {}) {
   }
   const bestPart = best > cur ? ` (your best is ${best})` : '';
   return `You’ve kept your word ${cur} time${cur === 1 ? '' : 's'} in a row${bestPart}. Every single one counts.`;
+}
+
+// ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
+// A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
+// the loop if you can't answer it. When someone texts back, we read the reply:
+// "done / did it / yep" keeps the word; "later / not yet / tomorrow" is the
+// no-shame reschedule. Anything we can't read gets a warm clarifying nudge — we
+// never assume a miss from a message we didn't understand. STOP/START/HELP are
+// intercepted upstream (consent.js) before this runs, so they never land here.
+
+/**
+ * Interpret an inbound check-in reply.
+ * @param {string} text  the raw SMS body
+ * @returns {'kept'|'reschedule'|null}  null = couldn't tell (ask, don't assume)
+ */
+export function detectCheckinReply(text) {
+  const t = String(text == null ? '' : text)
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")            // normalize curly apostrophes to straight
+    .replace(/[^a-z0-9\s']/g, ' ')    // keep letters/digits/apostrophes; drop other punctuation/emoji
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return null;
+
+  // "did it" / "got it done" / "all done" → kept. Check the reschedule forms
+  // first — especially the NEGATED ones — so "not done" / "haven't yet" is never
+  // misread as "done".
+  const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
+  const KEPT = /\b(done|did it|did that|didit|finished|complete[d]?|got it done|all done|handled|nailed it|crushed it|yep|yup|yeah|yes|yeh|ya|kept|on it done)\b/;
+
+  if (RESCHEDULE.test(t)) return 'reschedule';
+  if (KEPT.test(t)) return 'kept';
+  // bare affirmations / negations as a last pass
+  if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
+  if (/^(n|no|not)$/.test(t)) return 'reschedule';
+  return null;
+}
+
+/** Reply after an SMS "done" — celebrate the person + name the streak. Never a scold. */
+export function smsKeptReplyCopy({ persona, streak } = {}) {
+  const n = Number(streak) || 0;
+  if (pickPersona(persona) === 'hype') {
+    return `YES — you did the thing!${n > 1 ? ` ${n} in a row, that’s all you.` : ''} 💪`;
+  }
+  return `Love it — you did the thing.${n > 1 ? ` That’s ${n} in a row; your word’s good with me.` : ' Your word’s good with me.'}`;
+}
+
+/** Reply after an SMS "later" — the no-shame reschedule. The chain stays intact. */
+export function smsRescheduleReplyCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'All good — life happens, no stress. Pick a fresh time in the app whenever you’re ready; your streak’s safe. 🔥';
+  }
+  return 'No problem at all — I’m still on your side. Set a new time in the app whenever you like; your word still counts.';
+}
+
+/** Reply when we couldn't read the message — ask, warmly. Never assume a miss. */
+export function smsAmbiguousReplyCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Gotcha! Text DONE if you got it, or LATER to grab a new time — I’m here for you either way. 💪';
+  }
+  return 'I’m here for you. Reply DONE if you did it, or LATER to pick a new time — no rush, no pressure.';
+}
+
+/**
+ * The shared check-in resolution core. Used by the in-app route AND the inbound
+ * SMS reply path so both keep the streak the same way. Given an already-loaded
+ * check-in row joined with its commitment, this:
+ *   1. stamps the outcome on that specific check-in row,
+ *   2. moves the commitment to its terminal state (one-shot) or keeps it active
+ *      (recurring — a rhythm is never "done"),
+ *   3. applies the kept-word streak transition (no miss counter, ever), and
+ *   4. re-queues the next occurrence for a recurring commitment so the rhythm
+ *      never stalls.
+ * Returns the fresh streak so the caller can render warm, accurate copy.
+ *
+ * @param {object} env
+ * @param {object} p  { userId, checkin: {id, commitment_id}, commitment: {id, recurrence, timezone, local_time, channel, persona}, outcome, note, nowISO }
+ * @returns {Promise<{ streak: object, isRecurring: boolean }>}
+ */
+export async function applyCheckinOutcome(env, { userId, checkin, commitment, outcome, note = '', nowISO } = {}) {
+  const now = nowISO || new Date().toISOString();
+  const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
+  const newCommitmentStatus = isRecurring ? 'active'
+    : outcome === 'kept' ? 'kept'
+    : outcome === 'missed' ? 'missed' : 'rescheduled';
+
+  // 1. stamp the specific check-in row
+  await env.DB.prepare(
+    `UPDATE commitment_checkins
+        SET status = ?, responded_at = datetime('now'), note = ?
+      WHERE id = ? AND user_id = ?`
+  ).bind(outcome, String(note || '').slice(0, MAX_DETAILS), checkin.id, userId).run();
+
+  // 2. move the commitment
+  await env.DB.prepare(
+    `UPDATE commitments SET status = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
+  ).bind(newCommitmentStatus, commitment.id, userId).run();
+
+  // 3. streak transition
+  const prev = await readStreak(env, userId);
+  const next = computeStreakAfter(prev, outcome, now.slice(0, 10));
+  await writeStreak(env, userId, next);
+
+  // 4. keep the rhythm alive (recurring only, idempotent)
+  if (isRecurring) {
+    const nextISO = nextOccurrenceISO({
+      recurrence: commitment.recurrence,
+      timezone: commitment.timezone,
+      localTime: commitment.local_time,
+      afterISO: now,
+    });
+    if (nextISO) {
+      const existing = await env.DB.prepare(
+        `SELECT id FROM commitment_checkins
+          WHERE commitment_id = ? AND status = 'pending' AND scheduled_for > ? LIMIT 1`
+      ).bind(commitment.id, now).first();
+      if (!existing) {
+        await env.DB.prepare(
+          `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+           VALUES (?, ?, ?, ?, ?, 'pending')`
+        ).bind(generateUUID(), commitment.id, userId, nextISO, commitment.channel || 'text').run();
+      }
+    }
+  }
+
+  return { streak: next, isRecurring };
+}
+
+/** Read a user's kept-word streak row (module-level; used by applyCheckinOutcome). */
+export async function readStreak(env, userId) {
+  const row = await env.DB.prepare(
+    `SELECT current_streak, longest_streak, total_kept, last_kept_date
+       FROM accountability_streaks WHERE user_id = ?`
+  ).bind(userId).first();
+  return row || { current_streak: 0, longest_streak: 0, total_kept: 0, last_kept_date: null };
+}
+
+/** Upsert a user's kept-word streak row (module-level; used by applyCheckinOutcome). */
+export async function writeStreak(env, userId, s) {
+  await env.DB.prepare(
+    `INSERT INTO accountability_streaks
+       (user_id, current_streak, longest_streak, total_kept, last_kept_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(user_id) DO UPDATE SET
+       current_streak = excluded.current_streak,
+       longest_streak = excluded.longest_streak,
+       total_kept     = excluded.total_kept,
+       last_kept_date = excluded.last_kept_date,
+       updated_at     = excluded.updated_at`
+  ).bind(userId, s.current_streak, s.longest_streak, s.total_kept, s.last_kept_date).run();
 }
 
 /** Rough heuristic: does the title already read as an action phrase? */
