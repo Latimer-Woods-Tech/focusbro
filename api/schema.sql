@@ -180,3 +180,26 @@ CREATE INDEX IF NOT EXISTS idx_commitments_user ON commitments(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_commitments_checkin_at ON commitments(checkin_at);
 CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id);
 CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for);
+
+-- ── COACH ROSTER (skeleton coach dashboard — Contender #10, Phase A) ──
+-- A consent-gated link between a coach (operator) and a client they support.
+-- The coach sees the client's kept-word momentum only once status='active'
+-- (the client accepted). Full white-label/wholesale billing is Phase C.
+-- DESIGN LAW: this table carries no miss tally — a coach's view is momentum, not blame.
+CREATE TABLE IF NOT EXISTS coach_clients (
+  id             TEXT PRIMARY KEY,
+  coach_user_id  TEXT NOT NULL,               -- the operator/coach
+  client_user_id TEXT NOT NULL,               -- the person they support
+  client_label   TEXT DEFAULT '',             -- coach's private label for the client
+  status         TEXT DEFAULT 'pending',      -- pending | active | declined | removed
+  invited_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  responded_at   DATETIME,                     -- when the client accepted/declined
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(coach_user_id, client_user_id),
+  FOREIGN KEY(coach_user_id)  REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(client_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status);
