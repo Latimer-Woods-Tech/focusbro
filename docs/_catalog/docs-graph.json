@@ -453,7 +453,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:826758c1d3b1c8a8236a24232c7cab1236d5cef17b1bf8fe65cbb76930827d47",
+      "content_hash": "sha256:f6affcc3ee179ed2d3a82168a01f8cfc7f98869898fd10b8a896ade781e149bc",
       "source": {
         "frontmatter": true,
         "canonical_allowlist": false,
