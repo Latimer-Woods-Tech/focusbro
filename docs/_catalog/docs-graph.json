@@ -369,7 +369,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:2066fdc54da0711f99d46bcb1b97e0bb594924272702f8e3dc1b942d65712da4",
+      "content_hash": "sha256:70b020c0c189df63ceb395c970a3f735cf196b2e058e58ff1f4b664ae3d472a5",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
@@ -390,7 +390,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:dac25d6814496599fc873f4385ac6e50e4a92021264a0547b987391f51b63b93",
+      "content_hash": "sha256:060159d6c0d6fb542dcacf395d25b797502217ef67813e789f3153c9fc2630a2",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
