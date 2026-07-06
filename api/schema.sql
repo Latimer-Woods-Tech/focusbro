@@ -203,3 +203,32 @@ CREATE TABLE IF NOT EXISTS coach_clients (
 
 CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status);
+
+-- ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
+-- Delivery-side consent state for TCPA-scoped channels (text now; voice = Phase B).
+-- A text/voice check-in cannot be delivered unless a 'granted' row exists here.
+-- Quiet hours (recipient-local whole hours) HOLD a due check-in inside the window.
+-- A one-word STOP (app or inbound SMS) sets status='revoked' — durable + instant.
+-- consent_text stores the exact disclosure the person agreed to (proof of consent).
+-- NOTE: this is the app's enforcement copy; the org-wide durable consent ledger is
+-- the shared CRM/consent schema (Foundry #2001), synced in the Phase B integration.
+CREATE TABLE IF NOT EXISTS contact_consent (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL,
+  channel         TEXT NOT NULL,               -- text | voice
+  status          TEXT DEFAULT 'granted',      -- granted | revoked
+  consent_text    TEXT DEFAULT '',             -- exact disclosure agreed to
+  consent_version TEXT DEFAULT '',
+  phone           TEXT,                          -- number consent was captured for
+  quiet_start     INTEGER,                       -- recipient-local hour [0..23], quiet window start
+  quiet_end       INTEGER,                       -- recipient-local hour [0..23], quiet window end
+  timezone        TEXT DEFAULT 'UTC',            -- IANA zone for quiet-hours math
+  granted_at      DATETIME,
+  revoked_at      DATETIME,
+  revoke_source   TEXT,                          -- user | sms
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, channel),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_consent_user ON contact_consent(user_id, channel);

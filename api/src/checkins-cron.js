@@ -22,6 +22,7 @@
 
 import { checkinPromptCopy } from './accountability.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
+import { evaluateContactGate } from './consent.js';
 
 /** Max delivery attempts before a check-in is parked as `failed` (transient errors only). */
 export const MAX_ATTEMPTS = 3;
@@ -111,12 +112,12 @@ async function deliverText(env, row, message) {
  *
  * @param {object} env  Worker env with a D1-shaped `DB`
  * @param {object} [opts] { now?: ISO string, limit?: number }
- * @returns {Promise<{scanned:number, sent:number, skipped:number, failed:number, retry:number}>}
+ * @returns {Promise<{scanned:number, sent:number, skipped:number, failed:number, retry:number, deferred:number}>}
  */
 export async function runDueCheckins(env, opts = {}) {
   const now = opts.now || new Date().toISOString();
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0 };
 
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
@@ -131,11 +132,34 @@ export async function runDueCheckins(env, opts = {}) {
   const rows = (due && due.results) || [];
   for (const row of rows) {
     summary.scanned++;
+
+    // CONSENT BY CONSTRUCTION (TCPA): text/voice cannot send without granted
+    // consent, inside recipient quiet hours, or after opt-out. Push is app UX,
+    // not TCPA-scoped, so evaluateContactGate returns {allow:true} for it.
     let outcome;
     try {
-      outcome = await deliverCheckin(env, row);
+      const gate = await evaluateContactGate(env, {
+        userId: row.user_id, channel: row.channel, nowISO: now,
+      });
+      if (gate.defer) {
+        // Held inside quiet hours: leave the row pending (no attempt bump) so a
+        // later tick delivers it once the window passes. Never dropped.
+        summary.deferred++;
+        continue;
+      }
+      if (gate.skip) {
+        outcome = { status: 'skipped', detail: gate.skip };
+      }
     } catch (err) {
-      outcome = { status: 'failed', detail: (err && err.message) || 'deliver_error' };
+      outcome = { status: 'failed', detail: (err && err.message) || 'consent_gate_error' };
+    }
+
+    if (!outcome) {
+      try {
+        outcome = await deliverCheckin(env, row);
+      } catch (err) {
+        outcome = { status: 'failed', detail: (err && err.message) || 'deliver_error' };
+      }
     }
 
     // Disable any subscriptions the push service reported as gone.

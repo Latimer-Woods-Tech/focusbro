@@ -9,6 +9,7 @@ import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
+import { registerConsentRoutes } from './consent.js';
 import { renderMePage } from './me.js';
 import { runDueCheckins } from './checkins-cron.js';
 import config from './config.js';
@@ -292,6 +293,28 @@ async function initializeDatabase(env) {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status)`,
       `CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status)`,
+      // ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
+      // Delivery-side consent state; a text/voice check-in cannot send without a
+      // 'granted' row. Quiet hours (recipient-local) hold a due check-in; STOP revokes.
+      `CREATE TABLE IF NOT EXISTS contact_consent (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        status TEXT DEFAULT 'granted',
+        consent_text TEXT DEFAULT '',
+        consent_version TEXT DEFAULT '',
+        phone TEXT,
+        quiet_start INTEGER,
+        quiet_end INTEGER,
+        timezone TEXT DEFAULT 'UTC',
+        granted_at DATETIME,
+        revoked_at DATETIME,
+        revoke_source TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, channel),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_contact_consent_user ON contact_consent(user_id, channel)`,
       // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
@@ -1395,6 +1418,12 @@ registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, 
 // Consent-gated coach→client roster + read-only client views. The dashboard
 // PAGE is /coach/ (below). Full white-label is Phase C (operator UNBLOCK gated).
 registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+
+// ── CONTACT CONSENT ROUTES (TCPA consent-by-construction — Contender #10, Phase A) ──
+// Express consent capture + durable STOP opt-out + inbound SMS webhook. The
+// delivery cron consumes evaluateContactGate() so no text/voice check-in can be
+// sent without granted consent, inside quiet hours, or after opt-out.
+registerConsentRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.

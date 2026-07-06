@@ -21,6 +21,8 @@
 // accountability surface carries.
 // ════════════════════════════════════════════════════════════
 
+import { consentPanelCopy, consentLanguage } from './consent.js';
+
 /** The commitment lifecycle states the consumer view can render. */
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled'];
 
@@ -208,6 +210,37 @@ export function renderMePage() {
   </div>
 
   <div id="list"></div>
+
+  <div class="card" id="consentCard">
+    <h2>${consentPanelCopy().heading}</h2>
+    <p class="muted">${consentPanelCopy().intro}</p>
+    <form id="consentForm">
+      <label for="phone">${consentPanelCopy().phoneLabel}</label>
+      <input id="phone" type="tel" placeholder="+1 555 765 4321" autocomplete="tel" />
+      <div class="row">
+        <div>
+          <label for="quietStart">${consentPanelCopy().quietStartLabel}</label>
+          <select id="quietStart"><option value="">—</option></select>
+        </div>
+        <div>
+          <label for="quietEnd">${consentPanelCopy().quietEndLabel}</label>
+          <select id="quietEnd"><option value="">—</option></select>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:6px;">${consentPanelCopy().quietHint}</p>
+      <label style="display:flex; gap:8px; align-items:flex-start; margin-top:12px;">
+        <input id="agree" type="checkbox" style="width:auto; margin-top:3px;" />
+        <span>${consentLanguage('text')}</span>
+      </label>
+      <div class="actions">
+        <button type="submit" id="consentSave">${consentPanelCopy().saveButton}</button>
+        <button type="button" class="secondary" id="consentOptOut">${consentPanelCopy().optOutButton}</button>
+      </div>
+    </form>
+    <p class="ok hidden" id="consentMsg"></p>
+    <p class="err hidden" id="consentErr"></p>
+  </div>
+
   <p class="muted"><a href="#" id="signout">Sign out</a></p>
 </div>
 
@@ -302,7 +335,85 @@ export function renderMePage() {
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); }
+  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadConsent(); }
+
+  var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
+
+  function fillHours(sel) {
+    if (!sel) return;
+    for (var h = 0; h < 24; h++) {
+      var o = document.createElement('option');
+      o.value = String(h);
+      o.textContent = (h < 10 ? '0' + h : h) + ':00';
+      sel.appendChild(o);
+    }
+  }
+
+  function loadConsent() {
+    fillHoursOnce();
+    fetch('/api/consent', { headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
+      .then(function (data) {
+        var text = (data && data.channels && data.channels.text) || null;
+        if (!text) return;
+        if (text.quiet_start != null) el('quietStart').value = String(text.quiet_start);
+        if (text.quiet_end != null) el('quietEnd').value = String(text.quiet_end);
+        var msg = el('consentMsg');
+        if (text.status === 'granted') { msg.textContent = ''; el('agree').checked = true; }
+        else if (text.status === 'revoked') { msg.textContent = CONSENT_COPY.optedOut; show(msg); }
+      })
+      .catch(function () {});
+  }
+
+  var _hoursFilled = false;
+  function fillHoursOnce() {
+    if (_hoursFilled) return;
+    fillHours(el('quietStart')); fillHours(el('quietEnd'));
+    _hoursFilled = true;
+  }
+
+  function tzGuess() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { return 'UTC'; } }
+
+  var consentForm = el('consentForm');
+  if (consentForm) {
+    consentForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      hide(el('consentMsg')); hide(el('consentErr'));
+      if (!el('agree').checked) { var e0 = el('consentErr'); e0.textContent = CONSENT_COPY.needAgree; show(e0); return; }
+      var phone = el('phone').value.trim();
+      if (!phone) { var e1 = el('consentErr'); e1.textContent = CONSENT_COPY.needPhone; show(e1); return; }
+      var qs = el('quietStart').value, qe = el('quietEnd').value;
+      fetch('/api/consent', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({
+          channel: 'text', agree: true, phone: phone,
+          quiet_start: qs === '' ? null : Number(qs),
+          quiet_end: qe === '' ? null : Number(qe),
+          timezone: tzGuess()
+        })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          if (!res.ok) { var e = el('consentErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
+          var m = el('consentMsg'); m.textContent = res.b.message || CONSENT_COPY.savedOk; show(m);
+        })
+        .catch(function () { var e = el('consentErr'); e.textContent = 'Could not save that just now — try again.'; show(e); });
+    });
+
+    el('consentOptOut').addEventListener('click', function () {
+      hide(el('consentMsg')); hide(el('consentErr'));
+      fetch('/api/consent/opt-out', {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ channel: 'text' })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          var m = el('consentMsg'); m.textContent = (res.ok && res.b.message) ? res.b.message : CONSENT_COPY.optedOut; show(m);
+          el('agree').checked = false;
+        })
+        .catch(function () { var e = el('consentErr'); e.textContent = 'Could not update that just now — try again.'; show(e); });
+    });
+  }
+
   function toSignin() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} show(el('signin')); hide(el('app')); }
 
   function resolve(id, outcome, extra) {
