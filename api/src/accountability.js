@@ -49,6 +49,19 @@ export function pickPersona(p) {
   return PERSONAS.includes(p) ? p : 'ally';
 }
 
+/**
+ * The companion-tone choices, with a warm one-line blurb for each. Used by the
+ * `/me/` tone preference and the give-your-word picker; the Phase B voice engine
+ * will read the same persona key to pick the calm-ally vs hype voice. Neither
+ * tone ever shames — both are an ally glad you showed up.
+ */
+export function personaOptions() {
+  return [
+    { value: 'ally', label: 'Calm ally', blurb: 'Steady and warm. “You said you’d start — I’m here, let’s go.”' },
+    { value: 'hype', label: 'Hype', blurb: 'A little more fire. “Let’s GO — you’ve got this. 🔥”' },
+  ];
+}
+
 /** Normalize a recurrence value to a known cadence, defaulting to a one-shot. */
 export function pickRecurrence(r) {
   return RECURRENCES.includes(r) ? r : 'none';
@@ -163,7 +176,7 @@ export function localTimeFromISO(iso, timezone) {
  * Validate + normalize the body of a create-commitment request.
  * @returns {{ ok: true, value: object } | { ok: false, error: string }}
  */
-export function validateCommitmentInput(body, nowISO) {
+export function validateCommitmentInput(body, nowISO, opts = {}) {
   if (!body || typeof body !== 'object') {
     return { ok: false, error: 'A commitment needs at least a title and a start time.' };
   }
@@ -213,7 +226,10 @@ export function validateCommitmentInput(body, nowISO) {
     return { ok: false, error: `Check-in channel must be one of: ${CHANNELS.join(', ')}.` };
   }
 
-  const persona = pickPersona(body.persona);
+  // An explicit persona on the request wins; otherwise inherit the user's saved
+  // default tone (opts.defaultPersona), then fall back to the calm ally.
+  const hasPersona = typeof body.persona === 'string' && body.persona.trim() !== '';
+  const persona = hasPersona ? pickPersona(body.persona) : pickPersona(opts.defaultPersona);
 
   // For a recurring commitment the cron needs a local-time anchor to compute
   // each next occurrence; derive it from the start instant when not given.
@@ -509,6 +525,19 @@ export function registerAccountabilityRoutes(router, ctx) {
     return row || { current_streak: 0, longest_streak: 0, total_kept: 0, last_kept_date: null };
   }
 
+  // The user's saved default companion tone. Never throws — a missing column or
+  // row degrades to the calm ally so commitment creation is never blocked.
+  async function loadDefaultPersona(env, userId) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT default_persona FROM users WHERE id = ?`
+      ).bind(userId).first();
+      return pickPersona(row && row.default_persona);
+    } catch {
+      return 'ally';
+    }
+  }
+
   // Ensure a recurring commitment always has its next pending check-in queued.
   // Idempotent: a no-op for one-shots, and only inserts when no future pending
   // check-in already exists for this commitment. Keeps the daily rhythm alive
@@ -558,7 +587,8 @@ export function registerAccountabilityRoutes(router, ctx) {
       let body;
       try { body = await request.json(); } catch { body = null; }
 
-      const parsed = validateCommitmentInput(body);
+      const defaultPersona = await loadDefaultPersona(env, auth.userId);
+      const parsed = validateCommitmentInput(body, undefined, { defaultPersona });
       if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
       const v = parsed.value;
 
@@ -757,6 +787,42 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
       return jsonResponse({ error: 'Could not load your streak.' }, 500);
+    }
+  });
+
+  // ── READ my companion-tone preference ──
+  // The saved default tone (calm ally vs hype) + the available options so the
+  // /me/ picker can render itself. Phase B's voice engine reads the same field.
+  router.get('/api/accountability/preferences', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const persona = await loadDefaultPersona(env, auth.userId);
+      return jsonResponse({ persona, options: personaOptions() }, 200, 'short');
+    } catch (err) {
+      console.error('[accountability] prefs read error:', err && err.message);
+      return jsonResponse({ error: 'Could not load your preferences.' }, 500);
+    }
+  });
+
+  // ── SET my companion-tone preference ──
+  // Persists the default tone the bro remembers you by. Any unknown value
+  // normalizes to the calm ally rather than erroring — a preference is never a
+  // place to fail a person.
+  router.post('/api/accountability/preferences', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      const persona = pickPersona(body && body.persona);
+      await env.DB.prepare(
+        `UPDATE users SET default_persona = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(persona, auth.userId).run();
+      return jsonResponse({ persona, message: 'Saved — I’ll check in with that tone from now on.' }, 200);
+    } catch (err) {
+      console.error('[accountability] prefs write error:', err && err.message);
+      return jsonResponse({ error: 'Could not save that preference. Try again in a moment.' }, 500);
     }
   });
 }

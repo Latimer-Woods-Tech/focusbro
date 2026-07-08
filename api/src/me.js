@@ -129,6 +129,7 @@ export function renderMePage() {
   .name { font-weight: 600; }
   .when { color: #6b7280; font-size: 13px; }
   .muted { color: #6b7280; font-size: 13px; }
+  .linklike { background: none; border: none; color: #4338ca; font-size: 13px; padding: 2px 0; cursor: pointer; text-decoration: underline; }
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
   .pill.active { background: #eef2ff; color: #4338ca; }
   .pill.kept   { background: #ecfdf5; color: #047857; }
@@ -194,6 +195,8 @@ export function renderMePage() {
             <option value="ally">Calm ally</option>
             <option value="hype">Hype</option>
           </select>
+          <button type="button" id="savePersona" class="linklike">Remember this tone</button>
+          <span class="muted" id="personaSaved" hidden>Saved ✓</span>
         </div>
         <div>
           <label for="channel">Check-in by</label>
@@ -346,7 +349,32 @@ export function renderMePage() {
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadConsent(); }
+  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadConsent(); loadPrefs(); }
+
+  // Pre-select the give-your-word picker with the tone the bro remembers you by.
+  function loadPrefs() {
+    fetch('/api/accountability/preferences', { headers: authHeaders() })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (b) {
+        if (b && b.persona && el('persona')) { el('persona').value = b.persona; }
+      })
+      .catch(function () {});
+  }
+
+  // "Remember this tone" — persist the current pick as the default.
+  var savePersonaBtn = el('savePersona');
+  if (savePersonaBtn) {
+    savePersonaBtn.addEventListener('click', function () {
+      var saved = el('personaSaved');
+      fetch('/api/accountability/preferences', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ persona: el('persona').value })
+      })
+        .then(function (r) { return r.ok; })
+        .then(function (ok) { if (ok && saved) { saved.hidden = false; setTimeout(function () { saved.hidden = true; }, 2500); } })
+        .catch(function () {});
+    });
+  }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 

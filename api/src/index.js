@@ -364,6 +364,11 @@ async function initializeDatabase(env) {
       // calls you every day at the same time" works without recreating it.
       `ALTER TABLE commitments ADD COLUMN recurrence TEXT DEFAULT 'none'`,
       `ALTER TABLE commitments ADD COLUMN local_time TEXT`,
+      // ── USER COMPANION-PERSONA DEFAULT (Contender #10, Phase B readiness) ──
+      // Per-user default tone (calm ally vs hype) so the bro remembers how you
+      // like to be nudged. Push/text check-ins inherit it now; the Phase B voice
+      // engine reads the same field to pick the calm-ally vs hype voice.
+      `ALTER TABLE users ADD COLUMN default_persona TEXT DEFAULT 'ally'`,
     ];
     
     for (const sql of alterTableStatements) {

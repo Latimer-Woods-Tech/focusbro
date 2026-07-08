@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_login DATETIME,
   subscription_tier TEXT DEFAULT 'free',
+  default_persona TEXT DEFAULT 'ally',
   is_active BOOLEAN DEFAULT 1
 );
 
