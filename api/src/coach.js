@@ -24,6 +24,8 @@
 // coach.test.js (banned-word + no-"AI" + no-clinical-claim assertions).
 // ════════════════════════════════════════════════════════════
 
+import { describeCadence } from './accountability.js';
+
 /** Roster link states. A coach sees client data only in the `active` state. */
 export const COACH_LINK_STATES = ['pending', 'active', 'declined', 'removed'];
 
@@ -77,6 +79,19 @@ export function invitePendingCopy() {
 export function inviteSentCopy({ email } = {}) {
   const who = email ? ` to ${email}` : '';
   return `Invitation sent${who}. They choose whether to opt in — you’ll see their kept-word momentum once they accept.`;
+}
+
+/**
+ * Header copy for the client-rhythm panel. A cadence view shows WHEN a person
+ * asked the bro to show up — the shape of their commitment, never a scorecard.
+ */
+export function rhythmIntroCopy() {
+  return 'The rhythm they set for themselves — the times they’ve asked the bro to show up.';
+}
+
+/** Shown in the rhythm panel when an active client has no live commitments. */
+export function rhythmEmptyCopy() {
+  return 'Nothing on the books right now — a clear page, ready for their next word.';
 }
 
 // ── ROUTES ───────────────────────────────────────────────────
@@ -244,12 +259,25 @@ export function registerCoachRoutes(router, ctx) {
 
       const streak = await loadStreakFor(env, clientId);
       const commitments = await env.DB.prepare(
-        `SELECT title, start_at, checkin_at, status
+        `SELECT title, start_at, checkin_at, status, recurrence, local_time, timezone
            FROM commitments
           WHERE user_id = ? AND status = 'active'
           ORDER BY start_at ASC
           LIMIT 100`
       ).bind(clientId).all();
+
+      // Surface each commitment's self-set cadence (the rhythm), read-only.
+      // Momentum-only: this is when they asked to be met, never a miss list.
+      const activeCommitments = ((commitments && commitments.results) || []).map((c) => ({
+        title: c.title,
+        start_at: c.start_at,
+        checkin_at: c.checkin_at,
+        status: c.status,
+        recurrence: c.recurrence || 'none',
+        local_time: c.local_time || null,
+        timezone: c.timezone || 'UTC',
+        cadence: describeCadence({ recurrence: c.recurrence, localTime: c.local_time }),
+      }));
 
       return jsonResponse({
         client_id: clientId,
@@ -260,7 +288,9 @@ export function registerCoachRoutes(router, ctx) {
           total_kept: Number(streak.total_kept) || 0,
         },
         status_line: clientStatusLine({ streak }),
-        active_commitments: (commitments && commitments.results) || [],
+        rhythm_intro: rhythmIntroCopy(),
+        rhythm_empty: activeCommitments.length ? null : rhythmEmptyCopy(),
+        active_commitments: activeCommitments,
       }, 200, 'nocache');
     } catch (err) {
       console.error('[coach] client detail error:', err && err.message);
