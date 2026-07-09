@@ -148,6 +148,24 @@ export function nextOccurrenceISO({ recurrence, timezone, localTime, afterISO } 
   return null;
 }
 
+/**
+ * A warm, human phrase for a commitment's cadence — the rhythm the bro shows
+ * up on. Momentum-only framing: cadence describes when someone asked to be met,
+ * never a miss tally. Pure + deterministic so every surface (`/me/`, the coach
+ * view) reads the same rhythm. The timezone, if any, is surfaced separately by
+ * callers; this label stays a compact "what/when".
+ * @param {object} p { recurrence, localTime }
+ * @returns {string}  e.g. "Every day at 08:40", "Weekdays", "One-time"
+ */
+export function describeCadence({ recurrence, localTime } = {}) {
+  const rec = pickRecurrence(recurrence);
+  const t = parseLocalTime(localTime);
+  const at = t ? ` at ${fmtLocalTime(t.h, t.m)}` : '';
+  if (rec === 'daily') return `Every day${at}`;
+  if (rec === 'weekdays') return `Weekdays${at}`;
+  return 'One-time';
+}
+
 /** Derive an 'HH:MM' local-time anchor from an ISO instant in a zone. */
 export function localTimeFromISO(iso, timezone) {
   const d = new Date(iso);

@@ -1796,6 +1796,12 @@ router.get('/coach/', async () => {
   .hidden { display: none; }
   .err { color: #b91c1c; font-size: 14px; }
   .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+  .rhythm { margin-top: 12px; border-top: 1px dashed #e5e7eb; padding-top: 10px; }
+  .rhythm-intro { margin-bottom: 8px; }
+  .rhythm-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 14px; }
+  .rhythm-title { color: #111827; }
+  .rhythm-cadence { color: #4f46e5; white-space: nowrap; }
+  .rhythm-toggle { font-size: 13px; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/about.html">About</a></nav>
@@ -1861,11 +1867,15 @@ router.get('/coach/', async () => {
       var c = roster[i];
       var name = c.label || c.email || 'A client';
       if (c.status === 'active' && c.streak) {
-        html += '<div class="card client">'
-          + '<div><div class="name">' + esc(name) + '</div>'
-          + '<div class="line">' + esc(c.status_line || '') + '</div>'
-          + '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's') + '</div></div>'
-          + '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
+        html += '<div class="card">'
+          + '<div class="client">'
+          +   '<div><div class="name">' + esc(name) + '</div>'
+          +     '<div class="line">' + esc(c.status_line || '') + '</div>'
+          +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
+          +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div></div>'
+          +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
+          + '</div>'
+          + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
           + '</div>';
       } else {
         html += '<div class="card client pending">'
@@ -1876,6 +1886,39 @@ router.get('/coach/', async () => {
     }
     host.innerHTML = html;
   }
+
+  function renderRhythm(panel, d) {
+    var items = (d && d.active_commitments) || [];
+    if (!items.length) {
+      panel.innerHTML = '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
+      return;
+    }
+    var out = '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var tzRaw = (it.timezone && it.timezone !== 'UTC') ? ' (' + it.timezone + ')' : '';
+      out += '<div class="rhythm-row"><span class="rhythm-title">' + esc(it.title) + '</span>'
+        + '<span class="rhythm-cadence">' + esc((it.cadence || 'One-time') + tzRaw) + '</span></div>';
+    }
+    panel.innerHTML = out;
+  }
+
+  // The roster host is a stable node; delegate rhythm toggles so it survives
+  // re-renders. A toggle fetches the client's read-only cadence on demand.
+  el('roster').addEventListener('click', function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('.rhythm-toggle') : null;
+    if (!a) return;
+    ev.preventDefault();
+    var id = a.getAttribute('data-id');
+    var panel = document.getElementById('rhythm-' + id);
+    if (!panel) return;
+    if (!panel.classList.contains('hidden')) { hide(panel); a.textContent = 'View rhythm'; return; }
+    a.textContent = 'Loading…';
+    fetch('/api/coach/clients/' + encodeURIComponent(id), { headers: authHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderRhythm(panel, data); show(panel); a.textContent = 'Hide rhythm'; })
+      .catch(function () { panel.innerHTML = '<div class="muted">Could not load their rhythm just now.</div>'; show(panel); a.textContent = 'View rhythm'; });
+  });
 
   function loadRoster() {
     fetch('/api/coach/clients', { headers: authHeaders() })

@@ -16,7 +16,10 @@ import {
   rosterEmptyCopy,
   invitePendingCopy,
   inviteSentCopy,
+  rhythmIntroCopy,
+  rhythmEmptyCopy,
 } from '../coach.js';
+import { describeCadence } from '../accountability.js';
 
 describe('coach link states', () => {
   it('exposes the four link states', () => {
@@ -64,6 +67,26 @@ describe('clientStatusLine — kept-word momentum, never a miss tally', () => {
   });
 });
 
+describe('describeCadence — the client rhythm a coach sees, read-only', () => {
+  it('labels a one-shot commitment', () => {
+    expect(describeCadence({ recurrence: 'none', localTime: '08:40' })).toBe('One-time');
+    expect(describeCadence({ recurrence: 'none' })).toBe('One-time');
+  });
+  it('labels a daily cadence with and without a local time', () => {
+    expect(describeCadence({ recurrence: 'daily', localTime: '08:40' })).toBe('Every day at 08:40');
+    expect(describeCadence({ recurrence: 'daily' })).toBe('Every day');
+  });
+  it('labels a weekdays cadence with and without a local time', () => {
+    expect(describeCadence({ recurrence: 'weekdays', localTime: '9:05' })).toBe('Weekdays at 09:05');
+    expect(describeCadence({ recurrence: 'weekdays' })).toBe('Weekdays');
+  });
+  it('is total — garbage recurrence falls back to one-shot, no throw', () => {
+    expect(describeCadence({ recurrence: 'wat', localTime: 'nope' })).toBe('One-time');
+    expect(describeCadence()).toBe('One-time');
+    expect(describeCadence({ recurrence: 'daily', localTime: '25:99' })).toBe('Every day');
+  });
+});
+
 // ── THE DESIGN LAW extends to the coach's view ───────────────
 describe('copy law — a coach never reads shame, "AI", or a clinical claim', () => {
   const SHAME_PATTERNS = [
@@ -94,6 +117,11 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientStatusLine({ streak: { current_streak: 0, longest_streak: 5 } }),
     clientStatusLine({ streak: { current_streak: 1, longest_streak: 1 } }),
     clientStatusLine({ streak: { current_streak: 12, longest_streak: 20 } }),
+    rhythmIntroCopy(),
+    rhythmEmptyCopy(),
+    describeCadence({ recurrence: 'none' }),
+    describeCadence({ recurrence: 'daily', localTime: '08:40' }),
+    describeCadence({ recurrence: 'weekdays', localTime: '09:05' }),
   ];
 
   it('produces non-empty strings for every roster copy path', () => {
