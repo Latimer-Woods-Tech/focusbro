@@ -40,6 +40,30 @@ export const OUTCOMES = ['kept', 'missed', 'reschedule'];
  */
 export const RECURRENCES = ['none', 'daily', 'weekdays'];
 
+/**
+ * "I'm on it" snooze bounds. A real accountability friend has a third answer
+ * between "done" and "move the whole thing" — "check back in a bit." These bound
+ * how far out a snooze pushes the next nudge: a sensible default, a floor so it
+ * stays a nudge (not a disappearance), and a ceiling so it can't quietly become
+ * a reschedule. Minutes.
+ */
+export const SNOOZE_DEFAULT_MIN = 15;
+export const SNOOZE_MIN_MIN = 5;
+export const SNOOZE_MAX_MIN = 180;
+
+/**
+ * Clamp a requested snooze to the allowed window. Missing/garbage → the default;
+ * out-of-range → the nearest bound. Always returns a whole number of minutes.
+ * @param {*} v requested minutes (may be undefined)
+ * @returns {number}
+ */
+export function clampSnoozeMinutes(v) {
+  if (v == null) return SNOOZE_DEFAULT_MIN; // not provided → default
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return SNOOZE_DEFAULT_MIN;
+  return Math.min(SNOOZE_MAX_MIN, Math.max(SNOOZE_MIN_MIN, n));
+}
+
 const MAX_TITLE = 200;
 const MAX_DETAILS = 2000;
 const DEFAULT_CHECKIN_OFFSET_MS = 60 * 60 * 1000; // check back ~1h after start by default
@@ -334,6 +358,20 @@ export function releaseConfirmCopy({ persona } = {}) {
     return 'Set it down — no stress at all. Clearing this one off your plate. Your streak’s untouched; start a fresh word whenever you’re ready. 💪';
   }
   return 'Consider it set down — no problem at all. I’ve cleared it, and your streak stays right where it is. Give a new word whenever you’re ready.';
+}
+
+/**
+ * Confirming a snooze ("I'm on it"): the person is mid-thing and wants the bro
+ * to check back shortly — not a resolution, not a reschedule, not a miss. The
+ * copy is glad they're on it and promises to come back, never "don't forget,"
+ * never pressure. Names the interval so the return is concrete.
+ */
+export function snoozeConfirmCopy({ persona, minutes } = {}) {
+  const m = clampSnoozeMinutes(minutes);
+  if (pickPersona(persona) === 'hype') {
+    return `Love it — you’re on it! I’ll swing back in ${m} minutes. Right here cheering you on. 🔥`;
+  }
+  return `You got it — I’ll check back in ${m} minutes. No rush at all; I’m right here.`;
 }
 
 /** A streak summary. On zero, it's a fresh start — never "you failed." */
@@ -819,6 +857,78 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] release error:', err && err.message);
       return jsonResponse({ error: 'Could not set that down just now — try again in a moment.' }, 500);
+    }
+  });
+
+  // ── SNOOZE a check-in ("I'm on it") — keep the bro present, touch nothing else ──
+  // A real accountability friend has a third answer between "I did it" and "move
+  // the whole thing": "I'm on it — check back in a bit." A push nudge swiped away
+  // in half a second of reflex is the exact ADHD failure mode this product exists
+  // to beat; snooze keeps the nudge alive without moving the word or resetting the
+  // rhythm. It re-arms the latest still-open check-in (or opens a fresh one) a few
+  // minutes out. The kept-word streak is NEVER read or written here — a snooze is
+  // not a resolution, by construction — and the commitment stays exactly as it is.
+  router.post('/api/commitments/:id/snooze', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      let body;
+      try { body = await request.json(); } catch { body = {}; }
+      const minutes = clampSnoozeMinutes(body && body.minutes);
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      const persona = pickPersona(commitment.persona);
+
+      // Only an active word has a live nudge to push forward. A word already
+      // kept, moved, or set down is warmly left alone — never an error tone.
+      if (commitment.status !== 'active') {
+        return jsonResponse({
+          error: 'That word isn’t open right now — there’s nothing waiting to check back on. Give a fresh word whenever you’re ready.',
+        }, 409);
+      }
+
+      const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
+
+      // Re-arm the latest still-open check-in if there is one: the person may be
+      // answering a nudge already delivered (status='sent') or one held for quiet
+      // hours ('deferred'). Reset attempts so the fresh window starts clean, and
+      // clear responded_at — this check-in is not resolved, just moved a little.
+      const open = await env.DB.prepare(
+        `SELECT id FROM commitment_checkins
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          ORDER BY scheduled_for DESC LIMIT 1`
+      ).bind(id, auth.userId).first();
+
+      if (open && open.id) {
+        await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+            WHERE id = ? AND user_id = ?`
+        ).bind(snoozedUntil, open.id, auth.userId).run();
+      } else {
+        // No open check-in (the last one already resolved/skipped) — open a fresh
+        // one so "I'm on it" always keeps the bro coming back.
+        await env.DB.prepare(
+          `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+           VALUES (?, ?, ?, ?, ?, 'pending')`
+        ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
+      }
+
+      return jsonResponse({
+        commitment_id: id,
+        snoozed_until: snoozedUntil,
+        minutes,
+        message: snoozeConfirmCopy({ persona, minutes }),
+      }, 200);
+    } catch (err) {
+      console.error('[accountability] snooze error:', err && err.message);
+      return jsonResponse({ error: 'Could not set that reminder just now — try again in a moment.' }, 500);
     }
   });
 

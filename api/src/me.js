@@ -85,6 +85,11 @@ export function releaseActionLabel() {
   return 'Set it down';
 }
 
+/** "I'm on it" — check back shortly. Keeps the bro present; not a resolution. */
+export function snoozeActionLabel() {
+  return 'I’m on it';
+}
+
 /** The standing promise at the foot of the page — the design LAW, in plain words. */
 export function mePageFootnoteCopy() {
   return 'FocusBro is an ally, not a boss. When a check-in lands and it didn’t happen, ' +
@@ -106,6 +111,7 @@ export function meCopySurface() {
     streakHeadingCopy(),
     labels.kept, labels.missed, labels.reschedule,
     releaseActionLabel(),
+    snoozeActionLabel(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
   ];
@@ -119,6 +125,7 @@ export function meCopySurface() {
 export function renderMePage() {
   const A = checkinActionLabels();
   const RELEASE = releaseActionLabel();
+  const SNOOZE = snoozeActionLabel();
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -335,6 +342,7 @@ export function renderMePage() {
       if (c.status === 'active') {
         html += '<div class="actions">'
           + '<button class="small" data-act="kept" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.kept)}) + '</button>'
+          + '<button class="small secondary" data-act="snooze" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(SNOOZE)}) + '</button>'
           + '<button class="small secondary" data-act="missed" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.missed)}) + '</button>'
           + '<button class="small secondary" data-act="reschedule" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.reschedule)}) + '</button>'
           + '<button class="small secondary" data-act="release" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RELEASE)}) + '</button>'
@@ -468,6 +476,21 @@ export function renderMePage() {
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not set that down just now — try again.'; msgHost.className = 'msg err'; } });
   }
 
+  // "I'm on it" — keep the bro coming back a few minutes out without moving the
+  // word or touching the streak. Nothing in the list changes, so just show the
+  // warm confirmation on the card.
+  function snooze(id) {
+    var msgHost = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/snooze', {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({})
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
+      })
+      .catch(function () { if (msgHost) { msgHost.textContent = 'Could not set that reminder just now — try again.'; msgHost.className = 'msg err'; } });
+  }
+
   // Action buttons (delegated).
   el('list').addEventListener('click', function (ev) {
     var btn = ev.target.closest ? ev.target.closest('button[data-act]') : null;
@@ -476,6 +499,7 @@ export function renderMePage() {
     var id = btn.getAttribute('data-id');
     var act = btn.getAttribute('data-act');
     if (act === 'kept') { resolve(id, 'kept'); return; }
+    if (act === 'snooze') { snooze(id); return; }
     if (act === 'missed') { resolve(id, 'missed'); return; }
     if (act === 'release') {
       if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }
