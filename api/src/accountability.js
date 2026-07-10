@@ -374,6 +374,35 @@ export function snoozeConfirmCopy({ persona, minutes } = {}) {
   return `You got it — I’ll check back in ${m} minutes. No rush at all; I’m right here.`;
 }
 
+/**
+ * Confirming a pause ("take a break"): the recurring rhythm is set aside on
+ * purpose — not ended, not missed. Pausing is the "life happens" flex for a
+ * repeating check-in: someone going away shouldn't have to set the whole word
+ * down (release) or absorb a pile of nudges they can't answer. The kept-word
+ * streak is untouched, the door stays wide open, and the copy is glad they told
+ * us and ready whenever they're back — never disappointed, never a countdown.
+ */
+export function pauseConfirmCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Paused — go live your life! Your streak’s locked in right where it is. Say the word whenever you’re back and we’re rolling again. 🔥';
+  }
+  return 'Paused — take all the time you need. Your streak stays exactly where it is, and I’ll be right here when you’re back. Just say the word to pick the rhythm back up.';
+}
+
+/**
+ * Confirming a resume ("welcome back"): the rhythm is on again after a pause.
+ * Warm, glad they're back, and concrete about when the next check-in lands so
+ * the return is real. Never a word about the time away — a pause was always
+ * allowed, so there is nothing to make up for.
+ */
+export function resumeConfirmCopy({ persona, when } = {}) {
+  const at = when ? ` Next check-in ${formatWhen(when)}.` : '';
+  if (pickPersona(persona) === 'hype') {
+    return `Back in action — let’s GO!${at} So glad you’re here; we’re rolling again. 💪`;
+  }
+  return `Welcome back — we’re on again.${at} Good to have you; let’s keep the rhythm going.`;
+}
+
 /** A streak summary. On zero, it's a fresh start — never "you failed." */
 export function streakSummaryCopy({ streak, persona } = {}) {
   const cur = Number(streak?.current_streak) || 0;
@@ -929,6 +958,115 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] snooze error:', err && err.message);
       return jsonResponse({ error: 'Could not set that reminder just now — try again in a moment.' }, 500);
+    }
+  });
+
+  // ── PAUSE a recurring rhythm (take a break — never ending the word) ──
+  // "The bro who calls you every day" needs an off switch that isn't a goodbye.
+  // Before this, the only ways off an active recurring word were to resolve each
+  // occurrence, set it down (release — terminal), or absorb nudges you can't
+  // answer while you're away. Pause suspends the rhythm on purpose: the
+  // commitment moves to a 'paused' state, its still-waiting check-ins are
+  // cancelled so the bro stops ringing, and — because the delivery cron's
+  // materializer only re-queues an 'active' commitment — no new occurrence is
+  // scheduled while paused. The kept-word streak is NEVER read or written: a
+  // pause is not a miss, by construction. Pause is for a *rhythm*; a one-shot
+  // word has set-it-down / move-it instead. Idempotent-safe (409 non-active).
+  router.post('/api/commitments/:id/pause', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, persona, recurrence, status FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      const persona = pickPersona(commitment.persona);
+
+      // Pause is for a repeating rhythm. A one-time word has 'set it down' / 'move it'.
+      if (pickRecurrence(commitment.recurrence) === 'none') {
+        return jsonResponse({
+          error: 'Pause is for a repeating check-in. For a one-time word, set it down or move it whenever you need.',
+        }, 409);
+      }
+      // Only a running rhythm can be paused. Anything else is warmly left alone.
+      if (commitment.status !== 'active') {
+        return jsonResponse({
+          error: 'That rhythm isn’t running right now — nothing to pause. Give a fresh word whenever you’re ready.',
+        }, 409);
+      }
+
+      await env.DB.prepare(
+        `UPDATE commitments SET status = 'paused', updated_at = datetime('now')
+          WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).run();
+
+      // Stop the bro from ringing while paused: cancel any check-ins still waiting
+      // to send (pending or held-for-quiet-hours). The streak is NEVER touched —
+      // pausing protects the chain by construction.
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+      ).bind(id, auth.userId).run();
+
+      return jsonResponse({
+        commitment: { id, status: 'paused' },
+        message: pauseConfirmCopy({ persona }),
+      }, 200);
+    } catch (err) {
+      console.error('[accountability] pause error:', err && err.message);
+      return jsonResponse({ error: 'Could not pause that just now — try again in a moment.' }, 500);
+    }
+  });
+
+  // ── RESUME a paused rhythm (welcome back) ──
+  // Bring a paused recurring word back to life: it returns to 'active' and its
+  // next occurrence is scheduled at the same recipient-local wall-clock time, so
+  // the rhythm picks up cleanly from now (never a backlog of the days away).
+  // Idempotent-safe: only a 'paused' word resumes (409 otherwise, no mutation).
+  // The kept-word streak is NEVER read or written — the time away was allowed.
+  router.post('/api/commitments/:id/resume', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, persona, channel, recurrence, timezone, local_time, status
+           FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      const persona = pickPersona(commitment.persona);
+
+      if (commitment.status !== 'paused') {
+        return jsonResponse({
+          error: 'That rhythm isn’t paused — nothing to resume. You’re all set.',
+        }, 409);
+      }
+
+      await env.DB.prepare(
+        `UPDATE commitments SET status = 'active', updated_at = datetime('now')
+          WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).run();
+
+      // Schedule the next occurrence so the rhythm actually starts ringing again.
+      // ensureNextOccurrence is idempotent + a no-op for a non-recurring word (a
+      // paused rhythm is always recurring by construction of the pause gate).
+      const nowISO = new Date().toISOString();
+      const next = await ensureNextOccurrence(env, auth.userId, commitment, nowISO);
+
+      const response = {
+        commitment: { id, status: 'active' },
+        message: resumeConfirmCopy({ persona, when: next && next.scheduled_for }),
+      };
+      if (next) response.next_checkin = next;
+      return jsonResponse(response, 200);
+    } catch (err) {
+      console.error('[accountability] resume error:', err && err.message);
+      return jsonResponse({ error: 'Could not resume that just now — try again in a moment.' }, 500);
     }
   });
 

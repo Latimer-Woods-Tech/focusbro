@@ -43,8 +43,8 @@ const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /
 const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
 
 describe('commitment statuses', () => {
-  it('exposes the five lifecycle states', () => {
-    expect(COMMITMENT_STATUSES).toEqual(['active', 'kept', 'missed', 'rescheduled', 'released']);
+  it('exposes the six lifecycle states', () => {
+    expect(COMMITMENT_STATUSES).toEqual(['active', 'kept', 'missed', 'rescheduled', 'released', 'paused']);
   });
 
   it('every status presents a non-empty label and a known, non-shame tone', () => {

@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS commitments (
   timezone         TEXT DEFAULT 'UTC',
   recurrence       TEXT DEFAULT 'none',        -- none | daily | weekdays  (cadence; cf. wordis-bond scheduled runs)
   local_time       TEXT,                        -- HH:MM wall-clock in `timezone`; anchors each recurring occurrence (DST-correct)
-  status           TEXT DEFAULT 'active',      -- active | kept | missed | rescheduled | cancelled  (a recurring commitment stays 'active')
+  status           TEXT DEFAULT 'active',      -- active | kept | missed | rescheduled | released | paused | cancelled  (a recurring commitment stays 'active' unless paused)
   rescheduled_from TEXT,                        -- prior commitment id, if this is a no-shame retry
   created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,

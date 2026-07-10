@@ -24,7 +24,7 @@
 import { consentPanelCopy, consentLanguage } from './consent.js';
 
 /** The commitment lifecycle states the consumer view can render. */
-export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released'];
+export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
 
 /**
  * How a commitment status is shown to the person who gave the word.
@@ -49,6 +49,9 @@ export function statusPresentation(status) {
     case 'released':
       // A word set down by choice. Blameless — plans change, and that's fine.
       return { key: 'rest', label: 'Set down', tone: 'open' };
+    case 'paused':
+      // A rhythm on a break by choice. Still yours; picks up when you're back.
+      return { key: 'paused', label: 'Paused', tone: 'moved' };
     case 'active':
     default:
       return { key: 'active', label: 'On the books', tone: 'active' };
@@ -90,6 +93,16 @@ export function snoozeActionLabel() {
   return 'I’m on it';
 }
 
+/** Suspend a repeating rhythm without ending the word — "life happens." */
+export function pauseActionLabel() {
+  return 'Pause';
+}
+
+/** Bring a paused rhythm back — welcome back, no catching up. */
+export function resumeActionLabel() {
+  return 'Resume';
+}
+
 /** The standing promise at the foot of the page — the design LAW, in plain words. */
 export function mePageFootnoteCopy() {
   return 'FocusBro is an ally, not a boss. When a check-in lands and it didn’t happen, ' +
@@ -112,6 +125,8 @@ export function meCopySurface() {
     labels.kept, labels.missed, labels.reschedule,
     releaseActionLabel(),
     snoozeActionLabel(),
+    pauseActionLabel(),
+    resumeActionLabel(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
   ];
@@ -126,6 +141,8 @@ export function renderMePage() {
   const A = checkinActionLabels();
   const RELEASE = releaseActionLabel();
   const SNOOZE = snoozeActionLabel();
+  const PAUSE = pauseActionLabel();
+  const RESUME = resumeActionLabel();
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -304,7 +321,8 @@ export function renderMePage() {
     kept: { label: ${JSON.stringify(statusPresentation('kept').label)}, tone: 'kept' },
     rescheduled: { label: ${JSON.stringify(statusPresentation('rescheduled').label)}, tone: 'moved' },
     missed: { label: ${JSON.stringify(statusPresentation('missed').label)}, tone: 'open' },
-    released: { label: ${JSON.stringify(statusPresentation('released').label)}, tone: 'open' }
+    released: { label: ${JSON.stringify(statusPresentation('released').label)}, tone: 'open' },
+    paused: { label: ${JSON.stringify(statusPresentation('paused').label)}, tone: 'moved' }
   };
   function present(status) { return STATUS[status] || STATUS.active; }
 
@@ -340,12 +358,20 @@ export function renderMePage() {
         +   '<span class="pill ' + p.tone + '">' + esc(p.label) + '</span>'
         + '</div>';
       if (c.status === 'active') {
+        // Pause is the "life happens" flex for a repeating rhythm only.
+        var isRecur = (c.recurrence === 'daily' || c.recurrence === 'weekdays');
         html += '<div class="actions">'
           + '<button class="small" data-act="kept" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.kept)}) + '</button>'
           + '<button class="small secondary" data-act="snooze" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(SNOOZE)}) + '</button>'
           + '<button class="small secondary" data-act="missed" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.missed)}) + '</button>'
           + '<button class="small secondary" data-act="reschedule" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.reschedule)}) + '</button>'
+          + (isRecur ? '<button class="small secondary" data-act="pause" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(PAUSE)}) + '</button>' : '')
           + '<button class="small secondary" data-act="release" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RELEASE)}) + '</button>'
+          + '</div>';
+      } else if (c.status === 'paused') {
+        // A rhythm on a break — one tap to welcome it back. No catching up.
+        html += '<div class="actions">'
+          + '<button class="small" data-act="resume" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RESUME)}) + '</button>'
           + '</div>';
       } else if (c.status === 'missed') {
         // The open door — one tap to try again, never a dead end.
@@ -491,6 +517,37 @@ export function renderMePage() {
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not set that reminder just now — try again.'; msgHost.className = 'msg err'; } });
   }
 
+  // Pause a repeating rhythm — take a break without ending the word. Fully
+  // reversible (Resume), streak untouched, so no confirm needed. Reload the list
+  // so the card flips to its Paused state.
+  function pause(id) {
+    var msgHost = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/pause', {
+      method: 'POST', headers: authHeaders()
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
+        if (res.ok) { loadList(); }
+      })
+      .catch(function () { if (msgHost) { msgHost.textContent = 'Could not pause that just now — try again.'; msgHost.className = 'msg err'; } });
+  }
+
+  // Resume a paused rhythm — welcome back. The next check-in is scheduled from
+  // now; no backlog of the days away.
+  function resume(id) {
+    var msgHost = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/resume', {
+      method: 'POST', headers: authHeaders()
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
+        if (res.ok) { loadList(); }
+      })
+      .catch(function () { if (msgHost) { msgHost.textContent = 'Could not resume that just now — try again.'; msgHost.className = 'msg err'; } });
+  }
+
   // Action buttons (delegated).
   el('list').addEventListener('click', function (ev) {
     var btn = ev.target.closest ? ev.target.closest('button[data-act]') : null;
@@ -500,6 +557,8 @@ export function renderMePage() {
     var act = btn.getAttribute('data-act');
     if (act === 'kept') { resolve(id, 'kept'); return; }
     if (act === 'snooze') { snooze(id); return; }
+    if (act === 'pause') { pause(id); return; }
+    if (act === 'resume') { resume(id); return; }
     if (act === 'missed') { resolve(id, 'missed'); return; }
     if (act === 'release') {
       if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }
