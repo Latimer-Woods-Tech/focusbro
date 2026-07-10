@@ -266,6 +266,124 @@ export function validateCommitmentInput(body, nowISO) {
   return { ok: true, value: { title, details, startAt, checkinAt, channel, persona, timezone, recurrence, localTime } };
 }
 
+/**
+ * Validate + normalize an EDIT of an existing commitment (change it in place).
+ *
+ * The whole point: a small change — a reworded title, a different time, "make
+ * this daily" — must never cost you the streak, which is exactly what happens
+ * when the only way to change a word is to set it down and give a fresh one.
+ * This merges the provided fields over the existing row and returns the full
+ * normalized set to persist, plus a `scheduleChanged` flag so the route knows
+ * whether the check-in needs re-queuing. Only the fields actually present in
+ * `body` change; everything else is carried over untouched. Pure + testable —
+ * no DB, no streak (an edit is never a resolution).
+ *
+ * @param {object} existing the current commitment row
+ * @param {object} body the edit request (any subset of the mutable fields)
+ * @param {string} [nowISO] the reference instant for recomputing a recurrence
+ * @returns {{ ok: true, value: object, scheduleChanged: boolean } | { ok: false, error: string }}
+ */
+export function buildCommitmentEdit(existing, body, nowISO) {
+  if (!existing) return { ok: false, error: 'Not found' };
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'Nothing to change — tell me what to update.' };
+  }
+
+  const out = {
+    title: existing.title,
+    details: existing.details || '',
+    channel: existing.channel || 'push',
+    persona: pickPersona(existing.persona),
+    timezone: existing.timezone || 'UTC',
+    recurrence: pickRecurrence(existing.recurrence),
+    localTime: existing.local_time || '',
+    startAt: existing.start_at,
+    checkinAt: existing.checkin_at,
+  };
+  let touched = false;
+  let scheduleChanged = false;
+
+  if (body.title !== undefined) {
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (!title) return { ok: false, error: 'What are you going to do? Give it a title.' };
+    if (title.length > MAX_TITLE) return { ok: false, error: `Keep the title under ${MAX_TITLE} characters.` };
+    out.title = title; touched = true;
+  }
+
+  if (body.details !== undefined) {
+    out.details = typeof body.details === 'string' ? body.details.trim().slice(0, MAX_DETAILS) : '';
+    touched = true;
+  }
+
+  if (body.persona !== undefined) { out.persona = pickPersona(body.persona); touched = true; }
+
+  if (body.channel !== undefined) {
+    const channel = typeof body.channel === 'string' ? body.channel.toLowerCase() : '';
+    if (channel === 'voice') {
+      return { ok: false, error: 'Voice check-ins are coming soon — for now pick push or text and I’ll still show up.' };
+    }
+    if (!CHANNELS.includes(channel)) {
+      return { ok: false, error: `Check-in channel must be one of: ${CHANNELS.join(', ')}.` };
+    }
+    out.channel = channel; touched = true;
+  }
+
+  // Anything that moves WHEN the bro shows up needs the check-in re-queued.
+  const wantsTimezone = body.timezone !== undefined;
+  const wantsRecurrence = body.recurrence !== undefined;
+  const wantsLocalTime = body.local_time !== undefined;
+  const wantsStartAt = body.start_at !== undefined;
+  const wantsCheckinAt = body.checkin_at !== undefined;
+
+  if (wantsTimezone) {
+    out.timezone = (typeof body.timezone === 'string' && body.timezone.trim()) ? body.timezone.trim() : 'UTC';
+    touched = true;
+  }
+  if (wantsRecurrence) { out.recurrence = pickRecurrence(body.recurrence); touched = true; }
+
+  if (wantsTimezone || wantsRecurrence || wantsLocalTime || wantsStartAt || wantsCheckinAt) {
+    scheduleChanged = true; touched = true;
+    const now = nowISO || new Date().toISOString();
+
+    if (out.recurrence !== 'none') {
+      // A rhythm needs a local time-of-day anchor. Prefer the one given, then the
+      // one already stored, then derive it from the existing start instant — so
+      // "make this daily" keeps the same time of day without asking again.
+      let lt = wantsLocalTime ? parseLocalTime(body.local_time)
+        : (existing.local_time ? parseLocalTime(existing.local_time) : null);
+      if (!lt && existing.start_at) {
+        const derived = localTimeFromISO(existing.start_at, out.timezone);
+        if (derived) lt = parseLocalTime(derived);
+      }
+      if (!lt) {
+        return { ok: false, error: 'For a repeating check-in, tell me the time of day (HH:MM) and pick daily or weekdays.' };
+      }
+      out.localTime = fmtLocalTime(lt.h, lt.m);
+      const nextISO = nextOccurrenceISO({
+        recurrence: out.recurrence, timezone: out.timezone, localTime: out.localTime, afterISO: now,
+      });
+      if (!nextISO) {
+        return { ok: false, error: 'For a repeating check-in, tell me the time of day and pick daily or weekdays.' };
+      }
+      out.startAt = nextISO;
+      out.checkinAt = nextISO; // the recurring check-in IS the moment itself
+    } else {
+      // A one-time word. Keep it simple: take the new start (or the existing one)
+      // and check in ~1h later unless an explicit check-in time is given.
+      out.localTime = '';
+      const startAt = wantsStartAt ? parseWhen(body.start_at) : existing.start_at;
+      if (!startAt) return { ok: false, error: 'When do you want to start? Give a valid start time.' };
+      out.startAt = startAt;
+      let checkinAt = wantsCheckinAt ? parseWhen(body.checkin_at) : null;
+      if (!checkinAt) checkinAt = new Date(new Date(startAt).getTime() + DEFAULT_CHECKIN_OFFSET_MS).toISOString();
+      out.checkinAt = checkinAt;
+    }
+  }
+
+  if (!touched) return { ok: false, error: 'Nothing to change — tell me what to update.' };
+  return { ok: true, value: out, scheduleChanged };
+}
+
 /** Parse a when-value into an ISO string, or null if unusable. */
 function parseWhen(v) {
   if (typeof v !== 'string' && typeof v !== 'number') return null;
@@ -401,6 +519,29 @@ export function resumeConfirmCopy({ persona, when } = {}) {
     return `Back in action — let’s GO!${at} So glad you’re here; we’re rolling again. 💪`;
   }
   return `Welcome back — we’re on again.${at} Good to have you; let’s keep the rhythm going.`;
+}
+
+/**
+ * Confirming an edit ("got the change"): a person adjusted a word in place —
+ * a reworded title, a new time, a different rhythm — instead of setting it down
+ * and starting over. The whole reason this exists is that a small change must
+ * never cost the streak, so the copy says exactly that: the change landed, the
+ * streak stays put, we pick up from here. When the schedule moved, it names the
+ * next check-in so the new rhythm is concrete. Never a word about what changed
+ * being a step back — adjusting a plan is not a miss.
+ * @param {object} p { persona, scheduleChanged, when }
+ * @returns {string}
+ */
+export function editConfirmCopy({ persona, scheduleChanged, when } = {}) {
+  const at = (scheduleChanged && when) ? ` Next check-in ${formatWhen(when)}.` : '';
+  if (pickPersona(persona) === 'hype') {
+    return scheduleChanged
+      ? `Updated — got the new plan!${at} Your streak’s locked right where it is; we just keep rolling. 🔥`
+      : 'Updated — got it! Your streak’s right where it is; we just keep rolling. 💪';
+  }
+  return scheduleChanged
+    ? `All set — I’ve got the change.${at} Your streak stays right where it is; we just pick it up from here.`
+    : 'All set — I’ve got the change. Your streak stays right where it is; nothing else moves.';
 }
 
 /**
@@ -1090,6 +1231,94 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] resume error:', err && err.message);
       return jsonResponse({ error: 'Could not resume that just now — try again in a moment.' }, 500);
+    }
+  });
+
+  // ── EDIT a commitment (change a word in place — a small change never costs the streak) ──
+  // Before this, the only way to change a word was to set it down and give a
+  // fresh one — which drops the whole recurring setup and (worse, on the design
+  // LAW) makes a reworded title or a nudged time feel like starting over. Editing
+  // in place keeps the same commitment: adjust the title, the time, or the whole
+  // cadence, and the kept-word streak is NEVER read or written (an edit is not a
+  // resolution). Only an open word can be edited — an active rhythm or a paused
+  // one; a wrapped-up word (kept / moved / set down) is warmly refused with a
+  // nudge to give a fresh word instead (409). When the schedule moves, the
+  // outstanding check-in is cancelled and a fresh one queued at the new time —
+  // but only while active; a paused rhythm stays quiet until you resume it.
+  router.post('/api/commitments/:id/edit', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status
+           FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      const persona = pickPersona(commitment.persona);
+
+      // Only an open word can be changed in place. A word already kept, moved, or
+      // set down is done — the warm move is a fresh word, never an error tone.
+      if (commitment.status !== 'active' && commitment.status !== 'paused') {
+        return jsonResponse({
+          error: 'That word’s already wrapped up — give a fresh one whenever you’re ready.',
+        }, 409);
+      }
+
+      const built = buildCommitmentEdit(commitment, body, new Date().toISOString());
+      if (!built.ok) return jsonResponse({ error: built.error }, 400);
+      const v = built.value;
+
+      // Persist the merged word. The edit keeps whatever status it had (active
+      // stays active, paused stays paused) — editing is not resume.
+      await env.DB.prepare(
+        `UPDATE commitments
+            SET title = ?, details = ?, start_at = ?, checkin_at = ?, channel = ?,
+                persona = ?, timezone = ?, recurrence = ?, local_time = ?, updated_at = datetime('now')
+          WHERE id = ? AND user_id = ?`
+      ).bind(
+        v.title, v.details, v.startAt, v.checkinAt, v.channel,
+        v.persona, v.timezone, v.recurrence, v.localTime || null, id, auth.userId
+      ).run();
+
+      // If WHEN the bro shows up changed, re-queue the check-in: cancel the
+      // outstanding one and, for a still-active word, schedule a fresh one at the
+      // new time. A paused rhythm is left quiet — resume schedules it from now.
+      if (built.scheduleChanged) {
+        await env.DB.prepare(
+          `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+        ).bind(id, auth.userId).run();
+
+        if (commitment.status === 'active') {
+          await env.DB.prepare(
+            `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+             VALUES (?, ?, ?, ?, ?, 'pending')`
+          ).bind(generateUUID(), id, auth.userId, v.checkinAt, v.channel).run();
+        }
+      }
+
+      const response = {
+        commitment: {
+          id, title: v.title, details: v.details, start_at: v.startAt, checkin_at: v.checkinAt,
+          channel: v.channel, persona: v.persona, timezone: v.timezone,
+          recurrence: v.recurrence, local_time: v.localTime || null, status: commitment.status,
+        },
+        message: editConfirmCopy({
+          persona,
+          scheduleChanged: built.scheduleChanged,
+          when: built.scheduleChanged && commitment.status === 'active' ? v.checkinAt : null,
+        }),
+      };
+      return jsonResponse(response, 200);
+    } catch (err) {
+      console.error('[accountability] edit error:', err && err.message);
+      return jsonResponse({ error: 'Could not save that change just now — try again in a moment.' }, 500);
     }
   });
 
