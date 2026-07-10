@@ -22,6 +22,7 @@ import {
   keptCopy,
   missRescheduleCopy,
   rescheduleConfirmCopy,
+  releaseConfirmCopy,
   streakSummaryCopy,
 } from '../accountability.js';
 
@@ -258,6 +259,7 @@ describe('copy law — never shame, never "AI", never a clinical claim', () => {
     samples.push(missRescheduleCopy({ persona }));
     samples.push(rescheduleConfirmCopy({ persona, when: '2026-07-05T15:00:00Z' }));
     samples.push(rescheduleConfirmCopy({ persona })); // no time
+    samples.push(releaseConfirmCopy({ persona })); // set-it-down: a blameless exit
     samples.push(streakSummaryCopy({ persona, streak: { current_streak: 0, longest_streak: 3 } }));
     samples.push(streakSummaryCopy({ persona, streak: { current_streak: 1, longest_streak: 1 } }));
     samples.push(streakSummaryCopy({ persona, streak: { current_streak: 6, longest_streak: 9 } }));

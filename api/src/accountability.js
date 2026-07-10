@@ -323,6 +323,19 @@ export function rescheduleConfirmCopy({ persona, when } = {}) {
   return `Got it — I’ll check back${at}. Your word’s still good with me; we just pick it back up.`;
 }
 
+/**
+ * Confirming a release ("set it down"): a person's plans change, and choosing
+ * NOT to carry a word forward has to be as warm and blameless as keeping it.
+ * Setting a commitment down is not a miss — the streak is untouched, the door
+ * stays open, and the copy is glad they told us, never disappointed.
+ */
+export function releaseConfirmCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Set it down — no stress at all. Clearing this one off your plate. Your streak’s untouched; start a fresh word whenever you’re ready. 💪';
+  }
+  return 'Consider it set down — no problem at all. I’ve cleared it, and your streak stays right where it is. Give a new word whenever you’re ready.';
+}
+
 /** A streak summary. On zero, it's a fresh start — never "you failed." */
 export function streakSummaryCopy({ streak, persona } = {}) {
   const cur = Number(streak?.current_streak) || 0;
@@ -759,6 +772,53 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] checkin error:', err && err.message);
       return jsonResponse({ error: 'Could not record that check-in. Your word still counts — try again.' }, 500);
+    }
+  });
+
+  // ── RELEASE a commitment (set it down — the no-shame exit) ──
+  // Plans change. Without this the only exits from an active word are kept /
+  // missed / reschedule, so a commitment a person no longer intends to keep just
+  // sits active and the delivery cron nudges it forever. Setting a word down is
+  // NOT a miss: the kept-word streak is untouched (the chain never breaks on a
+  // release), the pending check-ins are cancelled so the bro stops ringing, and
+  // — because the commitment leaves 'active' — the cron's materializer never
+  // re-queues a recurring occurrence. Idempotent: releasing an already-terminal
+  // commitment is a warm no-op.
+  router.post('/api/commitments/:id/release', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, title, persona, status FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      const persona = pickPersona(commitment.persona);
+
+      // Move the word to a terminal, blameless 'released' state.
+      await env.DB.prepare(
+        `UPDATE commitments SET status = 'released', updated_at = datetime('now')
+          WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).run();
+
+      // Stop the bro from ringing: cancel any check-ins still waiting to send
+      // (pending or held-for-quiet-hours). Cancelled check-ins are inert to the
+      // delivery cron (it only reads status='pending'). The streak is NEVER read
+      // or written here — releasing protects the chain by construction.
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+      ).bind(id, auth.userId).run();
+
+      return jsonResponse({
+        commitment: { id, status: 'released' },
+        message: releaseConfirmCopy({ persona }),
+      }, 200);
+    } catch (err) {
+      console.error('[accountability] release error:', err && err.message);
+      return jsonResponse({ error: 'Could not set that down just now — try again in a moment.' }, 500);
     }
   });
 
