@@ -103,6 +103,11 @@ export function resumeActionLabel() {
   return 'Resume';
 }
 
+/** Change a word in place — a reworded title, a new time — without losing the streak. */
+export function editActionLabel() {
+  return 'Edit';
+}
+
 /** Heading over the kept-word log — the record of words you kept. Never a miss list. */
 export function keptLogHeadingCopy() {
   return 'Words you kept';
@@ -141,6 +146,7 @@ export function meCopySurface() {
     snoozeActionLabel(),
     pauseActionLabel(),
     resumeActionLabel(),
+    editActionLabel(),
     keptLogHeadingCopy(),
     keptLogEmptyCopy(),
     mePageFootnoteCopy(),
@@ -159,6 +165,7 @@ export function renderMePage() {
   const SNOOZE = snoozeActionLabel();
   const PAUSE = pauseActionLabel();
   const RESUME = resumeActionLabel();
+  const EDIT = editActionLabel();
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -201,6 +208,8 @@ export function renderMePage() {
   .keptrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
   .keptrow:last-child { border-bottom: none; }
   .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
+  .editform { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
+  .editform label { margin-top: 6px; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
@@ -340,6 +349,37 @@ export function renderMePage() {
     if (isNaN(d.getTime())) return String(iso || '');
     try { return d.toLocaleString(); } catch (e) { return d.toISOString().replace('T', ' ').slice(0, 16); }
   }
+  // ISO → a value the datetime-local input accepts ("YYYY-MM-DDTHH:MM"), in the
+  // viewer's local zone so the picker shows the same wall-clock time they set.
+  function toLocalInput(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var off = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - off).toISOString().slice(0, 16);
+  }
+
+  // Inline "change this word in place" form, hidden until Edit is tapped. Pre-
+  // filled with the word's current title, time, and rhythm. Saving keeps the same
+  // commitment (and the streak); it never sets the word down and starts over.
+  function editFormHTML(c) {
+    var reps = [['none', 'Just once'], ['daily', 'Every day'], ['weekdays', 'Weekdays']];
+    var opts = '';
+    for (var i = 0; i < reps.length; i++) {
+      var sel = (c.recurrence || 'none') === reps[i][0] ? ' selected' : '';
+      opts += '<option value="' + reps[i][0] + '"' + sel + '>' + esc(reps[i][1]) + '</option>';
+    }
+    return '<div class="editform hidden" data-edit="' + esc(c.id) + '">'
+      + '<label>Change the word</label>'
+      + '<input class="e-title" type="text" maxlength="200" value="' + esc(c.title) + '" />'
+      + '<div class="row">'
+      +   '<div><label>When?</label><input class="e-when" type="datetime-local" value="' + esc(toLocalInput(c.start_at)) + '" /></div>'
+      +   '<div><label>Repeat</label><select class="e-repeat">' + opts + '</select></div>'
+      + '</div>'
+      + '<div class="actions">'
+      +   '<button class="small" data-act="edit-save" data-id="' + esc(c.id) + '">Save changes</button>'
+      +   '<button class="small secondary" data-act="edit-cancel" data-id="' + esc(c.id) + '">Cancel</button>'
+      + '</div></div>';
+  }
 
   var STATUS = {
     active: { label: ${JSON.stringify(statusPresentation('active').label)}, tone: 'active' },
@@ -422,13 +462,18 @@ export function renderMePage() {
           + '<button class="small secondary" data-act="missed" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.missed)}) + '</button>'
           + '<button class="small secondary" data-act="reschedule" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.reschedule)}) + '</button>'
           + (isRecur ? '<button class="small secondary" data-act="pause" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(PAUSE)}) + '</button>' : '')
+          + '<button class="small secondary" data-act="edit" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(EDIT)}) + '</button>'
           + '<button class="small secondary" data-act="release" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RELEASE)}) + '</button>'
-          + '</div>';
+          + '</div>'
+          + editFormHTML(c);
       } else if (c.status === 'paused') {
         // A rhythm on a break — one tap to welcome it back. No catching up.
+        // Edit stays available while paused: adjust the plan before you resume it.
         html += '<div class="actions">'
           + '<button class="small" data-act="resume" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RESUME)}) + '</button>'
-          + '</div>';
+          + '<button class="small secondary" data-act="edit" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(EDIT)}) + '</button>'
+          + '</div>'
+          + editFormHTML(c);
       } else if (c.status === 'missed') {
         // The open door — one tap to try again, never a dead end.
         html += '<div class="actions">'
@@ -604,6 +649,53 @@ export function renderMePage() {
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not resume that just now — try again.'; msgHost.className = 'msg err'; } });
   }
 
+  // Reveal the inline edit form for a card (and hide any other open one).
+  function openEdit(id) {
+    var forms = document.querySelectorAll('.editform');
+    for (var i = 0; i < forms.length; i++) {
+      if (forms[i].getAttribute('data-edit') === id) show(forms[i]); else hide(forms[i]);
+    }
+  }
+  function closeEdit(id) {
+    var f = document.querySelector('[data-edit="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (f) hide(f);
+  }
+
+  // Save an in-place change. Sends only title/time/cadence; the streak is never
+  // touched (an edit is not a resolution). Mirrors the create form's schedule
+  // shape: a repeating word anchors to the picker's local time-of-day.
+  function saveEdit(id) {
+    var form = document.querySelector('[data-edit="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (!form) return;
+    var msgHost = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    var title = (form.querySelector('.e-title') || {}).value;
+    var whenVal = (form.querySelector('.e-when') || {}).value;
+    var repeat = (form.querySelector('.e-repeat') || {}).value || 'none';
+    var iso = toISO(whenVal);
+    if (!iso) {
+      if (msgHost) { msgHost.textContent = 'When do you want this? Pick a time.'; msgHost.className = 'msg err'; }
+      return;
+    }
+    var tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
+    var body = {
+      title: (title || '').trim(),
+      start_at: iso,
+      recurrence: repeat,
+      local_time: (whenVal || '').slice(11, 16),
+      timezone: tz
+    };
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/edit', {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
+        if (res.ok) { loadList(); }
+      })
+      .catch(function () { if (msgHost) { msgHost.textContent = 'Could not save that change just now — try again.'; msgHost.className = 'msg err'; } });
+  }
+
   // Action buttons (delegated).
   el('list').addEventListener('click', function (ev) {
     var btn = ev.target.closest ? ev.target.closest('button[data-act]') : null;
@@ -615,6 +707,9 @@ export function renderMePage() {
     if (act === 'snooze') { snooze(id); return; }
     if (act === 'pause') { pause(id); return; }
     if (act === 'resume') { resume(id); return; }
+    if (act === 'edit') { openEdit(id); return; }
+    if (act === 'edit-save') { saveEdit(id); return; }
+    if (act === 'edit-cancel') { closeEdit(id); return; }
     if (act === 'missed') { resolve(id, 'missed'); return; }
     if (act === 'release') {
       if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }

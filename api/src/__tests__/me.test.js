@@ -141,4 +141,11 @@ describe('renderMePage', () => {
     expect(html).toContain(A.kept);
     expect(html).toContain(A.missed);
   });
+
+  it('wires the in-place edit affordance (button, inline form, and the edit route)', () => {
+    expect(html).toContain('/edit');            // the edit endpoint the form posts to
+    expect(html).toContain("data-act=\"edit\"");  // the Edit button (delegated)
+    expect(html).toContain('edit-save');        // save/cancel on the inline form
+    expect(html).toContain('editFormHTML');     // the inline edit form is rendered
+  });
 });
