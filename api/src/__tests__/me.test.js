@@ -148,4 +148,12 @@ describe('renderMePage', () => {
     expect(html).toContain('edit-save');        // save/cancel on the inline form
     expect(html).toContain('editFormHTML');     // the inline edit form is rendered
   });
+
+  it('wires the per-word detail affordance (View button, panel container, and the detail route)', () => {
+    expect(html).toContain("data-act=\"view\"");  // the View button (delegated)
+    expect(html).toContain('data-detail=');       // the inline detail panel container
+    expect(html).toContain('/detail');            // the detail endpoint openDetail fetches
+    expect(html).toContain('openDetail');         // the toggle/fetch function
+    expect(html).toContain('renderDetail');       // the momentum-only panel renderer
+  });
 });

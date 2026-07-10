@@ -567,6 +567,25 @@ export function keptLogCopy({ total, persona } = {}) {
   return `${n} ${word} you’ve kept. This is the record of you showing up — every one counts.`;
 }
 
+/**
+ * Header line over a single word's detail view. Momentum-only, by the design LAW:
+ * it names how many times this word was kept and never how many times it wasn't —
+ * the detail view carries a kept timeline, never a miss list.
+ */
+export function commitmentDetailCopy({ persona, keptCount } = {}) {
+  const n = Number(keptCount) || 0;
+  const hype = pickPersona(persona) === 'hype';
+  if (n === 0) {
+    return hype
+      ? 'No history on this one yet — this is where every win on it will stack. 🔥'
+      : 'No kept check-ins on this one yet. The first one lands here whenever you’re ready.';
+  }
+  const word = n === 1 ? 'time' : 'times';
+  return hype
+    ? `Kept ${n} ${word} on this one — that’s momentum. Keep it rolling. 💪`
+    : `You’ve kept this word ${n} ${word}. Here’s the record for it — every check-in you showed up for.`;
+}
+
 /** A streak summary. On zero, it's a fresh start — never "you failed." */
 export function streakSummaryCopy({ streak, persona } = {}) {
   const cur = Number(streak?.current_streak) || 0;
@@ -898,6 +917,71 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] get error:', err && err.message);
       return jsonResponse({ error: 'Could not load that commitment.' }, 500);
+    }
+  });
+
+  // ── DETAIL for one word — its rhythm, next check-in, and KEPT timeline ──
+  // The momentum view for a single commitment: cadence, the next time the bro
+  // shows up (active words only), and every check-in you KEPT on this word.
+  // DESIGN LAW: this reads status='kept' only — a set-down or missed check-in
+  // can never appear. There is no per-word miss list anywhere in the product.
+  router.get('/api/commitments/:id/detail', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const id = request.params.id;
+
+      const commitment = await env.DB.prepare(
+        `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
+           FROM commitments WHERE id = ? AND user_id = ?`
+      ).bind(id, auth.userId).first();
+      if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
+
+      // Kept check-ins for THIS word, most recent first (rendered window of 50).
+      const keptRows = await env.DB.prepare(
+        `SELECT responded_at AS kept_at, note
+           FROM commitment_checkins
+          WHERE commitment_id = ? AND user_id = ? AND status = 'kept'
+          ORDER BY responded_at DESC
+          LIMIT 50`
+      ).bind(id, auth.userId).all();
+      const kept = (keptRows && keptRows.results) || [];
+
+      // Honest total kept for this word, even past the 50-row window.
+      const countRow = await env.DB.prepare(
+        `SELECT COUNT(*) AS n
+           FROM commitment_checkins
+          WHERE commitment_id = ? AND user_id = ? AND status = 'kept'`
+      ).bind(id, auth.userId).first();
+      const keptCount = Number(countRow && countRow.n) || 0;
+
+      // The next moment the bro shows up — only meaningful while active. An
+      // outstanding check-in is pending / sent / deferred; soonest first.
+      let nextCheckin = null;
+      if (commitment.status === 'active') {
+        const up = await env.DB.prepare(
+          `SELECT scheduled_for
+             FROM commitment_checkins
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred')
+            ORDER BY scheduled_for ASC
+            LIMIT 1`
+        ).bind(id, auth.userId).first();
+        nextCheckin = up ? up.scheduled_for : null;
+      }
+
+      const cadence = describeCadence({ recurrence: commitment.recurrence, localTime: commitment.local_time });
+
+      return jsonResponse({
+        commitment,
+        cadence,
+        next_checkin: nextCheckin,
+        kept,
+        kept_count: keptCount,
+        message: commitmentDetailCopy({ persona: commitment.persona, keptCount }),
+      }, 200, 'short');
+    } catch (err) {
+      console.error('[accountability] detail error:', err && err.message);
+      return jsonResponse({ error: 'Could not load that word.' }, 500);
     }
   });
 

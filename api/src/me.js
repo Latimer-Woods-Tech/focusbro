@@ -108,6 +108,21 @@ export function editActionLabel() {
   return 'Edit';
 }
 
+/** Label for the per-word detail toggle — a look at one word's momentum. */
+export function detailActionLabel() {
+  return 'View';
+}
+
+/** Heading over the per-word detail panel's kept timeline. Never a miss list. */
+export function detailKeptHeadingCopy() {
+  return 'Kept on this word';
+}
+
+/** Label for the next-check-in line in the detail panel. Forward, not a scold. */
+export function detailNextLabelCopy() {
+  return 'Next check-in';
+}
+
 /** Heading over the kept-word log — the record of words you kept. Never a miss list. */
 export function keptLogHeadingCopy() {
   return 'Words you kept';
@@ -147,6 +162,9 @@ export function meCopySurface() {
     pauseActionLabel(),
     resumeActionLabel(),
     editActionLabel(),
+    detailActionLabel(),
+    detailKeptHeadingCopy(),
+    detailNextLabelCopy(),
     keptLogHeadingCopy(),
     keptLogEmptyCopy(),
     mePageFootnoteCopy(),
@@ -166,6 +184,7 @@ export function renderMePage() {
   const PAUSE = pauseActionLabel();
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
+  const VIEW = detailActionLabel();
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -210,6 +229,8 @@ export function renderMePage() {
   .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
   .editform { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
   .editform label { margin-top: 6px; }
+  .detail { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
+  .detail .streakmsg { margin: 6px 0; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
@@ -463,6 +484,7 @@ export function renderMePage() {
           + '<button class="small secondary" data-act="reschedule" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.reschedule)}) + '</button>'
           + (isRecur ? '<button class="small secondary" data-act="pause" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(PAUSE)}) + '</button>' : '')
           + '<button class="small secondary" data-act="edit" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(EDIT)}) + '</button>'
+          + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '<button class="small secondary" data-act="release" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RELEASE)}) + '</button>'
           + '</div>'
           + editFormHTML(c);
@@ -472,14 +494,23 @@ export function renderMePage() {
         html += '<div class="actions">'
           + '<button class="small" data-act="resume" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(RESUME)}) + '</button>'
           + '<button class="small secondary" data-act="edit" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(EDIT)}) + '</button>'
+          + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '</div>'
           + editFormHTML(c);
       } else if (c.status === 'missed') {
         // The open door — one tap to try again, never a dead end.
         html += '<div class="actions">'
           + '<button class="small" data-act="reschedule" data-id="' + esc(c.id) + '">Try again</button>'
+          + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
+          + '</div>';
+      } else {
+        // Kept / rescheduled / released — no live actions, but you can still look
+        // back at this word's momentum (its kept timeline). Never a miss list.
+        html += '<div class="actions">'
+          + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '</div>';
       }
+      html += '<div class="detail hidden" data-detail="' + esc(c.id) + '"></div>';
       html += '<div class="msg" data-msg="' + esc(c.id) + '"></div>';
       html += '</div>';
     }
@@ -696,6 +727,46 @@ export function renderMePage() {
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not save that change just now — try again.'; msgHost.className = 'msg err'; } });
   }
 
+  // Look at one word's momentum — its cadence, next check-in, and the kept
+  // timeline for THIS word. Toggles the inline panel; a second tap closes it.
+  // The API returns kept check-ins only, so there is never a miss list here.
+  var DETAIL_KEPT_HEADING = ${JSON.stringify(detailKeptHeadingCopy())};
+  var DETAIL_NEXT_LABEL = ${JSON.stringify(detailNextLabelCopy())};
+  function openDetail(id) {
+    var host = document.querySelector('[data-detail="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (!host) return;
+    if (!host.classList.contains('hidden')) { hide(host); host.innerHTML = ''; return; }
+    host.innerHTML = '<p class="muted">Loading…</p>';
+    show(host);
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/detail', { headers: authHeaders() })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) { host.innerHTML = '<p class="err">' + esc((res.b && res.b.error) || 'Could not load that word.') + '</p>'; return; }
+        host.innerHTML = renderDetail(res.b);
+      })
+      .catch(function () { host.innerHTML = '<p class="err">Could not load that just now — try again.</p>'; });
+  }
+  function renderDetail(d) {
+    var cadence = (d && d.cadence) || '';
+    var next = (d && d.next_checkin) || null;
+    var kept = (d && d.kept) || [];
+    var html = '<div class="detailbody">';
+    if (cadence) { html += '<div class="when">' + esc(cadence) + '</div>'; }
+    if (next) { html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>'; }
+    if (d && d.message) { html += '<p class="streakmsg">' + esc(d.message) + '</p>'; }
+    if (kept.length) {
+      html += '<div class="name" style="margin-top:8px;">' + esc(DETAIL_KEPT_HEADING) + '</div>';
+      for (var i = 0; i < kept.length; i++) {
+        html += '<div class="keptrow">'
+          + '<div><span class="tick">✓</span><span class="when">' + esc(fmtWhen(kept[i].kept_at)) + '</span></div>'
+          + (kept[i].note ? '<div class="when">' + esc(kept[i].note) + '</div>' : '')
+          + '</div>';
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
   // Action buttons (delegated).
   el('list').addEventListener('click', function (ev) {
     var btn = ev.target.closest ? ev.target.closest('button[data-act]') : null;
@@ -708,6 +779,7 @@ export function renderMePage() {
     if (act === 'pause') { pause(id); return; }
     if (act === 'resume') { resume(id); return; }
     if (act === 'edit') { openEdit(id); return; }
+    if (act === 'view') { openDetail(id); return; }
     if (act === 'edit-save') { saveEdit(id); return; }
     if (act === 'edit-cancel') { closeEdit(id); return; }
     if (act === 'missed') { resolve(id, 'missed'); return; }
