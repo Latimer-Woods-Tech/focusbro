@@ -182,6 +182,8 @@ CREATE INDEX IF NOT EXISTS idx_commitments_user ON commitments(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_commitments_checkin_at ON commitments(checkin_at);
 CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id);
 CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for);
+-- Kept-word log: every word a user KEPT, newest first (GET /api/accountability/kept). Momentum-only.
+CREATE INDEX IF NOT EXISTS idx_checkins_user_status ON commitment_checkins(user_id, status);
 
 -- ── COACH ROSTER (skeleton coach dashboard — Contender #10, Phase A) ──
 -- A consent-gated link between a coach (operator) and a client they support.

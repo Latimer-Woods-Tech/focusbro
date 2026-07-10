@@ -103,6 +103,20 @@ export function resumeActionLabel() {
   return 'Resume';
 }
 
+/** Heading over the kept-word log — the record of words you kept. Never a miss list. */
+export function keptLogHeadingCopy() {
+  return 'Words you kept';
+}
+
+/**
+ * Empty state for the kept-word log — an open invitation, never a scold about an
+ * empty record. The first kept word will land here; until then this is a promise,
+ * not a blank ledger of failure.
+ */
+export function keptLogEmptyCopy() {
+  return 'Every word you keep gathers here. The first one’s waiting for you.';
+}
+
 /** The standing promise at the foot of the page — the design LAW, in plain words. */
 export function mePageFootnoteCopy() {
   return 'FocusBro is an ally, not a boss. When a check-in lands and it didn’t happen, ' +
@@ -127,6 +141,8 @@ export function meCopySurface() {
     snoozeActionLabel(),
     pauseActionLabel(),
     resumeActionLabel(),
+    keptLogHeadingCopy(),
+    keptLogEmptyCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
   ];
@@ -182,6 +198,9 @@ export function renderMePage() {
   .ok { color: #047857; font-size: 14px; }
   .commit { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
   .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+  .keptrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
+  .keptrow:last-child { border-bottom: none; }
+  .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
@@ -253,6 +272,12 @@ export function renderMePage() {
   </div>
 
   <div id="list"></div>
+
+  <div class="card" id="keptLog">
+    <h2>${keptLogHeadingCopy()}</h2>
+    <p class="streakmsg" id="keptMsg"></p>
+    <div id="keptList"></div>
+  </div>
 
   <div class="card" id="consentCard">
     <h2>${consentPanelCopy().heading}</h2>
@@ -339,6 +364,37 @@ export function renderMePage() {
       .catch(function () {});
   }
 
+  // The kept-word log — every word you kept, most recent first. Momentum-only:
+  // the API returns ONLY kept check-ins, so there is never a miss list to render.
+  var KEPT_EMPTY = ${JSON.stringify(keptLogEmptyCopy())};
+  function renderKept(data) {
+    var host = el('keptList');
+    var msg = el('keptMsg');
+    if (msg) msg.textContent = (data && data.message) || '';
+    var kept = (data && data.kept) || [];
+    if (!host) return;
+    if (!kept.length) {
+      host.innerHTML = '<p class="muted">' + esc(KEPT_EMPTY) + '</p>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < kept.length; i++) {
+      var k = kept[i];
+      html += '<div class="keptrow">'
+        + '<div><span class="tick">✓</span><span class="name">' + esc(k.title) + '</span></div>'
+        + '<div class="when">' + esc(fmtWhen(k.kept_at)) + '</div>'
+        + '</div>';
+    }
+    host.innerHTML = html;
+  }
+
+  function loadKept() {
+    fetch('/api/accountability/kept', { headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
+      .then(renderKept)
+      .catch(function () {});
+  }
+
   function renderList(commitments) {
     var host = el('list');
     if (!commitments || !commitments.length) {
@@ -392,7 +448,7 @@ export function renderMePage() {
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadConsent(); }
+  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadKept(); loadConsent(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 
@@ -483,7 +539,7 @@ export function renderMePage() {
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
-        if (res.ok) { loadStreak(); loadList(); }
+        if (res.ok) { loadStreak(); loadList(); loadKept(); }
       })
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not record that just now — your word still counts. Try again.'; msgHost.className = 'msg err'; } });
   }

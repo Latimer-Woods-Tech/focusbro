@@ -403,6 +403,29 @@ export function resumeConfirmCopy({ persona, when } = {}) {
   return `Welcome back — we’re on again.${at} Good to have you; let’s keep the rhythm going.`;
 }
 
+/**
+ * A warm one-liner over the kept-word log — the record of every word a person
+ * kept. Momentum-only by construction: it counts kept words, never the ones set
+ * down or moved. On an empty record it's an open invitation, never "you've done
+ * nothing." The list itself is drawn separately; this is the header line.
+ * @param {object} p { total, persona }
+ * @returns {string}
+ */
+export function keptLogCopy({ total, persona } = {}) {
+  const n = Number(total) || 0;
+  if (n === 0) {
+    if (pickPersona(persona) === 'hype') {
+      return 'Blank page, big future — the first word you keep lands right here. 🔥';
+    }
+    return 'This is where your kept words gather. The first one lands here whenever you’re ready.';
+  }
+  const word = n === 1 ? 'word' : 'words';
+  if (pickPersona(persona) === 'hype') {
+    return `${n} ${word} kept — that’s all you. Look at this list and keep stacking. 💪`;
+  }
+  return `${n} ${word} you’ve kept. This is the record of you showing up — every one counts.`;
+}
+
 /** A streak summary. On zero, it's a fresh start — never "you failed." */
 export function streakSummaryCopy({ streak, persona } = {}) {
   const cur = Number(streak?.current_streak) || 0;
@@ -1083,6 +1106,43 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
       return jsonResponse({ error: 'Could not load your streak.' }, 500);
+    }
+  });
+
+  // ── GET my kept-word log (the "words you kept" record) ──
+  // The streak endpoint gives the current run + a lifetime total; this gives the
+  // actual list — every word this person KEPT, most recent first, joined to its
+  // title. Momentum-only by construction and by the DESIGN LAW: the query reads
+  // ONLY status='kept' check-ins, so a set-down or moved word never appears here.
+  // There is deliberately no "missed" list anywhere — a positive record, never a
+  // wall of red. Lifetime total comes from the kept-word streak row (total_kept,
+  // which only ever increments on a kept word), so it's honest even past the
+  // rendered window.
+  router.get('/api/accountability/kept', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+
+      const rows = await env.DB.prepare(
+        `SELECT k.responded_at AS kept_at, c.title AS title
+           FROM commitment_checkins k
+           JOIN commitments c ON c.id = k.commitment_id
+          WHERE k.user_id = ? AND k.status = 'kept'
+          ORDER BY k.responded_at DESC
+          LIMIT 50`
+      ).bind(auth.userId).all();
+
+      const streak = await loadStreak(env, auth.userId);
+      const total = Number(streak.total_kept) || 0;
+
+      return jsonResponse({
+        kept: (rows && rows.results) || [],
+        total_kept: total,
+        message: keptLogCopy({ total }),
+      }, 200, 'short');
+    } catch (err) {
+      console.error('[accountability] kept-log error:', err && err.message);
+      return jsonResponse({ error: 'Could not load your kept words.' }, 500);
     }
   });
 }

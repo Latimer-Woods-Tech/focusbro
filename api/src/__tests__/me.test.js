@@ -18,6 +18,8 @@ import {
   emptyCommitmentsCopy,
   streakHeadingCopy,
   checkinActionLabels,
+  keptLogHeadingCopy,
+  keptLogEmptyCopy,
   mePageFootnoteCopy,
   meCopySurface,
   renderMePage,
@@ -119,9 +121,10 @@ describe('renderMePage', () => {
     expect(html).toContain('</html>');
   });
 
-  it('drives the existing accountability API (no new endpoints invented)', () => {
+  it('drives the accountability API (commitments, streak, and the kept-word log)', () => {
     expect(html).toContain('/api/commitments');
     expect(html).toContain('/api/accountability/streak');
+    expect(html).toContain('/api/accountability/kept');
     expect(html).toContain('/auth/login');
     expect(html).toContain('/auth/register');
     expect(html).toContain('focusbro_token');
@@ -132,6 +135,8 @@ describe('renderMePage', () => {
     expect(html).toContain(streakHeadingCopy());
     expect(html).toContain(emptyCommitmentsCopy());
     expect(html).toContain(mePageIntroCopy());
+    expect(html).toContain(keptLogHeadingCopy());
+    expect(html).toContain(keptLogEmptyCopy());
     const A = checkinActionLabels();
     expect(html).toContain(A.kept);
     expect(html).toContain(A.missed);
