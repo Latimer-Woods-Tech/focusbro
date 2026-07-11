@@ -19,6 +19,13 @@ import {
   rhythmIntroCopy,
   rhythmEmptyCopy,
   nextCheckinCopy,
+  MOMENTUM_WINDOW_DAYS,
+  localDayInZone,
+  bucketKeptByDay,
+  sparklineBars,
+  momentumIntroCopy,
+  momentumSummaryCopy,
+  buildMomentum,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
 
@@ -144,6 +151,10 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientStatusLine({ streak: { current_streak: 12, longest_streak: 20 } }),
     rhythmIntroCopy(),
     rhythmEmptyCopy(),
+    momentumIntroCopy(),
+    momentumSummaryCopy({ total: 0, days: 14 }),
+    momentumSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
+    momentumSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
     nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
     nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
     nextCheckinCopy({ iso: null }),
@@ -179,5 +190,113 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
         expect(pat.test(s), `clinical claim in coach copy: "${s}" matched ${pat}`).toBe(false);
       }
     }
+  });
+});
+
+describe('localDayInZone', () => {
+  it('returns the UTC calendar date for a UTC zone', () => {
+    expect(localDayInZone('2026-07-11T23:30:00Z', 'UTC')).toBe('2026-07-11');
+  });
+  it('shifts an instant into the correct local day west of UTC', () => {
+    // 02:30 UTC on the 12th is still the evening of the 11th in New York.
+    expect(localDayInZone('2026-07-12T02:30:00Z', 'America/New_York')).toBe('2026-07-11');
+  });
+  it('shifts an instant into the next local day east of UTC', () => {
+    // 22:30 UTC on the 11th is already the 12th in Tokyo.
+    expect(localDayInZone('2026-07-11T22:30:00Z', 'Asia/Tokyo')).toBe('2026-07-12');
+  });
+  it('returns null for an unparseable instant', () => {
+    expect(localDayInZone('not-a-date', 'UTC')).toBe(null);
+  });
+});
+
+describe('bucketKeptByDay — per-day KEPT counts, momentum by construction', () => {
+  const now = '2026-07-11T18:00:00Z';
+
+  it('produces exactly `days` buckets, oldest→newest, ending today', () => {
+    const b = bucketKeptByDay({ timestamps: [], days: 14, nowISO: now, timezone: 'UTC' });
+    expect(b).toHaveLength(14);
+    expect(b[13].date).toBe('2026-07-11');
+    expect(b[0].date).toBe('2026-06-28');
+    expect(b.every((d) => d.count === 0)).toBe(true);
+  });
+
+  it('counts multiple kept words on the same day into one bucket', () => {
+    const b = bucketKeptByDay({
+      timestamps: ['2026-07-11T09:00:00Z', '2026-07-11T14:00:00Z', '2026-07-10T10:00:00Z'],
+      days: 14, nowISO: now, timezone: 'UTC',
+    });
+    expect(b[13].count).toBe(2); // today
+    expect(b[12].count).toBe(1); // yesterday
+  });
+
+  it('ignores instants outside the window', () => {
+    const b = bucketKeptByDay({
+      timestamps: ['2026-05-01T09:00:00Z'], days: 14, nowISO: now, timezone: 'UTC',
+    });
+    expect(b.reduce((n, d) => n + d.count, 0)).toBe(0);
+  });
+
+  it('buckets by LOCAL day, not UTC day', () => {
+    // 02:30 UTC on the 12th → evening of the 11th in New York → today's bucket.
+    const b = bucketKeptByDay({
+      timestamps: ['2026-07-12T02:30:00Z'], days: 14, nowISO: '2026-07-11T20:00:00-04:00', timezone: 'America/New_York',
+    });
+    expect(b[13].date).toBe('2026-07-11');
+    expect(b[13].count).toBe(1);
+  });
+});
+
+describe('sparklineBars — always a baseline, never a gap', () => {
+  it('one glyph per entry', () => {
+    expect(Array.from(sparklineBars([0, 1, 2, 3])).length).toBe(4);
+  });
+  it('an all-zero window is a flat baseline, not empty', () => {
+    expect(sparklineBars([0, 0, 0])).toBe('▁▁▁');
+  });
+  it('scales the busiest day to the tallest glyph', () => {
+    const s = sparklineBars([0, 1, 4]);
+    expect(s[0]).toBe('▁');
+    expect(s[2]).toBe('█');
+  });
+  it('accepts bucket objects as well as raw numbers', () => {
+    expect(sparklineBars([{ count: 0 }, { count: 2 }])).toBe('▁█');
+  });
+  it('empty input is an empty string', () => {
+    expect(sparklineBars([])).toBe('');
+  });
+});
+
+describe('buildMomentum — the assembled coach-facing block', () => {
+  const now = '2026-07-11T18:00:00Z';
+
+  it('assembles totals, peak, sparkline and summary from kept instants', () => {
+    const m = buildMomentum({
+      timestamps: ['2026-07-11T09:00:00Z', '2026-07-11T14:00:00Z', '2026-07-09T10:00:00Z'],
+      days: 14, nowISO: now, timezone: 'UTC',
+    });
+    expect(m.days).toBe(14);
+    expect(m.buckets).toHaveLength(14);
+    expect(m.total).toBe(3);
+    expect(m.peak.count).toBe(2);
+    expect(m.peak.date).toBe('2026-07-11');
+    expect(Array.from(m.sparkline).length).toBe(14);
+    expect(m.summary).toContain('3 words kept');
+    expect(m.timezone).toBe('UTC');
+  });
+
+  it('a quiet window reads as a clean page, never a miss tally', () => {
+    const m = buildMomentum({ timestamps: [], days: 14, nowISO: now, timezone: 'UTC' });
+    expect(m.total).toBe(0);
+    expect(m.sparkline).toBe('▁'.repeat(14));
+    expect(m.summary.toLowerCase()).toMatch(/clean page|fresh start/);
+    // The design LAW, asserted on the assembled block's own copy.
+    expect(/\bmiss(es|ed|ing)?\b/i.test(m.summary)).toBe(false);
+    expect(/\bbehind\b/i.test(m.summary)).toBe(false);
+  });
+
+  it('MOMENTUM_WINDOW_DAYS is the default span', () => {
+    const m = buildMomentum({ timestamps: [], nowISO: now, timezone: 'UTC' });
+    expect(m.days).toBe(MOMENTUM_WINDOW_DAYS);
   });
 });
