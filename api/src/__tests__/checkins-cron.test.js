@@ -233,6 +233,19 @@ describe('status transitions', () => {
     expect(up.sql).toMatch(/status = 'sent'/);
     expect(up.sql).toMatch(/delivered_at = \?/);
   });
+
+  it('a TEXT nudge invites a reply so the two-way loop is discoverable (push stays clean)', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ due: [textRow()], phone: '+15557654321' });
+    await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    const sentText = JSON.parse(fetchSpy.mock.calls[0][1].body).text;
+    expect(sentText.toLowerCase()).toMatch(/reply done/);
+    expect(sentText.toLowerCase()).toMatch(/later/);
+    expect(sentText.toLowerCase()).toMatch(/try again/);
+    // never a scold
+    expect(sentText).not.toMatch(/\b(fail|missed|behind|lazy)\b/i);
+  });
 });
 
 describe('failure + retry cap', () => {

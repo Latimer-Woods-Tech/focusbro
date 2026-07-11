@@ -57,7 +57,7 @@ function makeDB({ commitment = null, openCheckin = null } = {}) {
         bind(...a) { params = a; return stmt; },
         async first() {
           if (/FROM commitments WHERE id = \? AND user_id = \?/.test(sql)) return commitment;
-          if (/FROM commitment_checkins/.test(sql) && /status IN \('pending', 'sent', 'deferred'\)/.test(sql)) {
+          if (/FROM commitment_checkins/.test(sql) && /status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/.test(sql)) {
             return openCheckin;
           }
           return null;

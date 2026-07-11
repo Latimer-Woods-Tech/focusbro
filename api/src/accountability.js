@@ -172,6 +172,164 @@ export function nextOccurrenceISO({ recurrence, timezone, localTime, afterISO } 
   return null;
 }
 
+/** Convert a clock regex match [full, hh, mm?, meridiem?] to [h, m] 24h; [null,null] if impossible. */
+function clockTo24(m) {
+  const hh = parseInt(m[1], 10);
+  const mm = m[2] ? parseInt(m[2], 10) : 0;
+  const mer = m[3];
+  if (mm > 59) return [null, null];
+  if (mer) {
+    if (hh < 1 || hh > 12) return [null, null];
+    return [mer === 'pm' ? (hh % 12) + 12 : (hh % 12), mm];
+  }
+  if (hh > 23) return [null, null];
+  return [hh, mm];
+}
+
+/**
+ * Turn a natural-language "when do you want to try again?" SMS reply into a
+ * future ISO instant, DST-correct in the recipient's timezone. Returns null when
+ * no concrete time is found so the caller can re-ask — we NEVER assume a time,
+ * and (per the design LAW) never assume a miss. Only invoked in the
+ * conversational-reschedule context, where the person was just asked for a time;
+ * that context is what lets a bare "3" safely mean 3 o'clock.
+ *
+ * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
+ * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
+ * (soonest future); "tonight"; "tomorrow", "tomorrow 9am", "tomorrow morning".
+ *
+ * @param {object} p { nowISO, timezone, defaultTime }  defaultTime='HH:MM' usual check-in time
+ * @returns {string|null}
+ */
+export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const nowMs = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
+  const MIN_MS = 60 * 1000;
+  const HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
+  const soonest = nowMs + MIN_MS - 1; // must land at least ~a minute out
+
+  let t = String(text == null ? '' : text).toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[^a-z0-9:\s']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return null;
+  t = t.replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim(); // "at 3pm" → "3pm"
+
+  const inRange = (ms) => (ms != null && ms > soonest && ms <= nowMs + HORIZON_MS) ? new Date(ms).toISOString() : null;
+
+  // ── Relative: "in ..." ──
+  if (/^in\b/.test(t)) {
+    let mins = null;
+    if (/\bhalf(\s+an?)?\s+hour\b/.test(t)) mins = 30;
+    else if (/\ban?\s+hour\b/.test(t)) mins = 60;
+    else {
+      const m = t.match(/^in\s+(\d{1,4})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\b/);
+      if (m) { const n = parseInt(m[1], 10); mins = /^h/.test(m[2] || 'm') ? n * 60 : n; }
+    }
+    if (!(mins > 0)) return null;
+    return inRange(nowMs + Math.round(mins) * MIN_MS);
+  }
+
+  // Local calendar anchor for "today" in the recipient's zone.
+  const p = tzParts(nowMs, tz);
+  if (!p) return null;
+  const y0 = +p.year, mo0 = +p.month, d0 = +p.day;
+  const addDay = (y, mo, d, n) => {
+    const dt = new Date(Date.UTC(y, mo - 1, d) + n * 24 * 60 * 60 * 1000);
+    return [dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()];
+  };
+  const at = (y, mo, d, h, mi) => zonedWallToUtcMs(y, mo, d, h, mi, tz);
+  const [ty, tm, td] = addDay(y0, mo0, d0, 1);
+
+  if (/\bmidnight\b/.test(t)) return inRange(at(ty, tm, td, 0, 0));
+  if (/\bnoon\b/.test(t) && !/\btomorrow\b/.test(t)) {
+    return inRange(at(y0, mo0, d0, 12, 0)) || inRange(at(ty, tm, td, 12, 0));
+  }
+
+  const wantsTomorrow = /\b(tomorrow|tmrw|tmr)\b/.test(t);
+  const wantsTonight = /\b(tonight|this evening)\b/.test(t);
+  const partOfDay = /\bmorning\b/.test(t) ? [9, 0]
+    : /\bafternoon\b/.test(t) ? [14, 0]
+    : /\b(evening|night)\b/.test(t) ? [19, 0]
+    : null;
+  const clock = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+
+  if (wantsTonight && !clock) {
+    return inRange(at(y0, mo0, d0, 20, 0)) || inRange(at(ty, tm, td, 20, 0));
+  }
+
+  if (wantsTomorrow) {
+    let h, mi;
+    if (clock) {
+      const [ch, cm] = clockTo24(clock);
+      if (ch == null) return null;
+      // A bare small hour "tomorrow 3" reads as afternoon; "tomorrow 9" as morning.
+      h = (!clock[3] && !clock[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
+      mi = cm;
+    } else if (partOfDay) { [h, mi] = partOfDay; }
+    else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
+    return inRange(at(ty, tm, td, h, mi));
+  }
+
+  // ── Clock time today (roll to tomorrow if already past) ──
+  if (clock) {
+    const hasMeridiem = !!clock[3];
+    const hh = parseInt(clock[1], 10);
+    const mm = clock[2] ? parseInt(clock[2], 10) : 0;
+    if (mm > 59) return null;
+    if (hasMeridiem) {
+      const [h] = clockTo24(clock);
+      if (h == null) return null;
+      return inRange(at(y0, mo0, d0, h, mm)) || inRange(at(ty, tm, td, h, mm));
+    }
+    if (hh > 23) return null;
+    if (hh >= 13 || clock[2]) {
+      // 24h reading ("14:00", "15") or explicit :mm — literal, roll if past.
+      return inRange(at(y0, mo0, d0, hh, mm)) || inRange(at(ty, tm, td, hh, mm));
+    }
+    // Ambiguous 0..12 with no minutes → soonest future among AM/PM, today or tomorrow.
+    const amH = hh % 12, pmH = (hh % 12) + 12;
+    const cands = [];
+    for (const [yy, mm2, dd] of [[y0, mo0, d0], [ty, tm, td]]) {
+      cands.push(at(yy, mm2, dd, amH, mm), at(yy, mm2, dd, pmH, mm));
+    }
+    const future = cands.filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS).sort((a, b) => a - b);
+    return future.length ? new Date(future[0]).toISOString() : null;
+  }
+
+  return null;
+}
+
+/**
+ * A warm, recipient-local rendering of an instant for SMS confirmations —
+ * "at 3:00 PM", "tomorrow at 8:40 AM", "Sat at 9:00 AM". Falls back to a plain
+ * UTC stamp if Intl or the zone is unusable. Pure; pass nowISO for a stable
+ * today/tomorrow prefix.
+ */
+export function formatWhenLocal(iso, timezone, nowISO) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  try {
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(d);
+    const nowMs = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
+    const dp = tzParts(d.getTime(), tz), np = tzParts(nowMs, tz);
+    if (dp && np) {
+      if (`${dp.year}-${dp.month}-${dp.day}` === `${np.year}-${np.month}-${np.day}`) return `at ${time}`;
+      const nx = new Date(Date.UTC(+np.year, +np.month - 1, +np.day) + 24 * 60 * 60 * 1000);
+      if (+dp.year === nx.getUTCFullYear() && +dp.month === nx.getUTCMonth() + 1 && +dp.day === nx.getUTCDate()) {
+        return `tomorrow at ${time}`;
+      }
+      const wd = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d);
+      return `${wd} at ${time}`;
+    }
+    return `at ${time}`;
+  } catch {
+    return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  }
+}
+
 /**
  * A warm, human phrase for a commitment's cadence — the rhythm the bro shows
  * up on. Momentum-only framing: cadence describes when someone asked to be met,
@@ -438,6 +596,18 @@ export function checkinPromptCopy({ title, persona } = {}) {
   return `You said you’d ${startsWithVerbish(what) ? '' : 'do '}${what}. I’m here — ready to go? We’ve got this.`;
 }
 
+/**
+ * The one-line reply hint appended to a TEXT check-in (only). Text has no action
+ * buttons, so the nudge itself makes the two-way loop discoverable: DONE keeps
+ * the word; LATER opens the "when do you want to try again?" conversation. Never
+ * a scold — LATER is offered as warmly as DONE.
+ */
+export function checkinReplyHint(persona) {
+  return pickPersona(persona) === 'hype'
+    ? 'Reply DONE when it’s handled — or LATER and I’ll ask when you want to try again. 💪'
+    : 'Reply DONE when it’s done — or LATER, and I’ll ask when you want to try again.';
+}
+
 /** After a kept word: celebrate the person, name the streak, mean it. */
 export function keptCopy({ persona, streak } = {}) {
   const n = Number(streak) || 0;
@@ -659,6 +829,36 @@ export function smsAmbiguousReplyCopy({ persona } = {}) {
     return 'Gotcha! Text DONE if you got it, or LATER to grab a new time — I’m here for you either way. 💪';
   }
   return 'I’m here for you. Reply DONE if you did it, or LATER to pick a new time — no rush, no pressure.';
+}
+
+/**
+ * After a "later", ASK when — right here over text, not "go open the app". The
+ * design LAW's literal promise on a miss: "no problem — when do you want to try
+ * again?" The moat is that the whole conversation stays on the channel that
+ * reached them.
+ */
+export function smsAskWhenCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'No stress at all — when do you want to try again? Text me a time like 3pm, in 1 hour, or tomorrow 9am and I’ll be right there. 🔥';
+  }
+  return 'No problem at all — when do you want to try again? Text me a time like 3pm, in 1 hour, or tomorrow 9am, and I’ll check back then.';
+}
+
+/** Confirm the new time the person gave over text. The word still counts; the streak is safe. */
+export function smsRescheduledCopy({ persona, when, timezone, nowISO } = {}) {
+  const at = when ? formatWhenLocal(when, timezone, nowISO) : 'then';
+  if (pickPersona(persona) === 'hype') {
+    return `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
+  }
+  return `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
+}
+
+/** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
+export function smsWhenUnclearCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'I didn’t quite catch a time there — try something like 3pm, in 30 min, or tomorrow 9am and I’ve got you. 💪';
+  }
+  return 'I didn’t catch a time there — try something like 3pm, in 30 min, or tomorrow 9am, and I’ll check back then.';
 }
 
 /**
@@ -1124,7 +1324,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       // or written here — releasing protects the chain by construction.
       await env.DB.prepare(
         `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
-          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
       ).bind(id, auth.userId).run();
 
       return jsonResponse({
@@ -1178,7 +1378,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       // clear responded_at — this check-in is not resolved, just moved a little.
       const open = await env.DB.prepare(
         `SELECT id FROM commitment_checkins
-          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
           ORDER BY scheduled_for DESC LIMIT 1`
       ).bind(id, auth.userId).first();
 
@@ -1256,7 +1456,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       // pausing protects the chain by construction.
       await env.DB.prepare(
         `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
-          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
       ).bind(id, auth.userId).run();
 
       return jsonResponse({
@@ -1376,7 +1576,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (built.scheduleChanged) {
         await env.DB.prepare(
           `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred')`
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
         ).bind(id, auth.userId).run();
 
         if (commitment.status === 'active') {

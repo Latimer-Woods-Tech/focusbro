@@ -94,7 +94,7 @@ describe('POST /api/commitments/:id/release — the blameless exit', () => {
     await call('POST', '/api/commitments/cm1/release');
     const ciUpd = db.runs.find((x) =>
       /UPDATE commitment_checkins SET status = 'cancelled'/.test(x.sql) &&
-      /status IN \('pending', 'deferred'\)/.test(x.sql));
+      /status IN \('pending', 'deferred', 'awaiting_time'\)/.test(x.sql));
     expect(ciUpd, 'pending/deferred check-ins cancelled').toBeTruthy();
   });
 

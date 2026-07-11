@@ -20,7 +20,7 @@
 // channel marks the check-in `skipped`, never crashes, never touches the timer.
 // ════════════════════════════════════════════════════════════
 
-import { checkinPromptCopy, nextOccurrenceISO, pickRecurrence } from './accountability.js';
+import { checkinPromptCopy, checkinReplyHint, nextOccurrenceISO, pickRecurrence } from './accountability.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate } from './consent.js';
 import { generateUUID } from './middleware.js';
@@ -78,7 +78,10 @@ export async function deliverCheckin(env, row) {
   const message = checkinPromptCopy({ title: row.title, persona: row.persona });
   const channel = row.channel === 'text' ? 'text' : 'push';
 
-  if (channel === 'text') return deliverText(env, row, message);
+  // Text has no action buttons, so the nudge itself invites the reply — that's
+  // what makes the two-way loop (DONE / LATER → "when do you want to try again?")
+  // discoverable over SMS. Push carries its own in-app actions, so it stays clean.
+  if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(row.persona)}`);
   return deliverPush(env, row, message);
 }
 
