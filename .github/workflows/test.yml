@@ -37,8 +37,8 @@ jobs:
     - name: Build HTML module
       run: node create-html-module.js
     
-    - name: Run API tests
-      run: cd api && npm test
+    - name: Run API tests (with coverage floor)
+      run: cd api && npm run test:coverage
       
     - name: Show logs on failure
       if: failure()
