@@ -6,6 +6,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.js'],
     testTimeout: 10000,
+    // Only unit tests under src; the Playwright smoke lives in e2e/ (run via
+    // `npm run test:smoke`) and must not be collected by vitest.
+    include: ['src/**/*.test.js'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
