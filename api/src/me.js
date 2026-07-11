@@ -788,11 +788,12 @@ export function renderMePage() {
       return;
     }
     if (act === 'reschedule') {
-      var when = prompt('No problem — when do you want to try again? (e.g. 2026-07-07 14:00)');
-      if (!when) return;
-      var iso = toISO(when);
-      if (!iso) { alert('Couldn’t read that time — try a format like 2026-07-07 14:00.'); return; }
-      resolve(id, 'reschedule', { new_start_at: iso });
+      var when = prompt('No problem — when do you want to try again? (e.g. in 30 min, tomorrow 9am, 3pm)');
+      if (!when || !when.trim()) return;
+      // Send the words as typed — the server reads them with the SAME parser as a
+      // text reply, so "in 30 min" / "tomorrow 9am" / "3pm" all work in-app too.
+      // A warm nudge comes back if the time can't be read; never a rigid format.
+      resolve(id, 'reschedule', { when_text: when.trim() });
     }
   });
 

@@ -1254,12 +1254,34 @@ export function registerAccountabilityRoutes(router, ctx) {
         response.offer_reschedule = true;
       } else {
         // reschedule: create the follow-up commitment so the word carries forward.
+        // The "when" can arrive two ways, and BOTH go through the same time parser
+        // as the SMS reschedule (`parseWhenReply`) so the in-app "Move it" and a
+        // text reply read a person's words identically — one warm, DST-correct,
+        // never-past parser, never two that drift apart. Either an explicit ISO
+        // instant (`new_start_at`, e.g. from a picker) or a natural-language phrase
+        // (`when_text`, e.g. "in 30 min", "tomorrow 9am", "3pm").
+        let newStartISO = typeof body.new_start_at === 'string' && body.new_start_at.trim()
+          ? body.new_start_at.trim()
+          : null;
+        if (!newStartISO && typeof body.when_text === 'string' && body.when_text.trim()) {
+          newStartISO = parseWhenReply(body.when_text, {
+            nowISO: new Date().toISOString(),
+            timezone: commitment.timezone,
+            defaultTime: commitment.local_time,
+          });
+          // Couldn't read a concrete time — ask again warmly, in the shared voice.
+          // NEVER assume a time and (per the design LAW) never a miss.
+          if (!newStartISO) {
+            return jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400);
+          }
+        }
         const parsed = validateCommitmentInput({
           title: commitment.title,
-          start_at: body.new_start_at,
+          start_at: newStartISO,
           checkin_at: body.new_checkin_at,
           channel: commitment.channel,
           persona,
+          timezone: commitment.timezone,
         });
         if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
         const v = parsed.value;
