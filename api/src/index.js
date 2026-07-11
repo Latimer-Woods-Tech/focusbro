@@ -1666,7 +1666,10 @@ router.get('/icon-512.png', async (request, env) => {
 router.get('/', async (request, env) => {
   return new Response(htmlContent, {
     status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' }
+    // Edge-cacheable like /index.html so the 212KB entry page isn't re-fetched
+    // from the worker on every visit. The deploy workflow purges CF cache, so a
+    // new release is served immediately despite the 5-min TTL.
+    headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' }
   });
 });
 
