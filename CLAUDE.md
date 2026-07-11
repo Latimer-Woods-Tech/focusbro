@@ -25,10 +25,10 @@ Tiers: Free / Pro ($5/month or $49/year) / Enterprise ($15/user/month).
 | Database | Cloudflare D1 (SQLite) — binding: `DB` |
 | Cache | Cloudflare KV — binding: `KV` |
 | Auth | HMAC-SHA256 JWT (30-day tokens, no external auth dependency) |
-| Frontend | Vanilla HTML5 + CSS3 + JavaScript (no build step) — `public/index.html` |
+| Frontend | Vanilla HTML5 + CSS3 + JavaScript — source of truth is `public/index.html`; one build step: `npm run build:html` |
 | Push | Web Push API (VAPID keys in KV) |
 | Payments | Stripe |
-| Build | `node create-html-module.js` (syncs HTML module to Workers) |
+| Build | `npm run build:html` — `create-html-module.js` stringifies `public/index.html` → `api/src/html.js` (the string the Worker serves). Auto-run by the `predeploy` hook. |
 | Tests | Vitest |
 
 ## Hard Constraints
@@ -38,7 +38,7 @@ Tiers: Free / Pro ($5/month or $49/year) / Enterprise ($15/user/month).
 - No `Buffer` — use `TextEncoder` / `TextDecoder` / `Uint8Array`
 - No framework rewrites — router is itty-router; do not migrate to Hono without explicit decision
 - No Neon, no Hyperdrive — database is Cloudflare D1 (`env.DB`)
-- **Run `node create-html-module.js` before every deploy** — syncs `public/index.html` to Workers module
+- **Build the served HTML before every deploy** — `npm run build:html` regenerates `api/src/html.js` from `public/index.html`. The `predeploy` npm hook runs it automatically on `npm run deploy`. (`build-complete-html.js` and `public/components/views/*.js` are one-time assembly artifacts — already inlined into `public/index.html`; do NOT run them in a routine build.)
 - Auth tokens are HS256 JWT signed with HMAC-SHA256 via Web Crypto — not jsonwebtoken
 - Stripe webhook handlers must verify signature before processing
 - D1 migrations live in `schema.sql` — never modify production schema without a migration file
@@ -55,8 +55,8 @@ A fix is done when `curl https://focusbro.adrper79.workers.dev/health` returns `
 ## Deploy
 
 ```bash
-node create-html-module.js    # REQUIRED before every deploy — syncs HTML module
-npx wrangler deploy           # Deploy Worker
+npm run build:html    # regenerate api/src/html.js from public/index.html
+npm run deploy        # predeploy hook rebuilds HTML, then wrangler deploy --env production
 ```
 
 ## Test
@@ -79,7 +79,7 @@ Ambient Sounds, Eye Rest, Hydration Reminder, Sleep Wind-Down.
 4. Read `src/index.js` (or main Worker entry) — router wiring and middleware
 5. Confirm D1 schema in `schema.sql` before any database work
 6. Check `git log --oneline -10` — understand recent changes
-7. **Before deploying**: run `node create-html-module.js`
+7. **Before deploying**: run `npm run build:html` (or `npm run deploy`, whose `predeploy` hook auto-builds)
 
 ## Key Docs
 
