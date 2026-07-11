@@ -4,7 +4,7 @@
  * Manages conflict resolution, tier validation, and sync state
  */
 
-import { errorResponse, successResponse } from './middleware.js';
+import { errorResponse, successResponse, generateUUID } from './middleware.js';
 
 // ════════════════════════════════════════════════════════════
 // SUBSCRIPTION TIER VALIDATION
