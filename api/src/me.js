@@ -269,7 +269,7 @@ export function renderMePage() {
       <div class="row">
         <div>
           <label for="startAt">When?</label>
-          <input id="startAt" type="datetime-local" required />
+          <input id="startAt" type="text" placeholder="in 30 min, tomorrow 9am, 3pm" autocomplete="off" required />
         </div>
         <div>
           <label for="persona">Companion tone</label>
@@ -825,23 +825,23 @@ export function renderMePage() {
   el('commitForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
     hide(el('commitMsg')); hide(el('commitErr'));
-    var iso = toISO(el('startAt').value);
-    if (!iso) { var e = el('commitErr'); e.textContent = 'When do you want to start? Pick a time.'; show(e); return; }
+    // The very first "when" now speaks the same warm language as the reschedule
+    // and the text channel — "in 30 min", "tomorrow 9am", "3pm". The server runs
+    // the shared parseWhenReply; for a repeating word it derives the same-time-
+    // each-day anchor from the resolved instant, so no separate local_time here.
+    var whenText = el('startAt').value.trim();
+    if (!whenText) { var e = el('commitErr'); e.textContent = 'When do you want to start? Try “in 30 min”, “tomorrow 9am”, or “3pm”.'; show(e); return; }
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
-    // For a repeating check-in, anchor to the local time-of-day the picker holds
-    // ("YYYY-MM-DDTHH:MM") so every occurrence lands at the same wall-clock time.
     var repeat = el('repeat').value;
-    var localTime = (el('startAt').value || '').slice(11, 16);
     fetch('/api/commitments', {
       method: 'POST', headers: authHeaders(),
       body: JSON.stringify({
         title: el('title').value.trim(),
-        start_at: iso,
+        when_text: whenText,
         persona: el('persona').value,
         channel: el('channel').value,
         recurrence: repeat,
-        local_time: localTime,
         timezone: tz
       })
     })
@@ -849,7 +849,7 @@ export function renderMePage() {
       .then(function (res) {
         if (!res.ok) { var e = el('commitErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
         var m = el('commitMsg'); m.textContent = res.b.message || 'Got it — I’ll check in.'; show(m);
-        el('title').value = '';
+        el('title').value = ''; el('startAt').value = '';
         loadStreak(); loadList();
       })
       .catch(function () { var e = el('commitErr'); e.textContent = 'Could not save that commitment. Try again in a moment.'; show(e); });
