@@ -1039,6 +1039,29 @@ export function registerAccountabilityRoutes(router, ctx) {
       let body;
       try { body = await request.json(); } catch { body = null; }
 
+      // A person's FIRST word should accept the same warm, natural-language time
+      // as the reschedule ("Move it") and the SMS reply — "in 30 min", "tomorrow
+      // 9am", "3pm" — so no one has to fight a datetime picker just to give their
+      // word. Same `parseWhenReply` (DST-correct, recipient-local, never-past,
+      // ≤14-day horizon) every surface uses — one parser, one voice. Only kicks
+      // in when no explicit `start_at` is supplied, so the picker and any API
+      // client that still sends an ISO instant stay fully backward compatible.
+      if (body && typeof body === 'object'
+          && !(typeof body.start_at === 'string' && body.start_at.trim())
+          && typeof body.when_text === 'string' && body.when_text.trim()) {
+        const startISO = parseWhenReply(body.when_text, {
+          nowISO: new Date().toISOString(),
+          timezone: body.timezone,
+          defaultTime: body.local_time,
+        });
+        // Couldn't read a concrete time — ask again warmly, in the shared voice,
+        // and write NOTHING. Never assume a time (and, per the LAW, never a miss).
+        if (!startISO) {
+          return jsonResponse({ error: smsWhenUnclearCopy({ persona: pickPersona(body.persona) }) }, 400);
+        }
+        body = { ...body, start_at: startISO };
+      }
+
       const parsed = validateCommitmentInput(body);
       if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
       const v = parsed.value;
