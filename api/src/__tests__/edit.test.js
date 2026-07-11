@@ -116,7 +116,7 @@ describe('POST /api/commitments/:id/edit — change a word in place', () => {
     // Old waiting check-ins cancelled…
     expect(db.runs.some((x) =>
       /UPDATE commitment_checkins SET status = 'cancelled'/.test(x.sql) &&
-      /status IN \('pending', 'deferred'\)/.test(x.sql))).toBe(true);
+      /status IN \('pending', 'deferred', 'awaiting_time'\)/.test(x.sql))).toBe(true);
     // …and a fresh pending one queued (active word).
     expect(db.runs.some((x) => /INSERT INTO commitment_checkins/.test(x.sql) && /'pending'/.test(x.sql))).toBe(true);
     const body = await res.json();

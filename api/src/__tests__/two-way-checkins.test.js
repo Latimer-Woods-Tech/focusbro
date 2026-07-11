@@ -20,9 +20,14 @@ import { Router } from 'itty-router';
 import {
   detectCheckinReply,
   applyCheckinOutcome,
+  parseWhenReply,
+  formatWhenLocal,
   smsKeptReplyCopy,
   smsRescheduleReplyCopy,
   smsAmbiguousReplyCopy,
+  smsAskWhenCopy,
+  smsRescheduledCopy,
+  smsWhenUnclearCopy,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -260,12 +265,57 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(sent.text.toLowerCase()).toMatch(/did the thing|you did/);
   });
 
-  it('"later" resolves as the no-shame RESCHEDULE', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+  it('"later" ASKS when — right over text, holding the check-in for the answer (never punts to the app)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
     const db = makeWebhookDB({ open: openText });
     const res = await buildRouter(db).handle(inbound('later'), { ...TELNYX_ENV, DB: db });
-    expect((await res.json()).action).toBe('checkin_reschedule');
-    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql) && x.params.includes('rescheduled'))).toBe(true);
+    expect((await res.json()).action).toBe('reschedule_ask_when');
+    // the check-in is parked awaiting a time — NOT resolved, NOT a miss, streak untouched
+    expect(db.runs.some((x) => /UPDATE commitment_checkins SET status = 'awaiting_time'/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // and the bro asks "when do you want to try again?" on the channel that reached them
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/when do you want to try again/);
+    expect(sent.text.toLowerCase()).not.toMatch(/in the app/);
+  });
+
+  it('a time reply while awaiting → re-arms THIS check-in for that time (streak safe, no app)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time', timezone: 'America/New_York', local_time: '08:40' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('in 1 hour'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    // the check-in was re-pended (not resolved, streak never read/written)
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/check back/);
+  });
+
+  it('a late "done" while awaiting a time is still honored as KEPT', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting, streak: { current_streak: 1, longest_streak: 1, total_kept: 1 } });
+    const res = await buildRouter(db).handle(inbound('actually done'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('checkin_kept');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(true);
+  });
+
+  it('an unreadable time while awaiting → re-asks warmly, still no miss', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('ummm idk'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('reschedule_when_unclear');
+    // nothing resolved; the check-in stays awaiting
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/try something like/);
   });
 
   it('a bare "yes" from a NOT-opted-out user answers the check-in (not a re-subscribe)', async () => {
@@ -304,4 +354,84 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect((await res.json()).action).toBe('no_open_checkin');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+});
+
+// ── parseWhenReply — read a "when do you want to try again?" answer ──
+describe('parseWhenReply — natural-language time, DST-correct, never guesses a miss', () => {
+  const NOW = '2026-07-06T15:00:00.000Z'; // UTC anchor for the simple cases
+
+  it('reads relative "in ..." forms', () => {
+    expect(parseWhenReply('in 30 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('in 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('in half an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('in 20', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+  });
+
+  it('reads clock times, rolling to tomorrow when already past', () => {
+    expect(parseWhenReply('6pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('18:00', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    // noon already passed at 15:00 → tomorrow noon
+    expect(parseWhenReply('noon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T12:00:00.000Z');
+    // ambiguous bare "8": 08:00 today passed, 20:00 today is the soonest future
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+  });
+
+  it('reads "tomorrow", using the usual check-in time when no clock is given', () => {
+    expect(parseWhenReply('tomorrow 9am', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    expect(parseWhenReply('tomorrow', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-07T08:40:00.000Z');
+    expect(parseWhenReply('tomorrow morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+  });
+
+  it('is DST-correct in the recipient timezone', () => {
+    // 08:00 EDT (UTC-4). "in 1 hour" → 13:00Z. "3pm" local → 19:00Z same day.
+    const now = '2026-07-06T12:00:00.000Z';
+    expect(parseWhenReply('in 1 hour', { nowISO: now, timezone: 'America/New_York' })).toBe('2026-07-06T13:00:00.000Z');
+    expect(parseWhenReply('3pm', { nowISO: now, timezone: 'America/New_York' })).toBe('2026-07-06T19:00:00.000Z');
+  });
+
+  it('returns null for a vague / unreadable answer (caller re-asks, never assumes)', () => {
+    for (const t of ['later', 'idk', 'ummm', 'soon', '', 'whenever', 'call me later about the car']) {
+      expect(parseWhenReply(t, { nowISO: NOW, timezone: 'UTC' }), t).toBeNull();
+    }
+  });
+
+  it('refuses an absurd far-future value (>14 days out)', () => {
+    expect(parseWhenReply('in 25000 min', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+});
+
+describe('formatWhenLocal — warm, recipient-local confirmation', () => {
+  it('says "at H:MM AM/PM" for a same-local-day time', () => {
+    expect(formatWhenLocal('2026-07-06T19:00:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('at 3:00 PM');
+  });
+  it('prefixes "tomorrow" across the local day boundary', () => {
+    expect(formatWhenLocal('2026-07-07T12:40:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('tomorrow at 8:40 AM');
+  });
+});
+
+// ── The design LAW, on the conversational-reschedule copy ──
+describe('conversational-reschedule copy obeys the one LAW: never shame', () => {
+  const SHAME = /\b(fail(ed|ure)?|miss(ed)?|behind|lazy|should have|guilt|disappoint|streak (lost|broken)|again\?!)\b/i;
+  const CLINICAL = /\b(ADHD|diagnos|treat(ment)?|therap|disorder|symptom|patient)\b/i;
+  const AI = /\bA\.?I\.?\b/i;
+  for (const persona of ['ally', 'hype']) {
+    for (const fn of [smsAskWhenCopy, smsWhenUnclearCopy]) {
+      it(`${fn.name} (${persona}) is warm, no shame / clinical / "AI"`, () => {
+        const s = fn({ persona });
+        expect(s).not.toMatch(SHAME);
+        expect(s).not.toMatch(CLINICAL);
+        expect(s).not.toMatch(AI);
+        expect(s.toLowerCase()).toMatch(/try again|time|check back/);
+      });
+    }
+    it(`smsRescheduledCopy (${persona}) confirms warmly and protects the streak`, () => {
+      const s = smsRescheduledCopy({ persona, when: '2026-07-06T19:00:00.000Z', timezone: 'America/New_York', nowISO: '2026-07-06T12:00:00.000Z' });
+      expect(s).not.toMatch(SHAME);
+      expect(s).not.toMatch(CLINICAL);
+      expect(s).not.toMatch(AI);
+      expect(s.toLowerCase()).toMatch(/check back .*3:00 pm/);
+      expect(s.toLowerCase()).toMatch(/still counts|streak/);
+    });
+  }
 });

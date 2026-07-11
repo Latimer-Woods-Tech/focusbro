@@ -105,7 +105,7 @@ describe('POST /api/commitments/:id/pause — take a break', () => {
     // …and its still-waiting check-ins were cancelled (pending + deferred).
     const cancel = db.runs.find((x) =>
       /UPDATE commitment_checkins SET status = 'cancelled'/.test(x.sql) &&
-      /status IN \('pending', 'deferred'\)/.test(x.sql));
+      /status IN \('pending', 'deferred', 'awaiting_time'\)/.test(x.sql));
     expect(cancel, 'cancelled the waiting check-ins').toBeTruthy();
   });
 

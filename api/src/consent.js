@@ -36,9 +36,12 @@
 import {
   detectCheckinReply,
   applyCheckinOutcome,
+  parseWhenReply,
   smsKeptReplyCopy,
-  smsRescheduleReplyCopy,
   smsAmbiguousReplyCopy,
+  smsAskWhenCopy,
+  smsRescheduledCopy,
+  smsWhenUnclearCopy,
   pickPersona,
 } from './accountability.js';
 
@@ -487,15 +490,17 @@ export function registerConsentRoutes(router, ctx) {
 
       // ── Two-way check-in reply: resolve the person's open text check-in ──
       // A text check-in is only half the loop if you can't answer it. Find the
-      // most recent delivered ('sent'), still-unanswered text check-in and read
-      // the reply. STOP/START/HELP already handled above, so they never land here.
+      // single most-recent open text check-in — whether it was just delivered
+      // ('sent') or is mid-"when do you want to try again?" conversation
+      // ('awaiting_time'). Newest wins, so a stale awaiting row never hijacks a
+      // fresh nudge. STOP/START/HELP are handled above, so they never land here.
       const open = await env.DB.prepare(
-        `SELECT c.id AS checkin_id, c.commitment_id,
+        `SELECT c.id AS checkin_id, c.commitment_id, c.status AS checkin_status,
                 m.recurrence, m.timezone, m.local_time, m.channel, m.persona
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
           WHERE c.user_id = ? AND c.channel = 'text'
-            AND c.status = 'sent' AND c.responded_at IS NULL
+            AND c.status IN ('sent', 'awaiting_time') AND c.responded_at IS NULL
           ORDER BY c.scheduled_for DESC LIMIT 1`
       ).bind(user.id).first();
 
@@ -505,6 +510,51 @@ export function registerConsentRoutes(router, ctx) {
       }
 
       const persona = pickPersona(open.persona);
+      const nowISO = new Date().toISOString();
+      const commitment = {
+        id: open.commitment_id,
+        recurrence: open.recurrence,
+        timezone: open.timezone,
+        local_time: open.local_time,
+        channel: open.channel,
+        persona: open.persona,
+      };
+      const resolveKept = async () => {
+        const result = await applyCheckinOutcome(env, {
+          userId: user.id,
+          checkin: { id: open.checkin_id, commitment_id: open.commitment_id },
+          commitment, outcome: 'kept', note: 'via SMS reply',
+        });
+        await sendSms(env, phone, smsKeptReplyCopy({ persona, streak: result.streak.current_streak }));
+        return jsonResponse({ ok: true, action: 'checkin_kept' }, 200);
+      };
+
+      // ── Mid-conversation: we already asked "when?", so read this as a time ──
+      // A late "done" is still honored (they did it after all); otherwise parse a
+      // concrete time and re-arm THIS check-in for it — never a miss, never punt
+      // to the app.
+      if (open.checkin_status === 'awaiting_time') {
+        if (detectCheckinReply(text) === 'kept') return await resolveKept();
+        const whenISO = parseWhenReply(text, {
+          nowISO, timezone: open.timezone, defaultTime: open.local_time,
+        });
+        if (!whenISO) {
+          await sendSms(env, phone, smsWhenUnclearCopy({ persona }));
+          return jsonResponse({ ok: true, action: 'reschedule_when_unclear' }, 200);
+        }
+        // Re-pend this check-in at the chosen time. The streak is NEVER touched —
+        // a reschedule protects the chain by construction. The next recurring
+        // occurrence was already materialized at delivery, so the rhythm holds.
+        await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+            WHERE id = ? AND user_id = ?`
+        ).bind(whenISO, open.checkin_id, user.id).run();
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO }));
+        return jsonResponse({ ok: true, action: 'rescheduled', scheduled_for: whenISO }, 200);
+      }
+
+      // ── Fresh reply to a delivered nudge ──
       const reply = detectCheckinReply(text);
 
       if (reply === null) {
@@ -514,28 +564,17 @@ export function registerConsentRoutes(router, ctx) {
         return jsonResponse({ ok: true, action: 'checkin_unclear' }, 200);
       }
 
-      const commitment = {
-        id: open.commitment_id,
-        recurrence: open.recurrence,
-        timezone: open.timezone,
-        local_time: open.local_time,
-        channel: open.channel,
-        persona: open.persona,
-      };
-      const result = await applyCheckinOutcome(env, {
-        userId: user.id,
-        checkin: { id: open.checkin_id, commitment_id: open.commitment_id },
-        commitment,
-        outcome: reply,
-        note: 'via SMS reply',
-      });
+      if (reply === 'kept') return await resolveKept();
 
-      const replyCopy = reply === 'kept'
-        ? smsKeptReplyCopy({ persona, streak: result.streak.current_streak })
-        : smsRescheduleReplyCopy({ persona });
-      await sendSms(env, phone, replyCopy);
-
-      return jsonResponse({ ok: true, action: `checkin_${reply}` }, 200);
+      // "later" → don't punt to the app. Ask when, right here over text, and hold
+      // this check-in in 'awaiting_time' for the person's next reply. The design
+      // LAW's literal promise: "no problem — when do you want to try again?"
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET status = 'awaiting_time'
+          WHERE id = ? AND user_id = ? AND status = 'sent'`
+      ).bind(open.checkin_id, user.id).run();
+      await sendSms(env, phone, smsAskWhenCopy({ persona }));
+      return jsonResponse({ ok: true, action: 'reschedule_ask_when' }, 200);
     } catch (err) {
       console.error('[consent] inbound webhook error:', err && err.message);
       // Webhooks must not retry-storm on our errors; acknowledge.
