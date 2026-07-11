@@ -11,7 +11,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest watch",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:smoke": "playwright test"
   },
   "dependencies": {
     "itty-router": "^4.0.0"
@@ -22,7 +23,8 @@
     "eslint": "^8.50.0",
     "vitest": "^1.0.0",
     "@vitest/ui": "^1.0.0",
-    "@vitest/coverage-v8": "^1.0.0"
+    "@vitest/coverage-v8": "^1.0.0",
+    "@playwright/test": "^1.48.0"
   },
   "engines": {
     "node": "18.x"

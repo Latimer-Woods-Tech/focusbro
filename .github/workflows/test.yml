@@ -44,4 +44,42 @@ jobs:
       if: failure()
       run: ls -la && pwd && echo "=== Node version ===" && node --version && npm --version
 
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: "18.x"
+        cache: "npm"
+        cache-dependency-path: |
+          package-lock.json
+          api/package-lock.json
+
+    - name: Install root dependencies
+      run: npm ci
+      continue-on-error: true
+
+    - name: Install API dependencies
+      run: cd api && npm ci
+
+    - name: Build HTML module
+      run: node create-html-module.js
+
+    - name: Install Playwright (chromium)
+      run: cd api && npx playwright install --with-deps chromium
+
+    - name: Client smoke (Playwright)
+      run: cd api && npm run test:smoke
+
+    - name: Upload Playwright report on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report
+        path: api/playwright-report/
+        retention-days: 7
+
 
