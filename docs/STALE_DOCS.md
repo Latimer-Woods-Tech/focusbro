@@ -24,6 +24,7 @@ This view lists docs that are stale/archive or missing a `Last Updated`/`last_up
 | [CONFIGURATION_GUIDE.md](../CONFIGURATION_GUIDE.md) | active | unverified | focusbro | unknown | FocusBro Environment Configuration Guide |
 | [DEPLOYMENT_CHECKLIST.md](../DEPLOYMENT_CHECKLIST.md) | active | unverified | focusbro | unknown | FocusBro Deployment Checklist |
 | [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) | active | unverified | focusbro | unknown | FocusBro API Deployment Guide |
+| [docs/IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) | active | unverified | focusbro | unknown | FocusBro Improvement Plan |
 | [ENV_CONFIG.md](../ENV_CONFIG.md) | active | unverified | focusbro | unknown | FocusBro API Environment Configuration |
 | [ERROR_HANDLING_GUIDE.md](../ERROR_HANDLING_GUIDE.md) | active | unverified | focusbro | unknown | Error Handling Guide |
 | [EXECUTION_SUMMARY.md](../EXECUTION_SUMMARY.md) | active | unverified | focusbro | unknown | FocusBro Execution Summary (Tasks 1-4 Complete) |

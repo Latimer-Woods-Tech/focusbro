@@ -18,6 +18,7 @@ import {
   inviteSentCopy,
   rhythmIntroCopy,
   rhythmEmptyCopy,
+  nextCheckinCopy,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
 
@@ -87,6 +88,30 @@ describe('describeCadence — the client rhythm a coach sees, read-only', () => 
   });
 });
 
+describe('nextCheckinCopy — the concrete next moment the bro shows up', () => {
+  const nowISO = '2026-07-11T12:00:00Z';
+  it('phrases a same-day check-in as "Next up at <time>"', () => {
+    const s = nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO });
+    expect(s).toMatch(/^Next up /);
+    expect(s).toMatch(/\b(AM|PM)\b/);
+    expect(s).not.toMatch(/tomorrow/i);
+  });
+  it('phrases a next-day check-in as "Next up tomorrow at <time>"', () => {
+    const s = nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO });
+    expect(s).toMatch(/^Next up tomorrow /);
+    expect(s).toMatch(/\b(AM|PM)\b/);
+  });
+  it('stays warm and forward-looking when nothing is scheduled yet', () => {
+    const s = nextCheckinCopy({ iso: null, timezone: 'UTC', nowISO });
+    expect(s.toLowerCase()).toContain('lining up');
+    expect(s.toLowerCase()).not.toContain('overdue');
+  });
+  it('treats a garbage instant as nothing-scheduled, never throwing', () => {
+    expect(typeof nextCheckinCopy({ iso: 'not-a-date', timezone: 'UTC', nowISO })).toBe('string');
+    expect(typeof nextCheckinCopy()).toBe('string');
+  });
+});
+
 // ── THE DESIGN LAW extends to the coach's view ───────────────
 describe('copy law — a coach never reads shame, "AI", or a clinical claim', () => {
   const SHAME_PATTERNS = [
@@ -119,6 +144,9 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientStatusLine({ streak: { current_streak: 12, longest_streak: 20 } }),
     rhythmIntroCopy(),
     rhythmEmptyCopy(),
+    nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: null }),
     describeCadence({ recurrence: 'none' }),
     describeCadence({ recurrence: 'daily', localTime: '08:40' }),
     describeCadence({ recurrence: 'weekdays', localTime: '09:05' }),

@@ -9,9 +9,9 @@
     "docs/_governance/doc-overrides.yml": "sha256:38d8d8e536a4e412c905a01c75e8d2cd7bdebcad9932598f4ea3484a854c1391"
   },
   "counts": {
-    "total_docs": 46,
+    "total_docs": 47,
     "canonical": 1,
-    "active": 43,
+    "active": 44,
     "stale": 0,
     "archive": 0,
     "generated": 2,
@@ -201,7 +201,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:f40a950701700adbade3214b75e62ab21315c1a294a2aff6bcac7022067df800",
+      "content_hash": "sha256:bdbc5c6737b36028329cdbc013aed34a1b67be2182840697592a4bc765924ed1",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
@@ -369,7 +369,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:038c123ddd3c790ed785c4fbc781a6051fdfe5c03ae5207b58cc4b5e7cbe9945",
+      "content_hash": "sha256:fc569bd904c82428464c39e0b2496b2aad38bf5afb8eec4da64f6564e0bbb824",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
@@ -390,7 +390,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:332beb12417df6484e4fa9d2a53ab5c6c41022f8e48804088a3a29859cb06785",
+      "content_hash": "sha256:0998a13cdbef338fce3ce1ebfec031941c25c4aa25b8113a17c5d16807c6cb8f",
       "source": {
         "frontmatter": false,
         "canonical_allowlist": false,
@@ -441,6 +441,27 @@
       "errors": []
     },
     {
+      "path": "docs/IMPROVEMENT_PLAN.md",
+      "title": "FocusBro Improvement Plan",
+      "status": "active",
+      "owner": "focusbro",
+      "doc_type": "plan",
+      "fidelity": "unverified",
+      "quality": "usable",
+      "last_updated": null,
+      "last_verified": null,
+      "scope": null,
+      "truth_sources": [],
+      "verified_by": [],
+      "content_hash": "sha256:d1fee3d1d4d66b42418364253d45c05ac521bc43d8422bce7b416fe6eeed4a01",
+      "source": {
+        "frontmatter": false,
+        "canonical_allowlist": false,
+        "override": "docs/**"
+      },
+      "errors": []
+    },
+    {
       "path": "docs/REQUIREMENTS.md",
       "title": "FocusBro — Requirements",
       "status": "active",
@@ -453,7 +474,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:4344dcc3a2d0754eb72eb96ef6fb72f7ec3e39d4e5114c32f807ec2cda53c848",
+      "content_hash": "sha256:83d1f4e15f2fe9c83e7dd57b2211b5ec9e7a4d0ac23aea3a7460a118f2204271",
       "source": {
         "frontmatter": true,
         "canonical_allowlist": false,

@@ -21,5 +21,6 @@ flowchart TB
   Quality["Quality"]
   Other --> deploy_yml["deploy.yml"]
   Quality --> docs_health_yml["docs-health.yml"]
+  Other --> lighthouse_yml["lighthouse.yml"]
   Other --> test_yml["test.yml"]
 ```

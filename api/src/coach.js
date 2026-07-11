@@ -24,7 +24,7 @@
 // coach.test.js (banned-word + no-"AI" + no-clinical-claim assertions).
 // ════════════════════════════════════════════════════════════
 
-import { describeCadence } from './accountability.js';
+import { describeCadence, formatWhenLocal } from './accountability.js';
 
 /** Roster link states. A coach sees client data only in the `active` state. */
 export const COACH_LINK_STATES = ['pending', 'active', 'declined', 'removed'];
@@ -92,6 +92,25 @@ export function rhythmIntroCopy() {
 /** Shown in the rhythm panel when an active client has no live commitments. */
 export function rhythmEmptyCopy() {
   return 'Nothing on the books right now — a clear page, ready for their next word.';
+}
+
+/**
+ * Warm "next time the bro shows up" line for a single active commitment. The
+ * whole product thesis is a companion who shows up ON A SCHEDULE, so a coach
+ * should see the CONCRETE next occurrence — "Next up tomorrow at 8:40 AM" — not
+ * just the abstract cadence. DESIGN LAW: this reads only an OUTSTANDING (future)
+ * check-in — a moment the bro is about to keep — so it is momentum by
+ * construction and can never surface a miss. When nothing is scheduled yet (a
+ * one-time word already answered, or a rhythm the cron is about to re-arm), it
+ * stays warm and forward-looking, never "overdue".
+ * @param {object} p { iso, timezone, nowISO }
+ * @returns {string}
+ */
+export function nextCheckinCopy({ iso, timezone, nowISO } = {}) {
+  if (iso && !Number.isNaN(Date.parse(iso))) {
+    return `Next up ${formatWhenLocal(iso, timezone, nowISO)}`;
+  }
+  return 'Next check-in lining up.';
 }
 
 // ── ROUTES ───────────────────────────────────────────────────
@@ -259,25 +278,47 @@ export function registerCoachRoutes(router, ctx) {
 
       const streak = await loadStreakFor(env, clientId);
       const commitments = await env.DB.prepare(
-        `SELECT title, start_at, checkin_at, status, recurrence, local_time, timezone
+        `SELECT id, title, start_at, checkin_at, status, recurrence, local_time, timezone
            FROM commitments
           WHERE user_id = ? AND status = 'active'
           ORDER BY start_at ASC
           LIMIT 100`
       ).bind(clientId).all();
 
-      // Surface each commitment's self-set cadence (the rhythm), read-only.
-      // Momentum-only: this is when they asked to be met, never a miss list.
-      const activeCommitments = ((commitments && commitments.results) || []).map((c) => ({
-        title: c.title,
-        start_at: c.start_at,
-        checkin_at: c.checkin_at,
-        status: c.status,
-        recurrence: c.recurrence || 'none',
-        local_time: c.local_time || null,
-        timezone: c.timezone || 'UTC',
-        cadence: describeCadence({ recurrence: c.recurrence, localTime: c.local_time }),
-      }));
+      // The soonest OUTSTANDING check-in per active commitment — the concrete
+      // next moment the bro will show up. One grouped query (not N per row).
+      // Momentum-only by construction: an outstanding check-in is a future
+      // moment about to be KEPT (pending/sent/deferred), never a miss.
+      const nextRows = await env.DB.prepare(
+        `SELECT commitment_id, MIN(scheduled_for) AS next_for
+           FROM commitment_checkins
+          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          GROUP BY commitment_id`
+      ).bind(clientId).all();
+      const nextByCommitment = {};
+      for (const r of (nextRows && nextRows.results) || []) {
+        nextByCommitment[r.commitment_id] = r.next_for;
+      }
+      const nowISO = new Date().toISOString();
+
+      // Surface each commitment's self-set cadence (the rhythm) AND the concrete
+      // next check-in, read-only. This is when they asked to be met and when the
+      // bro shows up next — never a miss list.
+      const activeCommitments = ((commitments && commitments.results) || []).map((c) => {
+        const nextCheckin = nextByCommitment[c.id] || null;
+        return {
+          title: c.title,
+          start_at: c.start_at,
+          checkin_at: c.checkin_at,
+          status: c.status,
+          recurrence: c.recurrence || 'none',
+          local_time: c.local_time || null,
+          timezone: c.timezone || 'UTC',
+          cadence: describeCadence({ recurrence: c.recurrence, localTime: c.local_time }),
+          next_checkin: nextCheckin,
+          next_checkin_label: nextCheckinCopy({ iso: nextCheckin, timezone: c.timezone || 'UTC', nowISO }),
+        };
+      });
 
       return jsonResponse({
         client_id: clientId,
