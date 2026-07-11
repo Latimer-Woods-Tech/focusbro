@@ -1,0 +1,32 @@
+name: Lighthouse
+
+# FocusBro deploys to prod on merge (no PR previews), so Lighthouse runs against
+# the LIVE site: after each successful deploy (per-release tracking), nightly, and
+# on demand. Mobile emulation, median of 3 runs. Accessibility is a hard floor
+# (0.95); performance is a soft warn (0.55) because absolute perf scores are noisy
+# run-to-run — the artifact + trend are what matter for the deep-perf work (#42/D2).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *" # nightly 08:17 UTC
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    # For the post-deploy trigger, only run when the deploy actually succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Lighthouse (mobile) against production
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: |
+            https://focusbro.net/
+          configPath: ./.github/lighthouserc.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true
