@@ -1849,6 +1849,7 @@ router.get('/coach/', async (request) => {
   .rhythm-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 14px; }
   .rhythm-title { color: #111827; }
   .rhythm-cadence { color: #4f46e5; white-space: nowrap; }
+  .rhythm-next { color: #6b7280; font-size: 13px; margin: 0 0 6px; }
   .rhythm-toggle { font-size: 13px; }
 </style></head>
 <body>
@@ -1947,6 +1948,9 @@ router.get('/coach/', async (request) => {
       var tzRaw = (it.timezone && it.timezone !== 'UTC') ? ' (' + it.timezone + ')' : '';
       out += '<div class="rhythm-row"><span class="rhythm-title">' + esc(it.title) + '</span>'
         + '<span class="rhythm-cadence">' + esc((it.cadence || 'One-time') + tzRaw) + '</span></div>';
+      if (it.next_checkin_label) {
+        out += '<div class="rhythm-next">' + esc(it.next_checkin_label) + '</div>';
+      }
     }
     panel.innerHTML = out;
   }
