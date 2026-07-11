@@ -4937,6 +4937,7 @@ function setView(view) {
 // COMMAND PALETTE
 // ══════════════════════════════════════
 const CMD_LIST = [
+  { icon:'👋', name:'How FocusBro works', desc:'A quick tour: views, One Thing, and shortcuts',        action:()=>document.getElementById('onboardingModal').classList.add('show'), keys:'help tour onboarding welcome how works guide getting started new here', group:'Help' },
   { icon:'🏠', name:'Dashboard',         desc:'All tools — full view',                                  action:()=>setView('home'),  keys:'home dashboard', group:'Views' },
   { icon:'⚡', name:'Focus mode',         desc:'Pomodoro + Tasks only, no distractions',                action:()=>setView('focus'), keys:'focus mode pomodoro', group:'Views' },
   { icon:'🌿', name:'Restore mode',       desc:'Sounds, breathing, fidgets, meditation',               action:()=>setView('rest'),  keys:'rest restore relax wellness', group:'Views' },
@@ -5079,15 +5080,10 @@ function dismissOnboarding() {
   localStorage.setItem('fb_onboarded', 'true');
 }
 
-(function() {
-  const onboarded = localStorage.getItem('fb_onboarded');
-  if (!onboarded) {
-    setTimeout(() => {
-      const modal = document.getElementById('onboardingModal');
-      if (modal) modal.classList.add('show');
-    }, 800);
-  }
-})();
+// Timer-first: the first screen is the timer + One Thing + brain dump, never a
+// product tour. The welcome/onboarding modal no longer auto-pops over the timer;
+// it is opt-in via the command palette (⌘K → "How FocusBro works"). Discovery is
+// also served by the Quick Keys card and the ⌘K palette itself.
 
 // ══════════════════════════════════════
 // CONFETTI CELEBRATION
