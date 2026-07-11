@@ -1741,10 +1741,13 @@ router.get('/terms.html', async () => {
 <title>FocusBro Terms of Service</title><meta name="description" content="Terms of Service for FocusBro." /></head>
 <body style="font-family:Arial,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.6;color:#111827;">
 <nav><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
-<h1>Terms of Service</h1><p><strong>Last updated: July 10, 2026</strong></p>
-<p>FocusBro is provided for lawful productivity and wellness support. This service is informational and not medical advice.</p>
-<h2>Advertising</h2><p>FocusBro may display third-party ads. Advertisers are responsible for their own products and claims.</p>
-<h2>Contact</h2><p>Questions: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
+<h1>Terms of Service</h1><p style="color:#6b7280;">Last updated: July 10, 2026</p>
+<h2>Use of the service</h2><p>FocusBro is provided for lawful productivity and wellness support. You are responsible for how you use the app, your focus sessions, and any optional accountability check-ins you turn on.</p>
+<h2>No medical advice</h2><p>FocusBro is informational only. It is not medical, psychiatric, or crisis-care advice, and it does not diagnose or treat any condition. If you are in crisis, contact a local emergency service.</p>
+<h2>Advertising</h2><p>FocusBro may display third-party ads on its guide and content pages. Advertisers are responsible for their own products and claims.</p>
+<h2>Availability and warranties</h2><p>FocusBro is provided on an &quot;as is&quot; and &quot;as available&quot; basis without warranties of any kind.</p>
+<h2>Limitation of liability</h2><p>To the extent permitted by law, FocusBro and its operators are not liable for indirect or consequential damages resulting from use of the service.</p>
+<h2>Contact</h2><p>Questions about these terms: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });
