@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "tsc --noEmit",
+    "build": "node --check src/index.js && node --check src/accountability.js && node --check src/coach.js && node --check src/consent.js && node --check src/me.js && node --check src/webpush.js && node --check src/push-routes.js",
     "lint": "eslint src/**/*.js",
     "test": "vitest run",
     "test:watch": "vitest watch",

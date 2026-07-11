@@ -20,5 +20,4 @@ preview_id = "732d985fd2b84650aa828f7982ba0f87"
 # Production variables
 [env.production.vars]
 FRONTEND_URL = "https://main.focusbro-7g0.pages.dev"
-JWT_SECRET = "your-secret-key-change-in-production"
 PASSWORD_SALT_ROUNDS = "10"
