@@ -1,7 +1,10 @@
 node_modules/
+.wrangler/
+api/.wrangler/
 .env
 .env.local
 api/.env
+*.log
 *.bak
 coverage/
 dist/
@@ -10,7 +13,8 @@ dist/
 coverage/
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*docs-quality-report.json
+yarn-error.log*
+docs-quality-report.json
 docs/_catalog/docs-health.json
 docs/_catalog/docs-health-summary.md
 docs/_catalog/freshness.json

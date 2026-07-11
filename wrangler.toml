@@ -32,8 +32,8 @@ routes = [
 ]
 d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db" }]
 kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
-vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", JWT_SECRET = "focusbro-secret-key-prod-2024" }
+vars = { ENV = "production", API_ORIGIN = "https://focusbro.net" }
 triggers = { crontab = ["* * * * *"] }
 
 [env.development]
-vars = { ENV = "development", API_ORIGIN = "http://localhost:8787", JWT_SECRET = "focusbro-secret-key-dev" }
+vars = { ENV = "development", API_ORIGIN = "http://localhost:8787" }

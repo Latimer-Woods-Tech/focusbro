@@ -10,6 +10,7 @@ import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerConsentRoutes } from './consent.js';
+import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { runDueCheckins } from './checkins-cron.js';
 import config from './config.js';
@@ -27,6 +28,39 @@ import {
 } from './middleware.js';
 
 const router = Router();
+
+function slashRedirect(path) {
+  return new Response(null, { status: 301, headers: { Location: path } });
+}
+
+function redirectHttpToHttps(request) {
+  const url = new URL(request.url);
+  const productionHost = url.hostname === 'focusbro.net' || url.hostname.endsWith('.focusbro.net');
+  if (url.protocol !== 'http:' || !productionHost) return null;
+  url.protocol = 'https:';
+  return new Response(null, {
+    status: 301,
+    headers: {
+      Location: url.toString(),
+      'Cache-Control': 'public, max-age=3600'
+    }
+  });
+}
+
+function responseWithoutBody(response) {
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
+}
+
+// During the JWT migration, production may carry the old plain-text binding
+// (`JWT_SECRET`) while the new secret lands under `JWT_SECRET_NEXT`.
+export function withJwtSecretFallback(env) {
+  if (!env || env.JWT_SECRET || !env.JWT_SECRET_NEXT) return env;
+  return { ...env, JWT_SECRET: env.JWT_SECRET_NEXT };
+}
 
 // ── DEBUG LOGGING ──
 const DEBUG = false; // Set to true only during development/debugging
@@ -1432,6 +1466,13 @@ registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateU
 // sent without granted consent, inside quiet hours, or after opt-out.
 registerConsentRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
+// ── WEB PUSH SUBSCRIPTION INTAKE (Contender #10, Phase A) ──
+// The ONLY writer of push_subscriptions. Previously stranded in the unmounted
+// extended-routes.js, so the delivery cron always found no subscription and
+// every push check-in silently no-op'd. Mounted here on the same router/ctx so
+// GET /vapid/public-key + POST /notifications/subscribe are actually reachable.
+registerPushRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.
 // Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
@@ -1643,7 +1684,7 @@ router.get('/privacy.html', async () => {
 <body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
 <h1>Privacy Policy</h1>
-<p><strong>Last updated: July 5, 2026</strong></p>
+<p><strong>Last updated: July 10, 2026</strong></p>
 
 <p>FocusBro (focusbro.net) is a browser-first focus and wellness app operated by Latimer Woods Tech. This policy explains what data we handle, how cookies and third-party advertising work on the site, and the choices and rights you have.</p>
 
@@ -1700,7 +1741,7 @@ router.get('/terms.html', async () => {
 <title>FocusBro Terms of Service</title><meta name="description" content="Terms of Service for FocusBro." /></head>
 <body style="font-family:Arial,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.6;color:#111827;">
 <nav><a href="/">Home</a> | <a href="/privacy.html">Privacy</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
-<h1>Terms of Service</h1><p><strong>Last updated: May 5, 2026</strong></p>
+<h1>Terms of Service</h1><p><strong>Last updated: July 10, 2026</strong></p>
 <p>FocusBro is provided for lawful productivity and wellness support. This service is informational and not medical advice.</p>
 <h2>Advertising</h2><p>FocusBro may display third-party ads. Advertisers are responsible for their own products and claims.</p>
 <h2>Contact</h2><p>Questions: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
@@ -1763,13 +1804,14 @@ router.get('/contact.html', async () => {
 // same /api/commitments + /api/accountability/streak API the coach view reads.
 // Authed surface → noindex, no-store, not in the sitemap. DESIGN LAW: a missed
 // word is an open door here, never a failure tally.
-router.get('/me', async () => new Response(null, { status: 301, headers: { Location: '/me/' } }));
-router.get('/me/', async () => {
+router.get('/me/', async (request) => {
+  if (new URL(request.url).pathname !== '/me/') return slashRedirect('/me/');
   return new Response(renderMePage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 });
+router.get('/me', async () => slashRedirect('/me/'));
 
-router.get('/coach', async () => new Response(null, { status: 301, headers: { Location: '/coach/' } }));
-router.get('/coach/', async () => {
+router.get('/coach/', async (request) => {
+  if (new URL(request.url).pathname !== '/coach/') return slashRedirect('/coach/');
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -1979,16 +2021,18 @@ router.get('/coach/', async () => {
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 });
+router.get('/coach', async () => slashRedirect('/coach/'));
 
 // ── GUIDES (content layer) ──
 const GUIDE_HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' };
 
 // Guides index: /guides/ and /guides
-router.get('/guides/', async () => {
+router.get('/guides/', async (request) => {
+  if (new URL(request.url).pathname !== '/guides/') return slashRedirect('/guides/');
   return new Response(renderGuidesIndex(guides), { status: 200, headers: GUIDE_HTML_HEADERS });
 });
 router.get('/guides', async () => {
-  return new Response(null, { status: 301, headers: { Location: '/guides/' } });
+  return slashRedirect('/guides/');
 });
 
 // Individual guide pages, registered generically from the guides array.
@@ -2384,13 +2428,18 @@ router.all('*', () => new Response(JSON.stringify({ error: 'Not found' }), {
 // ── EXPORT WITH DATABASE INITIALIZATION ──
 export default {
   async fetch(request, env, ctx) {
+    const runtimeEnv = withJwtSecretFallback(env);
+    const httpsRedirect = redirectHttpToHttps(request);
+    if (httpsRedirect) return httpsRedirect;
+
     // Initialize database on first request
-    await initializeDatabase(env);
+    await initializeDatabase(runtimeEnv);
     
     // ✅ BEST PRACTICE: Single unified router with all endpoints
     // Call the router's fetch method which handles request routing
-    const response = await router.fetch(request, env);
-    return response;
+    const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
+    const response = await router.fetch(routeRequest, runtimeEnv);
+    return request.method === 'HEAD' ? responseWithoutBody(response) : response;
   },
 
   // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──
@@ -2399,8 +2448,9 @@ export default {
   // an error here never affects the fetch path or the timer product.
   async scheduled(event, env, ctx) {
     try {
-      await initializeDatabase(env);
-      const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
+      const runtimeEnv = withJwtSecretFallback(env);
+      await initializeDatabase(runtimeEnv);
+      const summary = await runDueCheckins(runtimeEnv, { now: new Date().toISOString(), limit: 100 });
       console.log('[cron] check-in delivery:', JSON.stringify(summary));
     } catch (err) {
       console.error('[cron] check-in delivery failed:', err && err.message);

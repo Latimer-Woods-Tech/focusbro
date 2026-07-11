@@ -12,9 +12,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- Google AdSense -->
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>
-
 <style>
   :root {
     /* ── Professional Enterprise Palette ── */
@@ -197,41 +194,6 @@
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
-  }
-
-  /* ── AD BANNER (top leaderboard) ── */
-  .ad-slot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-card);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius);
-    color: var(--text-muted);
-    font-size: 12px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    min-height: 90px;
-    margin: 16px 32px;
-  }
-
-  .ad-slot-sidebar {
-    min-height: 250px;
-    margin: 0;
-  }
-
-  .ad-slot-inline {
-    min-height: 100px;
-    margin: 0;
-    width: 100%;
-    min-width: 300px;
-    max-width: 100%;
-    display: block !important;
-  }
-
-  .ad-slot-inline ins {
-    display: block !important;
-    width: 100% !important;
   }
 
   /* ── PROFESSIONAL MAIN GRID ── */
@@ -1144,10 +1106,8 @@
   body.zen-mode .sidebar,
   body.zen-mode .top-row,
   body.zen-mode .keep-awake,
-  body.zen-mode .ad-slot,
   body.zen-mode .intention-banner,
-  body.zen-mode .time-bar-wrap,
-  body.zen-mode #ad-inline { display: none !important; }
+  body.zen-mode .time-bar-wrap { display: none !important; }
 
   body.zen-mode .main-area { gap: 0; }
 
@@ -1289,7 +1249,6 @@
     .header { padding: 20px 24px; }
     .logo-text { font-size: 20px; }
     .logo-icon { width: 38px; height: 38px; font-size: 18px; }
-    .ad-slot { margin: 12px 16px; }
     .intention-banner { margin: 0 16px; }
     .time-bar-wrap { margin: 8px 16px 0; }
     .fidget-grid { grid-template-columns: 1fr; }
@@ -1756,7 +1715,6 @@
     .header { padding: 14px 16px; }
     .intention-banner { margin: 0 12px; }
     .time-bar-wrap { margin: 8px 12px 0; }
-    .ad-slot { margin: 10px 12px; }
     .pomo-ring-wrap { width: 160px; height: 160px; }
     .pomo-time { font-size: 38px; }
   }
@@ -1890,21 +1848,6 @@
   </button>
 </nav>
 
-<!-- ONBOARDING MODAL -->
-<div class="onboarding-modal" id="onboardingModal">
-  <div class="onboarding-content">
-    <div class="onboarding-icon">🚀</div>
-    <div class="onboarding-title">Welcome to FocusBro!</div>
-    <div class="onboarding-desc">
-      Master your focus, boost your productivity, and build winning habits. 
-      Use the left navigation to explore Focus modes, Restore activities, and track your progress.
-    </div>
-    <div class="onboarding-actions">
-      <button class="btn-primary" onclick="dismissOnboarding()">Get Started →</button>
-    </div>
-  </div>
-</div>
-
 <!-- APP SHELL -->
 <div class="app-shell">
 
@@ -1951,11 +1894,6 @@
   <div class="time-bar"><div class="time-bar-fill" id="timeBarFill" style="width:0%"></div></div>
   <span id="timeBarEnd">5 PM</span>
   <span id="timeBarPct" style="font-family:var(--mono);font-size:11px;">0%</span>
-</div>
-
-<!-- TOP AD SLOT (Leaderboard 728x90) -->
-<div class="ad-slot" id="ad-top" data-views="home">
-  <!-- Ad Slot: Top Leaderboard -->
 </div>
 
 <div class="dashboard">
@@ -2048,10 +1986,6 @@
       </div>
     </div>
 
-    <!-- INLINE AD SLOT -->
-    <div class="ad-slot ad-slot-inline" id="ad-inline">
-    </div>
-
     <!-- AMBIENT SOUNDS + BREAK REMINDER -->
     <div class="top-row" data-views="home,rest">
       <div class="card">
@@ -2131,10 +2065,6 @@
       </div>
     </div>
 
-    <!-- SIDEBAR AD -->
-    <div class="ad-slot ad-slot-sidebar" id="ad-sidebar" data-views="home">
-    </div>
-
     <!-- ADHD TIP -->
     <div class="card" data-views="home,stats">
       <div class="card-header">
@@ -2167,9 +2097,9 @@
       <div style="margin-bottom: 12px;">
         <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--text);">Binaural Frequency</div>
         <div class="binaural-grid">
-          <button class="binaural-btn" aria-pressed="false" aria-label="Enable Focus binaural (40Hz)" onclick="toggleBinaural('focus')">🎯 Focus (40Hz)</button>
-          <button class="binaural-btn" aria-pressed="false" aria-label="Enable Calm binaural (8Hz)" onclick="toggleBinaural('calm')">😌 Calm (8Hz)</button>
-          <button class="binaural-btn" aria-pressed="false" aria-label="Enable Alert binaural (20Hz)" onclick="toggleBinaural('alert')">⚡ Alert (20Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" onclick="toggleBinaural('focus')">🎯 Focus (40Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" onclick="toggleBinaural('calm')">😌 Calm (8Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" onclick="toggleBinaural('alert')">⚡ Alert (20Hz)</button>
         </div>
         <div class="binaural-info">Combine with ambient sounds for best effect.</div>
       </div>
@@ -2784,7 +2714,7 @@
 
 <!-- FOOTER -->
 <div class="footer">
-  FocusBro — Built with 🧠 by <a href="/about.html">The Factory</a> &nbsp;|&nbsp;
+  FocusBro — Built with 🧠 by <a href="/about.html">Latimer Woods Tech</a> &nbsp;|&nbsp;
   <a href="/guides/">Guides</a> &nbsp;|&nbsp;
   <a href="/me/">Accountability</a> &nbsp;|&nbsp;
   <a href="/privacy.html">Privacy</a> &nbsp;|&nbsp;
@@ -2993,7 +2923,17 @@ function togglePomodoro() {
   }
 }
 
+async function requestNotificationsFromUserAction() {
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  try {
+    await Notification.requestPermission();
+  } catch (e) {
+    console.warn('Notification permission request failed:', e.message);
+  }
+}
+
 function startPomodoro() {
+  requestNotificationsFromUserAction();
   pomoState.running = true;
   document.getElementById('pomoStartBtn').innerHTML = '⏸ Pause';
   document.body.classList.add('session-active');
@@ -3114,6 +3054,7 @@ let meetingData = null;
 let meetingInterval = null;
 
 function setMeeting() {
+  requestNotificationsFromUserAction();
   const name = document.getElementById('meetingName').value || 'Meeting';
   const time = document.getElementById('meetingTime').value;
   if (!time) return;
@@ -3362,6 +3303,7 @@ function toggleBreakReminder() {
   const btn = document.getElementById('breakToggle');
 
   if (breakEnabled) {
+    requestNotificationsFromUserAction();
     btn.textContent = 'Disable';
     btn.classList.add('btn-accent');
     breakCountdown = BREAK_DURATION;
@@ -3543,7 +3485,7 @@ function renderDistractions() {
   const list = document.getElementById('distractionList');
   list.innerHTML = '';
   if (distractions.length === 0) {
-    list.innerHTML = '<div class="distraction-empty">No distractions parked 🎯</div>';
+    list.innerHTML = '<li class="distraction-empty">No distractions parked 🎯</li>';
     return;
   }
   distractions.forEach((d, i) => {
@@ -4142,10 +4084,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize sleep history and tips
   renderSleepHistory();
   newSleepTip();
-
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
 
   // Initialize new meditation/movement features
   updateSocialGoals();
@@ -5188,16 +5126,16 @@ if (document.head) document.head.appendChild(confettiStyle);
     <div id="privacyContent" style="display:none;">
       <div class="onboarding-title">Privacy Policy</div>
       <div style="font-size:13px; line-height:1.8; color:var(--text); margin-top:16px;">
-        <p><strong>Last Updated: April 14, 2026</strong></p>
+        <p><strong>Last Updated: July 10, 2026</strong></p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Your Privacy Matters</h3>
-        <p>FocusBro is built with privacy-first principles. <strong>All data stays in your browser.</strong> We do not collect, store, or transmit your personal information to our servers.</p>
+        <p>FocusBro is browser-first. <strong>Your core focus data stays in your browser by default.</strong> We only receive personal data when you deliberately use a connected feature, such as account sync, accountability check-ins, payments, or support.</p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">What Data We Store</h3>
         <ul style="margin-left:20px; margin-top:8px;">
-          <li><strong>Local Storage Only:</strong> Tasks, meditation logs, energy tracking, stats, notes — all saved to your device's browser storage</li>
-          <li><strong>No Server Backup:</strong> Your data is not transmitted to us unless you explicitly sync</li>
-          <li><strong>Optional Sync:</strong> If you choose to sync data, it's encrypted in transit and stored securely on our servers for your account</li>
+          <li><strong>Browser Storage:</strong> Tasks, meditation logs, energy tracking, stats, notes, and preferences are saved to your device's browser storage by default</li>
+          <li><strong>Optional Account Features:</strong> If you create an account, use sync, or use accountability check-ins, we store the data needed to provide those features</li>
+          <li><strong>Service Records:</strong> Payment processing, support requests, and basic security logs may be handled by our service providers</li>
         </ul>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Third-Party Services</h3>
@@ -5216,7 +5154,7 @@ if (document.head) document.head.appendChild(confettiStyle);
     <div id="termsContent" style="display:none;">
       <div class="onboarding-title">Terms of Service</div>
       <div style="font-size:13px; line-height:1.8; color:var(--text); margin-top:16px;">
-        <p><strong>Last Updated: April 14, 2026</strong></p>
+        <p><strong>Last Updated: July 10, 2026</strong></p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Use License</h3>
         <p>Permission is granted to temporarily download one copy of materials (information or software) from FocusBro for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not: modify or copy the materials; use the materials for any commercial purpose or for any public display; attempt to decompile or reverse engineer any software contained on FocusBro; remove any copyright or other proprietary notations from the materials; or transfer the materials to another person.</p>
@@ -5225,7 +5163,7 @@ if (document.head) document.head.appendChild(confettiStyle);
         <p>FocusBro is provided on an 'as-is' basis. We make no warranties, expressed or implied, regarding the website or the materials. We shall not be liable for any damages arising out of the use or inability to use materials on FocusBro.</p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Limitations</h3>
-        <p>In no event shall The Factory or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use FocusBro.</p>
+        <p>In no event shall Latimer Woods Tech or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use FocusBro.</p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Companion Script</h3>
         <p>FocusBro uses the browser Screen Wake Lock API to keep your display awake during focus sessions so it does not sleep while you work, study, or meditate. This affects only your local display and does not modify system files or interact with third-party applications.</p>
@@ -5239,7 +5177,7 @@ if (document.head) document.head.appendChild(confettiStyle);
       <div style="font-size:13px; line-height:1.8; color:var(--text); margin-top:16px;">
         <p><strong>FocusBro – Your ADHD-Friendly Focus Toolkit</strong></p>
         
-        <p>Built by The Factory, a digital wellness collective focused on making focus accessible and sustainable for neurodivergent minds.</p>
+        <p>Built by Latimer Woods Tech, an independent software studio focused on practical tools for attention, follow-through, and sustainable work.</p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Features</h3>
         <ul style="margin-left:20px; margin-top:8px;">
@@ -5257,7 +5195,7 @@ if (document.head) document.head.appendChild(confettiStyle);
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Contact</h3>
         <p>Questions, feedback, or bugs? Reach out: <strong>support@focusbro.net</strong></p>
         
-        <p style="margin-top:16px; font-size:12px; color:var(--text-muted);">© 2026 The Factory. All rights reserved.</p>
+        <p style="margin-top:16px; font-size:12px; color:var(--text-muted);">© 2026 Latimer Woods Tech. All rights reserved.</p>
       </div>
     </div>
   </div>
@@ -5317,7 +5255,7 @@ document.addEventListener('keydown', (e) => {
     </p>
     <div class="cookie-consent__actions">
       <button type="button" id="cookieConsentAccept" class="cookie-consent__btn cookie-consent__btn--accept">Got it</button>
-      <a href="/privacy.html" class="cookie-consent__btn cookie-consent__btn--link">Learn more</a>
+      <a href="/privacy.html" class="cookie-consent__btn cookie-consent__btn--link">Privacy details</a>
     </div>
   </div>
 </div>
