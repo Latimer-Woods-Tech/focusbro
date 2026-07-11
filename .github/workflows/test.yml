@@ -30,7 +30,10 @@ jobs:
     
     - name: Install API dependencies
       run: cd api && npm ci
-    
+
+    - name: Lint API (fails on errors; warnings are a ratcheting baseline)
+      run: cd api && npm run lint
+
     - name: Build HTML module
       run: node create-html-module.js
     

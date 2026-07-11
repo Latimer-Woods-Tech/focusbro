@@ -1,0 +1,33 @@
+{
+  "root": true,
+  "env": { "es2022": true, "worker": true },
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module" },
+  "extends": ["eslint:recommended"],
+  "globals": { "Intl": "readonly" },
+  "ignorePatterns": [
+    "src/html.js",
+    "src/html.js.bak.initGallery",
+    "src/extended-routes.js"
+  ],
+  "overrides": [
+    {
+      "files": ["src/__tests__/**/*.js"],
+      "env": { "node": true },
+      "globals": {
+        "describe": "readonly",
+        "it": "readonly",
+        "expect": "readonly",
+        "vi": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly",
+        "beforeAll": "readonly",
+        "afterAll": "readonly"
+      }
+    }
+  ],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-control-regex": "off"
+  }
+}
