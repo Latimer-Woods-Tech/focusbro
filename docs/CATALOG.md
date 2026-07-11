@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| total_docs | 46 |
+| total_docs | 47 |
 | canonical | 1 |
-| active | 43 |
+| active | 44 |
 | stale | 0 |
 | archive | 0 |
 | generated | 2 |
@@ -23,7 +23,7 @@
 |---|---|---|---|---|---|
 | [README.md](../README.md) | canonical | owner-reviewed | focusbro | unknown | focusbro# Deployment trigger |
 
-## Active Docs (43)
+## Active Docs (44)
 
 | Path | Status | Fidelity | Owner | Last Updated | Title |
 |---|---|---|---|---|---|
@@ -45,6 +45,7 @@
 | [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) | active | unverified | focusbro | unknown | FocusBro API Deployment Guide |
 | [docs/adr/0001-adsense-publisher-content-strategy.md](adr/0001-adsense-publisher-content-strategy.md) | active | unverified | focusbro | 2026-07-04 | ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | active | unverified | focusbro | 2026-07-04 | FocusBro — Architecture |
+| [docs/IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) | active | unverified | focusbro | unknown | FocusBro Improvement Plan |
 | [docs/REQUIREMENTS.md](REQUIREMENTS.md) | active | unverified | focusbro | 2026-07-10 | FocusBro — Requirements |
 | [docs/VISION.md](VISION.md) | active | unverified | focusbro | 2026-07-05 | FocusBro — Vision |
 | [ENV_CONFIG.md](../ENV_CONFIG.md) | active | unverified | focusbro | unknown | FocusBro API Environment Configuration |
