@@ -68,6 +68,41 @@ export function giveWordHeadingCopy() {
   return 'Give your word';
 }
 
+/**
+ * First-run welcome heading. Shown ONLY to a signed-in person with zero words
+ * given — the activation moment the whole product turns on. An invitation, in
+ * their own language; never a scold about an empty page.
+ */
+export function firstRunHeadingCopy() {
+  return 'Let’s give your first word.';
+}
+
+/** First-run body — the deal, warmly and in one breath. Nothing to live up to. */
+export function firstRunBodyCopy() {
+  return 'Pick one thing you’ll do — big or small — and when. I’ll show up to check in. ' +
+    'That’s the whole deal, and you can change it any time.';
+}
+
+/** Label over the example seeds — a nudge for the blank-page moment, not a demand. */
+export function firstRunExamplesLabel() {
+  return 'Not sure where to start? Tap one to fill it in:';
+}
+
+/**
+ * A few low-stakes example first words. Tapping one only fills the title — the
+ * person still sets the time and gives the word themselves (we never assume it).
+ * Deliberately small and blameless; the first word should feel easy to keep.
+ * @returns {string[]}
+ */
+export function firstRunExamples() {
+  return [
+    'reply to that one email',
+    'a ten-minute tidy',
+    'go for a short walk',
+    'drink a glass of water',
+  ];
+}
+
 /** Empty state — an invitation, never a scold about having done nothing. */
 export function emptyCommitmentsCopy() {
   return "No words given yet. What’s one thing you’ll do — and when? I’ll check in.";
@@ -154,6 +189,10 @@ export function meCopySurface() {
   return [
     mePageIntroCopy(),
     giveWordHeadingCopy(),
+    firstRunHeadingCopy(),
+    firstRunBodyCopy(),
+    firstRunExamplesLabel(),
+    ...firstRunExamples(),
     emptyCommitmentsCopy(),
     streakHeadingCopy(),
     labels.kept, labels.missed, labels.reschedule,
@@ -231,6 +270,10 @@ export function renderMePage() {
   .editform label { margin-top: 6px; }
   .detail { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
   .detail .streakmsg { margin: 6px 0; }
+  .firstrun { background: #f5f3ff; border-color: #ddd6fe; }
+  .firstrun h2 { margin-bottom: 6px; }
+  .seedrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .seed { background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff; border-radius: 999px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
@@ -254,6 +297,15 @@ export function renderMePage() {
 </div>
 
 <div id="app" class="hidden">
+  <div id="firstRun" class="card firstrun hidden">
+    <h2>${firstRunHeadingCopy()}</h2>
+    <p class="streakmsg">${firstRunBodyCopy()}</p>
+    <p class="muted" style="margin-bottom:6px;">${firstRunExamplesLabel()}</p>
+    <div class="seedrow" id="seedRow">${firstRunExamples()
+      .map((t) => `<button type="button" class="seed" data-seed="${t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">${t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</button>`)
+      .join('')}</div>
+  </div>
+
   <div class="card">
     <div class="streakwrap">
       <div class="streak" id="streakNum">0<small>${streakHeadingCopy()}</small></div>
@@ -520,8 +572,48 @@ export function renderMePage() {
   function loadList() {
     fetch('/api/commitments', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(function (data) { renderList((data && data.commitments) || []); })
+      .then(function (data) {
+        var commitments = (data && data.commitments) || [];
+        renderList(commitments);
+        updateFirstRun(commitments);
+      })
       .catch(function () {});
+  }
+
+  // First-run welcome: shown only to a signed-in person with zero words given —
+  // the activation moment. On the first empty load we gently place the cursor in
+  // the title field (an invitation, focused once so a later reload never steals
+  // focus). The panel disappears the instant a first word exists. Never a scold.
+  var _firstRunFocused = false;
+  function updateFirstRun(commitments) {
+    var panel = el('firstRun');
+    if (!panel) return;
+    if (!commitments || !commitments.length) {
+      show(panel);
+      if (!_firstRunFocused) {
+        _firstRunFocused = true;
+        var t = el('title');
+        if (t && !t.value) { try { t.focus(); } catch (e) {} }
+      }
+    } else {
+      hide(panel);
+    }
+  }
+
+  // Tapping an example seed only fills the title, then moves to "When?" — the
+  // person still sets the time and gives the word themselves. We never assume a
+  // time or auto-commit; the seed is a warm starting point, nothing more.
+  var seedRow = el('seedRow');
+  if (seedRow) {
+    seedRow.addEventListener('click', function (ev) {
+      var b = ev.target.closest ? ev.target.closest('button[data-seed]') : null;
+      if (!b) return;
+      ev.preventDefault();
+      var t = el('title');
+      if (t) { t.value = b.getAttribute('data-seed') || ''; }
+      var w = el('startAt');
+      if (w) { try { w.focus(); } catch (e) {} }
+    });
   }
 
   function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadKept(); loadConsent(); }

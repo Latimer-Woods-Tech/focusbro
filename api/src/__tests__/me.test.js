@@ -21,6 +21,10 @@ import {
   keptLogHeadingCopy,
   keptLogEmptyCopy,
   mePageFootnoteCopy,
+  firstRunHeadingCopy,
+  firstRunBodyCopy,
+  firstRunExamplesLabel,
+  firstRunExamples,
   meCopySurface,
   renderMePage,
 } from '../me.js';
@@ -155,5 +159,52 @@ describe('renderMePage', () => {
     expect(html).toContain('/detail');            // the detail endpoint openDetail fetches
     expect(html).toContain('openDetail');         // the toggle/fetch function
     expect(html).toContain('renderDetail');       // the momentum-only panel renderer
+  });
+});
+
+describe('gentle first-run onboarding seeds the first word', () => {
+  const html = renderMePage();
+
+  it('exposes warm, non-empty first-run copy and at least three example seeds', () => {
+    expect(firstRunHeadingCopy().trim().length).toBeGreaterThan(0);
+    expect(firstRunBodyCopy().trim().length).toBeGreaterThan(0);
+    expect(firstRunExamplesLabel().trim().length).toBeGreaterThan(0);
+    expect(Array.isArray(firstRunExamples())).toBe(true);
+    expect(firstRunExamples().length).toBeGreaterThanOrEqual(3);
+    for (const ex of firstRunExamples()) {
+      expect(typeof ex).toBe('string');
+      expect(ex.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('renders the first-run panel, its copy, and tappable example seeds', () => {
+    expect(html).toContain('id="firstRun"');
+    expect(html).toContain(firstRunHeadingCopy());
+    expect(html).toContain(firstRunBodyCopy());
+    expect(html).toContain(firstRunExamplesLabel());
+    expect(html).toContain('data-seed=');
+    for (const ex of firstRunExamples()) expect(html).toContain(ex);
+  });
+
+  it('shows the panel only on an empty list and hides it once a word exists', () => {
+    // The panel starts hidden and is toggled by updateFirstRun from the live
+    // commitments load — an empty list reveals it, any word hides it.
+    expect(html).toContain('class="card firstrun hidden"');
+    expect(html).toContain('updateFirstRun');
+  });
+
+  it('a tapped seed fills the title only — it never assumes a time or auto-commits', () => {
+    // The seed handler sets the title and moves focus to When?; there is no
+    // fetch/submit tied to a seed tap, so a time is never assumed for the person.
+    expect(html).toContain('button[data-seed]');
+    expect(html).toContain("el('startAt')");
+  });
+
+  it('folds the first-run copy into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(firstRunHeadingCopy());
+    expect(surface).toContain(firstRunBodyCopy());
+    expect(surface).toContain(firstRunExamplesLabel());
+    for (const ex of firstRunExamples()) expect(surface).toContain(ex);
   });
 });

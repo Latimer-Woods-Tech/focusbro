@@ -474,7 +474,7 @@
       "scope": null,
       "truth_sources": [],
       "verified_by": [],
-      "content_hash": "sha256:286bb32d1ed5e72b77ecec4e580310b9cb0f978869431c7846ecc56534171e60",
+      "content_hash": "sha256:c3b7e2c632c92f82ef731c6e6e807d9ab04eafc37133240e57d56c23b5b6fb80",
       "source": {
         "frontmatter": true,
         "canonical_allowlist": false,
