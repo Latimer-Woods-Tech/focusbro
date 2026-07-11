@@ -1851,6 +1851,12 @@ router.get('/coach/', async (request) => {
   .rhythm-cadence { color: #4f46e5; white-space: nowrap; }
   .rhythm-next { color: #6b7280; font-size: 13px; margin: 0 0 6px; }
   .rhythm-toggle { font-size: 13px; }
+  .momentum { margin-bottom: 10px; }
+  .momentum-intro { margin-bottom: 8px; }
+  .spark { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 6px 0; }
+  .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
+  .spark-bar.zero { background: #e5e7eb; }
+  .momentum-summary { color: #4b5563; font-size: 13px; margin: 4px 0 2px; }
 </style></head>
 <body>
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/about.html">About</a></nav>
@@ -1936,13 +1942,36 @@ router.get('/coach/', async (request) => {
     host.innerHTML = html;
   }
 
+  // Kept-word momentum sparkline — bars scaled to the busiest day. A quiet day
+  // is a short grey bar (the absence of a win), never a surfaced miss.
+  function momentumHtml(m) {
+    if (!m || !m.buckets || !m.buckets.length) return '';
+    var max = 0, i;
+    for (i = 0; i < m.buckets.length; i++) { if (m.buckets[i].count > max) max = m.buckets[i].count; }
+    var label = (m.sparkline ? m.sparkline + ' — ' : '') + (m.summary || '');
+    var bars = '';
+    for (i = 0; i < m.buckets.length; i++) {
+      var b = m.buckets[i];
+      var pct = max > 0 ? Math.max(7, Math.round((b.count / max) * 100)) : 7;
+      var cls = b.count > 0 ? 'spark-bar' : 'spark-bar zero';
+      var title = esc(b.date) + ': ' + esc(b.count) + ' kept';
+      bars += '<div class="' + cls + '" style="height:' + pct + '%" title="' + title + '"></div>';
+    }
+    return '<div class="momentum">'
+      + '<div class="muted momentum-intro">' + esc(m.intro || '') + '</div>'
+      + '<div class="spark" role="img" aria-label="' + esc(label) + '">' + bars + '</div>'
+      + '<div class="momentum-summary">' + esc(m.summary || '') + '</div>'
+      + '</div>';
+  }
+
   function renderRhythm(panel, d) {
+    var momentum = momentumHtml(d && d.momentum);
     var items = (d && d.active_commitments) || [];
     if (!items.length) {
-      panel.innerHTML = '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
+      panel.innerHTML = momentum + '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
       return;
     }
-    var out = '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
+    var out = momentum + '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var tzRaw = (it.timezone && it.timezone !== 'UTC') ? ' (' + it.timezone + ')' : '';
