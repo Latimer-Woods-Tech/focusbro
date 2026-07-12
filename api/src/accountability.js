@@ -773,6 +773,35 @@ export function momentumSelfSummaryCopy({ total, days = MOMENTUM_WINDOW_DAYS, pe
   return `You kept ${kept} word${kept === 1 ? '' : 's'} over the last ${span} days.${bestPart}`;
 }
 
+/** Heading over a single word's own momentum sparkline in its detail panel. */
+export function detailMomentumHeadingCopy() {
+  return 'Momentum on this word';
+}
+
+/** Intro under the per-word momentum heading — this one word's shape, first person. */
+export function detailMomentumIntroCopy() {
+  return 'This word, day by day — only the times you kept it. Quiet days are just quiet.';
+}
+
+/**
+ * Warm one-line summary of a single word's kept-word window, first person.
+ * Momentum-only: it names how many times you kept THIS word and your best single
+ * day for it, and on a quiet window it reads as a fresh page — never a tally of
+ * what you didn't do.
+ * @param {object} p { total, days, peak }
+ * @returns {string}
+ */
+export function detailMomentumSummaryCopy({ total, days = MOMENTUM_WINDOW_DAYS, peak } = {}) {
+  const kept = Number(total) || 0;
+  const span = Number(days) || MOMENTUM_WINDOW_DAYS;
+  if (kept === 0) {
+    return `Nothing kept on this one in the last ${span} days — a clean stretch, and the next time you keep it lands right here.`;
+  }
+  const best = Number(peak && peak.count) || 0;
+  const bestPart = best > 1 ? ` Your best day: ${best}.` : '';
+  return `You kept this word ${kept} time${kept === 1 ? '' : 's'} over the last ${span} days.${bestPart}`;
+}
+
 /**
  * Header line over a single word's detail view. Momentum-only, by the design LAW:
  * it names how many times this word was kept and never how many times it wasn't —
@@ -1230,12 +1259,26 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       const cadence = describeCadence({ recurrence: commitment.recurrence, localTime: commitment.local_time });
 
+      // Per-word momentum: the same shared sparkline engine the /me/ page and the
+      // coach view use, scoped to THIS word's kept instants in the word's own
+      // timezone. keptRows is the 50 most-recent kept check-ins (DESC), which
+      // fully covers the 14-day window for any real cadence; buildMomentum
+      // ignores anything outside it. DESIGN LAW: kept-only in, kept-only out —
+      // a quiet day is a short bar, never a surfaced miss.
+      const momentum = buildMomentum({
+        timestamps: kept.map((k) => k.kept_at),
+        timezone: commitment.timezone || 'UTC',
+        intro: detailMomentumIntroCopy(),
+        summary: detailMomentumSummaryCopy,
+      });
+
       return jsonResponse({
         commitment,
         cadence,
         next_checkin: nextCheckin,
         kept,
         kept_count: keptCount,
+        momentum,
         message: commitmentDetailCopy({ persona: commitment.persona, keptCount }),
       }, 200, 'short');
     } catch (err) {

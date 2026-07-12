@@ -26,6 +26,9 @@ import {
   momentumSelfHeadingCopy,
   momentumSelfIntroCopy,
   momentumSelfSummaryCopy,
+  detailMomentumHeadingCopy,
+  detailMomentumIntroCopy,
+  detailMomentumSummaryCopy,
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
@@ -254,6 +257,11 @@ export function meCopySurface() {
     detailActionLabel(),
     detailKeptHeadingCopy(),
     detailNextLabelCopy(),
+    detailMomentumHeadingCopy(),
+    detailMomentumIntroCopy(),
+    detailMomentumSummaryCopy({ total: 0, days: 14 }),
+    detailMomentumSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
+    detailMomentumSummaryCopy({ total: 6, days: 14, peak: { count: 2 } }),
     keptLogHeadingCopy(),
     keptLogEmptyCopy(),
     momentumSelfHeadingCopy(),
@@ -575,15 +583,11 @@ export function renderMePage() {
   // for your own eyes. Bars scale to your busiest day; a quiet day is a short
   // grey bar (the absence of a win), never a surfaced miss. Hidden until there
   // is at least one kept word, so a brand-new page isn't a chart of nothing.
-  function renderMomentum(m) {
-    var card = el('momentumCard');
-    var host = el('momentum');
-    if (!host || !card) return;
-    if (!m || !m.buckets || !m.buckets.length || !(Number(m.total) > 0)) {
-      card.classList.add('hidden');
-      host.innerHTML = '';
-      return;
-    }
+  // One sparkline renderer for every surface that shows momentum (the /me/
+  // momentum card AND the per-word detail panel): intro + scaled bars + summary,
+  // from a shared momentum payload. Bars scale to the busiest day; a quiet day is
+  // a short grey bar (the absence of a win), never a surfaced miss.
+  function sparkBlockHTML(m) {
     var max = 0, i;
     for (i = 0; i < m.buckets.length; i++) { if (m.buckets[i].count > max) max = m.buckets[i].count; }
     var label = (m.sparkline ? m.sparkline + ' — ' : '') + (m.summary || '');
@@ -595,9 +599,24 @@ export function renderMePage() {
       var title = esc(b.date) + ': ' + esc(b.count) + ' kept';
       bars += '<div class="' + cls + '" style="height:' + pct + '%" title="' + title + '"></div>';
     }
-    host.innerHTML = '<div class="momentum-intro">' + esc(m.intro || '') + '</div>'
+    return '<div class="momentum-intro">' + esc(m.intro || '') + '</div>'
       + '<div class="spark" role="img" aria-label="' + esc(label) + '">' + bars + '</div>'
       + '<div class="momentum-summary">' + esc(m.summary || '') + '</div>';
+  }
+  // True only when a momentum payload has at least one kept word to show, so no
+  // surface ever renders a chart of nothing.
+  function hasMomentum(m) { return !!(m && m.buckets && m.buckets.length && Number(m.total) > 0); }
+
+  function renderMomentum(m) {
+    var card = el('momentumCard');
+    var host = el('momentum');
+    if (!host || !card) return;
+    if (!hasMomentum(m)) {
+      card.classList.add('hidden');
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = sparkBlockHTML(m);
     card.classList.remove('hidden');
   }
 
@@ -936,6 +955,7 @@ export function renderMePage() {
   // The API returns kept check-ins only, so there is never a miss list here.
   var DETAIL_KEPT_HEADING = ${JSON.stringify(detailKeptHeadingCopy())};
   var DETAIL_NEXT_LABEL = ${JSON.stringify(detailNextLabelCopy())};
+  var DETAIL_MOMENTUM_HEADING = ${JSON.stringify(detailMomentumHeadingCopy())};
   function openDetail(id) {
     var host = document.querySelector('[data-detail="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
     if (!host) return;
@@ -958,6 +978,13 @@ export function renderMePage() {
     if (cadence) { html += '<div class="when">' + esc(cadence) + '</div>'; }
     if (next) { html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>'; }
     if (d && d.message) { html += '<p class="streakmsg">' + esc(d.message) + '</p>'; }
+    // This word's own momentum — the same shared sparkline as the /me/ card,
+    // scoped to this one word. Shown only once it has a kept word, so a
+    // never-yet-kept word isn't a chart of nothing.
+    if (hasMomentum(d && d.momentum)) {
+      html += '<div class="name" style="margin-top:8px;">' + esc(DETAIL_MOMENTUM_HEADING) + '</div>'
+        + sparkBlockHTML(d.momentum);
+    }
     if (kept.length) {
       html += '<div class="name" style="margin-top:8px;">' + esc(DETAIL_KEPT_HEADING) + '</div>';
       for (var i = 0; i < kept.length; i++) {

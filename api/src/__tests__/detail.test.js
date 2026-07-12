@@ -16,7 +16,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { Router } from 'itty-router';
-import { registerAccountabilityRoutes, commitmentDetailCopy } from '../accountability.js';
+import {
+  registerAccountabilityRoutes, commitmentDetailCopy,
+  detailMomentumHeadingCopy, detailMomentumIntroCopy, detailMomentumSummaryCopy,
+} from '../accountability.js';
 import { detailActionLabel, detailKeptHeadingCopy, detailNextLabelCopy } from '../me.js';
 import { generateUUID } from '../middleware.js';
 
@@ -158,6 +161,54 @@ describe('GET /api/commitments/:id/detail — one word\'s momentum', () => {
   });
 });
 
+// ── the per-word momentum block on the detail response ───────
+// Kept rows anchored to "now" so the 14-day window is deterministic regardless
+// of the wall clock (the endpoint buckets kept instants against the real now).
+function keptAgoDays(...deltas) {
+  return deltas.map((d) => ({ kept_at: new Date(Date.now() - d * 86400000).toISOString(), note: '' }));
+}
+
+describe('GET /api/commitments/:id/detail — per-word momentum sparkline', () => {
+  it('attaches a kept-only momentum block: a 14-day bucket axis, a sparkline, and the total', async () => {
+    const kept = keptAgoDays(1, 2, 2, 10); // 4 kept, two on the same day 2 days ago
+    const db = makeDB({ commitment: ACTIVE, kept, keptCount: 4 });
+    const res = await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    const body = await res.json();
+    expect(body.momentum).toBeTruthy();
+    expect(Array.isArray(body.momentum.buckets)).toBe(true);
+    expect(body.momentum.buckets.length).toBe(14);           // MOMENTUM_WINDOW_DAYS
+    expect(typeof body.momentum.sparkline).toBe('string');
+    expect(body.momentum.sparkline.length).toBe(14);          // one glyph per day
+    expect(body.momentum.total).toBe(4);                      // all 4 inside the window
+    expect(body.momentum.peak.count).toBe(2);                // busiest day had 2
+    expect(body.momentum.intro.trim().length).toBeGreaterThan(0);
+    expect(body.momentum.summary.trim().length).toBeGreaterThan(0);
+  });
+
+  it('buckets in the word\'s own timezone', async () => {
+    const db = makeDB({ commitment: { ...ACTIVE, timezone: 'America/New_York' }, kept: keptAgoDays(1), keptCount: 1 });
+    const res = await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    const body = await res.json();
+    expect(body.momentum.timezone).toBe('America/New_York');
+  });
+
+  it('is empty-safe: a never-yet-kept word → total 0, a flat baseline, no NaN', async () => {
+    const db = makeDB({ commitment: ACTIVE, kept: [], keptCount: 0 });
+    const res = await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    const body = await res.json();
+    expect(body.momentum.total).toBe(0);
+    expect(body.momentum.buckets.length).toBe(14);
+    expect(body.momentum.buckets.every((b) => b.count === 0)).toBe(true);
+    expect(body.momentum.summary).toMatch(/clean stretch/i); // reads as a fresh page, never "you did nothing"
+  });
+
+  it('the momentum block is built from the kept timeline only — no extra miss query', async () => {
+    const db = makeDB({ commitment: ACTIVE, kept: keptAgoDays(1, 3), keptCount: 2 });
+    await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    for (const q of db.queries) expect(/'missed'/.test(q), `query selected a miss: ${q}`).toBe(false);
+  });
+});
+
 // ── the design LAW on the detail copy ────────────────────────
 describe('per-word detail copy — momentum, never a scold', () => {
   const SHAME = [
@@ -173,7 +224,13 @@ describe('per-word detail copy — momentum, never a scold', () => {
     commitmentDetailCopy({ keptCount: 1, persona }),
     commitmentDetailCopy({ keptCount: 9, persona }),
     commitmentDetailCopy({ persona }), // no count → treated as zero
-  ]).concat([detailActionLabel(), detailKeptHeadingCopy(), detailNextLabelCopy()]);
+  ]).concat([
+    detailActionLabel(), detailKeptHeadingCopy(), detailNextLabelCopy(),
+    detailMomentumHeadingCopy(), detailMomentumIntroCopy(),
+    detailMomentumSummaryCopy({ total: 0, days: 14 }),
+    detailMomentumSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
+    detailMomentumSummaryCopy({ total: 6, days: 14, peak: { count: 2 } }),
+  ]);
 
   it('are non-empty strings', () => {
     for (const s of samples) {
