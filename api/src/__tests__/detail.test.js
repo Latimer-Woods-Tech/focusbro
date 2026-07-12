@@ -19,7 +19,9 @@ import { Router } from 'itty-router';
 import {
   registerAccountabilityRoutes, commitmentDetailCopy,
   detailMomentumHeadingCopy, detailMomentumIntroCopy, detailMomentumSummaryCopy,
+  detailPeakDayCopy,
 } from '../accountability.js';
+import { describePeakDay } from '../momentum.js';
 import { detailActionLabel, detailKeptHeadingCopy, detailNextLabelCopy } from '../me.js';
 import { generateUUID } from '../middleware.js';
 
@@ -183,6 +185,26 @@ describe('GET /api/commitments/:id/detail — per-word momentum sparkline', () =
     expect(body.momentum.peak.count).toBe(2);                // busiest day had 2
     expect(body.momentum.intro.trim().length).toBeGreaterThan(0);
     expect(body.momentum.summary.trim().length).toBeGreaterThan(0);
+    // A genuine standout (2 kept in one day) earns a warm peak-day callout.
+    expect(typeof body.momentum.peakDay).toBe('string');
+    expect(body.momentum.peakDay).toMatch(/best day on this word so far/i);
+    expect(body.momentum.peakDay).toContain('2 kept');
+  });
+
+  it('names no "best day" when every kept day is a single — no arbitrary peak', async () => {
+    // Four kept, each on a distinct day → peak count 1 → no standout to celebrate.
+    const db = makeDB({ commitment: ACTIVE, kept: keptAgoDays(1, 3, 5, 8), keptCount: 4 });
+    const res = await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    const body = await res.json();
+    expect(body.momentum.peak.count).toBe(1);
+    expect(body.momentum.peakDay).toBe('');
+  });
+
+  it('a never-yet-kept word has no peak-day callout (empty-safe)', async () => {
+    const db = makeDB({ commitment: ACTIVE, kept: [], keptCount: 0 });
+    const res = await buildRouter(db)('GET', '/api/commitments/c1/detail');
+    const body = await res.json();
+    expect(body.momentum.peakDay).toBe('');
   });
 
   it('buckets in the word\'s own timezone', async () => {
@@ -230,6 +252,9 @@ describe('per-word detail copy — momentum, never a scold', () => {
     detailMomentumSummaryCopy({ total: 0, days: 14 }),
     detailMomentumSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
     detailMomentumSummaryCopy({ total: 6, days: 14, peak: { count: 2 } }),
+    detailPeakDayCopy({ count: 2, whenPhrase: 'today' }),
+    detailPeakDayCopy({ count: 3, whenPhrase: 'Wednesday' }),
+    detailPeakDayCopy({ count: 5, whenPhrase: 'Monday, Jul 2' }),
   ]);
 
   it('are non-empty strings', () => {
@@ -256,5 +281,52 @@ describe('per-word detail copy — momentum, never a scold', () => {
   it('singular vs plural is grammatical', () => {
     expect(commitmentDetailCopy({ keptCount: 1 })).toMatch(/\b1 time\b/);
     expect(commitmentDetailCopy({ keptCount: 4 })).toMatch(/\b4 times\b/);
+  });
+});
+
+// ── describePeakDay — warm, unambiguous naming of the peak day ─
+describe('describePeakDay — names the peak day, never mistakable', () => {
+  const now = '2026-07-11T18:00:00Z'; // a Saturday, UTC
+
+  it('says "today" / "yesterday" for the two most recent days', () => {
+    expect(describePeakDay('2026-07-11', { nowISO: now, timezone: 'UTC' })).toBe('today');
+    expect(describePeakDay('2026-07-10', { nowISO: now, timezone: 'UTC' })).toBe('yesterday');
+  });
+
+  it('uses a plain weekday within the last week (2–6 days back)', () => {
+    expect(describePeakDay('2026-07-09', { nowISO: now, timezone: 'UTC' })).toBe('Thursday');
+    expect(describePeakDay('2026-07-05', { nowISO: now, timezone: 'UTC' })).toBe('Sunday');
+  });
+
+  it('pins the date once a week or more has passed, so it cannot read as this week', () => {
+    // 7+ days back: weekday alone would be ambiguous, so the calendar date is added.
+    expect(describePeakDay('2026-07-02', { nowISO: now, timezone: 'UTC' })).toBe('Thursday, Jul 2');
+  });
+
+  it('resolves the day boundary in the given timezone', () => {
+    // 02:30Z on the 12th is still the 11th in New York.
+    const nyNow = '2026-07-12T02:30:00Z';
+    expect(describePeakDay('2026-07-11', { nowISO: nyNow, timezone: 'America/New_York' })).toBe('today');
+  });
+
+  it('returns "" for a missing or malformed label (an all-quiet peak has no date)', () => {
+    expect(describePeakDay(null, { nowISO: now, timezone: 'UTC' })).toBe('');
+    expect(describePeakDay('', { nowISO: now, timezone: 'UTC' })).toBe('');
+    expect(describePeakDay('nope', { nowISO: now, timezone: 'UTC' })).toBe('');
+  });
+});
+
+describe('detailPeakDayCopy — celebrates a standout, never a comparison to now', () => {
+  it('names the day and count for a real standout (2+ kept)', () => {
+    const s = detailPeakDayCopy({ count: 3, whenPhrase: 'Wednesday' });
+    expect(s).toContain('Wednesday');
+    expect(s).toContain('3 kept');
+    expect(s).toMatch(/so far/); // forward-looking framing, not "you were better before"
+  });
+
+  it('is silent below the standout threshold or with no day to name', () => {
+    expect(detailPeakDayCopy({ count: 1, whenPhrase: 'Wednesday' })).toBe('');
+    expect(detailPeakDayCopy({ count: 3, whenPhrase: '' })).toBe('');
+    expect(detailPeakDayCopy({})).toBe('');
   });
 });

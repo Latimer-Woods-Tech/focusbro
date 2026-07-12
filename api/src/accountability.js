@@ -20,7 +20,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { generateUUID } from './middleware.js';
-import { buildMomentum, MOMENTUM_WINDOW_DAYS } from './momentum.js';
+import { buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS } from './momentum.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
@@ -803,6 +803,24 @@ export function detailMomentumSummaryCopy({ total, days = MOMENTUM_WINDOW_DAYS, 
 }
 
 /**
+ * A warm "best day" callout for a single word's momentum — the piece the
+ * sparkline can't say: WHICH day it peaked, and how many times you kept it then.
+ * Shown only for a genuine standout (a day with 2+ kept), so a word whose kept
+ * days are all singles never gets an arbitrary "best day". Anti-shame by
+ * construction: it celebrates a high point and never sets it against now —
+ * "so far" frames the mark as still open to being beaten, never "you were
+ * better before". Returns '' when there is no standout to name.
+ * @param {object} p { count, whenPhrase }
+ * @returns {string}
+ */
+export function detailPeakDayCopy({ count, whenPhrase } = {}) {
+  const n = Number(count) || 0;
+  const when = typeof whenPhrase === 'string' ? whenPhrase.trim() : '';
+  if (n < 2 || !when) return '';
+  return `Your best day on this word so far: ${when} — ${n} kept. 🔥`;
+}
+
+/**
  * Header line over a single word's detail view. Momentum-only, by the design LAW:
  * it names how many times this word was kept and never how many times it wasn't —
  * the detail view carries a kept timeline, never a miss list.
@@ -1265,11 +1283,23 @@ export function registerAccountabilityRoutes(router, ctx) {
       // fully covers the 14-day window for any real cadence; buildMomentum
       // ignores anything outside it. DESIGN LAW: kept-only in, kept-only out —
       // a quiet day is a short bar, never a surfaced miss.
+      const nowISO = new Date().toISOString();
+      const momentumTz = commitment.timezone || 'UTC';
       const momentum = buildMomentum({
         timestamps: kept.map((k) => k.kept_at),
-        timezone: commitment.timezone || 'UTC',
+        nowISO,
+        timezone: momentumTz,
         intro: detailMomentumIntroCopy(),
         summary: detailMomentumSummaryCopy,
+      });
+      // Name the day the window peaked, warmly — the sparkline shows the shape,
+      // this says WHEN. Only a genuine standout (2+ kept in a day) earns a
+      // callout; detailPeakDayCopy returns '' otherwise, so a word of all-single
+      // days (or a quiet window) shows nothing. Same nowISO/timezone the buckets
+      // used, so "today"/"yesterday"/weekday agrees with the bars exactly.
+      momentum.peakDay = detailPeakDayCopy({
+        count: momentum.peak && momentum.peak.count,
+        whenPhrase: describePeakDay(momentum.peak && momentum.peak.date, { nowISO, timezone: momentumTz }),
       });
 
       return jsonResponse({

@@ -29,6 +29,7 @@ import {
   detailMomentumHeadingCopy,
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
+  detailPeakDayCopy,
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
@@ -262,6 +263,8 @@ export function meCopySurface() {
     detailMomentumSummaryCopy({ total: 0, days: 14 }),
     detailMomentumSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
     detailMomentumSummaryCopy({ total: 6, days: 14, peak: { count: 2 } }),
+    detailPeakDayCopy({ count: 2, whenPhrase: 'Wednesday' }),
+    detailPeakDayCopy({ count: 4, whenPhrase: 'Monday, Jul 2' }),
     keptLogHeadingCopy(),
     keptLogEmptyCopy(),
     momentumSelfHeadingCopy(),
@@ -331,6 +334,7 @@ export function renderMePage() {
   .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
   .spark-bar.zero { background: #e5e7eb; }
   .momentum-summary { color: #4b5563; font-size: 13px; margin: 4px 0 2px; }
+  .momentum-peak { color: #4f46e5; font-size: 13px; font-weight: 600; margin: 2px 0 0; }
   .keptrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
   .keptrow:last-child { border-bottom: none; }
   .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
@@ -599,9 +603,13 @@ export function renderMePage() {
       var title = esc(b.date) + ': ' + esc(b.count) + ' kept';
       bars += '<div class="' + cls + '" style="height:' + pct + '%" title="' + title + '"></div>';
     }
+    // The peak-day callout rides along only where the API attaches it (the
+    // per-word detail panel); on the /me/ and coach momentum cards m.peakDay is
+    // undefined, so nothing extra renders — one renderer, still every surface.
     return '<div class="momentum-intro">' + esc(m.intro || '') + '</div>'
       + '<div class="spark" role="img" aria-label="' + esc(label) + '">' + bars + '</div>'
-      + '<div class="momentum-summary">' + esc(m.summary || '') + '</div>';
+      + '<div class="momentum-summary">' + esc(m.summary || '') + '</div>'
+      + (m.peakDay ? '<div class="momentum-peak">' + esc(m.peakDay) + '</div>' : '');
   }
   // True only when a momentum payload has at least one kept word to show, so no
   // surface ever renders a chart of nothing.
