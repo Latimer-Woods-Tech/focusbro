@@ -113,6 +113,45 @@ export function emptyCommitmentsCopy() {
   return "No words given yet. What’s one thing you’ll do — and when? I’ll check in.";
 }
 
+/**
+ * Re-entry welcome heading. Shown ONLY to a signed-in person who HAS given words
+ * before but has nothing in flight right now — the "welcome back" moment. A
+ * returning person is not a first-timer, so they never see the first-run pitch;
+ * but a warm door beats a cold empty list. Never names a gap or a lapsed streak.
+ */
+export function reentryHeadingCopy() {
+  return 'Welcome back.';
+}
+
+/**
+ * Re-entry body — a no-catching-up invitation to give the next word. It leans on
+ * nothing owed: no gap to explain, no streak to rescue, just the next small thing
+ * whenever they're ready. The design LAW, applied to the re-engagement moment.
+ */
+export function reentryBodyCopy() {
+  return 'Good to see you again. No catching up and no gap to explain — just pick the ' +
+    'next thing you’ll do, and I’ll be here to check in.';
+}
+
+/**
+ * Which entry banner (if any) belongs on the page, derived purely from the live
+ * commitments list. Single source of truth for both the first-run and re-entry
+ * toggles — the client mirrors this exact branch inline.
+ *   - `'first-word'`  → never given a word: the first-run invitation.
+ *   - `'welcome-back'`→ has words but none active or paused: the warm re-entry door.
+ *   - `'in-flight'`   → an active or paused word exists: no banner, just the work.
+ * @param {Array<{status?: string}>} commitments
+ * @returns {'first-word'|'welcome-back'|'in-flight'}
+ */
+export function entryState(commitments) {
+  if (!commitments || !commitments.length) return 'first-word';
+  for (let i = 0; i < commitments.length; i++) {
+    const s = commitments[i] && commitments[i].status;
+    if (s === 'active' || s === 'paused') return 'in-flight';
+  }
+  return 'welcome-back';
+}
+
 /** Heading over the kept-word streak number. Counts what you keep, never misses. */
 export function streakHeadingCopy() {
   return 'Words kept in a row';
@@ -202,6 +241,8 @@ export function meCopySurface() {
     firstRunBodyCopy(),
     firstRunExamplesLabel(),
     ...firstRunExamples(),
+    reentryHeadingCopy(),
+    reentryBodyCopy(),
     emptyCommitmentsCopy(),
     streakHeadingCopy(),
     labels.kept, labels.missed, labels.reschedule,
@@ -323,6 +364,11 @@ export function renderMePage() {
     <div class="seedrow" id="seedRow">${firstRunExamples()
       .map((t) => `<button type="button" class="seed" data-seed="${t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">${t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</button>`)
       .join('')}</div>
+  </div>
+
+  <div id="reentry" class="card firstrun hidden">
+    <h2>${reentryHeadingCopy()}</h2>
+    <p class="streakmsg">${reentryBodyCopy()}</p>
   </div>
 
   <div class="card">
@@ -634,23 +680,35 @@ export function renderMePage() {
       .catch(function () {});
   }
 
-  // First-run welcome: shown only to a signed-in person with zero words given —
-  // the activation moment. On the first empty load we gently place the cursor in
-  // the title field (an invitation, focused once so a later reload never steals
-  // focus). The panel disappears the instant a first word exists. Never a scold.
+  // Which entry banner belongs on the page — mirrors entryState() in me.js.
+  //   'first-word'   → never given a word: the first-run invitation.
+  //   'welcome-back' → has words but none active or paused: the warm re-entry door.
+  //   'in-flight'    → an active or paused word exists: no banner, just the work.
+  function entryState(commitments) {
+    if (!commitments || !commitments.length) return 'first-word';
+    for (var i = 0; i < commitments.length; i++) {
+      var s = commitments[i] && commitments[i].status;
+      if (s === 'active' || s === 'paused') return 'in-flight';
+    }
+    return 'welcome-back';
+  }
+
+  // First-run welcome is the activation moment (zero words). Re-entry is the
+  // welcome-back door for a returning person with no word in flight — never the
+  // cold-start pitch, never a scold about a gap. Exactly one shows, or neither
+  // (when a word is on the books). On the first-run empty load we gently place
+  // the cursor in the title field, focused once so a later reload never steals it.
   var _firstRunFocused = false;
   function updateFirstRun(commitments) {
-    var panel = el('firstRun');
-    if (!panel) return;
-    if (!commitments || !commitments.length) {
-      show(panel);
-      if (!_firstRunFocused) {
-        _firstRunFocused = true;
-        var t = el('title');
-        if (t && !t.value) { try { t.focus(); } catch (e) {} }
-      }
-    } else {
-      hide(panel);
+    var state = entryState(commitments);
+    var first = el('firstRun');
+    var back = el('reentry');
+    if (first) { if (state === 'first-word') show(first); else hide(first); }
+    if (back) { if (state === 'welcome-back') show(back); else hide(back); }
+    if (state === 'first-word' && !_firstRunFocused) {
+      _firstRunFocused = true;
+      var t = el('title');
+      if (t && !t.value) { try { t.focus(); } catch (e) {} }
     }
   }
 

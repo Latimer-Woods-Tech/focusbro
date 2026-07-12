@@ -25,6 +25,9 @@ import {
   firstRunBodyCopy,
   firstRunExamplesLabel,
   firstRunExamples,
+  reentryHeadingCopy,
+  reentryBodyCopy,
+  entryState,
   meCopySurface,
   renderMePage,
 } from '../me.js';
@@ -257,5 +260,50 @@ describe('gentle first-run onboarding seeds the first word', () => {
     expect(surface).toContain(firstRunBodyCopy());
     expect(surface).toContain(firstRunExamplesLabel());
     for (const ex of firstRunExamples()) expect(surface).toContain(ex);
+  });
+});
+
+describe('a returning person is welcomed back, never cold-started or scolded', () => {
+  const html = renderMePage();
+
+  it('exposes warm, non-empty re-entry copy', () => {
+    expect(reentryHeadingCopy().trim().length).toBeGreaterThan(0);
+    expect(reentryBodyCopy().trim().length).toBeGreaterThan(0);
+  });
+
+  it('the re-entry copy never shames, brands "AI", or makes a clinical claim', () => {
+    for (const s of [reentryHeadingCopy(), reentryBodyCopy()]) {
+      for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in re-entry copy: "${s}" matched ${pat}`).toBe(false);
+      expect(AI_WORD.test(s), `"AI" in re-entry copy: "${s}"`).toBe(false);
+      for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in re-entry copy: "${s}"`).toBe(false);
+    }
+  });
+
+  it('entryState routes the three entry moments from the live commitments list', () => {
+    // No words ever → the first-run activation moment.
+    expect(entryState([])).toBe('first-word');
+    expect(entryState(undefined)).toBe('first-word');
+    // History but nothing in flight → the warm welcome-back door.
+    expect(entryState([{ status: 'kept' }, { status: 'released' }])).toBe('welcome-back');
+    expect(entryState([{ status: 'missed' }])).toBe('welcome-back');
+    // An active or paused word exists → no banner, just the work.
+    expect(entryState([{ status: 'kept' }, { status: 'active' }])).toBe('in-flight');
+    expect(entryState([{ status: 'paused' }])).toBe('in-flight');
+  });
+
+  it('renders the re-entry panel and its copy, hidden until the toggle reveals it', () => {
+    expect(html).toContain('id="reentry"');
+    expect(html).toContain('class="card firstrun hidden"');
+    expect(html).toContain(reentryHeadingCopy());
+    expect(html).toContain(reentryBodyCopy());
+    // One toggle drives both banners so they can never both show at once.
+    expect(html).toContain('updateFirstRun');
+    expect(html).toContain('entryState');
+  });
+
+  it('folds the re-entry copy into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(reentryHeadingCopy());
+    expect(surface).toContain(reentryBodyCopy());
   });
 });
