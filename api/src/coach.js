@@ -124,6 +124,42 @@ export function nextCheckinCopy({ iso, timezone, nowISO } = {}) {
   return 'Next check-in lining up.';
 }
 
+/**
+ * The warm coach-voice "door held open" line for a client whose soonest
+ * outstanding check-in time has already passed but is still open. Third-person
+ * twin of me.js `listNextCheckinWaitingCopy` — the whole point is that time
+ * passing is not failure here, so this is NEVER "late"/"overdue"/a miss.
+ * @returns {string}
+ */
+export function rosterNextCheckinWaitingCopy() {
+  return 'Still here whenever they’re ready';
+}
+
+/**
+ * At-a-glance next-check-in line for a client on the coach ROSTER (not the
+ * drill-in rhythm panel). The whole product thesis is a companion who shows up
+ * ON A SCHEDULE, so a coach should see the soonest concrete moment the bro will
+ * next keep a word for THIS client across their whole roster — not only by
+ * opening "View rhythm" one client at a time (R-224). This is the coach-side
+ * twin of the person's own at-a-glance next check-in (R-233).
+ *
+ * DESIGN LAW, by construction: the caller only ever passes an OUTSTANDING
+ * check-in (pending/sent/deferred) that belongs to an ACTIVE commitment — a
+ * future moment about to be KEPT, never a miss. When that moment has already
+ * passed but is still open, this reads as a warm "still here whenever they're
+ * ready" (the door held open), NEVER "late"/"overdue". Nothing queued → '' so
+ * the at-a-glance card stays clean (the drill-in rhythm view carries per-word
+ * detail).
+ * @param {object} p { iso, timezone, nowISO }
+ * @returns {string} rendered line, or '' when there is nothing outstanding
+ */
+export function rosterNextCheckinLine({ iso, timezone, nowISO } = {}) {
+  if (!iso || Number.isNaN(Date.parse(iso))) return '';
+  const now = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
+  if (Date.parse(iso) <= now) return rosterNextCheckinWaitingCopy();
+  return nextCheckinCopy({ iso, timezone, nowISO });
+}
+
 // ── KEPT-WORD MOMENTUM SPARKLINE ─────────────────────────────
 // A coach should feel a client's momentum at a glance, not just read a single
 // streak number. So the detail view carries a per-day count of KEPT words over
@@ -304,6 +340,43 @@ export function registerCoachRoutes(router, ctx) {
           entry.status_line = invitePendingCopy();
         }
         roster.push(entry);
+      }
+
+      // At-a-glance next check-in per active client — the soonest concrete
+      // moment the bro next shows up for them — so a coach sees it across the
+      // whole roster, not only by opening "View rhythm" per client (R-224). ONE
+      // grouped query over all active clients (no N+1 across the roster): the
+      // JOIN pins each outstanding check-in to an ACTIVE commitment, so a stray
+      // row on a released word never leaks in, and MIN() picks the soonest. The
+      // bare `timezone` follows that MIN row (SQLite min/max bare-column rule),
+      // so the moment is formatted in its OWN commitment's zone. Momentum-only
+      // by construction: pending/sent/deferred is a future moment about to be
+      // KEPT — never a miss.
+      const activeIds = roster.filter((e) => e.status === 'active').map((e) => e.client_id);
+      if (activeIds.length) {
+        const placeholders = activeIds.map(() => '?').join(', ');
+        const nextRows = await env.DB.prepare(
+          `SELECT c.user_id AS client_id, MIN(cc.scheduled_for) AS next_for, c.timezone AS timezone
+             FROM commitment_checkins cc
+             JOIN commitments c ON c.id = cc.commitment_id
+            WHERE c.user_id IN (${placeholders})
+              AND c.status = 'active'
+              AND cc.status IN ('pending', 'sent', 'deferred')
+            GROUP BY c.user_id`
+        ).bind(...activeIds).all();
+        const nextByClient = {};
+        for (const r of (nextRows && nextRows.results) || []) {
+          nextByClient[r.client_id] = { iso: r.next_for, timezone: r.timezone || 'UTC' };
+        }
+        const nowISO = new Date().toISOString();
+        for (const entry of roster) {
+          if (entry.status !== 'active') continue;
+          const n = nextByClient[entry.client_id];
+          entry.next_checkin = (n && n.iso) || null;
+          entry.next_checkin_line = rosterNextCheckinLine({
+            iso: n && n.iso, timezone: n && n.timezone, nowISO,
+          });
+        }
       }
 
       return jsonResponse({
