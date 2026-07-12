@@ -1835,6 +1835,8 @@ router.get('/coach/', async (request) => {
   .streak small { display: block; font-size: 12px; font-weight: 500; color: #6b7280; }
   .name { font-weight: 600; }
   .line { color: #4b5563; font-size: 14px; }
+  .roster-next { color: #4b5563; font-size: 13px; margin-top: 4px; }
+  .roster-next.waiting { color: #7c6f00; }
   .pending { opacity: .7; }
   .muted { color: #6b7280; font-size: 13px; }
   input, button { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid #d1d5db; }
@@ -1922,12 +1924,22 @@ router.get('/coach/', async (request) => {
       var c = roster[i];
       var name = c.label || c.email || 'A client';
       if (c.status === 'active' && c.streak) {
+        // The soonest concrete moment the bro next shows up for this client,
+        // right on the roster card (not only inside "View rhythm"). A moment
+        // that's passed but still open reads amber + warm, never as "late".
+        var nextLine = '';
+        if (c.next_checkin_line) {
+          var nt = c.next_checkin ? new Date(c.next_checkin).getTime() : NaN;
+          var waitCls = (!isNaN(nt) && nt <= Date.now()) ? ' waiting' : '';
+          nextLine = '<div class="roster-next' + waitCls + '">' + esc(c.next_checkin_line) + '</div>';
+        }
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
-          +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div></div>'
+          +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
+          +     nextLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
