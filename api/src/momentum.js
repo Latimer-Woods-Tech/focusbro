@@ -110,6 +110,43 @@ export function sparklineBars(counts) {
   }).join('');
 }
 
+/** Weekday and short-month names for a warm peak-day callout (index 0 = Sunday / January). */
+const WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A warm, unambiguous name for the day a kept-word window peaked, relative to
+ * "today" in the same zone the window was bucketed in. Within the last week it
+ * reads as a plain relative day ("today", "yesterday", "Wednesday"); older than
+ * a week it pins the calendar date too ("Wednesday, Jul 2") so it can never be
+ * mistaken for this week's same-named day. Pure; returns '' when the label is
+ * missing or unparseable (e.g. an all-quiet window whose peak has no date).
+ *
+ * @param {string} dayLabel   a 'YYYY-MM-DD' calendar label (e.g. momentum.peak.date)
+ * @param {object} [p]
+ * @param {string} [p.nowISO]     "today" anchor (defaults to now)
+ * @param {string} [p.timezone]   IANA zone the window was bucketed in
+ * @returns {string}
+ */
+export function describePeakDay(dayLabel, { nowISO, timezone } = {}) {
+  if (typeof dayLabel !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dayLabel)) return '';
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
+  const today = localDayInZone(anchorISO, tz);
+  if (!today) return '';
+  // Whole-day distance by calendar-label math (DST-agnostic — same trick as the axis walk).
+  const toUTC = (lbl) => { const [y, mo, d] = lbl.split('-').map(Number); return Date.UTC(y, mo - 1, d); };
+  const daysAgo = Math.round((toUTC(today) - toUTC(dayLabel)) / 86400000);
+  if (daysAgo === 0) return 'today';
+  if (daysAgo === 1) return 'yesterday';
+  const [y, mo, d] = dayLabel.split('-').map(Number);
+  const weekday = WEEKDAY_LONG[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  // 2–6 days back: this past week — the weekday alone is unambiguous.
+  if (daysAgo >= 2 && daysAgo <= 6) return weekday;
+  // A week or more back: name the date so it can't read as this week's same weekday.
+  return `${weekday}, ${MONTH_SHORT[mo - 1]} ${d}`;
+}
+
 /**
  * Assemble a full momentum block from raw kept instants, in a caller-supplied
  * voice. The math (bucketing, totals, peak, sparkline) is fixed and tested; the
