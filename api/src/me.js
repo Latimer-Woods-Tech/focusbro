@@ -22,6 +22,11 @@
 // ════════════════════════════════════════════════════════════
 
 import { consentPanelCopy, consentLanguage } from './consent.js';
+import {
+  momentumSelfHeadingCopy,
+  momentumSelfIntroCopy,
+  momentumSelfSummaryCopy,
+} from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
@@ -172,6 +177,10 @@ export function keptLogEmptyCopy() {
   return 'Every word you keep gathers here. The first one’s waiting for you.';
 }
 
+// The person's own kept-word momentum copy (momentumSelf*Copy) lives in
+// accountability.js — the API that emits it — and is imported at the top of this
+// module for the page shell + the design-LAW copy surface.
+
 /** The standing promise at the foot of the page — the design LAW, in plain words. */
 export function mePageFootnoteCopy() {
   return 'FocusBro is an ally, not a boss. When a check-in lands and it didn’t happen, ' +
@@ -206,6 +215,11 @@ export function meCopySurface() {
     detailNextLabelCopy(),
     keptLogHeadingCopy(),
     keptLogEmptyCopy(),
+    momentumSelfHeadingCopy(),
+    momentumSelfIntroCopy(),
+    momentumSelfSummaryCopy({ total: 0, days: 14 }),
+    momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
+    momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
   ];
@@ -263,6 +277,11 @@ export function renderMePage() {
   .ok { color: #047857; font-size: 14px; }
   .commit { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
   .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+  .momentum-intro { color: #6b7280; font-size: 13px; margin: 0 0 8px; }
+  .spark { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 6px 0; }
+  .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
+  .spark-bar.zero { background: #e5e7eb; }
+  .momentum-summary { color: #4b5563; font-size: 13px; margin: 4px 0 2px; }
   .keptrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
   .keptrow:last-child { border-bottom: none; }
   .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
@@ -354,6 +373,11 @@ export function renderMePage() {
   </div>
 
   <div id="list"></div>
+
+  <div class="card hidden" id="momentumCard">
+    <h2>${momentumSelfHeadingCopy()}</h2>
+    <div id="momentum"></div>
+  </div>
 
   <div class="card" id="keptLog">
     <h2>${keptLogHeadingCopy()}</h2>
@@ -501,10 +525,40 @@ export function renderMePage() {
     host.innerHTML = html;
   }
 
+  // Your kept-word momentum — the same sparkline the coach sees, turned around
+  // for your own eyes. Bars scale to your busiest day; a quiet day is a short
+  // grey bar (the absence of a win), never a surfaced miss. Hidden until there
+  // is at least one kept word, so a brand-new page isn't a chart of nothing.
+  function renderMomentum(m) {
+    var card = el('momentumCard');
+    var host = el('momentum');
+    if (!host || !card) return;
+    if (!m || !m.buckets || !m.buckets.length || !(Number(m.total) > 0)) {
+      card.classList.add('hidden');
+      host.innerHTML = '';
+      return;
+    }
+    var max = 0, i;
+    for (i = 0; i < m.buckets.length; i++) { if (m.buckets[i].count > max) max = m.buckets[i].count; }
+    var label = (m.sparkline ? m.sparkline + ' — ' : '') + (m.summary || '');
+    var bars = '';
+    for (i = 0; i < m.buckets.length; i++) {
+      var b = m.buckets[i];
+      var pct = max > 0 ? Math.max(7, Math.round((b.count / max) * 100)) : 7;
+      var cls = b.count > 0 ? 'spark-bar' : 'spark-bar zero';
+      var title = esc(b.date) + ': ' + esc(b.count) + ' kept';
+      bars += '<div class="' + cls + '" style="height:' + pct + '%" title="' + title + '"></div>';
+    }
+    host.innerHTML = '<div class="momentum-intro">' + esc(m.intro || '') + '</div>'
+      + '<div class="spark" role="img" aria-label="' + esc(label) + '">' + bars + '</div>'
+      + '<div class="momentum-summary">' + esc(m.summary || '') + '</div>';
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(renderKept)
+      .then(function (data) { renderKept(data); renderMomentum(data && data.momentum); })
       .catch(function () {});
   }
 

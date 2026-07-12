@@ -25,6 +25,17 @@
 // ════════════════════════════════════════════════════════════
 
 import { describeCadence, formatWhenLocal } from './accountability.js';
+import {
+  MOMENTUM_WINDOW_DAYS,
+  localDayInZone,
+  bucketKeptByDay,
+  sparklineBars,
+  buildMomentum as buildMomentumBlock,
+} from './momentum.js';
+
+// Re-exported so existing importers (and coach.test.js) keep their import path
+// while the implementations live in the shared ./momentum.js engine.
+export { MOMENTUM_WINDOW_DAYS, localDayInZone, bucketKeptByDay, sparklineBars };
 
 /** Roster link states. A coach sees client data only in the `active` state. */
 export const COACH_LINK_STATES = ['pending', 'active', 'declined', 'removed'];
@@ -118,108 +129,10 @@ export function nextCheckinCopy({ iso, timezone, nowISO } = {}) {
 // streak number. So the detail view carries a per-day count of KEPT words over
 // a recent window — a little sparkline of "words kept per day".
 //
-// DESIGN LAW, by construction: this reads status='kept' rows ONLY. A day with
-// no kept word is simply a short bar — it is the *absence* of a win, never the
-// *presence* of a miss. There is no missed/skipped series anywhere in here, so
-// there is nothing a coach could read as "who's slipping." The window is a
-// momentum chart, full stop.
-
-/** How many trailing days the momentum sparkline covers by default. */
-export const MOMENTUM_WINDOW_DAYS = 14;
-
-/** The eight ramp glyphs, lowest→highest, for a text sparkline. */
-const SPARK_GLYPHS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-/**
- * The recipient-local calendar date (`YYYY-MM-DD`) of an instant in an IANA
- * zone. Uses Intl (Workers + Node support zones); falls back to the UTC date
- * when the zone/instant is unusable. Pure.
- * @param {string} iso  an ISO instant
- * @param {string} [timeZone]
- * @returns {string|null} 'YYYY-MM-DD', or null if the instant can't be parsed
- */
-export function localDayInZone(iso, timeZone) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return null;
-  try {
-    const dtf = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
-    });
-    // en-CA renders as YYYY-MM-DD.
-    return dtf.format(new Date(ms));
-  } catch {
-    return new Date(ms).toISOString().slice(0, 10);
-  }
-}
-
-/** Step a 'YYYY-MM-DD' calendar label back/forward by whole days (label math, DST-agnostic). */
-function shiftDayLabel(label, deltaDays) {
-  const [y, mo, d] = label.split('-').map(Number);
-  const t = Date.UTC(y, mo - 1, d) + deltaDays * 86400000;
-  const nd = new Date(t);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${nd.getUTCFullYear()}-${p(nd.getUTCMonth() + 1)}-${p(nd.getUTCDate())}`;
-}
-
-/**
- * Bucket a list of KEPT-word instants into per-local-day counts over the last
- * `days` days (inclusive of today) in `timezone`. The caller passes only kept
- * timestamps; a day with no entry is a genuine zero (a quiet day), never a miss.
- * Instants outside the window are ignored. Pure + DST-correct (it buckets by
- * local calendar date via Intl, and walks the axis by calendar-label math).
- *
- * @param {object} p
- * @param {string[]} p.timestamps  ISO instants of kept check-ins
- * @param {number} [p.days=MOMENTUM_WINDOW_DAYS]
- * @param {string} [p.nowISO]      "today" anchor (defaults to now)
- * @param {string} [p.timezone]    IANA zone for day boundaries
- * @returns {Array<{date: string, count: number}>} oldest→newest, length `days`
- */
-export function bucketKeptByDay({ timestamps, days = MOMENTUM_WINDOW_DAYS, nowISO, timezone } = {}) {
-  const n = Math.max(1, Math.min(90, Math.floor(days) || MOMENTUM_WINDOW_DAYS));
-  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
-  const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
-  const today = localDayInZone(anchorISO, tz);
-
-  // Ordered axis of `n` day labels ending at today (today is last).
-  const axis = [];
-  const index = new Map();
-  for (let i = n - 1; i >= 0; i--) {
-    const label = shiftDayLabel(today, -i);
-    index.set(label, axis.length);
-    axis.push({ date: label, count: 0 });
-  }
-
-  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
-    const label = localDayInZone(ts, tz);
-    const at = label != null ? index.get(label) : undefined;
-    if (at !== undefined) axis[at].count += 1;
-  }
-  return axis;
-}
-
-/**
- * A text sparkline for a per-day count series. Scales the busiest day to the
- * tallest glyph; a quiet day is the shortest glyph, never blank — the baseline
- * is always drawn, so the shape reads as momentum, not a gap. An all-zero
- * window is a flat baseline (a clean page), not an empty string. Pure.
- * @param {Array<number|{count:number}>} counts
- * @returns {string} one glyph per entry
- */
-export function sparklineBars(counts) {
-  const nums = (Array.isArray(counts) ? counts : []).map((c) => {
-    const v = typeof c === 'object' && c ? Number(c.count) : Number(c);
-    return Number.isFinite(v) && v > 0 ? v : 0;
-  });
-  if (!nums.length) return '';
-  const max = Math.max(...nums);
-  if (max === 0) return SPARK_GLYPHS[0].repeat(nums.length);
-  return nums.map((v) => {
-    if (v === 0) return SPARK_GLYPHS[0];
-    const idx = Math.round(((v / max) * (SPARK_GLYPHS.length - 1)));
-    return SPARK_GLYPHS[Math.max(1, Math.min(SPARK_GLYPHS.length - 1, idx))];
-  }).join('');
-}
+// The math lives in ./momentum.js (shared with the person's own /me/ view). The
+// coach voice — third-person, "their momentum" — is supplied here. DESIGN LAW,
+// by construction: momentum.js reads KEPT instants ONLY, so nothing a coach
+// sees here can read as "who's slipping."
 
 /** Header copy for the momentum panel — a momentum chart, framed as such. */
 export function momentumIntroCopy() {
@@ -245,29 +158,17 @@ export function momentumSummaryCopy({ total, days = MOMENTUM_WINDOW_DAYS, peak }
 }
 
 /**
- * Assemble the full momentum block for a client's detail view from raw kept
- * instants. One place so the route stays thin and the shape is unit-tested.
+ * Assemble the coach-facing momentum block from raw kept instants. Thin wrapper
+ * over the shared engine that injects the coach (third-person) voice.
  * @param {object} p { timestamps, days, nowISO, timezone }
  * @returns {object} { intro, days, timezone, buckets, total, peak, sparkline, summary }
  */
 export function buildMomentum({ timestamps, days = MOMENTUM_WINDOW_DAYS, nowISO, timezone } = {}) {
-  const buckets = bucketKeptByDay({ timestamps, days, nowISO, timezone });
-  let total = 0;
-  let peak = buckets[0] || { date: null, count: 0 };
-  for (const b of buckets) {
-    total += b.count;
-    if (b.count > peak.count) peak = b;
-  }
-  return {
+  return buildMomentumBlock({
+    timestamps, days, nowISO, timezone,
     intro: momentumIntroCopy(),
-    days: buckets.length,
-    timezone: (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC',
-    buckets,
-    total,
-    peak: { date: peak.date, count: peak.count },
-    sparkline: sparklineBars(buckets),
-    summary: momentumSummaryCopy({ total, days: buckets.length, peak }),
-  };
+    summary: momentumSummaryCopy,
+  });
 }
 
 // ── ROUTES ───────────────────────────────────────────────────
