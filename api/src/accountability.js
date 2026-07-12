@@ -1192,8 +1192,31 @@ export function registerAccountabilityRoutes(router, ctx) {
           ORDER BY (status = 'active') DESC, start_at DESC
           LIMIT 200`
       ).bind(auth.userId).all();
+      const commitments = (rows && rows.results) || [];
 
-      return jsonResponse({ commitments: (rows && rows.results) || [] }, 200, 'short');
+      // Attach each active word's NEXT check-in — the concrete moment the bro
+      // next shows up — so the person sees it across their whole list at a
+      // glance, not only by opening each word's detail (R-222). One grouped
+      // query (no N+1): the soonest still-outstanding check-in per commitment.
+      // A resolved/kept/moved word has none, so it stays null. This is the
+      // person-side twin of the coach's next-check-in (R-224). No miss surfaced:
+      // an outstanding row that is already past reads as "still waiting" in the
+      // UI, never as a scold.
+      const outstanding = await env.DB.prepare(
+        `SELECT commitment_id, MIN(scheduled_for) AS next_checkin
+           FROM commitment_checkins
+          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          GROUP BY commitment_id`
+      ).bind(auth.userId).all();
+      const nextByCommitment = {};
+      for (const row of (outstanding && outstanding.results) || []) {
+        nextByCommitment[row.commitment_id] = row.next_checkin;
+      }
+      for (const c of commitments) {
+        c.next_checkin = c.status === 'active' ? (nextByCommitment[c.id] || null) : null;
+      }
+
+      return jsonResponse({ commitments }, 200, 'short');
     } catch (err) {
       console.error('[accountability] list error:', err && err.message);
       return jsonResponse({ error: 'Could not load your commitments.' }, 500);

@@ -206,6 +206,21 @@ export function detailNextLabelCopy() {
   return 'Next check-in';
 }
 
+/** Label for the next-check-in line on each active word in the /me/ list. Forward, never a scold. */
+export function listNextCheckinLabelCopy() {
+  return 'Next check-in';
+}
+
+/**
+ * The warm state for an active word whose check-in moment has already passed but
+ * is still open (the bro is holding the door). NEVER "late", "overdue", or a
+ * miss — the whole point is that time passing is not failure here. A concrete,
+ * on-your-side "I'm still here" line.
+ */
+export function listNextCheckinWaitingCopy() {
+  return 'Still here whenever you’re ready';
+}
+
 /** Heading over the kept-word log — the record of words you kept. Never a miss list. */
 export function keptLogHeadingCopy() {
   return 'Words you kept';
@@ -290,6 +305,8 @@ export function renderMePage() {
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
   const VIEW = detailActionLabel();
+  const NEXT_LABEL = listNextCheckinLabelCopy();
+  const NEXT_WAITING = listNextCheckinWaitingCopy();
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
@@ -309,6 +326,9 @@ export function renderMePage() {
   .streakmsg { color: #4b5563; font-size: 15px; }
   .name { font-weight: 600; }
   .when { color: #6b7280; font-size: 13px; }
+  .when.next { margin-top: 2px; color: #4b5563; }
+  /* An open-but-past check-in is warm, never an alarm — no red, a gentle accent. */
+  .when.next.waiting { color: #7c6f00; }
   .muted { color: #6b7280; font-size: 13px; }
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
   .pill.active { background: #eef2ff; color: #4338ca; }
@@ -635,6 +655,21 @@ export function renderMePage() {
       .catch(function () {});
   }
 
+  // The concrete next moment the bro shows up on an ACTIVE word, shown right on
+  // the list card so you see it across every word at a glance (not only by
+  // opening detail). If that moment has already passed but the check-in is still
+  // open, we NEVER say "late" — the door is still held: a warm "still here"
+  // line. Non-active words, or an active word with nothing queued, show nothing.
+  function nextCheckinLineHTML(c) {
+    if (!c || c.status !== 'active' || !c.next_checkin) return '';
+    var t = new Date(c.next_checkin).getTime();
+    if (isNaN(t)) return '';
+    if (t <= Date.now()) {
+      return '<div class="when next waiting">' + esc(${JSON.stringify(NEXT_WAITING)}) + '</div>';
+    }
+    return '<div class="when next">' + esc(${JSON.stringify(NEXT_LABEL)}) + ': ' + esc(fmtWhen(c.next_checkin)) + '</div>';
+  }
+
   function renderList(commitments) {
     var host = el('list');
     if (!commitments || !commitments.length) {
@@ -650,7 +685,9 @@ export function renderMePage() {
       html += '<div class="card" data-id="' + esc(c.id) + '">'
         + '<div class="commit">'
         +   '<div><div class="name">' + esc(c.title) + '</div>'
-        +     '<div class="when">' + esc(fmtWhen(c.start_at)) + esc(cadence) + '</div></div>'
+        +     '<div class="when">' + esc(fmtWhen(c.start_at)) + esc(cadence) + '</div>'
+        +     nextCheckinLineHTML(c)
+        +   '</div>'
         +   '<span class="pill ' + p.tone + '">' + esc(p.label) + '</span>'
         + '</div>';
       if (c.status === 'active') {
