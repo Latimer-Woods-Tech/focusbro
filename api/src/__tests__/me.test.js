@@ -28,6 +28,11 @@ import {
   meCopySurface,
   renderMePage,
 } from '../me.js';
+import {
+  momentumSelfHeadingCopy,
+  momentumSelfIntroCopy,
+  momentumSelfSummaryCopy,
+} from '../accountability.js';
 
 const SHAME_PATTERNS = [
   /\bfail(ed|ure|ing|s)?\b/i,
@@ -116,6 +121,41 @@ describe('a missed word is an open door, never a failure', () => {
   });
 });
 
+describe('your own kept-word momentum copy — first person, momentum-only', () => {
+  const strings = [
+    momentumSelfHeadingCopy(),
+    momentumSelfIntroCopy(),
+    momentumSelfSummaryCopy({ total: 0, days: 14 }),
+    momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
+    momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
+  ];
+
+  it('never shames, never brands "AI", never makes a clinical claim', () => {
+    for (const s of strings) {
+      for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in: ${s}`).toBe(false);
+      for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in: ${s}`).toBe(false);
+      expect(AI_WORD.test(s), `AI branding in: ${s}`).toBe(false);
+    }
+  });
+
+  it('speaks in the first person (your/you), not the coach third person (their)', () => {
+    expect(momentumSelfIntroCopy().toLowerCase()).toContain('you');
+    expect(momentumSelfIntroCopy().toLowerCase()).not.toContain('their');
+    expect(momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } })).toContain('You kept');
+    expect(momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } })).toContain('Your best day');
+  });
+
+  it('a quiet window reads as a fresh start, never a tally of what was not done', () => {
+    const quiet = momentumSelfSummaryCopy({ total: 0, days: 14 });
+    expect(quiet.toLowerCase()).toMatch(/clean page|fresh start/);
+  });
+
+  it('is singular/plural correct on the kept count', () => {
+    expect(momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } })).toContain('1 word ');
+    expect(momentumSelfSummaryCopy({ total: 2, days: 14, peak: { count: 1 } })).toContain('2 words ');
+  });
+});
+
 describe('renderMePage', () => {
   const html = renderMePage();
 
@@ -159,6 +199,17 @@ describe('renderMePage', () => {
     expect(html).toContain('/detail');            // the detail endpoint openDetail fetches
     expect(html).toContain('openDetail');         // the toggle/fetch function
     expect(html).toContain('renderDetail');       // the momentum-only panel renderer
+  });
+
+  it('renders your own kept-word momentum sparkline (their wins, their eyes)', () => {
+    expect(html).toContain('id="momentumCard"');     // the panel, hidden until a first kept word
+    expect(html).toContain('id="momentum"');         // the render host
+    expect(html).toContain(momentumSelfHeadingCopy()); // "Your momentum"
+    expect(html).toContain('function renderMomentum'); // the client-side renderer
+    expect(html).toContain('data.momentum');           // fed from the kept endpoint response
+    expect(html).toContain('.spark-bar');              // the scaled bar styles
+    expect(html).toContain('spark-bar zero');          // a quiet day is a grey baseline bar, not a gap
+    expect(html).toContain('role="img"');              // the sparkline is a labelled image
   });
 });
 

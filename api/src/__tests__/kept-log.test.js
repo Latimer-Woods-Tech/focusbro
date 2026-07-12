@@ -163,3 +163,74 @@ describe('kept-log copy — a positive record, never a scold', () => {
     expect(keptLogCopy({ total: 3 })).toMatch(/\b3 words\b/);
   });
 });
+
+// ── the kept endpoint also returns your own momentum block ───
+// The same sparkline the coach sees, turned around for the person's own eyes.
+// A richer D1 double that answers the windowed momentum query (non-JOIN) and the
+// representative-timezone lookup, so the assembled block can be asserted.
+function makeMomentumDB({ keptLog = [], windowTimestamps = [], streak = null, timezone = null } = {}) {
+  const queries = [];
+  const db = {
+    queries,
+    prepare(sql) {
+      queries.push(sql);
+      const stmt = {
+        bind() { return stmt; },
+        async first() {
+          if (/FROM accountability_streaks/.test(sql)) return streak;
+          if (/SELECT timezone FROM commitments/.test(sql)) return timezone ? { timezone } : null;
+          return null;
+        },
+        async all() {
+          if (/FROM commitment_checkins/.test(sql) && /JOIN commitments/.test(sql)) return { results: keptLog };
+          if (/FROM commitment_checkins/.test(sql)) return { results: windowTimestamps.map((t) => ({ responded_at: t })) };
+          return { results: [] };
+        },
+        async run() { return { success: true, meta: { changes: 1 } }; },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+describe('GET /api/accountability/kept — your own momentum block', () => {
+  it('returns a momentum block: buckets, a sparkline, a first-person summary', async () => {
+    const db = makeMomentumDB({
+      keptLog: KEPT_ROWS,
+      windowTimestamps: ['2026-07-09T14:00:00Z', '2026-07-09T18:00:00Z', '2026-07-08T09:00:00Z'],
+      streak: { total_kept: 3 },
+      timezone: 'UTC',
+    });
+    const res = await buildRouter(db)('GET', '/api/accountability/kept');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.momentum, 'momentum block present').toBeTruthy();
+    expect(Array.isArray(body.momentum.buckets)).toBe(true);
+    expect(body.momentum.buckets.length).toBeGreaterThan(0);
+    expect(typeof body.momentum.sparkline).toBe('string');
+    expect(body.momentum.sparkline.length).toBeGreaterThan(0);
+    expect(typeof body.momentum.summary).toBe('string');
+    // First-person voice (the person's own eyes), never the coach's third person.
+    expect(body.momentum.intro.toLowerCase()).toContain('you');
+    expect(/their/i.test(body.momentum.summary + body.momentum.intro)).toBe(false);
+  });
+
+  it('the momentum window reads status=\'kept\' ONLY — never a miss series', async () => {
+    const db = makeMomentumDB({ keptLog: KEPT_ROWS, windowTimestamps: [], streak: null });
+    await buildRouter(db)('GET', '/api/accountability/kept');
+    const windowQuery = db.queries.find((q) => /FROM commitment_checkins/.test(q) && !/JOIN commitments/.test(q) && /responded_at >=/.test(q));
+    expect(windowQuery, 'the windowed momentum query ran').toBeTruthy();
+    expect(/status = 'kept'/.test(windowQuery)).toBe(true);
+    expect(/missed/i.test(windowQuery)).toBe(false);
+  });
+
+  it('a person with no kept words gets a quiet momentum block, never a miss grid', async () => {
+    const db = makeMomentumDB({ keptLog: [], windowTimestamps: [], streak: null });
+    const res = await buildRouter(db)('GET', '/api/accountability/kept');
+    const body = await res.json();
+    expect(body.momentum.total).toBe(0);
+    expect(body.momentum.summary.toLowerCase()).toMatch(/clean page|fresh start/);
+    expect(/\bmiss(ed|es|ing)?\b/i.test(body.momentum.summary)).toBe(false);
+  });
+});

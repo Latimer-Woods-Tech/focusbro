@@ -20,6 +20,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { generateUUID } from './middleware.js';
+import { buildMomentum, MOMENTUM_WINDOW_DAYS } from './momentum.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
@@ -735,6 +736,41 @@ export function keptLogCopy({ total, persona } = {}) {
     return `${n} ${word} kept — that’s all you. Look at this list and keep stacking. 💪`;
   }
   return `${n} ${word} you’ve kept. This is the record of you showing up — every one counts.`;
+}
+
+// ── KEPT-WORD MOMENTUM (the person's own view) ───────────────
+// The coach detail view shows a client's kept-word momentum sparkline; these
+// supply the first-person voice for the same shape on the person's own /me/
+// view. The math is the shared ./momentum.js engine; the words live here with
+// the API that emits them. DESIGN LAW: momentum reads KEPT instants only, so a
+// quiet day is a short bar — the absence of a win, never a surfaced miss.
+
+/** Heading over the person's own momentum sparkline. */
+export function momentumSelfHeadingCopy() {
+  return 'Your momentum';
+}
+
+/** Intro under the momentum heading — a momentum chart, first person. */
+export function momentumSelfIntroCopy() {
+  return 'Words you kept, day by day. Quiet days are just quiet — this only ever counts your wins.';
+}
+
+/**
+ * Warm one-line summary of your kept-word window, first person. Momentum-only:
+ * it names how many words you kept and your best single day, and on a quiet
+ * window it reads as a fresh page — never a tally of what you didn't do.
+ * @param {object} p { total, days, peak }
+ * @returns {string}
+ */
+export function momentumSelfSummaryCopy({ total, days = MOMENTUM_WINDOW_DAYS, peak } = {}) {
+  const kept = Number(total) || 0;
+  const span = Number(days) || MOMENTUM_WINDOW_DAYS;
+  if (kept === 0) {
+    return `A clean page over the last ${span} days — every window is a fresh start, and your next kept word lands right here.`;
+  }
+  const best = Number(peak && peak.count) || 0;
+  const bestPart = best > 1 ? ` Your best day: ${best} kept.` : '';
+  return `You kept ${kept} word${kept === 1 ? '' : 's'} over the last ${span} days.${bestPart}`;
 }
 
 /**
@@ -1693,9 +1729,40 @@ export function registerAccountabilityRoutes(router, ctx) {
       const streak = await loadStreak(env, auth.userId);
       const total = Number(streak.total_kept) || 0;
 
+      // ── Your kept-word momentum (per-day KEPT count over a recent window) ──
+      // Same shape the coach sees, turned around for the person's own eyes. A
+      // representative timezone for day boundaries: the most recently touched
+      // commitment zone, UTC fallback. Fetch a slightly wider raw window than
+      // the axis (tz offsets can shift an instant across midnight); bucketKeptByDay
+      // trims to the last N local days. DESIGN LAW: reads status='kept' ONLY.
+      const nowISO = new Date().toISOString();
+      const tzRow = await env.DB.prepare(
+        `SELECT timezone FROM commitments
+          WHERE user_id = ? AND timezone IS NOT NULL AND timezone <> ''
+          ORDER BY updated_at DESC LIMIT 1`
+      ).bind(auth.userId).first();
+      const momentumTz = (tzRow && tzRow.timezone) || 'UTC';
+      const windowCutoffISO = new Date(Date.parse(nowISO) - (MOMENTUM_WINDOW_DAYS + 2) * 86400000).toISOString();
+      const keptRows = await env.DB.prepare(
+        `SELECT responded_at FROM commitment_checkins
+          WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL AND responded_at >= ?
+          ORDER BY responded_at ASC
+          LIMIT 1000`
+      ).bind(auth.userId, windowCutoffISO).all();
+      const keptTimestamps = ((keptRows && keptRows.results) || []).map((r) => r.responded_at);
+      const momentum = buildMomentum({
+        timestamps: keptTimestamps,
+        days: MOMENTUM_WINDOW_DAYS,
+        nowISO,
+        timezone: momentumTz,
+        intro: momentumSelfIntroCopy(),
+        summary: momentumSelfSummaryCopy,
+      });
+
       return jsonResponse({
         kept: (rows && rows.results) || [],
         total_kept: total,
+        momentum,
         message: keptLogCopy({ total }),
       }, 200, 'short');
     } catch (err) {
