@@ -4936,6 +4936,48 @@ function setView(view) {
 })();
 
 // ══════════════════════════════════════
+// GUIDE → TOOL DEEP-LINKS  (Contender #10, Phase A · L4)
+// A guide CTA links to /?tool=<id>; on load we open the matching tool state so
+// a reader lands in the app ready to act, not on a cold dashboard. Kept in sync
+// with TOOL_DEEPLINK_IDS in api/src/guides/index.js. Defensive by construction:
+// an unknown id is a no-op, every action is try/caught, and the query param is
+// cleared so a refresh never re-fires and the address bar stays clean.
+// ══════════════════════════════════════
+const TOOL_DEEPLINKS = {
+  focus:      () => setView('focus'),
+  pomodoro:   () => setView('focus'),
+  rest:       () => setView('rest'),
+  sounds:     () => setView('rest'),
+  stats:      () => setView('stats'),
+  home:       () => setView('home'),
+  breathing:  () => openBreathingGuide(),
+  grounding:  () => openGroundingExercise(),
+  meditation: () => { const m = document.getElementById('meditationModal'); if (m) m.style.display = 'flex'; },
+  bodyscan:   () => { const m = document.getElementById('bodyScanModal'); if (m) m.style.display = 'flex'; },
+  movement:   () => { const m = document.getElementById('movementModal'); if (m) m.style.display = 'flex'; },
+  sleep:      () => {
+    const m = document.getElementById('sleepModal');
+    if (m) { m.style.display = 'flex'; try { renderSleepHistory(); newSleepTip(); } catch (e) {} }
+  },
+  dopamine:   () => openDopamineMenu(),
+};
+(function initToolDeepLink() {
+  function run() {
+    let id;
+    try { id = new URLSearchParams(window.location.search).get('tool'); } catch (e) { return; }
+    if (!id) return;
+    id = String(id).toLowerCase().replace(/[^a-z]/g, '');
+    // Clear the param regardless of match so a refresh won't re-trigger.
+    try { history.replaceState(null, '', window.location.pathname + window.location.hash); } catch (e) {}
+    const action = TOOL_DEEPLINKS[id];
+    if (!action) return;
+    try { action(); } catch (e) { console.warn('tool deep-link failed:', e && e.message); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once: true });
+  else run();
+})();
+
+// ══════════════════════════════════════
 // COMMAND PALETTE
 // ══════════════════════════════════════
 const CMD_LIST = [
