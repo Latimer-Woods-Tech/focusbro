@@ -983,6 +983,64 @@ export const guides = [
 <li><a href="/guides/habit-stacking.html">Habit stacking: anchoring new routines to ones you have</a></li>
 </ul>
 </div>`
+  },
+
+  {
+    slug: 'box-breathing',
+    title: 'Box Breathing: The Four-Count Square for Steady Calm',
+    description: 'How box breathing — inhale, hold, exhale, hold for equal four counts — steadies the nervous system, what the slow-breathing research actually shows, and how to use it.',
+    lastmod: '2026-07-13',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">Box breathing is one of the simplest calming techniques there is: breathe in for four counts, hold for four, breathe out for four, hold for four, and repeat. The equal, square shape is easy to remember under stress, which is exactly why people in high-pressure jobs reach for it. Here is where it comes from, what the research on slow breathing actually shows, and how to use it well.</p>
+
+<h2>Where box breathing comes from</h2>
+<p>Box breathing — also called square breathing, four-square breathing, or, in its military form, tactical breathing — is a paced-breathing pattern built on equal counts. It has circulated for years in settings where people need to stay composed under acute stress: emergency responders, athletes, performers, and the armed forces. The retired U.S. Army lieutenant colonel Dave Grossman describes a four-count "tactical breathing" drill in his book <em>On Combat</em> (co-written with Loren Christensen) as a way for soldiers and police to control the body's stress response before and after a critical incident. The "box breathing" name in particular has been popularized by Mark Divine, a former U.S. Navy SEAL, who teaches it as a foundational tool for staying calm and focused. None of this makes the pattern magic — but it does tell you it earns its keep where clear heads matter most, and it costs nothing to try.</p>
+
+<h2>What slow breathing does to the body</h2>
+<p>The active ingredient in box breathing is not the square; it is the slowness. A full four-four-four-four cycle takes sixteen seconds, which works out to roughly three to four breaths per minute — far slower than the twelve to twenty breaths a minute most people take at rest. Slowing the breath this much reliably shifts the balance of the autonomic nervous system toward its calming, parasympathetic branch.</p>
+<p>The clearest lever is the vagus nerve. When you breathe slowly, heart rate naturally rises a little on the inhale and falls on the exhale — a healthy pattern called <strong>respiratory sinus arrhythmia</strong> — and this rise-and-fall is a rough readout of vagal, parasympathetic activity. A 2018 systematic review by Andrea Zaccaro and colleagues in <em>Frontiers in Human Neuroscience</em>, which pulled together dozens of studies on slow breathing, found that slow-paced breathing is consistently associated with greater heart rate variability, a shift toward parasympathetic dominance, and self-reported increases in comfort and relaxation alongside reductions in anxiety.</p>
+<p>Researchers who study heart rate variability biofeedback, notably Paul Lehrer and Richard Gevirtz, have shown that for most adults the breathing rate that maximizes this heart-rate swing — the "resonance frequency" — sits around six breaths per minute. Box breathing lands in the same slow neighborhood. You do not need special equipment to get most of the benefit; you need a slow, steady, repeated rhythm, which is exactly what the counts give you.</p>
+
+<h2>The four counts, and what each is for</h2>
+<ul>
+<li><strong>Inhale (4):</strong> a smooth breath in through the nose, letting the belly expand rather than the shoulders rising.</li>
+<li><strong>Hold (4):</strong> a gentle pause with the lungs comfortably full — not a strained breath-hold.</li>
+<li><strong>Exhale (4):</strong> a slow, controlled release, through the nose or lightly pursed lips.</li>
+<li><strong>Hold (4):</strong> a short pause with the lungs empty before the next breath.</li>
+</ul>
+<p>The counts do two things. First, they slow you to that calming pace without your having to think about breaths per minute. Second, the holds give the mind a simple, repeating shape to follow — a box you trace over and over — which occupies just enough attention to crowd out anxious chatter. If four counts feels like a strain, use three; if it feels too easy, work up to five or six. The number is a dial, not a rule.</p>
+
+<h2>What the evidence supports — and what it doesn't</h2>
+<p>Be clear-eyed about what is and isn't established. The broad finding — that slow, paced breathing increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety — is well supported across many studies. What is <em>not</em> well established is that the specific four-four-four-four square, with its two breath-holds, beats other slow-breathing patterns. Few if any trials have isolated the holds to show they add something beyond simply breathing slowly. Treat the holds as a memory aid and a way to lengthen the cycle, not as a proven active ingredient.</p>
+<p>There is a nuance worth knowing: research on breathing patterns that emphasize a longer <em>exhale</em> — such as cyclic sighing — suggests they may calm you down faster than perfectly equal breathing. Box breathing's strength is not maximum speed of calming; it is steadiness and simplicity. The equal counts make it almost impossible to get wrong, which is why it holds up under real pressure. If you want the fastest single-breath reset, the <a href="/guides/the-physiological-sigh.html">physiological sigh</a> is the tool for that.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>Before something demanding.</strong> Four or five rounds before a hard conversation, a presentation, or a block of deep work settles the pre-task jitters without making you drowsy.</li>
+<li><strong>In the gap between focus blocks.</strong> A minute of box breathing is a genuine reset for your attention system — unlike checking your phone, which keeps it working. It pairs naturally with the break in a <a href="/guides/how-long-should-a-pomodoro-be.html">Pomodoro cycle</a>.</li>
+<li><strong>To come down from stress.</strong> After a tense moment, box breathing gives your body an off-ramp from fight-or-flight instead of letting the adrenaline linger.</li>
+<li><strong>As part of a wind-down.</strong> Slow breathing before bed can help quiet a racing mind, though for sleep specifically many people find an even longer exhale more effective.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Forcing the holds.</strong> If a four-count hold makes you gasp on the next breath, the counts are too long. You should never feel starved for air; shorten the count.</li>
+<li><strong>Breathing into the chest.</strong> Aim for a quiet breath low in the belly. Heaving shoulders signal a shallow, stress-style breath — the opposite of what you want.</li>
+<li><strong>Expecting a switch to flip.</strong> Box breathing is a nudge, not a sedative. Give it several unhurried rounds; the effect builds over a minute or two, not in a single breath.</li>
+<li><strong>Only using it in a crisis.</strong> Like any skill, it works better when it is already familiar. A minute a day makes it available when you actually need it.</li>
+</ul>
+
+<p>Want to practice with a steady pacer? <a class="app-cta" href="/?tool=breathing">Open the breathing tool</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: the fastest way to calm down between blocks</a></li>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How long should a Pomodoro be? Sizing your focus intervals</a></li>
+<li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
+</ul>
+</div>`
   }
 ];
 
