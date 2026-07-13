@@ -113,9 +113,12 @@ export function clampSinceDays(n) {
  * history — the "retention half" of L1 (docs/IMPROVEMENT_PLAN.md), the number
  * the coach pitch and the voice-moat thesis are both unprovable without. This
  * is engine-independent: it reads only `analytics_events`, so it measures every
- * signal that lands there — the commitment lifecycle AND free-tier timer usage
- * (completed focus sessions, bridged in at the `/events` ingest route, R-239) —
- * with no dependency on the voice or operator engines.
+ * signal that lands there — today the commitment lifecycle only. (R-239 aimed to
+ * bridge free-tier timer usage in via a `/events` ingest route, but that route
+ * lived in the never-mounted extended-routes.js monolith — removed in #44 — and
+ * the shipped client emits no timer telemetry at all, so the bridge was inert
+ * end-to-end. Landing it for real needs a client emitter + live ingest route,
+ * honoring the browser-first privacy copy; see the R-239 follow-up on #10.)
  *
  * DEFINITION — rolling return, not day-exact. A user's cohort is the UTC day of
  * their *first-ever* event. They "returned by DN" if they have ANY event on a

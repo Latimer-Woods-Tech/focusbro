@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { config } from '../config.js';
-import { isFeatureEnabled } from '../extended-routes.js';
-
-// Note: extended-routes exports isFeatureEnabled (ensure it is exported)
+import { isFeatureEnabled } from '../features.js';
 
 describe('Feature flags', () => {
   it('should enable boolean feature flags', () => {

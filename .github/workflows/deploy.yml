@@ -50,56 +50,11 @@ jobs:
         CLOUDFLARE_API: ${{ secrets.CLOUDFLARE_API }}
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
     
-    - name: Deploy API to Cloudflare Workers (Production)
-      id: deploy
-      run: |
-        cd api
-        # Debug: Check what secrets are available
-        echo "🔍 Checking available secrets..."
-        echo "CLOUDFLARE_API_TOKEN length: ${#CLOUDFLARE_API_TOKEN}"
-        echo "CLOUDFLARE_API length: ${#CLOUDFLARE_API}"
-        echo "CF_API_TOKEN length: ${#CF_API_TOKEN}"
-        
-        # Try multiple possible secret names
-        if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-          echo "✅ Using CLOUDFLARE_API_TOKEN"
-          export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN"
-        elif [ -n "$CLOUDFLARE_API" ]; then
-          echo "✅ Using CLOUDFLARE_API (mapping to CLOUDFLARE_API_TOKEN)"
-          export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API"
-        elif [ -n "$CF_API_TOKEN" ]; then
-          echo "✅ Using CF_API_TOKEN (mapping to CLOUDFLARE_API_TOKEN)"
-          export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"
-        else
-          echo "❌ No Cloudflare API token found in any expected secret name"
-          echo "Expected secret names: CLOUDFLARE_API_TOKEN, CLOUDFLARE_API, or CF_API_TOKEN"
-          echo "Please ensure one of these secrets is set in GitHub Actions"
-          exit 1
-        fi
-        
-        echo "� Testing CLOUDFLARE_API_TOKEN..."
-        curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" \
-          -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-          -H "Content-Type: application/json" | jq -r '.result.status // "INVALID"'
-        
-        echo "🔍 Checking account access..."
-        curl -s "https://api.cloudflare.com/client/v4/accounts" \
-          -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-          -H "Content-Type: application/json" | jq -r '.result[]?.id // "NO_ACCOUNTS"'
-        
-        echo "🚀 Starting deployment..."
-        set -o pipefail
-        npx wrangler deploy --env production 2>&1 | tee deploy.log
-        DEPLOY_EXIT=${PIPESTATUS[0]}
-        echo "📋 Deployment log (wrangler exit ${DEPLOY_EXIT}):"
-        cat deploy.log
-        exit $DEPLOY_EXIT
-      env:
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        CLOUDFLARE_API: ${{ secrets.CLOUDFLARE_API }}
-        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      continue-on-error: false
-    
+    # NOTE (#44): the second "Deploy API" step was removed here. It deployed the
+    # SAME api/src/index.js a second time as a routeless duplicate worker
+    # (focusbro-api-production, api/wrangler.toml — deleted). One worker serves
+    # everything: focusbro-production, routes focusbro.net/*.
+
     - name: Purge Cloudflare Cache
       run: |
         # Determine which API token to use

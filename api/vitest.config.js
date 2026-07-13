@@ -19,8 +19,7 @@ export default defineConfig({
         'src/**/*.test.js',
         'src/__tests__/**',
         'src/html.js',
-        'src/html.js.bak.initGallery',
-        'src/extended-routes.js'
+        'src/html.js.bak.initGallery'
       ],
       // Ratcheting floor: set just below current so regressions fail CI.
       // Raise these as coverage improves. Current (post-exclude) baseline noted

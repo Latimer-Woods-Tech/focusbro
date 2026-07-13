@@ -4,7 +4,6 @@
 // ════════════════════════════════════════════════════════════
 
 import { Router } from 'itty-router';
-import extendedRouter from './extended-routes.js';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
@@ -1664,13 +1663,8 @@ router.get('/debug-routes', async (request, env) => {
 router.get('/debug-api', async (request, env) => {
   return new Response(JSON.stringify({
     message: 'Debug endpoint',
-    extendedRouter: {
-      type: typeof extendedRouter,
-      isObject: extendedRouter !== null && typeof extendedRouter === 'object',
-      hasFetch: typeof extendedRouter?.fetch === 'function',
-      hasRoutes: Array.isArray(extendedRouter?.routes),
-      routeCount: extendedRouter?.routes?.length || 0
-    }
+    // extended-routes.js (never-mounted legacy monolith) removed in #44
+    extendedRouter: 'removed'
   }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
