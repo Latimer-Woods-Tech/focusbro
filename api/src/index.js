@@ -13,6 +13,7 @@ import { registerConsentRoutes } from './consent.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { runDueCheckins } from './checkins-cron.js';
+import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -351,6 +352,20 @@ async function initializeDatabase(env) {
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       )`,
       `CREATE INDEX IF NOT EXISTS idx_contact_consent_user ON contact_consent(user_id, channel)`,
+      // ── ACCOUNTABILITY INSTRUMENTATION (retention/loop proof — Contender #10, R-235) ──
+      // First-party event spine. "Prove the loop retains" (IMPROVEMENT_PLAN L1) is
+      // the binding constraint; this is the D1-native store the loop's own
+      // transitions land in (see events.js). Also the table billing.js + sync.js
+      // already INSERT into — it was never created, so those writes were failing.
+      `CREATE TABLE IF NOT EXISTS analytics_events (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+        user_id TEXT,
+        event_type TEXT NOT NULL,
+        event_data TEXT DEFAULT '{}',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_analytics_type_time ON analytics_events(event_type, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_analytics_user_time ON analytics_events(user_id, created_at)`,
       // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
@@ -1553,6 +1568,27 @@ router.post('/api/internal/seed-dogfood', async (request, env) => {
   } catch (err) {
     console.error('[seed-dogfood] failed:', err && err.message);
     return jsonResponse({ error: 'Seed failed' }, 500);
+  }
+});
+
+// ── LOOP METRICS (retention/coach proof — Contender #10, R-235) ──
+// "Prove the accountability loop retains" (IMPROVEMENT_PLAN L1). Reads the
+// first-party analytics_events spine into the founder/coach numbers: kept-word
+// rate, reschedule rate, active + returning users, counts by type. Read-only.
+// Guarded by the same shared secret as the manual cron trigger; 404s when unset
+// so it can't be probed. `?since_days=N` (default 7, clamp 1..90).
+router.get('/api/internal/metrics', async (request, env) => {
+  if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
+  const key = request.headers.get('x-cron-key') || '';
+  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  try {
+    const url = new URL(request.url);
+    const sinceDays = clampSinceDays(url.searchParams.get('since_days'));
+    const metrics = await computeLoopMetrics(env, { sinceDays });
+    return jsonResponse({ ok: true, metrics }, 200);
+  } catch (err) {
+    console.error('[metrics] failed:', err && err.message);
+    return jsonResponse({ error: 'Metrics query failed' }, 500);
   }
 });
 

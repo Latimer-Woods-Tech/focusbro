@@ -21,6 +21,7 @@
 
 import { generateUUID } from './middleware.js';
 import { buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS } from './momentum.js';
+import { recordEvent, outcomeEvent, EVENTS } from './events.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
@@ -1006,6 +1007,19 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
     }
   }
 
+  // Instrument the loop's resolution — the signal the retention/coach proof
+  // reads (IMPROVEMENT_PLAN L1). Non-fatal: recordEvent swallows its own errors,
+  // so a resolve is never blocked by instrumentation. "reschedule" is a protected
+  // outcome here, never a miss score. This one call covers BOTH the in-app resolve
+  // route and the inbound-SMS reply path, since both share this core.
+  const evt = outcomeEvent(outcome);
+  if (evt) {
+    await recordEvent(env, {
+      userId, type: evt,
+      data: { commitment_id: commitment.id, is_recurring: isRecurring, channel: commitment.channel || null },
+    });
+  }
+
   return { streak: next, isRecurring };
 }
 
@@ -1164,6 +1178,12 @@ export function registerAccountabilityRoutes(router, ctx) {
            (id, commitment_id, user_id, scheduled_for, channel, status)
          VALUES (?, ?, ?, ?, ?, 'pending')`
       ).bind(checkinId, id, auth.userId, v.checkinAt, v.channel).run();
+
+      // Instrument "a word given" (non-fatal; IMPROVEMENT_PLAN L1).
+      await recordEvent(env, {
+        userId: auth.userId, type: EVENTS.COMMITMENT_CREATED,
+        data: { commitment_id: id, recurrence: v.recurrence, channel: v.channel },
+      });
 
       return jsonResponse({
         commitment: {
@@ -1503,6 +1523,13 @@ export function registerAccountabilityRoutes(router, ctx) {
         `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
           WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
       ).bind(id, auth.userId).run();
+
+      // Instrument "a word set down" — a blameless exit, counted as its own
+      // outcome, never a miss (non-fatal; IMPROVEMENT_PLAN L1).
+      await recordEvent(env, {
+        userId: auth.userId, type: EVENTS.COMMITMENT_RELEASED,
+        data: { commitment_id: id },
+      });
 
       return jsonResponse({
         commitment: { id, status: 'released' },
