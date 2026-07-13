@@ -4,22 +4,9 @@
   "generated_at": "source-derived",
   "ok": true,
   "counts": {
-    "issues": 1,
+    "issues": 0,
     "errors": 0,
-    "warnings": 1
+    "warnings": 0
   },
-  "issues": [
-    {
-      "id": "docs.npm-script.missing",
-      "severity": "warning",
-      "doc": "ENV_CONFIG.md",
-      "line": 271,
-      "owner": "focusbro",
-      "status": "active",
-      "truth_source": "package.json",
-      "message": "References missing npm script \"build\".",
-      "fix": "Update the command, add the root script to package.json, or mark it as a package-local command.",
-      "blocks": []
-    }
-  ]
+  "issues": []
 }

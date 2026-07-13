@@ -7,7 +7,7 @@ doc_type: diagram
 fidelity: generated
 title: "Factory Workflow Map"
 generator: npm run docs:diagrams
-last_generated: 2026-07-12
+last_generated: 2026-07-13
 source:
   - .github/workflows/*.yml
   - .github/workflows/REGISTRY.md
