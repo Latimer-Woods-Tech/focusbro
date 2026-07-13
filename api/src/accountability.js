@@ -610,6 +610,22 @@ export function checkinReplyHint(persona) {
     : 'Reply DONE when it’s done — or LATER, and I’ll ask when you want to try again.';
 }
 
+/**
+ * The ONE follow-up when a delivered check-in has gone quiet (Wingspan W1,
+ * the escalation ladder: push → SMS, exactly once, consent-gated). ADHD brains
+ * swipe a push away by reflex; a text lands differently. The LAW carries
+ * through hardest here — an escalation is an ally knocking once more, never a
+ * scold, never a tally, and it always offers the warm exit ("pick a better
+ * time") as readily as the start.
+ */
+export function escalationCopy({ title, persona } = {}) {
+  const what = (title || 'the thing').toString();
+  if (pickPersona(persona) === 'hype') {
+    return `Still right here — ${what} is ready when you are. One tiny step together? 🔥`;
+  }
+  return `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`;
+}
+
 /** After a kept word: celebrate the person, name the streak, mean it. */
 export function keptCopy({ persona, streak } = {}) {
   const n = Number(streak) || 0;

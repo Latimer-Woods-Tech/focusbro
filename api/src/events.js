@@ -35,6 +35,7 @@ export const EVENTS = Object.freeze({
   COMMITMENT_MISSED: 'commitment_missed',
   COMMITMENT_RELEASED: 'commitment_released',
   CHECKIN_DELIVERED: 'checkin_delivered',
+  CHECKIN_ESCALATED: 'checkin_escalated',
 });
 
 /** Map a check-in outcome to its event type (or null if it isn't one we log). */

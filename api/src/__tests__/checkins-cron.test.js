@@ -9,14 +9,14 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { runDueCheckins, deliverCheckin, MAX_ATTEMPTS } from '../checkins-cron.js';
+import { runDueCheckins, runEscalations, deliverCheckin, MAX_ATTEMPTS, ESCALATION_DELAY_MIN } from '../checkins-cron.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `consent` is the row returned for the contact_consent gate query. It defaults
 // to a granted text consent with no quiet hours so the pre-consent text tests
 // still exercise the delivery path; pass `consent: null` to simulate no consent,
 // or a quiet-hours window to exercise the defer path.
-function makeDB({ due = [], subs = [], phone = null, consent = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'UTC' } }) {
+function makeDB({ due = [], subs = [], esc = [], phone = null, consent = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'UTC' } }) {
   const runs = [];
   const prepared = [];
   const db = {
@@ -28,6 +28,8 @@ function makeDB({ due = [], subs = [], phone = null, consent = { status: 'grante
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async all() {
+          // The escalation scan is the more specific commitment_checkins query.
+          if (/escalated_at IS NULL/.test(sql)) return { results: esc, _params: params };
           if (/FROM commitment_checkins c/.test(sql)) return { results: due, _params: params };
           if (/FROM push_subscriptions/.test(sql)) return { results: subs };
           return { results: [] };
@@ -321,5 +323,113 @@ describe('deliverCheckin (unit)', () => {
     const out = await deliverCheckin({ DB: db, ...VAPID_ENV }, pushRow());
     expect(out.status).toBe('skipped');
     expect(out.detail).toBe('no_subscription');
+  });
+});
+
+// ── ESCALATION LADDER (Wingspan W1): push → ONE SMS, consent-gated ──
+describe('runEscalations — the one warm knock after a quiet push', () => {
+  const NOW = '2026-07-06T14:00:00.000Z';
+  const escRow = (over = {}) => ({
+    checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
+    delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ...over,
+  });
+  const okFetch = () => vi.fn(async () => ({ ok: true, status: 200 }));
+
+  function escalationLatch(db, checkinId) {
+    return db.runs.find((r) => /SET escalated_at = \?/.test(r.sql) && r.params.includes(checkinId));
+  }
+
+  it('scans only quiet, un-escalated, active push check-ins past the delay', async () => {
+    const db = makeDB({ esc: [] });
+    await runEscalations({ DB: db }, { now: NOW });
+    const scanSql = db.prepared.find((s) => /escalated_at IS NULL/.test(s));
+    expect(scanSql).toMatch(/status\s*=\s*'sent'/);
+    expect(scanSql).toMatch(/channel\s*=\s*'push'/);
+    expect(scanSql).toMatch(/responded_at IS NULL/);
+    expect(scanSql).toMatch(/m\.status\s*=\s*'active'/);
+  });
+
+  it('passes a cutoff exactly ESCALATION_DELAY_MIN before now', async () => {
+    const db = makeDB({ esc: [] });
+    let boundParams = null;
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      const stmt = origPrepare(sql);
+      if (/escalated_at IS NULL/.test(sql)) {
+        const origBind = stmt.bind.bind(stmt);
+        stmt.bind = (...a) => { boundParams = a; return origBind(...a); };
+      }
+      return stmt;
+    };
+    await runEscalations({ DB: db }, { now: NOW });
+    const expected = new Date(new Date(NOW).getTime() - ESCALATION_DELAY_MIN * 60 * 1000).toISOString();
+    expect(boundParams[0]).toBe(expected);
+  });
+
+  it('sends the ONE warm SMS, latches escalated_at, and records the event', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow()], phone: '+15550002222' });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+
+    expect(s).toEqual({ scanned: 1, escalated: 1, deferred: 0, skipped: 0, failed: 0 });
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('telnyx.com');
+    const body = JSON.parse(opts.body);
+    expect(body.to).toBe('+15550002222');
+    expect(body.text).toContain('start the taxes'); // escalationCopy names the thing
+    expect(body.text).toMatch(/DONE/); // reply hint keeps the two-way loop discoverable
+    expect(escalationLatch(db, 'ci9')).toBeTruthy();
+    const evt = db.runs.find((r) => /INSERT (OR IGNORE )?INTO analytics_events/.test(r.sql));
+    expect(evt).toBeTruthy();
+    expect(evt.params).toContain('checkin_escalated');
+  });
+
+  it('without granted text consent: no SMS, but the latch still closes (never rescanned)', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow()], phone: '+15550002222', consent: null });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+
+    expect(s.skipped).toBe(1);
+    expect(s.escalated).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(escalationLatch(db, 'ci9')).toBeTruthy();
+  });
+
+  it('inside quiet hours: defers and leaves the row untouched for a later tick', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({
+      esc: [escRow()], phone: '+15550002222',
+      consent: { status: 'granted', quiet_start: 22, quiet_end: 8, timezone: 'UTC' },
+    });
+    // 23:00 UTC is inside the 22→8 quiet window.
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T23:00:00.000Z' });
+
+    expect(s.deferred).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(escalationLatch(db, 'ci9')).toBeUndefined(); // still eligible later
+  });
+
+  it('is one-shot even when the SMS fails: the latch closes, no retry storm', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: false, status: 500 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow()], phone: '+15550002222' });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+
+    expect(s.failed).toBe(1);
+    expect(escalationLatch(db, 'ci9')).toBeTruthy();
+  });
+
+  it('no phone on file: skipped, latched, never throws', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow()], phone: null });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+
+    expect(s.skipped).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(escalationLatch(db, 'ci9')).toBeTruthy();
   });
 });
