@@ -79,6 +79,85 @@ export function clampSinceDays(n) {
 }
 
 /**
+ * Compute D1 / D7 return-cohort retention over the whole first-party event
+ * history — the "retention half" of L1 (docs/IMPROVEMENT_PLAN.md), the number
+ * the coach pitch and the voice-moat thesis are both unprovable without. This
+ * is engine-independent: it reads only `analytics_events`, so it measures every
+ * signal that lands there (commitment lifecycle now; timer/session events when
+ * those are wired) with no dependency on the voice or operator engines.
+ *
+ * DEFINITION — rolling return, not day-exact. A user's cohort is the UTC day of
+ * their *first-ever* event. They "returned by DN" if they have ANY event on a
+ * later UTC day within N days of that first day. Rolling (rather than active
+ * *on* day N exactly) is the honest choice for a small dogfood/early cohort:
+ * "did the bro get them to come back at all within the first day / week", which
+ * is the retention question the pitch actually asks. A user is only *eligible*
+ * for a DN rate once N days have elapsed since their first day (so a brand-new
+ * user can never drag the rate down before they've had the chance to return).
+ *
+ * DESIGN LAW: retention is a positive, internal record. Not returning is never
+ * a per-person tally or a shame surface — it only shapes an aggregate rate, and
+ * nothing user-facing is emitted here.
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {object} [opts] { nowISO? }
+ * @returns {Promise<object>} { d1: {eligible, returned, rate}, d7: {...}, new_users_7d }
+ */
+export async function computeReturnCohorts(env, opts = {}) {
+  const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
+  const nowDay = now.toISOString().slice(0, 10); // UTC YYYY-MM-DD
+
+  const empty = {
+    d1: { eligible: 0, returned: 0, rate: null },
+    d7: { eligible: 0, returned: 0, rate: null },
+    new_users_7d: 0,
+  };
+  if (!env || !env.DB) return empty;
+
+  // One pass: per user, their first-ever UTC day + whether they came back within
+  // 1 and 7 days of it. Then fold into eligible/returned counts, gating each DN
+  // rate on N full days having elapsed since the user's first day.
+  const row = await env.DB.prepare(
+    `WITH firsts AS (
+       SELECT user_id, MIN(substr(created_at, 1, 10)) AS first_day
+         FROM analytics_events
+        WHERE user_id IS NOT NULL
+        GROUP BY user_id
+     ),
+     rets AS (
+       SELECT f.user_id, f.first_day,
+         MAX(CASE WHEN substr(e.created_at, 1, 10) > f.first_day
+                   AND substr(e.created_at, 1, 10) <= date(f.first_day, '+1 day')
+                  THEN 1 ELSE 0 END) AS ret_d1,
+         MAX(CASE WHEN substr(e.created_at, 1, 10) > f.first_day
+                   AND substr(e.created_at, 1, 10) <= date(f.first_day, '+7 day')
+                  THEN 1 ELSE 0 END) AS ret_d7
+         FROM firsts f
+         JOIN analytics_events e ON e.user_id = f.user_id
+        GROUP BY f.user_id, f.first_day
+     )
+     SELECT
+       SUM(CASE WHEN first_day <= date(?1, '-1 day') THEN 1 ELSE 0 END) AS d1_eligible,
+       SUM(CASE WHEN first_day <= date(?1, '-1 day') THEN ret_d1 ELSE 0 END) AS d1_returned,
+       SUM(CASE WHEN first_day <= date(?1, '-7 day') THEN 1 ELSE 0 END) AS d7_eligible,
+       SUM(CASE WHEN first_day <= date(?1, '-7 day') THEN ret_d7 ELSE 0 END) AS d7_returned,
+       SUM(CASE WHEN first_day >= date(?1, '-7 day') THEN 1 ELSE 0 END) AS new_users_7d
+       FROM rets`
+  ).bind(nowDay).first();
+
+  if (!row) return empty;
+  const d1e = Number(row.d1_eligible) || 0;
+  const d1r = Number(row.d1_returned) || 0;
+  const d7e = Number(row.d7_eligible) || 0;
+  const d7r = Number(row.d7_returned) || 0;
+  return {
+    d1: { eligible: d1e, returned: d1r, rate: d1e > 0 ? round2(d1r / d1e) : null },
+    d7: { eligible: d7e, returned: d7r, rate: d7e > 0 ? round2(d7r / d7e) : null },
+    new_users_7d: Number(row.new_users_7d) || 0,
+  };
+}
+
+/**
  * Compute the accountability loop's retention/health metrics over a window.
  * Reads only the first-party `analytics_events` rows this module writes.
  *
@@ -87,8 +166,9 @@ export function clampSinceDays(n) {
  * a "miss"; the rate exists so the founder/coach number is honest, not to shame.
  *
  * returning_users counts distinct users seen on ≥2 distinct UTC days in the
- * window — a simple, dependency-free retention signal (the real D1/D7 cohort
- * math lands once session events are instrumented; see IMPROVEMENT_PLAN L1).
+ * window — a simple, dependency-free in-window retention signal. The stricter
+ * cohort view (D1/D7 rolling return, whole-history) is attached under
+ * `retention` via computeReturnCohorts(); see IMPROVEMENT_PLAN L1.
  *
  * @param {object} env
  * @param {object} [opts] { sinceDays?, nowISO? }
@@ -112,6 +192,11 @@ export async function computeLoopMetrics(env, opts = {}) {
     reschedule_rate: null,
     active_users: 0,
     returning_users: 0,
+    retention: {
+      d1: { eligible: 0, returned: 0, rate: null },
+      d7: { eligible: 0, returned: 0, rate: null },
+      new_users_7d: 0,
+    },
   };
 
   // Counts by type in the window.
@@ -160,6 +245,15 @@ export async function computeLoopMetrics(env, opts = {}) {
   ).bind(sinceISO).first();
   const returning_users = (returningRow && Number(returningRow.n)) || 0;
 
+  // D1/D7 return-cohort retention (whole-history, not window-bounded). Non-fatal:
+  // a cohort-query failure must never take down the rest of the metrics summary.
+  let retention = empty.retention;
+  try {
+    retention = await computeReturnCohorts(env, { nowISO: now.toISOString() });
+  } catch (err) {
+    console.warn('[events] computeReturnCohorts failed:', err && err.message);
+  }
+
   return {
     ...empty,
     by_type,
@@ -169,6 +263,7 @@ export async function computeLoopMetrics(env, opts = {}) {
     reschedule_rate,
     active_users,
     returning_users,
+    retention,
   };
 }
 

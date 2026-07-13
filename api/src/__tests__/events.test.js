@@ -10,14 +10,14 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  recordEvent, computeLoopMetrics, outcomeEvent, clampSinceDays, EVENTS,
+  recordEvent, computeLoopMetrics, computeReturnCohorts, outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `counts` maps event_type → n for the GROUP BY query; `active`/`returning` are
 // the two aggregate scalars. `throwOnRun` simulates a broken INSERT (missing
 // table) so the non-fatal guarantee can be asserted.
-function makeDB({ counts = {}, active = 0, returning = 0, throwOnRun = false } = {}) {
+function makeDB({ counts = {}, active = 0, returning = 0, cohort = null, throwOnCohort = false, throwOnRun = false } = {}) {
   const runs = [];
   const db = {
     runs,
@@ -32,6 +32,10 @@ function makeDB({ counts = {}, active = 0, returning = 0, throwOnRun = false } =
           return { results: [] };
         },
         async first() {
+          if (/WITH firsts AS/.test(sql)) {
+            if (throwOnCohort) throw new Error('no such table: analytics_events');
+            return cohort; // aggregate row {d1_eligible, d1_returned, d7_eligible, d7_returned, new_users_7d} or null
+          }
           if (/COUNT\(DISTINCT user_id\)/.test(sql)) return { n: active };
           if (/HAVING COUNT\(DISTINCT substr/.test(sql)) return { n: returning };
           return null;
@@ -146,5 +150,75 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.resolved).toBe(4);
     expect(m.kept_word_rate).toBeCloseTo(0.25, 2);
     expect(m.reschedule_rate).toBeCloseTo(0.75, 2);
+  });
+
+  it('attaches the D1/D7 retention cohort under `retention`', async () => {
+    const db = makeDB({
+      counts: { [EVENTS.COMMITMENT_KEPT]: 2 },
+      cohort: { d1_eligible: 4, d1_returned: 3, d7_eligible: 2, d7_returned: 2, new_users_7d: 5 },
+    });
+    const m = await computeLoopMetrics({ DB: db }, { sinceDays: 7 });
+    expect(m.retention.d1.rate).toBeCloseTo(0.75, 2); // 3/4
+    expect(m.retention.d7.rate).toBeCloseTo(1.0, 2);  // 2/2
+    expect(m.retention.new_users_7d).toBe(5);
+  });
+
+  it('retention failure is non-fatal — the rest of the summary still returns', async () => {
+    const db = makeDB({ counts: { [EVENTS.COMMITMENT_KEPT]: 3 }, throwOnCohort: true });
+    const m = await computeLoopMetrics({ DB: db }, {});
+    expect(m.totals.commitments_kept).toBe(3);          // core metrics intact
+    expect(m.retention.d1.rate).toBeNull();             // fell back to the empty cohort
+    expect(m.retention.new_users_7d).toBe(0);
+  });
+});
+
+describe('computeReturnCohorts — D1/D7 rolling return', () => {
+  it('computes rolling D1/D7 return rates from the aggregate row', async () => {
+    const db = makeDB({
+      cohort: { d1_eligible: 10, d1_returned: 4, d7_eligible: 8, d7_returned: 6, new_users_7d: 3 },
+    });
+    const r = await computeReturnCohorts({ DB: db }, { nowISO: '2026-07-13T00:00:00.000Z' });
+    expect(r.d1).toEqual({ eligible: 10, returned: 4, rate: 0.4 });
+    expect(r.d7).toEqual({ eligible: 8, returned: 6, rate: 0.75 });
+    expect(r.new_users_7d).toBe(3);
+  });
+
+  it('binds the UTC "now" day (YYYY-MM-DD) so the SQL date math is stable', async () => {
+    let bound = null;
+    const db = {
+      prepare(sql) {
+        return {
+          bind(...a) { if (/WITH firsts AS/.test(sql)) bound = a; return this; },
+          async first() { return { d1_eligible: 0, d1_returned: 0, d7_eligible: 0, d7_returned: 0, new_users_7d: 0 }; },
+        };
+      },
+    };
+    await computeReturnCohorts(db && { DB: db }, { nowISO: '2026-07-13T18:42:00.000Z' });
+    expect(bound).toEqual(['2026-07-13']);
+  });
+
+  it('rates are null (never NaN) when no cohort is yet eligible', async () => {
+    const db = makeDB({ cohort: { d1_eligible: 0, d1_returned: 0, d7_eligible: 0, d7_returned: 0, new_users_7d: 1 } });
+    const r = await computeReturnCohorts({ DB: db }, {});
+    expect(r.d1.rate).toBeNull();
+    expect(r.d7.rate).toBeNull();
+    expect(r.new_users_7d).toBe(1);
+  });
+
+  it('returns the empty cohort shape without a DB (never throws)', async () => {
+    const r = await computeReturnCohorts(null, {});
+    expect(r).toEqual({
+      d1: { eligible: 0, returned: 0, rate: null },
+      d7: { eligible: 0, returned: 0, rate: null },
+      new_users_7d: 0,
+    });
+  });
+
+  it('a null aggregate row (no events at all) yields the empty cohort shape', async () => {
+    const db = makeDB({ cohort: null });
+    const r = await computeReturnCohorts({ DB: db }, {});
+    expect(r.d1.rate).toBeNull();
+    expect(r.d7.rate).toBeNull();
+    expect(r.new_users_7d).toBe(0);
   });
 });
