@@ -6,8 +6,7 @@
   "globals": { "Intl": "readonly" },
   "ignorePatterns": [
     "src/html.js",
-    "src/html.js.bak.initGallery",
-    "src/extended-routes.js"
+    "src/html.js.bak.initGallery"
   ],
   "overrides": [
     {
