@@ -5,8 +5,8 @@ const { execSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const MAX_PASSES = 20;
-const ISSUE_FILE = path.join(ROOT, 'ISSUE_REGISTER.md');
-const LESSONS_FILE = path.join(ROOT, 'LESSONS_LEARNED.md');
+const ISSUE_FILE = path.join(ROOT, 'docs', 'archive', 'ISSUE_REGISTER.md');
+const LESSONS_FILE = path.join(ROOT, 'docs', 'archive', 'LESSONS_LEARNED.md');
 
 const exts = ['.js', '.mjs', '.ts', '.jsx', '.tsx'];
 
