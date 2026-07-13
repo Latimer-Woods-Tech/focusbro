@@ -12,6 +12,7 @@ import { registerCoachRoutes } from './coach.js';
 import { registerConsentRoutes } from './consent.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
+import { registerReportRoutes, renderReportPage } from './report.js';
 import { runDueCheckins } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
@@ -1488,6 +1489,12 @@ registerConsentRoutes(router, { getAuthToken, verifyToken, jsonResponse, generat
 // GET /vapid/public-key + POST /notifications/subscribe are actually reachable.
 registerPushRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
+// ── WEEKLY REPORT ROUTES (coach-proof artifact — Contender #10, Phase A · R-237) ──
+// The L2 keystone (docs/IMPROVEMENT_PLAN.md): GET /api/me/report turns the loop's
+// kept-word signals into a per-user weekly summary + a plain-text rendering the
+// person can copy or share with a coach. The reading PAGE is /me/report (below).
+registerReportRoutes(router, { getAuthToken, verifyToken, jsonResponse });
+
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.
 // Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
@@ -1851,6 +1858,14 @@ router.get('/me/', async (request) => {
   return new Response(renderMePage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 });
 router.get('/me', async () => slashRedirect('/me/'));
+
+// ── WEEKLY REPORT PAGE (coach-proof artifact — Contender #10, Phase A · R-237) ──
+// A calm, standalone reading surface for the signed-in person's weekly report.
+// Loads /api/me/report with the localStorage Bearer token (same as /me/), and
+// offers Copy report + Share with coach (mailto) + Download (.txt).
+router.get('/me/report', async () =>
+  new Response(renderReportPage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }));
+router.get('/me/report/', async () => slashRedirect('/me/report'));
 
 router.get('/coach/', async (request) => {
   if (new URL(request.url).pathname !== '/coach/') return slashRedirect('/coach/');
