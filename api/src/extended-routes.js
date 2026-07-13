@@ -5,6 +5,7 @@
 
 import { Router } from 'itty-router';
 import config from './config.js';
+import { recordEvent } from './events.js';
 import {
   verifyAuth,
   checkRateLimit,
@@ -1047,6 +1048,25 @@ router.post('/events', async (request, env) => {
           ).run();
 
           acceptedIds.push(event.id);
+
+          // ── Retention bridge (Contender #10, Phase A · R-239) ──
+          // A completed focus session is the canonical free-tier usage signal.
+          // Mirror it into the first-party retention spine (analytics_events, see
+          // events.js) so the D1/D7 return cohort + loop metrics reflect
+          // top-of-funnel timer usage, not just the small accountability cohort —
+          // "the retention half the coach pitch needs" (IMPROVEMENT_PLAN L1).
+          // The client timestamp is preserved so a batch synced later still lands
+          // on the real day. Runs only for newly-accepted rows (dedup-safe) and is
+          // non-fatal by construction: recordEvent swallows its own errors, so the
+          // bridge can never break event ingestion or the timer.
+          if (event.type === 'session_complete') {
+            await recordEvent(env, {
+              userId: auth.user.id,
+              type: 'session_complete',
+              at: event.timestamp,
+              data: { tool: event.tool || '', duration_seconds: event.duration_seconds || 0 },
+            });
+          }
         }
       } catch (e) {
         console.warn(`Failed to insert event ${event.id}:`, e.message);

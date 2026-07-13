@@ -100,6 +100,39 @@ describe('recordEvent — writes to analytics_events, non-fatal', () => {
     expect(await recordEvent(null, { type: 'x' })).toBe(false);
     expect(await recordEvent({ DB: makeDB() }, { userId: 'u1' })).toBe(false);
   });
+
+  // ── `at` override: preserve the real event day (R-239 timer/session bridge) ──
+  it('binds a normalized created_at when `at` is given (real day, not sync day)', async () => {
+    const db = makeDB();
+    const ok = await recordEvent({ DB: db }, {
+      userId: 'u9', type: 'session_complete', at: '2026-07-01T09:30:00.000Z',
+      data: { tool: 'pomodoro', duration_seconds: 1500 },
+    });
+    expect(ok).toBe(true);
+    expect(db.runs).toHaveLength(1);
+    // 4-param form (explicit created_at), not the datetime('now') 3-param form.
+    expect(db.runs[0].sql).toMatch(/VALUES \(\?, \?, \?, \?\)/);
+    expect(db.runs[0].sql).not.toMatch(/datetime\('now'\)/);
+    // Normalized to SQLite's `YYYY-MM-DD HH:MM:SS` UTC shape so substr(created_at,1,10)
+    // extracts the real day the session happened.
+    expect(db.runs[0].params[3]).toBe('2026-07-01 09:30:00');
+    expect(db.runs[0].params[3].slice(0, 10)).toBe('2026-07-01');
+  });
+
+  it('degrades to server time (datetime now) when `at` is unparseable — never drops the row', async () => {
+    const db = makeDB();
+    const ok = await recordEvent({ DB: db }, { userId: 'u9', type: 'session_complete', at: 'not-a-date' });
+    expect(ok).toBe(true);
+    expect(db.runs[0].sql).toMatch(/datetime\('now'\)/);
+    expect(db.runs[0].params).toHaveLength(3); // no explicit created_at bound
+  });
+
+  it('omitting `at` keeps the original server-time behavior (backward compatible)', async () => {
+    const db = makeDB();
+    await recordEvent({ DB: db }, { userId: 'u1', type: EVENTS.COMMITMENT_KEPT });
+    expect(db.runs[0].sql).toMatch(/datetime\('now'\)/);
+    expect(db.runs[0].params).toHaveLength(3);
+  });
 });
 
 describe('computeLoopMetrics — the retention/coach numbers', () => {

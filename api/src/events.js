@@ -46,23 +46,53 @@ export function outcomeEvent(outcome) {
 }
 
 /**
+ * Normalize a caller-supplied event time to SQLite's `datetime()` shape
+ * (`YYYY-MM-DD HH:MM:SS`, UTC), matching the format `datetime('now')` writes so
+ * the cohort day-extraction (`substr(created_at,1,10)`) is consistent across
+ * rows. Returns null for a missing or unparseable value (caller falls back to
+ * server time).
+ *
+ * @param {string|number|Date|null} at
+ * @returns {string|null}
+ */
+function normalizeEventTime(at) {
+  if (at === null || at === undefined || at === '') return null;
+  const d = at instanceof Date ? at : new Date(at);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/**
  * Record a first-party accountability event. NON-FATAL by design: any failure
  * (missing table on a cold path, malformed data) is swallowed with a warning so
  * instrumentation can never break the flow it observes.
  *
+ * `at` lets a caller preserve WHEN the event actually happened (e.g. a
+ * client-timestamped focus session synced to the server later) so the retention
+ * cohort reflects the real day, not the sync day; omit it for server-time
+ * events. An unparseable `at` degrades to server time rather than dropping the row.
+ *
  * @param {object} env  Worker env with a D1-shaped `DB`
- * @param {object} p    { userId?, type, data? }
+ * @param {object} p    { userId?, type, data?, at? }
  * @returns {Promise<boolean>} true iff the row was written.
  */
-export async function recordEvent(env, { userId = null, type, data = {} } = {}) {
+export async function recordEvent(env, { userId = null, type, data = {}, at = null } = {}) {
   if (!env || !env.DB || !type) return false;
   try {
     let payload = '{}';
     try { payload = JSON.stringify(data == null ? {} : data); } catch { payload = '{}'; }
-    await env.DB.prepare(
-      `INSERT INTO analytics_events (user_id, event_type, event_data, created_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    ).bind(userId, String(type), payload).run();
+    const createdAt = normalizeEventTime(at);
+    if (createdAt) {
+      await env.DB.prepare(
+        `INSERT INTO analytics_events (user_id, event_type, event_data, created_at)
+         VALUES (?, ?, ?, ?)`
+      ).bind(userId, String(type), payload, createdAt).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO analytics_events (user_id, event_type, event_data, created_at)
+         VALUES (?, ?, ?, datetime('now'))`
+      ).bind(userId, String(type), payload).run();
+    }
     return true;
   } catch (err) {
     console.warn('[events] recordEvent failed:', err && err.message);
@@ -83,8 +113,9 @@ export function clampSinceDays(n) {
  * history — the "retention half" of L1 (docs/IMPROVEMENT_PLAN.md), the number
  * the coach pitch and the voice-moat thesis are both unprovable without. This
  * is engine-independent: it reads only `analytics_events`, so it measures every
- * signal that lands there (commitment lifecycle now; timer/session events when
- * those are wired) with no dependency on the voice or operator engines.
+ * signal that lands there — the commitment lifecycle AND free-tier timer usage
+ * (completed focus sessions, bridged in at the `/events` ingest route, R-239) —
+ * with no dependency on the voice or operator engines.
  *
  * DEFINITION — rolling return, not day-exact. A user's cohort is the UTC day of
  * their *first-ever* event. They "returned by DN" if they have ANY event on a
