@@ -20,7 +20,7 @@
 // channel marks the check-in `skipped`, never crashes, never touches the timer.
 // ════════════════════════════════════════════════════════════
 
-import { checkinPromptCopy, checkinReplyHint, nextOccurrenceISO, pickRecurrence } from './accountability.js';
+import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence } from './accountability.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate } from './consent.js';
 import { generateUUID } from './middleware.js';
@@ -263,6 +263,113 @@ export async function runDueCheckins(env, opts = {}) {
       } catch (err) {
         console.error('[checkins-cron] materialize failed:', err && err.message);
       }
+    }
+  }
+
+  return summary;
+}
+
+// ════════════════════════════════════════════════════════════
+// ESCALATION LADDER  (Wingspan W1 — "a reminder that escalates until you start")
+// ════════════════════════════════════════════════════════════
+// The ADHD failure mode the research nailed: a push notification is swiped away
+// in half a second of reflex. So when a *delivered* push check-in has gone
+// quiet, the bro knocks ONCE more on a channel that lands differently — SMS.
+//
+// Bounded by construction, because an escalation engine is one bad loop away
+// from a guilt engine:
+//   • exactly ONE escalation per check-in, ever (escalated_at is a one-shot
+//     latch, set whatever the outcome — never a retry storm, never hammering);
+//   • consent-gated like every text (TCPA gate: granted consent, quiet hours
+//     deferral, opt-out respected) — SMS consent IS the opt-in;
+//   • only while the commitment is still active and the check-in unanswered;
+//   • the copy is escalationCopy(): an ally knocking once more, never a scold.
+
+/** Minutes a delivered push check-in stays quiet before the one SMS follow-up. */
+export const ESCALATION_DELAY_MIN = 15;
+
+/** Max escalations examined per cron tick. */
+const ESCALATION_LIMIT = 50;
+
+/**
+ * Find delivered-but-quiet push check-ins past the escalation delay and send
+ * each user the ONE warm SMS follow-up. Idempotent: every examined row leaves
+ * with `escalated_at` set (except quiet-hours deferrals, which stay eligible
+ * for a later tick), so no check-in is ever escalated twice.
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {object} [opts] { now?: ISO string, limit?: number }
+ * @returns {Promise<{scanned:number, escalated:number, deferred:number, skipped:number, failed:number}>}
+ */
+export async function runEscalations(env, opts = {}) {
+  const now = opts.now || new Date().toISOString();
+  const limit = Number(opts.limit) > 0 ? Number(opts.limit) : ESCALATION_LIMIT;
+  const summary = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
+
+  const cutoff = new Date(new Date(now).getTime() - ESCALATION_DELAY_MIN * 60 * 1000).toISOString();
+
+  const quiet = await env.DB.prepare(
+    `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
+            m.title, m.persona
+       FROM commitment_checkins c
+       JOIN commitments m ON m.id = c.commitment_id
+      WHERE c.status = 'sent' AND c.channel = 'push'
+        AND c.responded_at IS NULL AND c.escalated_at IS NULL
+        AND c.delivered_at <= ?
+        AND m.status = 'active'
+      ORDER BY c.delivered_at ASC
+      LIMIT ?`
+  ).bind(cutoff, limit).all();
+
+  const rows = (quiet && quiet.results) || [];
+  for (const row of rows) {
+    summary.scanned++;
+
+    // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
+    // TCPA gate as a text check-in. No granted consent → this user simply has
+    // no escalation ladder (latch the row so it's never rescanned). Inside
+    // quiet hours → leave untouched; a later tick escalates once the window
+    // passes. The ladder never wakes anyone up.
+    let gate;
+    try {
+      gate = await evaluateContactGate(env, { userId: row.user_id, channel: 'text', nowISO: now });
+    } catch (err) {
+      gate = { skip: (err && err.message) || 'consent_gate_error' };
+    }
+    if (gate.defer) { summary.deferred++; continue; }
+
+    let outcome = null;
+    if (gate.skip) {
+      outcome = { status: 'skipped', detail: gate.skip };
+    } else {
+      try {
+        const message = `${escalationCopy({ title: row.title, persona: row.persona })}\n\n${checkinReplyHint(row.persona)}`;
+        outcome = await deliverText(env, row, message);
+      } catch (err) {
+        outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
+      }
+    }
+
+    // One-shot latch, whatever happened: an escalation is offered exactly once.
+    try {
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET escalated_at = ? WHERE id = ?`
+      ).bind(now, row.checkin_id).run();
+    } catch (err) {
+      console.error('[checkins-cron] escalation latch failed:', err && err.message);
+    }
+
+    if (outcome.status === 'sent') {
+      summary.escalated++;
+      // The moat's second signal: the bro knocked twice. Non-fatal, never aborts.
+      await recordEvent(env, {
+        userId: row.user_id, type: EVENTS.CHECKIN_ESCALATED,
+        data: { commitment_id: row.commitment_id, from: 'push', to: 'text' },
+      });
+    } else if (outcome.status === 'skipped') {
+      summary.skipped++;
+    } else {
+      summary.failed++;
     }
   }
 

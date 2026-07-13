@@ -12,7 +12,7 @@ import { registerConsentRoutes } from './consent.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
-import { runDueCheckins } from './checkins-cron.js';
+import { runDueCheckins, runEscalations } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
@@ -293,6 +293,7 @@ async function initializeDatabase(env) {
         delivered_at DATETIME,
         attempts INTEGER DEFAULT 0,
         last_error TEXT,
+        escalated_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -419,6 +420,12 @@ async function initializeDatabase(env) {
       // calls you every day at the same time" works without recreating it.
       `ALTER TABLE commitments ADD COLUMN recurrence TEXT DEFAULT 'none'`,
       `ALTER TABLE commitments ADD COLUMN local_time TEXT`,
+      // ── ESCALATION LADDER (Wingspan W1 · R-240) ──
+      // One-shot push→SMS escalation latch on the existing check-in rows, plus
+      // the scan index (status + delivered_at drives the quiet-check-in query).
+      `ALTER TABLE commitment_checkins ADD COLUMN escalated_at DATETIME`,
+      `CREATE INDEX IF NOT EXISTS idx_checkins_escalation
+         ON commitment_checkins(status, delivered_at)`,
       // ── FREE-TIER TIMER → RETENTION SPINE (Contender #10, R-239 follow-up) ──
       // On the EXISTING production analytics_events table the column above
       // (CREATE TABLE) is not applied, so add it here (silent no-op if present).
@@ -1519,7 +1526,10 @@ router.post('/api/internal/run-checkins', async (request, env) => {
   if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
   try {
     const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
-    return jsonResponse({ ok: true, summary }, 200);
+    // Same escalation pass the cron runs (Wingspan W1), so a verification curl
+    // exercises the WHOLE ladder: deliver → quiet → the one SMS follow-up.
+    const escalations = await runEscalations(env, { now: new Date().toISOString() });
+    return jsonResponse({ ok: true, summary, escalations }, 200);
   } catch (err) {
     console.error('[cron] manual trigger failed:', err && err.message);
     return jsonResponse({ error: 'Delivery pass failed' }, 500);
@@ -2562,6 +2572,10 @@ export default {
       await initializeDatabase(runtimeEnv);
       const summary = await runDueCheckins(runtimeEnv, { now: new Date().toISOString(), limit: 100 });
       console.log('[cron] check-in delivery:', JSON.stringify(summary));
+      // Wingspan W1: after primary delivery, knock once more (SMS) on any
+      // delivered push check-in that has gone quiet past the escalation delay.
+      const esc = await runEscalations(runtimeEnv, { now: new Date().toISOString() });
+      console.log('[cron] escalations:', JSON.stringify(esc));
     } catch (err) {
       console.error('[cron] check-in delivery failed:', err && err.message);
     }
