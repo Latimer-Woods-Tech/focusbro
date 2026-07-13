@@ -57,18 +57,66 @@ const SITE_FOOTER = `<footer class="site">
 </footer>`;
 
 /**
+ * The tool states a guide CTA may deep-link into via `/?tool=<id>`.
+ * The FocusBro app reads this query param on load and opens the matching tool
+ * (see the deep-link handler in public/index.html). Kept in sync with that
+ * handler's map; guide CTAs must target an id in this set.
+ * @type {readonly string[]}
+ */
+export const TOOL_DEEPLINK_IDS = Object.freeze([
+  'focus', 'rest', 'sounds', 'stats', 'home', 'pomodoro',
+  'breathing', 'grounding', 'meditation', 'bodyscan', 'movement', 'sleep', 'dopamine',
+]);
+
+/**
  * Render a single guide as a complete HTML document in the site shell.
  * @param {{slug:string,title:string,description:string,body:string}} guide
  * @returns {string} full HTML page
  */
 export function renderGuidePage(guide) {
+  const url = `https://focusbro.net/guides/${guide.slug}.html`;
+  // Escape for HTML attribute values (title/description are authored plain text,
+  // but a stray & or " must never break the meta tags).
+  const esc = (s = '') =>
+    String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Article structured data (schema.org) — helps search understand each guide as
+  // a standalone article. JSON.stringify handles escaping; the </-escape prevents
+  // any string from breaking out of the <script> element.
+  const jsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: guide.title,
+    description: guide.description,
+    inLanguage: 'en',
+    isAccessibleForFree: true,
+    url,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    datePublished: guide.lastmod,
+    dateModified: guide.lastmod,
+    author: { '@type': 'Organization', name: 'Latimer Woods Tech', url: 'https://focusbro.net/about.html' },
+    publisher: {
+      '@type': 'Organization',
+      name: 'FocusBro',
+      logo: { '@type': 'ImageObject', url: 'https://focusbro.net/icon-192.svg' },
+    },
+  }).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${guide.title} — FocusBro Guides</title>
-<meta name="description" content="${guide.description}" />
-<link rel="canonical" href="https://focusbro.net/guides/${guide.slug}.html" />
+<meta name="description" content="${esc(guide.description)}" />
+<link rel="canonical" href="${url}" />
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="FocusBro" />
+<meta property="og:title" content="${esc(guide.title)}" />
+<meta property="og:description" content="${esc(guide.description)}" />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://focusbro.net/icon-192.svg" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="${esc(guide.title)}" />
+<meta name="twitter:description" content="${esc(guide.description)}" />
+<script type="application/ld+json">${jsonLd}</script>
 ${AD_CLIENT_SCRIPT}
 <style>${SHELL_CSS}</style>
 </head><body>
@@ -165,7 +213,7 @@ export const guides = [
 <h2>Make the break count</h2>
 <p>A break spent scrolling a feed is not much of a break for your attention system; you have swapped one demanding screen for another. The restorative breaks are the ones that let directed attention idle: stand up and walk, look out a window, stretch, do a minute of slow breathing, or rest your eyes. Those are exactly the resets FocusBro is built around.</p>
 
-<p>Ready to try it? <a class="app-cta" href="/">Open the Pomodoro timer</a></p>
+<p>Ready to try it? <a class="app-cta" href="/?tool=focus">Open the Pomodoro timer</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -219,7 +267,7 @@ export const guides = [
 <h2>A caveat worth keeping</h2>
 <p>Your rhythm is your own. Chronotype (whether you are a morning lark or a night owl), sleep debt, caffeine, stress, and the task itself all shift where your peaks and troughs land. The lesson from ultradian research is not "work in exactly 90-minute blocks" — it is "energy is cyclical, so schedule your hardest work for your peaks and build in real recovery at your troughs." Notice your own pattern for a week, and pace the day around it.</p>
 
-<p><a class="app-cta" href="/">Start a focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start a focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -268,7 +316,7 @@ export const guides = [
 <h2>The supporting cast</h2>
 <p>The 20-20-20 rule works best alongside a few basics that reduce the underlying load on your eyes: position the screen a little below eye level and roughly an arm's length away; keep the room lit so the screen is not a bright rectangle in a dark room; nudge text size up so you are not leaning in; and keep the air from being too dry. If your eyes still ache constantly, or vision blurs and does not clear, that is a reason to see an eye-care professional rather than to push through — persistent strain can be a sign you need an updated prescription.</p>
 
-<p><a class="app-cta" href="/">Try the Eye Rest tool</a></p>
+<p><a class="app-cta" href="/?tool=movement">Try the Eye Rest tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -321,7 +369,7 @@ export const guides = [
 <h2>Where it fits</h2>
 <p>The physiological sigh is the emergency brake; slower practices like box breathing are the long, steady cruise. For an acute jolt of stress, one or two sighs are often enough to bring you back down to where you can think. As a daily habit, a few minutes of cyclic sighing is a low-cost way to nudge your baseline toward calm.</p>
 
-<p><a class="app-cta" href="/">Open the breathing tools</a></p>
+<p><a class="app-cta" href="/?tool=breathing">Open the breathing tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -370,7 +418,7 @@ export const guides = [
 <h2>The bigger point</h2>
 <p>Attention Restoration Theory reframes breaks entirely. A good break is not idle time subtracted from your work; it is the process that makes the next block of work possible. Spend your focus deliberately, then restore it deliberately — and choose restoration that actually lets your directed attention idle. Often, that is as simple as stepping outside.</p>
 
-<p><a class="app-cta" href="/">Plan your next break</a></p>
+<p><a class="app-cta" href="/?tool=rest">Plan your next break</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -418,7 +466,7 @@ export const guides = [
 <h2>Put it together</h2>
 <p>The next time a task keeps sliding, run the checklist instead of reaching for guilt: shrink the first step until it is trivially doable, strip the nearest distraction out of arm's reach, set a short timer so the commitment is bounded, and give yourself a real reward at the ring. Notice, too, which of the four levers the task is failing on — a job you are avoiding because you doubt you can do it needs a smaller first step (expectancy), while one you keep trading away for your phone needs the phone gone (impulsiveness). Naming the specific reason a task feels aversive turns a vague sense of "I just can't make myself" into a concrete problem with a matching fix. You are not fixing a broken character; you are lowering the emotional cost of starting, which is the only thing that was ever really in the way.</p>
 
-<p><a class="app-cta" href="/">Start a two-minute focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start a two-minute focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -463,7 +511,7 @@ export const guides = [
 <h2>Start small</h2>
 <p>You do not have to restructure your whole calendar tomorrow. Pick one task that genuinely matters, give it a single protected 60- to 90-minute block with the phone out of reach and notifications off, and simply notice how much more you produce than in a fragmented hour. That contrast is usually persuasive enough to build from. Over a few weeks the habit compounds: as protected deep blocks become normal, the shallow work that used to sprawl across the day gets squeezed into its own windows, and the residue that once drained every task quietly stops leaking. The aim is not a perfect day of unbroken concentration — few jobs allow that — but simply more genuinely deep hours than you get by drifting, and fewer of the fragmented ones that feel busy and produce little. Treat the number of real deep-work blocks you complete in a week as the metric that matters, rather than hours merely spent at a desk, and let everything else organize itself around protecting them.</p>
 
-<p><a class="app-cta" href="/">Start a distraction-free session</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start a distraction-free session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -513,7 +561,7 @@ export const guides = [
 <h2>Start with one block</h2>
 <p>You do not need to schedule your entire life. Tomorrow, block a single protected hour for your most important task and defend it like a meeting. Notice how much more gets done in that hour than in a typical unplanned one — then add a second block the day after. Time blocking is a skill, not a personality trait, and the early attempts will be badly calibrated: you will underestimate durations, over-schedule, and watch the plan buckle by lunch. That is expected and not a reason to quit. Each day of blocking teaches you something concrete about how long your work actually takes and where your day tends to fracture, and within a couple of weeks your estimates tighten and the plan holds together far more often. The goal is not a flawless calendar but a realistic one that steers your best hours toward your most important work — and that is a habit worth being patient with.</p>
 
-<p><a class="app-cta" href="/">Time-box a task now</a></p>
+<p><a class="app-cta" href="/?tool=focus">Time-box a task now</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -561,7 +609,7 @@ export const guides = [
 <h2>The bigger picture</h2>
 <p>Caffeine is a genuinely useful tool — well-timed, it can sharpen a demanding block of work. But it borrows alertness against your sleep, and if you borrow late in the day you repay it that night. Keep it in the morning and early afternoon, spend it on work that deserves it, and let real rest — not another cup — handle the evening. The most reliable focus aid, in the end, is the sleep that clears your adenosine to begin with.</p>
 
-<p><a class="app-cta" href="/">Set up your next focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus">Set up your next focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -615,7 +663,7 @@ export const guides = [
 <h2>Be kind about the misses</h2>
 <p>People with ADHD accumulate years of "you're not trying hard enough" — often internalized as shame that makes everything harder. But the missed deadlines and forgotten tasks are features of how the brain self-regulates, not evidence of a bad character. Self-criticism only adds an aversive feeling to the work, which feeds avoidance. Treat a lapse as data about which external supports to strengthen, adjust the scaffolding, and start the next block clean. If ADHD is significantly affecting your life, a qualified clinician can help you build a plan — including options this general guide cannot responsibly cover.</p>
 
-<p><a class="app-cta" href="/">Start a short, timed block</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start a short, timed block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -667,7 +715,7 @@ export const guides = [
 
 <p>This is general education, not medical advice. Persistent trouble sleeping — insomnia, loud snoring with daytime exhaustion, or unrefreshing sleep despite enough hours — is worth raising with a clinician.</p>
 
-<p><a class="app-cta" href="/">Try the Sleep Wind-Down tool</a></p>
+<p><a class="app-cta" href="/?tool=sleep">Try the Sleep Wind-Down tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -723,7 +771,7 @@ export const guides = [
 <li><strong>Quitting on a missed day.</strong> Lally's data says one miss is noise. Just run the stack again tomorrow.</li>
 </ul>
 
-<p><a class="app-cta" href="/">Anchor a focus session to your routine</a></p>
+<p><a class="app-cta" href="/?tool=focus">Anchor a focus session to your routine</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -771,7 +819,7 @@ export const guides = [
 <h2>"But people expect an instant reply"</h2>
 <p>Some roles genuinely require fast response, and batching should bend to real obligations — widen the windows, keep a true-emergency channel open. But for most work, the expectation of instant availability is one we impose on ourselves. Replies that come within a couple of hours are, for the overwhelming majority of messages, indistinguishable from instant ones to the sender — while the difference to your own concentration is enormous. You are trading a response speed no one actually needs for a depth of focus you badly do.</p>
 
-<p><a class="app-cta" href="/">Start an uninterrupted focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start an uninterrupted focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -826,7 +874,7 @@ export const guides = [
 </ul>
 <p>None of this requires expensive gear — most of it is free rearrangement. Spend five minutes on it once, and you remove a source of friction you would otherwise pay for every working hour. General guidance only; persistent pain, numbness, or tingling deserves a professional's attention.</p>
 
-<p><a class="app-cta" href="/">Set a movement-break reminder</a></p>
+<p><a class="app-cta" href="/?tool=movement">Set a movement-break reminder</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -875,7 +923,7 @@ export const guides = [
 </ul>
 <p>Above all, trust the test over the trend. Preference and habit matter, and the honest state of the science is "it depends." Try a week of silence for your hardest verbal work and a moderate backdrop for your loosest creative work, and keep whatever measurably helps <em>you</em> get more done — not what a playlist promises.</p>
 
-<p><a class="app-cta" href="/">Open the Focus Music and Ambient Sounds tools</a></p>
+<p><a class="app-cta" href="/?tool=rest">Open the Focus Music and Ambient Sounds tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -925,7 +973,7 @@ export const guides = [
 <h2>Why weekly</h2>
 <p>A week is the natural unit of work — long enough that things accumulate, short enough that nothing rots for long. Reviewing daily is usually overkill; reviewing monthly lets too much pile up and lets the system drift out of trust. Weekly keeps your external list current enough that you actually believe it, and that belief is the whole point: only a system you trust will let your mind put its guard down. Do the review, and the reward is not just an organized list — it is walking into Monday without the background hum of everything you might be forgetting.</p>
 
-<p><a class="app-cta" href="/">Start next week's first focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus">Start next week's first focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
