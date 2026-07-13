@@ -24,6 +24,7 @@ import { checkinPromptCopy, checkinReplyHint, nextOccurrenceISO, pickRecurrence 
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate } from './consent.js';
 import { generateUUID } from './middleware.js';
+import { recordEvent, EVENTS } from './events.js';
 
 /**
  * Keep a recurring commitment's rhythm alive: once its due check-in has left
@@ -222,6 +223,12 @@ export async function runDueCheckins(env, opts = {}) {
         ).bind(now, row.checkin_id).run();
         summary.sent++;
         leftPending = true;
+        // Instrument "the bro showed up" — a delivered nudge is the moat's core
+        // signal (IMPROVEMENT_PLAN L1). Non-fatal; never aborts the batch.
+        await recordEvent(env, {
+          userId: row.user_id, type: EVENTS.CHECKIN_DELIVERED,
+          data: { commitment_id: row.commitment_id, channel: row.channel === 'text' ? 'text' : 'push' },
+        });
       } else if (outcome.status === 'skipped') {
         // No channel available for this user — park it (terminal, no shame, no retry storm).
         await env.DB.prepare(
