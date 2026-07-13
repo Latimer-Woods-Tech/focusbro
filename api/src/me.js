@@ -368,7 +368,7 @@ export function renderMePage() {
   .seed { background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff; border-radius: 999px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
 </style></head>
 <body>
-<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
+<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/me/report">Weekly report</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
 <h1>Your word</h1>
 <p class="intro">${mePageIntroCopy()}</p>
 
