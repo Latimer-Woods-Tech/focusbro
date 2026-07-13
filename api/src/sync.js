@@ -5,6 +5,7 @@
  */
 
 import { errorResponse, successResponse, generateUUID } from './middleware.js';
+import { recordEvent } from './events.js';
 
 // ════════════════════════════════════════════════════════════
 // SUBSCRIPTION TIER VALIDATION
@@ -315,9 +316,34 @@ export async function restoreFromSnapshot(env, userId, snapshotId) {
 // ANALYTICS EVENT SYNCING
 // ════════════════════════════════════════════════════════════
 
+/** Cap a single ingest batch so one request can't flood the spine. */
+const MAX_EVENTS_PER_BATCH = 100;
+
 /**
- * Save analytics events (session data, ambient preferences, etc.)
- * Events are batched and synced periodically or on demand
+ * Ingest a batch of client-reported analytics events into the first-party
+ * retention spine (`analytics_events`). This is the LIVE, authed ingest the
+ * free-tier timer bridge posts `session_complete` to (Contender #10, R-239
+ * follow-up) — the earlier attempt wired the bridge to a never-mounted route,
+ * so it was inert; this route is reachable at `POST /sync/events`.
+ *
+ * Every event is written through `recordEvent` (the single first-party writer,
+ * events.js) so three properties hold uniformly:
+ *  - the CLIENT timestamp (`at` / `timestamp` / `ts`) lands the row on the real
+ *    day the session happened, not the sync day (batched/offline sessions would
+ *    otherwise collapse a week of usage onto one day and undercount return);
+ *  - a client-generated event id (`id` / `cid`) makes the write idempotent —
+ *    dedup in-batch here plus `INSERT OR IGNORE` at the DB, so an offline retry
+ *    or a double-flush can't double-count;
+ *  - it's non-fatal (recordEvent swallows its own errors), so a malformed event
+ *    can never break the timer or the rest of the batch.
+ *
+ * Only `type` is required. A `tool` (e.g. `pomodoro`) is carried through in the
+ * event data when present but is no longer mandatory — the canonical
+ * `session_complete` event always has one, but requiring it here is what silently
+ * dropped valid events before.
+ *
+ * @returns {Promise<object>} { success, synced } (synced = events accepted this
+ *   batch; a deduped replay is idempotent, not an error)
  */
 export async function syncAnalyticsEvents(env, userId, events) {
   try {
@@ -325,29 +351,39 @@ export async function syncAnalyticsEvents(env, userId, events) {
       return { success: true, synced: 0 };
     }
 
-    // Insert events into analytics table
-    const insertQuery = `
-      INSERT INTO analytics_events (user_id, event_type, event_data, created_at)
-      VALUES (?, ?, ?, datetime('now'))
-    `;
-
+    const batch = events.slice(0, MAX_EVENTS_PER_BATCH);
+    const seenClientIds = new Set();
     let synced = 0;
-    for (const event of events) {
-      if (!event.type || !event.tool) continue; // Skip invalid events
 
-      try {
-        await env.DB.prepare(insertQuery)
-          .bind(userId, event.type, JSON.stringify(event))
-          .run();
-        synced++;
-      } catch (eventError) {
-        console.warn(`[SYNC] Failed to insert event ${event.type}:`, eventError.message);
+    for (const event of batch) {
+      if (!event || !event.type) continue; // must at least name an event type
+
+      const clientEventId = event.id || event.cid || null;
+      if (clientEventId) {
+        if (seenClientIds.has(clientEventId)) continue; // in-batch dedup
+        seenClientIds.add(clientEventId);
       }
+
+      const at = event.at || event.timestamp || event.ts || null;
+
+      // Store the meaningful payload (tool, duration, etc.), not the transport
+      // envelope — id/at/timestamp/ts/type are columns or control fields, so
+      // strip them (underscore-prefixed to mark them deliberately unused).
+      const { id: _id, cid: _cid, at: _at, ts: _ts, timestamp: _timestamp, type: _type, ...data } = event;
+
+      const wrote = await recordEvent(env, {
+        userId,
+        type: event.type,
+        data,
+        at,
+        clientEventId,
+      });
+      if (wrote) synced++;
     }
 
     await recordSync(env, userId, 'web', 'analytics_sync', synced > 0 ? 'success' : 'partial', 0, {
       events_synced: synced,
-      events_total: events.length
+      events_total: batch.length
     });
 
     return { success: true, synced };
