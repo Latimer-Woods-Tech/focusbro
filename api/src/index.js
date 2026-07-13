@@ -362,10 +362,16 @@ async function initializeDatabase(env) {
         user_id TEXT,
         event_type TEXT NOT NULL,
         event_data TEXT DEFAULT '{}',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        client_event_id TEXT
       )`,
       `CREATE INDEX IF NOT EXISTS idx_analytics_type_time ON analytics_events(event_type, created_at)`,
       `CREATE INDEX IF NOT EXISTS idx_analytics_user_time ON analytics_events(user_id, created_at)`,
+      // Idempotent client-batch ingest (R-239 follow-up, #10): a client-generated
+      // event id dedups a replayed/offline-retried batch so timer usage can't
+      // double-count. Partial (client_event_id IS NOT NULL) so server-time
+      // lifecycle rows — which carry no client id — are unaffected.
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_client_event ON analytics_events(user_id, client_event_id) WHERE client_event_id IS NOT NULL`,
       // ── END ACCOUNTABILITY CORE ──
       `CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id)`,
@@ -413,6 +419,14 @@ async function initializeDatabase(env) {
       // calls you every day at the same time" works without recreating it.
       `ALTER TABLE commitments ADD COLUMN recurrence TEXT DEFAULT 'none'`,
       `ALTER TABLE commitments ADD COLUMN local_time TEXT`,
+      // ── FREE-TIER TIMER → RETENTION SPINE (Contender #10, R-239 follow-up) ──
+      // On the EXISTING production analytics_events table the column above
+      // (CREATE TABLE) is not applied, so add it here (silent no-op if present).
+      // The unique index is (re)built here too — AFTER the column exists — since
+      // the createTableStatements copy would run before this ALTER on an existing
+      // DB and silently fail on the missing column.
+      `ALTER TABLE analytics_events ADD COLUMN client_event_id TEXT`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_client_event ON analytics_events(user_id, client_event_id) WHERE client_event_id IS NOT NULL`,
     ];
     
     for (const sql of alterTableStatements) {

@@ -72,16 +72,42 @@ function normalizeEventTime(at) {
  * cohort reflects the real day, not the sync day; omit it for server-time
  * events. An unparseable `at` degrades to server time rather than dropping the row.
  *
+ * `clientEventId` makes the write IDEMPOTENT: pass a client-generated id and a
+ * replayed batch (an offline retry, a double-flush) can't double-count — the
+ * insert becomes `INSERT OR IGNORE` against the `(user_id, client_event_id)`
+ * partial unique index (see index.js schema). This is what lets the free-tier
+ * timer bridge (session_complete → /sync/events, the R-239 follow-up on #10) be
+ * safely retried from the browser. Omit it for server-time lifecycle events,
+ * which are written exactly once by the flow that owns them.
+ *
  * @param {object} env  Worker env with a D1-shaped `DB`
- * @param {object} p    { userId?, type, data?, at? }
- * @returns {Promise<boolean>} true iff the row was written.
+ * @param {object} p    { userId?, type, data?, at?, clientEventId? }
+ * @returns {Promise<boolean>} true iff the statement ran without error (with
+ *   clientEventId a deduped no-op still returns true — the row is guaranteed to
+ *   exist exactly once, which is the contract callers rely on).
  */
-export async function recordEvent(env, { userId = null, type, data = {}, at = null } = {}) {
+export async function recordEvent(env, { userId = null, type, data = {}, at = null, clientEventId = null } = {}) {
   if (!env || !env.DB || !type) return false;
   try {
     let payload = '{}';
     try { payload = JSON.stringify(data == null ? {} : data); } catch { payload = '{}'; }
     const createdAt = normalizeEventTime(at);
+    if (clientEventId) {
+      // Idempotent ingest path: OR IGNORE dedups on the (user_id, client_event_id)
+      // unique index so a replayed client batch lands each event exactly once.
+      if (createdAt) {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO analytics_events (user_id, event_type, event_data, created_at, client_event_id)
+           VALUES (?, ?, ?, ?, ?)`
+        ).bind(userId, String(type), payload, createdAt, String(clientEventId)).run();
+      } else {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO analytics_events (user_id, event_type, event_data, client_event_id, created_at)
+           VALUES (?, ?, ?, ?, datetime('now'))`
+        ).bind(userId, String(type), payload, String(clientEventId)).run();
+      }
+      return true;
+    }
     if (createdAt) {
       await env.DB.prepare(
         `INSERT INTO analytics_events (user_id, event_type, event_data, created_at)
@@ -113,12 +139,16 @@ export function clampSinceDays(n) {
  * history — the "retention half" of L1 (docs/IMPROVEMENT_PLAN.md), the number
  * the coach pitch and the voice-moat thesis are both unprovable without. This
  * is engine-independent: it reads only `analytics_events`, so it measures every
- * signal that lands there — today the commitment lifecycle only. (R-239 aimed to
- * bridge free-tier timer usage in via a `/events` ingest route, but that route
- * lived in the never-mounted extended-routes.js monolith — removed in #44 — and
- * the shipped client emits no timer telemetry at all, so the bridge was inert
- * end-to-end. Landing it for real needs a client emitter + live ingest route,
- * honoring the browser-first privacy copy; see the R-239 follow-up on #10.)
+ * signal that lands there — the commitment lifecycle plus, since the R-239
+ * follow-up, free-tier timer usage. A completed focus session is emitted as a
+ * `session_complete` event by the browser timer — ONLY for signed-in users, so
+ * the browser-first privacy copy holds — batched to the live, authed
+ * `/sync/events` route (`syncModule.syncAnalyticsEvents`), and written here via
+ * `recordEvent({ at, clientEventId })`: the client timestamp lands the row on
+ * its real day, and the client id makes an offline retry idempotent. The
+ * earlier attempt (#70) wired this to the never-mounted extended-routes.js
+ * `/events` route — removed in #44 — so it was inert end-to-end; this is the
+ * "for real this time" landing (#10 R-239 follow-up).
  *
  * DEFINITION — rolling return, not day-exact. A user's cohort is the UTC day of
  * their *first-ever* event. They "returned by DN" if they have ANY event on a

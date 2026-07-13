@@ -133,6 +133,38 @@ describe('recordEvent — writes to analytics_events, non-fatal', () => {
     expect(db.runs[0].sql).toMatch(/datetime\('now'\)/);
     expect(db.runs[0].params).toHaveLength(3);
   });
+
+  // ── clientEventId: idempotent ingest for the free-tier timer bridge (R-239 follow-up) ──
+  it('with a clientEventId + `at`, writes an idempotent OR IGNORE row carrying the client id', async () => {
+    const db = makeDB();
+    const ok = await recordEvent({ DB: db }, {
+      userId: 'u9', type: 'session_complete', at: '2026-07-01T09:30:00.000Z',
+      data: { tool: 'pomodoro' }, clientEventId: 'evt-abc',
+    });
+    expect(ok).toBe(true);
+    expect(db.runs[0].sql).toMatch(/INSERT OR IGNORE INTO analytics_events/);
+    expect(db.runs[0].sql).toMatch(/client_event_id/);
+    // Real day preserved + client id bound (5-param form: user, type, data, created_at, cid).
+    expect(db.runs[0].params[3]).toBe('2026-07-01 09:30:00');
+    expect(db.runs[0].params[4]).toBe('evt-abc');
+  });
+
+  it('with a clientEventId but no `at`, uses OR IGNORE + datetime(now) and still binds the id', async () => {
+    const db = makeDB();
+    const ok = await recordEvent({ DB: db }, {
+      userId: 'u9', type: 'session_complete', clientEventId: 'evt-xyz',
+    });
+    expect(ok).toBe(true);
+    expect(db.runs[0].sql).toMatch(/INSERT OR IGNORE INTO analytics_events/);
+    expect(db.runs[0].sql).toMatch(/datetime\('now'\)/);
+    expect(db.runs[0].params[3]).toBe('evt-xyz'); // (user, type, data, cid)
+  });
+
+  it('a plain lifecycle write (no clientEventId) is NOT OR IGNORE — the dedup path is opt-in', async () => {
+    const db = makeDB();
+    await recordEvent({ DB: db }, { userId: 'u1', type: EVENTS.COMMITMENT_KEPT });
+    expect(db.runs[0].sql).not.toMatch(/OR IGNORE/);
+  });
 });
 
 describe('computeLoopMetrics — the retention/coach numbers', () => {
