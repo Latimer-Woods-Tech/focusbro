@@ -92,7 +92,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  const targetUrl = data.action === 'open' ? `/#${data.view || 'dashboard'}` : '/';
+  // Honor an explicit deep-link (data.url) first — e.g. the return nudge → /me/?from=return.
+  const targetUrl = data.url || (data.action === 'open' ? `/#${data.view || 'dashboard'}` : '/');
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })

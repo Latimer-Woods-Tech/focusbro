@@ -2324,7 +2324,10 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  const targetUrl = data.action === 'open' ? \`/#\${data.view || 'dashboard'}\` : '/';
+  // Honor an explicit deep-link (data.url) first — this is what carries a tapped
+  // notification to the right surface (e.g. the return nudge → /me/?from=return).
+  // Fall back to the legacy action/view hash, then the app root.
+  const targetUrl = data.url || (data.action === 'open' ? \`/#\${data.view || 'dashboard'}\` : '/');
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(clientList => {

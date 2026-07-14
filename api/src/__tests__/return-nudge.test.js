@@ -16,6 +16,7 @@ import {
   returnNudgeKey,
   withinReturnDaytime,
   RETURN_NUDGE_QUIET_DAYS,
+  RETURN_NUDGE_DEEPLINK,
 } from '../checkins-cron.js';
 import { returnNudgeCopy } from '../accountability.js';
 
@@ -212,5 +213,11 @@ describe('withinReturnDaytime + returnNudgeCopy units', () => {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('the return nudge deep-links to the nudged-back welcome (#40 W4/L3)', () => {
+  it('opens /me/ carrying the ?from=return marker so the person is greeted, not cold-listed', () => {
+    expect(RETURN_NUDGE_DEEPLINK).toBe('/me/?from=return');
   });
 });
