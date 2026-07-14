@@ -43,6 +43,23 @@ const SHELL_CSS = `
   .card:hover { border-color: #93c5fd; text-decoration: none; background: #f8fafc; }
   .card h3 { margin: 0 0 6px; font-size: 18px; color: #111827; }
   .card p { margin: 0; color: #4b5563; font-size: 15px; }
+  nav.crumbs { font-size: 13px; color: #6b7280; margin: 0 0 6px; }
+  nav.crumbs a { color: #6b7280; }
+  nav.crumbs span { color: #374151; }
+  .toc { margin: 20px 0 8px; padding: 14px 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; }
+  .toc .toc-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; margin: 0 0 8px; }
+  .toc ul { margin: 0; padding-left: 20px; }
+  .toc li { margin-bottom: 4px; font-size: 15px; }
+  h2 { scroll-margin-top: 16px; }
+  .faq { margin-top: 40px; }
+  .faq h2 { margin-bottom: 6px; }
+  .faq-item { padding: 14px 0; border-top: 1px solid #eef1f4; }
+  .faq-item:first-of-type { border-top: none; }
+  .faq-item h3 { font-size: 17px; color: #111827; margin: 0 0 6px; }
+  .faq-item p { margin: 0; color: #374151; }
+  h2.group { font-size: 15px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280;
+    margin: 34px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+  h2.group:first-of-type { margin-top: 24px; }
 `;
 
 const SITE_HEADER = `<header class="site">
@@ -67,6 +84,43 @@ export const TOOL_DEEPLINK_IDS = Object.freeze([
   'focus', 'rest', 'sounds', 'stats', 'home', 'pomodoro',
   'breathing', 'grounding', 'meditation', 'bodyscan', 'movement', 'sleep', 'dopamine',
 ]);
+
+/** Strip HTML tags and collapse whitespace to plain text. */
+const stripTags = (s = '') =>
+  String(s).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&mdash;/g, '—')
+    .replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** Turn a heading's text into a stable, URL-safe anchor id. */
+const slugifyHeading = (text = '') =>
+  stripTags(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+
+/**
+ * Add `id` anchors to the article's content `<h2>`s and build a table of
+ * contents from them. The "Keep reading" related-links heading is skipped so it
+ * never appears in the TOC. The TOC only renders for longer guides (≥4 sections).
+ * @param {string} body article inner HTML
+ * @returns {{body:string, toc:string}}
+ */
+function withHeadingAnchors(body) {
+  const items = [];
+  const seen = new Set();
+  const newBody = body.replace(/<h2>([\s\S]*?)<\/h2>/g, (match, inner) => {
+    const label = stripTags(inner);
+    if (/^keep reading$/i.test(label)) return match;
+    let id = slugifyHeading(inner);
+    while (id && seen.has(id)) id += '-x';
+    if (!id) return match;
+    seen.add(id);
+    items.push({ id, label });
+    return `<h2 id="${id}">${inner}</h2>`;
+  });
+  let toc = '';
+  if (items.length >= 4) {
+    const links = items.map((i) => `<li><a href="#${i.id}">${i.label}</a></li>`).join('');
+    toc = `<nav class="toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${links}</ul></nav>`;
+  }
+  return { body: newBody, toc };
+}
 
 /**
  * Render a single guide as a complete HTML document in the site shell.
@@ -100,6 +154,61 @@ export function renderGuidePage(guide) {
       logo: { '@type': 'ImageObject', url: 'https://focusbro.net/icon-192.svg' },
     },
   }).replace(/</g, '\\u003c');
+  // BreadcrumbList — makes the Home › Guides › Article path explicit to search
+  // engines and mirrors the visible breadcrumb nav below. Always accurate.
+  const breadcrumbLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://focusbro.net/' },
+      { '@type': 'ListItem', position: 2, name: 'Guides', item: 'https://focusbro.net/guides/' },
+      { '@type': 'ListItem', position: 3, name: guide.title, item: url },
+    ],
+  }).replace(/</g, '\\u003c');
+  // Optional FAQ section: rendered visibly AND mirrored as FAQPage structured
+  // data. Google requires the Q&A to be visible on the page, so we build both
+  // from the one `guide.faqs` source — the JSON-LD can never drift from the text.
+  let workingBody = guide.body;
+  let faqLd = '';
+  if (Array.isArray(guide.faqs) && guide.faqs.length) {
+    const faqItems = guide.faqs
+      .map((f) => `<div class="faq-item"><h3>${esc(f.q)}</h3><p>${f.a}</p></div>`)
+      .join('\n');
+    const faqSection = `<section class="faq"><h2>Common questions</h2>\n${faqItems}\n</section>`;
+    workingBody = workingBody.includes('<div class="related">')
+      ? workingBody.replace('<div class="related">', `${faqSection}\n\n<div class="related">`)
+      : `${workingBody}\n${faqSection}`;
+    faqLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: guide.faqs.map((f) => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: stripTags(f.a) },
+      })),
+    }).replace(/</g, '\\u003c');
+  }
+  // Optional HowTo: only for genuinely step-by-step guides whose steps are
+  // already listed on the page. Built from `guide.howto` so the schema matches
+  // the visible instructions.
+  const howToLd = guide.howto && Array.isArray(guide.howto.steps) && guide.howto.steps.length
+    ? JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'HowTo',
+      name: guide.howto.name || guide.title,
+      description: guide.howto.description || guide.description,
+      step: guide.howto.steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, text: s })),
+    }).replace(/</g, '\\u003c')
+    : '';
+  // Add heading anchors + a table of contents for longer guides.
+  const { body: processedBody, toc } = withHeadingAnchors(workingBody);
+  // Extra structured data blocks live AFTER the Article block so the Article
+  // stays the first ld+json script on the page.
+  const extraLd = [
+    `<script type="application/ld+json">${breadcrumbLd}</script>`,
+    faqLd && `<script type="application/ld+json">${faqLd}</script>`,
+    howToLd && `<script type="application/ld+json">${howToLd}</script>`,
+  ].filter(Boolean).join('\n');
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
@@ -117,15 +226,18 @@ export function renderGuidePage(guide) {
 <meta name="twitter:title" content="${esc(guide.title)}" />
 <meta name="twitter:description" content="${esc(guide.description)}" />
 <script type="application/ld+json">${jsonLd}</script>
+${extraLd}
 ${AD_CLIENT_SCRIPT}
 <style>${SHELL_CSS}</style>
 </head><body>
 ${SITE_HEADER}
 <main>
 <article>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › <a href="/guides/">Guides</a> › <span>${esc(guide.title)}</span></nav>
 <h1>${guide.title}</h1>
 <p class="meta">A FocusBro guide · updated ${guide.lastmodLabel || guide.lastmod}</p>
-${guide.body}
+${toc}
+${processedBody}
 </article>
 </main>
 ${SITE_FOOTER}
@@ -133,15 +245,82 @@ ${SITE_FOOTER}
 }
 
 /**
- * Render the /guides/ index page listing every guide.
+ * Thematic ordering of the guides index. Groups make 17 articles browsable
+ * instead of a flat wall of cards. Any guide whose slug is not listed here still
+ * appears, collected under "More guides", so a new guide is never dropped.
+ * @type {ReadonlyArray<{label:string, slugs:string[]}>}
+ */
+const GUIDE_GROUPS = Object.freeze([
+  {
+    label: 'Focus sessions & deep work',
+    slugs: ['how-long-should-a-pomodoro-be', 'ultradian-rhythms-and-focus', 'deep-work-and-attention-residue', 'time-blocking'],
+  },
+  {
+    label: 'Breaks, breathing & calm',
+    slugs: ['the-physiological-sigh', 'box-breathing', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
+  },
+  {
+    label: 'Procrastination, habits & planning',
+    slugs: ['why-we-procrastinate', 'habit-stacking', 'the-weekly-review', 'notification-batching'],
+  },
+  {
+    label: 'Focus, ADHD & the body',
+    slugs: ['adhd-focus-strategies', 'sleep-and-executive-function', 'caffeine-timing-and-focus', 'workspace-ergonomics', 'music-and-noise-for-focus'],
+  },
+]);
+
+/**
+ * Render the /guides/ index page — grouped by theme, with a CollectionPage +
+ * ItemList structured-data block so search engines see the full catalogue.
  * @param {Array} list guides array
  * @returns {string} full HTML page
  */
 export function renderGuidesIndex(list) {
-  const cards = list.map(g => `<a class="card" href="/guides/${g.slug}.html">
+  const bySlug = new Map(list.map((g) => [g.slug, g]));
+  const card = (g) => `<a class="card" href="/guides/${g.slug}.html">
   <h3>${g.title}</h3>
   <p>${g.description}</p>
-</a>`).join('\n');
+</a>`;
+  const used = new Set();
+  const sections = GUIDE_GROUPS.map((group) => {
+    const groupCards = group.slugs
+      .map((slug) => bySlug.get(slug))
+      .filter(Boolean)
+      .map((g) => { used.add(g.slug); return card(g); })
+      .join('\n');
+    return groupCards ? `<h2 class="group">${group.label}</h2>\n${groupCards}` : '';
+  }).filter(Boolean);
+  const leftovers = list.filter((g) => !used.has(g.slug));
+  if (leftovers.length) {
+    sections.push(`<h2 class="group">More guides</h2>\n${leftovers.map(card).join('\n')}`);
+  }
+  // CollectionPage + ItemList: describes the hub as an ordered list of articles.
+  const collectionLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'Focus & Wellness Guides',
+    description: 'Research-grounded guides on focus, attention, breaks, breathing, sleep, and recovery from FocusBro.',
+    url: 'https://focusbro.net/guides/',
+    isPartOf: { '@type': 'WebSite', name: 'FocusBro', url: 'https://focusbro.net/' },
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: list.length,
+      itemListElement: list.map((g, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        url: `https://focusbro.net/guides/${g.slug}.html`,
+        name: g.title,
+      })),
+    },
+  }).replace(/</g, '\\u003c');
+  const breadcrumbLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://focusbro.net/' },
+      { '@type': 'ListItem', position: 2, name: 'Guides', item: 'https://focusbro.net/guides/' },
+    ],
+  }).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
@@ -149,14 +328,21 @@ export function renderGuidesIndex(list) {
 <title>Focus &amp; Wellness Guides — FocusBro</title>
 <meta name="description" content="Research-grounded guides on focus, attention, breaks, breathing, and recovery — the science behind the tools in FocusBro." />
 <link rel="canonical" href="https://focusbro.net/guides/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="FocusBro" />
+<meta property="og:title" content="Focus &amp; Wellness Guides — FocusBro" />
+<meta property="og:url" content="https://focusbro.net/guides/" />
+<script type="application/ld+json">${collectionLd}</script>
+<script type="application/ld+json">${breadcrumbLd}</script>
 ${AD_CLIENT_SCRIPT}
 <style>${SHELL_CSS}</style>
 </head><body>
 ${SITE_HEADER}
 <main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › <span>Guides</span></nav>
 <h1>Guides</h1>
 <p class="lede">Short, practical explainers on how attention actually works — and how to spend and restore it. Every guide draws on published research, named where it matters. Then put it to use in the <a href="/">FocusBro app</a>.</p>
-${cards}
+${sections.join('\n\n')}
 </main>
 ${SITE_FOOTER}
 </body></html>`;
@@ -169,6 +355,12 @@ ${SITE_FOOTER}
 export const guides = [
   {
     slug: 'how-long-should-a-pomodoro-be',
+    faqs: [
+      { q: `Is 25 minutes the "correct" Pomodoro length?`, a: `No. Twenty-five minutes is the original starting point, not a rule. The two things that make the method work are a clear boundary you commit to and a real break afterward. Match the length to the task: short blocks of 15 to 25 minutes lower the cost of starting hard or dull work, while 45- to 90-minute blocks suit deep work that needs a long run-up.` },
+      { q: `Should I take a break even if I'm focusing well?`, a: `Usually yes. The short break is what prevents the slow decline in the next interval. If you are genuinely in deep flow, treat that as a reason to use a longer block next time rather than to abolish rest entirely, and size future blocks to the task so the timer stops cutting off your best work.` },
+      { q: `What should I actually do during the break?`, a: `Let your attention idle away from a screen: stand up, stretch, look out a window, walk, hydrate, or do a minute of slow breathing. Scrolling a feed keeps your attention system working, so it is not much of a rest for the part of you that needs one.` },
+      { q: `How do I handle interruptions mid-block?`, a: `For an internal urge to check or switch, jot it on a scrap of paper and keep working until the timer rings; most impulses fade once written down. For an external interruption, defend the block where you can, because reloading a complex task after breaking off can take several minutes, so a 30-second interruption is rarely just 30 seconds.` },
+    ],
     title: 'How Long Should a Pomodoro Be? Sizing Your Focus Intervals',
     description: 'Why the classic 25-minute Pomodoro works, what research says about breaks, and how to size focus intervals to your task and attention span.',
     lastmod: '2026-07-05',
@@ -330,6 +522,16 @@ export const guides = [
 
   {
     slug: 'the-physiological-sigh',
+    howto: {
+      name: 'How to do a physiological sigh',
+      description: 'A double inhale followed by a long, slow exhale to take the edge off stress in under a minute.',
+      steps: [
+        'Inhale through your nose until your lungs feel comfortably full.',
+        'Without exhaling, take a second, shorter sip of air through your nose to top off.',
+        'Exhale slowly and completely through your mouth, letting the out-breath last longer than the two inhales.',
+        'Repeat one to three times for a quick reset, or continue for a few minutes for a deeper effect.',
+      ],
+    },
     title: 'The Physiological Sigh: The Fastest Way to Calm Down',
     description: 'The double-inhale physiological sigh, the research behind it including a 2023 Stanford trial, and how to use it to lower stress in about a minute.',
     lastmod: '2026-07-05',
@@ -432,6 +634,12 @@ export const guides = [
 
   {
     slug: 'why-we-procrastinate',
+    faqs: [
+      { q: `Is procrastination just laziness or bad time management?`, a: `The research points elsewhere: procrastination is largely about managing emotion, not time. We put things off to escape a bad feeling in the present — the task feels boring, hard, or threatening — and avoiding it brings instant relief. That is why "just try harder" rarely helps; the useful moves are the ones that lower the emotional cost of starting.` },
+      { q: `What is the single most effective thing I can do?`, a: `Shrink the first step until it is almost trivially doable — "open the document and write one bad sentence" instead of "write the report." The hardest moment is almost always the transition into the work, not the work itself, so making that first step tiny is what gets you moving.` },
+      { q: `Does being hard on myself help me stop?`, a: `The evidence suggests the opposite. Self-criticism adds another layer of bad feeling to a task, and bad feeling is what you were fleeing in the first place, so harshness tends to feed the cycle. Treating a lapse as information and starting the next block cleanly works better than a guilt spiral.` },
+      { q: `Why do deadlines work so well?`, a: `A deadline collapses the delay between effort and payoff, and near-term stakes pull far harder on motivation than distant ones. You can manufacture the same effect on purpose with short, self-imposed deadlines and by breaking a distant goal into this-week and today-sized pieces, each with its own small finish.` },
+    ],
     title: 'Why We Procrastinate — and What Actually Helps',
     description: 'Procrastination is an emotion-regulation problem, not laziness. Temporal Motivation Theory, the research of Piers Steel and Tim Pychyl, and practical fixes that work with your psychology.',
     lastmod: '2026-07-05',
@@ -575,6 +783,12 @@ export const guides = [
 
   {
     slug: 'caffeine-timing-and-focus',
+    faqs: [
+      { q: `How late in the day can I have caffeine?`, a: `A practical rule that follows from caffeine's long half-life is to stop at least eight to ten hours before bed — for many people that means nothing after early-to-mid afternoon. Caffeine lingers far longer than the buzz suggests, so a late cup can quietly reduce the depth of that night's sleep even when you fall asleep fine.` },
+      { q: `Does caffeine actually give me energy?`, a: `Not exactly. Caffeine blocks the receptors that adenosine, a drowsiness signal that builds up while you are awake, would otherwise bind to. You temporarily stop feeling tiredness that is already there, but the adenosine keeps accumulating behind the blockade, which is part of why a crash can follow.` },
+      { q: `What causes the caffeine crash?`, a: `When the caffeine finally clears the receptors, the adenosine that piled up while it was blocked binds all at once, and the tiredness it was masking arrives in a rush. Reaching for another cup restarts the cycle and pushes caffeine later into the day, where it can cost you sleep.` },
+      { q: `How can I beat the afternoon slump without more coffee?`, a: `Treat the mid-afternoon dip as the trough of your natural energy rhythm rather than a caffeine emergency. A short walk, a few minutes outdoors, a slow-breathing reset, or a glass of water will often carry you through without borrowing against that night's sleep.` },
+    ],
     title: 'Caffeine Timing: How to Get the Focus Without Wrecking Your Sleep',
     description: 'How caffeine blocks adenosine, why its long half-life means an afternoon coffee can still cost you sleep, and how to time it — grounded in sleep research.',
     lastmod: '2026-07-05',
@@ -623,6 +837,12 @@ export const guides = [
 
   {
     slug: 'adhd-focus-strategies',
+    faqs: [
+      { q: `Does ADHD mean you can't pay attention at all?`, a: `The name is a little misleading. The difficulty is less about a lack of attention — focus can be intense on the right thing — and more about regulating attention, time, and action. Framing it that way points toward strategies that build structure into your surroundings rather than relying on willpower. This is general education, not medical advice.` },
+      { q: `What is the most useful single principle?`, a: `Externalize as much as you can: move memory, time, and future stakes out of your head and into your environment, where they are visible and hard to ignore. A countdown timer you can see makes time concrete, and capturing every task into one trusted list the moment it appears beats trying to remember it later.` },
+      { q: `What is body doubling?`, a: `Body doubling means doing a task in the presence of another person — in the room or over a video call — even if they are working on something else. Many people find that a quiet witness makes it much easier to start and stay on task. The formal research base is still thin, so it is best described as a widely-reported practical technique rather than a proven treatment, but it costs nothing to try.` },
+      { q: `Why is starting so hard, and what helps?`, a: `For many people the gap between deciding to do something and actually beginning is the hardest part. Making the first step almost laughably small — "open the folder," not "do the taxes" — gets you past the point where things tend to stall, and a short, bounded timer makes committing to just a few minutes a far smaller ask than an open-ended task.` },
+    ],
     title: 'Focus Strategies for ADHD: Working With Your Brain, Not Against It',
     description: 'ADHD as a challenge of executive function and self-regulation, drawing on Russell Barkley’s model — plus externalizing, body doubling, and other practical strategies.',
     lastmod: '2026-07-05',
@@ -677,6 +897,12 @@ export const guides = [
 
   {
     slug: 'sleep-and-executive-function',
+    faqs: [
+      { q: `Can I train myself to do fine on five or six hours?`, a: `For the overwhelming majority of people, no. Studies of chronic short sleep found that objective performance kept declining while people rated their own sleepiness as only slightly elevated — the deficit is real but hard to feel. Genuine short sleepers who thrive on little sleep exist, but they are vanishingly rare. This is general education, not medical advice.` },
+      { q: `Which mental skills suffer first when I'm underslept?`, a: `Executive functions — holding information in mind, planning, switching tasks, and resisting the impulse to check your phone — lean heavily on the prefrontal cortex, one of the regions most sensitive to lost sleep. So after a short night, the very system you rely on to concentrate is the one running on the least fuel.` },
+      { q: `Does weekend catch-up sleep undo the damage?`, a: `It helps somewhat, but research on sleep restriction suggests it does not fully erase a week's accumulated deficit. A steady wake time — even on weekends — does more for daytime focus than trying to rescue a bad week with a long weekend lie-in.` },
+      { q: `Do naps help?`, a: `A short 10-to-20-minute nap can restore alertness without leaving you groggy. A longer nap risks waking you mid-deep-sleep, so it is better reserved for when you can afford a full cycle of about 90 minutes. A nap is a useful patch, though, not a substitute for a full night's sleep.` },
+    ],
     title: 'Sleep and Executive Function: Why a Bad Night Wrecks Your Focus',
     description: 'Sleep loss hits the prefrontal cortex first. What Van Dongen and Dinges found about chronic short sleep, why you cannot feel the deficit, and what to protect if you want to think clearly.',
     lastmod: '2026-07-05',
@@ -987,6 +1213,16 @@ export const guides = [
 
   {
     slug: 'box-breathing',
+    howto: {
+      name: 'How to do box breathing',
+      description: 'Breathe in, hold, out, and hold for equal four counts to steady the nervous system.',
+      steps: [
+        'Inhale smoothly through your nose for a count of four, letting your belly expand rather than your shoulders rising.',
+        'Hold gently with your lungs comfortably full for a count of four.',
+        'Exhale slowly through your nose or lightly pursed lips for a count of four.',
+        'Hold with your lungs empty for a count of four, then repeat the square.',
+      ],
+    },
     title: 'Box Breathing: The Four-Count Square for Steady Calm',
     description: 'How box breathing — inhale, hold, exhale, hold for equal four counts — steadies the nervous system, what the slow-breathing research actually shows, and how to use it.',
     lastmod: '2026-07-13',
