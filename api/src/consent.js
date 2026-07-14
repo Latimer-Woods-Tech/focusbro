@@ -55,6 +55,39 @@ export const CONSENT_CHANNELS = ['text', 'voice'];
 export const CONSENT_VERSION = '2026-07-06.1';
 
 /**
+ * The escalation ceiling: the hardest rung the ladder is EVER allowed to climb,
+ * chosen by the person and never crossed. This is the wedge no rival sells —
+ * everyone else jumps straight to a call; here YOU set the limit.
+ *   - 'none' → just the nudge; a quiet check-in never gets a text follow-up.
+ *   - 'text' → push → one SMS (the default; preserves the existing ladder).
+ *   - 'call' → push → SMS → a gentle call. Stored forward-compatibly, but the
+ *     cron tops out at SMS until the voice rung (Phase B) ships.
+ * Low→high order also encodes "how far up the ladder may climb".
+ */
+export const CEILING_LEVELS = ['none', 'text', 'call'];
+export const DEFAULT_CEILING = 'text';
+
+/**
+ * Read a user's chosen escalation ceiling. Defaults to 'text' when unset or on
+ * any read error, so a missing preference preserves the current ladder rather
+ * than silencing it.
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {string} userId
+ * @returns {Promise<'none'|'text'|'call'>}
+ */
+export async function getEscalationCeiling(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT ceiling FROM escalation_prefs WHERE user_id = ?`
+    ).bind(userId).first();
+    const c = row && row.ceiling;
+    return CEILING_LEVELS.includes(c) ? c : DEFAULT_CEILING;
+  } catch (err) {
+    return DEFAULT_CEILING;
+  }
+}
+
+/**
  * The exact clear-language disclosure a person agrees to. This string is BOTH
  * shown at capture time AND stored verbatim on the consent record, so we can
  * always prove what was disclosed. Keep it plain, honest, TCPA-clear.
@@ -579,6 +612,45 @@ export function registerConsentRoutes(router, ctx) {
       console.error('[consent] inbound webhook error:', err && err.message);
       // Webhooks must not retry-storm on our errors; acknowledge.
       return jsonResponse({ ok: true, action: 'error' }, 200);
+    }
+  });
+
+  // ── GET the escalation ceiling (how far up the ladder may ever climb) ──
+  router.get('/api/escalation', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const ceiling = await getEscalationCeiling(env, auth.userId);
+      return jsonResponse({ ceiling, levels: CEILING_LEVELS }, 200, 'short');
+    } catch (err) {
+      console.error('[escalation] get error:', err && err.message);
+      return jsonResponse({ error: 'Could not load your nudge settings.' }, 500);
+    }
+  });
+
+  // ── SET the escalation ceiling ──
+  // The person is always in control: this caps the ladder and the cron never
+  // climbs past it. 'call' is accepted forward-compatibly (the voice rung,
+  // Phase B) even though the ladder tops out at SMS until voice ships.
+  router.post('/api/escalation', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      const ceiling = body && typeof body.ceiling === 'string' ? body.ceiling.toLowerCase() : null;
+      if (!CEILING_LEVELS.includes(ceiling)) {
+        return jsonResponse({ error: `Ceiling must be one of: ${CEILING_LEVELS.join(', ')}.` }, 400);
+      }
+      await env.DB.prepare(
+        `INSERT INTO escalation_prefs (user_id, ceiling, updated_at)
+              VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET ceiling = excluded.ceiling, updated_at = CURRENT_TIMESTAMP`
+      ).bind(auth.userId, ceiling).run();
+      return jsonResponse({ ok: true, ceiling }, 200);
+    } catch (err) {
+      console.error('[escalation] set error:', err && err.message);
+      return jsonResponse({ error: 'Could not save that just now — try again.' }, 500);
     }
   });
 

@@ -310,9 +310,10 @@ export async function runEscalations(env, opts = {}) {
 
   const quiet = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
-            m.title, m.persona
+            m.title, m.persona, COALESCE(ep.ceiling, 'text') AS ceiling
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
+       LEFT JOIN escalation_prefs ep ON ep.user_id = c.user_id
       WHERE c.status = 'sent' AND c.channel = 'push'
         AND c.responded_at IS NULL AND c.escalated_at IS NULL
         AND c.delivered_at <= ?
@@ -325,28 +326,35 @@ export async function runEscalations(env, opts = {}) {
   for (const row of rows) {
     summary.scanned++;
 
-    // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
-    // TCPA gate as a text check-in. No granted consent → this user simply has
-    // no escalation ladder (latch the row so it's never rescanned). Inside
-    // quiet hours → leave untouched; a later tick escalates once the window
-    // passes. The ladder never wakes anyone up.
-    let gate;
-    try {
-      gate = await evaluateContactGate(env, { userId: row.user_id, channel: 'text', nowISO: now });
-    } catch (err) {
-      gate = { skip: (err && err.message) || 'consent_gate_error' };
-    }
-    if (gate.defer) { summary.deferred++; continue; }
-
     let outcome = null;
-    if (gate.skip) {
-      outcome = { status: 'skipped', detail: gate.skip };
+    if (row.ceiling === 'none') {
+      // CEILING (the wedge): the person set their ladder to "just the nudge" — it
+      // is never allowed to climb to a text for them. Latch so it's never
+      // rescanned. A chosen ceiling is not a failure — it counts as skipped.
+      outcome = { status: 'skipped', detail: 'ceiling_none' };
     } else {
+      // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
+      // TCPA gate as a text check-in. No granted consent → this user simply has
+      // no escalation ladder (latch the row so it's never rescanned). Inside
+      // quiet hours → leave untouched; a later tick escalates once the window
+      // passes. The ladder never wakes anyone up.
+      let gate;
       try {
-        const message = `${escalationCopy({ title: row.title, persona: row.persona })}\n\n${checkinReplyHint(row.persona)}`;
-        outcome = await deliverText(env, row, message);
+        gate = await evaluateContactGate(env, { userId: row.user_id, channel: 'text', nowISO: now });
       } catch (err) {
-        outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
+        gate = { skip: (err && err.message) || 'consent_gate_error' };
+      }
+      if (gate.defer) { summary.deferred++; continue; }
+
+      if (gate.skip) {
+        outcome = { status: 'skipped', detail: gate.skip };
+      } else {
+        try {
+          const message = `${escalationCopy({ title: row.title, persona: row.persona })}\n\n${checkinReplyHint(row.persona)}`;
+          outcome = await deliverText(env, row, message);
+        } catch (err) {
+          outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
+        }
       }
     }
 

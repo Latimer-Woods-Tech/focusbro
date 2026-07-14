@@ -229,6 +229,18 @@ async function initializeDatabase(env) {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_prefs(user_id)`,
+      // The escalation ceiling — the wedge nobody else sells: the person sets the
+      // hardest rung the ladder is EVER allowed to climb, and the cron never
+      // crosses it. 'none' = just the nudge (no text follow-up ever); 'text' =
+      // push→one SMS (the default, preserves current behavior); 'call' = reserved
+      // for the voice rung (Phase B) — stored forward-compatibly, but the ladder
+      // tops out at SMS until voice ships.
+      `CREATE TABLE IF NOT EXISTS escalation_prefs (
+        user_id TEXT PRIMARY KEY,
+        ceiling TEXT DEFAULT 'text',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
       // ── END PHASE 3 TABLES ──
       // ── PHASE 4 TABLES ──
       `CREATE TABLE IF NOT EXISTS slack_integrations (
