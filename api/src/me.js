@@ -179,6 +179,29 @@ export function reentryBodyCopy() {
 }
 
 /**
+ * The nudged-back welcome heading — shown ONLY when a person arrives via the
+ * return-nudge deep-link (`/me/?from=return`, W4 / L3, #40). It closes the
+ * outreach loop: the bro reached out, and here they are. Warmer and more personal
+ * than the generic re-entry door, it acknowledges that they showed up — never the
+ * absence that prompted the nudge. Shown once per arrival, then the marker clears.
+ */
+export function returnWelcomeHeadingCopy() {
+  return 'Glad you’re here.';
+}
+
+/**
+ * Nudged-back welcome body — an ally glad you picked up, holding the door open.
+ * The design LAW at its sharpest: it celebrates the return itself, names no gap,
+ * no lapsed streak, nothing owed — just the next small word whenever they're
+ * ready. This is the on-page half of the return nudge's "no pressure at all."
+ */
+export function returnWelcomeBodyCopy() {
+  return 'You showed up — that’s the whole thing, and I’m glad you did. Nothing to catch ' +
+    'up on and nothing to explain; just pick the next thing you’ll do, and I’ll be right ' +
+    'here to check in.';
+}
+
+/**
  * Which entry banner (if any) belongs on the page, derived purely from the live
  * commitments list. Single source of truth for both the first-run and re-entry
  * toggles — the client mirrors this exact branch inline.
@@ -308,6 +331,8 @@ export function meCopySurface() {
     ...firstRunExamples(),
     reentryHeadingCopy(),
     reentryBodyCopy(),
+    returnWelcomeHeadingCopy(),
+    returnWelcomeBodyCopy(),
     emptyCommitmentsCopy(),
     streakHeadingCopy(),
     labels.kept, labels.missed, labels.reschedule,
@@ -388,6 +413,11 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   <div id="reentry" class="card firstrun hidden">
     <h2>${reentryHeadingCopy()}</h2>
     <p class="streakmsg">${reentryBodyCopy()}</p>
+  </div>
+
+  <div id="returnWelcome" class="card firstrun hidden">
+    <h2>${returnWelcomeHeadingCopy()}</h2>
+    <p class="streakmsg">${returnWelcomeBodyCopy()}</p>
   </div>
 
   <div class="card">
@@ -767,8 +797,11 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var state = entryState(commitments);
     var first = el('firstRun');
     var back = el('reentry');
-    if (first) { if (state === 'first-word') show(first); else hide(first); }
-    if (back) { if (state === 'welcome-back') show(back); else hide(back); }
+    // When the nudged-back welcome is up (arrived via ?from=return), it replaces
+    // the generic first-run/re-entry doors — a returning person never sees the
+    // cold-start pitch, and two "welcome back" banners never stack.
+    if (first) { if (state === 'first-word' && !FROM_RETURN) show(first); else hide(first); }
+    if (back) { if (state === 'welcome-back' && !FROM_RETURN) show(back); else hide(back); }
     if (state === 'first-word' && !_firstRunFocused) {
       _firstRunFocused = true;
       var t = el('title');
@@ -809,7 +842,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (w) { try { w.focus(); } catch (e) {} }
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
+  // The return-nudge deep-link (#40, W4/L3): a person the bro reached out to has
+  // tapped back in (?from=return). Read the marker once, up front, so it survives
+  // the sign-in gate — then greet them with the specifically warm nudged-back
+  // welcome and clear the marker so a reload never re-greets. Never names the gap.
+  var FROM_RETURN = (function () {
+    try { return new URLSearchParams(location.search).get('from') === 'return'; }
+    catch (e) { return false; }
+  })();
+  function applyReturnWelcome() {
+    if (!FROM_RETURN) return;
+    show(el('returnWelcome'));
+    // Drop just the marker (keep any ?task= prefill) so a refresh won't re-greet.
+    try {
+      var u = new URL(location.href);
+      u.searchParams.delete('from');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (e) {}
+  }
+
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 

@@ -66,4 +66,14 @@ describe('Worker routing', () => {
     expect(res.status).toBe(301);
     expect(res.headers.get('Location')).toBe('https://focusbro.net/');
   });
+
+  it('the served service worker deep-links a tapped notification via data.url', async () => {
+    const res = await call('GET', '/sw.js');
+    expect(res.status).toBe(200);
+    const sw = await res.text();
+    // A tapped notification must honor its explicit deep-link (data.url) first —
+    // this is what carries the return nudge to /me/?from=return instead of '/'.
+    expect(sw).toContain('data.url ||');
+    expect(sw).toContain('notificationclick');
+  });
 });

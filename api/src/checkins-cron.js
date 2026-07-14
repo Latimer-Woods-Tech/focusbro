@@ -526,6 +526,14 @@ export function returnNudgeKey(userId) {
 }
 
 /**
+ * The deep-link a tapped return nudge opens. The `?from=return` marker lets /me/
+ * greet a nudged-back person with a specifically warm "glad you're here" welcome
+ * (closing the outreach loop), instead of the generic re-entry door — the design
+ * LAW at the re-engagement moment. See me.js `applyReturnWelcome`.
+ */
+export const RETURN_NUDGE_DEEPLINK = '/me/?from=return';
+
+/**
  * True when the local hour at `nowISO` in `timezone` is inside the daytime
  * window. An unknown/blank timezone falls back to UTC rather than blocking — a
  * best-effort courtesy, not a hard gate (text still has its own quiet-hours gate).
@@ -555,7 +563,7 @@ async function deliverReturnPush(env, userId, message) {
     title: 'FocusBro',
     body: message,
     tag: 'return-nudge',
-    data: { type: 'return_nudge', url: '/me/' },
+    data: { type: 'return_nudge', url: RETURN_NUDGE_DEEPLINK },
   };
   let anySent = false;
   let lastErr = 'push_failed';

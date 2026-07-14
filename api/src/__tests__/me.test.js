@@ -27,6 +27,8 @@ import {
   firstRunExamples,
   reentryHeadingCopy,
   reentryBodyCopy,
+  returnWelcomeHeadingCopy,
+  returnWelcomeBodyCopy,
   entryState,
   meCopySurface,
   renderMePage,
@@ -310,6 +312,59 @@ describe('a returning person is welcomed back, never cold-started or scolded', (
     const surface = meCopySurface();
     expect(surface).toContain(reentryHeadingCopy());
     expect(surface).toContain(reentryBodyCopy());
+  });
+});
+
+describe('a nudged-back person is greeted, never questioned about the gap (#40 W4/L3)', () => {
+  const html = renderMePage();
+
+  it('exposes warm, non-empty nudged-back welcome copy that is distinct from the generic door', () => {
+    expect(returnWelcomeHeadingCopy().trim().length).toBeGreaterThan(0);
+    expect(returnWelcomeBodyCopy().trim().length).toBeGreaterThan(0);
+    // A different, warmer greeting than the generic re-entry door — not a rename.
+    expect(returnWelcomeHeadingCopy()).not.toBe(reentryHeadingCopy());
+    expect(returnWelcomeBodyCopy()).not.toBe(reentryBodyCopy());
+  });
+
+  it('never shames, brands "AI", names the gap, or makes a clinical claim', () => {
+    for (const s of [returnWelcomeHeadingCopy(), returnWelcomeBodyCopy()]) {
+      for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in nudged-back copy: "${s}" matched ${pat}`).toBe(false);
+      expect(AI_WORD.test(s), `"AI" in nudged-back copy: "${s}"`).toBe(false);
+      for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in nudged-back copy: "${s}"`).toBe(false);
+    }
+    // The LAW at the re-engagement moment: the copy celebrates the return and
+    // never names the absence that prompted the nudge (no "while", "away", "gap").
+    const body = returnWelcomeBodyCopy().toLowerCase();
+    for (const gapWord of ['while', 'away', 'gap', 'been so long', 'disappear']) {
+      expect(body.includes(gapWord), `names the gap ("${gapWord}") in nudged-back copy`).toBe(false);
+    }
+  });
+
+  it('renders the nudged-back panel + its copy, hidden until the return marker reveals it', () => {
+    expect(html).toContain('id="returnWelcome"');
+    expect(html).toContain(returnWelcomeHeadingCopy());
+    expect(html).toContain(returnWelcomeBodyCopy());
+  });
+
+  it('reveals the panel only on the ?from=return deep-link, then clears the marker', () => {
+    // The marker is read once, up front (survives the sign-in gate)...
+    expect(html).toContain("get('from') === 'return'");
+    expect(html).toContain('applyReturnWelcome');
+    // ...and is dropped from the URL so a reload never re-greets.
+    expect(html).toContain("searchParams.delete('from')");
+    expect(html).toContain('history.replaceState');
+  });
+
+  it('replaces — never stacks with — the generic first-run / re-entry doors', () => {
+    // Both generic banners are suppressed while the nudged-back welcome is up.
+    expect(html).toContain("state === 'first-word' && !FROM_RETURN");
+    expect(html).toContain("state === 'welcome-back' && !FROM_RETURN");
+  });
+
+  it('folds the nudged-back copy into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(returnWelcomeHeadingCopy());
+    expect(surface).toContain(returnWelcomeBodyCopy());
   });
 });
 
