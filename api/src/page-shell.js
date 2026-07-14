@@ -104,6 +104,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .momentum-peak { color: var(--primary-light); font-size: 13px; font-weight: 600; margin: 2px 0 0; }
   /* weekly report */
   .headline { font-size: 18px; font-weight: 600; margin: 0 0 6px; color: var(--text); }
+  .showed-up { color: var(--primary-light); font-size: 13px; margin: 8px 0 0; }
   .stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0 2px; }
   .stat { text-align: center; }
   .stat b { display: block; font-size: 26px; font-weight: 700; color: var(--primary-light); line-height: 1.1; }

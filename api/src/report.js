@@ -28,6 +28,7 @@ import { pageHead, pageNav } from './page-shell.js';
 // ════════════════════════════════════════════════════════════
 
 import { describeCadence, formatWhenLocal } from './accountability.js';
+import { EVENTS } from './events.js';
 import {
   MOMENTUM_WINDOW_DAYS,
   bucketKeptByDay,
@@ -86,6 +87,23 @@ export function nextStepCopy({ keptThisWeek = 0, activeCount = 0, current = 0 } 
 }
 
 /**
+ * The mutual-accountability line: how many times FocusBro ITSELF showed up for
+ * you this week — the check-ins it delivered when it said it would. This counts
+ * the ALLY keeping its word, never the person's outcomes, so by construction it
+ * can only ever read as support: a delivered nudge is "the bro rang you," full
+ * stop, whether the word was then kept, moved, or is still in flight. Empty when
+ * the bro hasn't had a moment to show up yet this week — nothing to celebrate,
+ * nothing to apologise for, just a quiet page (per the module's design LAW).
+ * @param {object} p { showedUp }
+ * @returns {string}
+ */
+export function showedUpCopy({ showedUp = 0 } = {}) {
+  const n = Number(showedUp) || 0;
+  if (n <= 0) return '';
+  return `And FocusBro showed up for you ${n} time${n === 1 ? '' : 's'} this week — the bro kept its word too.`;
+}
+
+/**
  * Warm one-line summary of the rhythms on the books — the shape of what you've
  * asked the bro to show up for, never a scorecard. Empty when nothing is live.
  * @param {number} activeCount
@@ -133,7 +151,7 @@ export function rhythmNextCopy({ iso, timezone, nowISO } = {}) {
  * @param {string} [p.nowISO]          "today" anchor (defaults to now)
  * @returns {object} the structured report
  */
-export function buildWeeklyReport({ streak = {}, keptTimestamps = [], rhythms = [], timezone, nowISO } = {}) {
+export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], rhythms = [], timezone, nowISO } = {}) {
   const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
   const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
 
@@ -149,6 +167,14 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], rhythms = 
     keptThisWeek += b.count;
     if (b.count > bestDay.count) bestDay = b;
   }
+
+  // The ally's side of the same week, on the SAME 7-local-day axis: how many
+  // check-ins the bro actually delivered ("showed up"). A support signal, never
+  // a scorecard — see showedUpCopy. Deliveries are distinct from kept words (a
+  // delivered nudge may be kept, moved, or still open), so the two never merge.
+  const deliveredBuckets = bucketKeptByDay({ timestamps: deliveredTimestamps, days: WEEKLY_WINDOW_DAYS, nowISO: anchorISO, timezone: tz });
+  let showedUpThisWeek = 0;
+  for (const b of deliveredBuckets) showedUpThisWeek += b.count;
 
   // 14-day momentum (first-person voice injected by the route via momentum copy;
   // here we build the neutral shape and let the route/text carry the words).
@@ -175,6 +201,8 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], rhythms = 
     intro: reportIntroCopy(),
     headline: reportHeadlineCopy({ keptThisWeek, current }),
     kept_this_week: keptThisWeek,
+    showed_up_this_week: showedUpThisWeek,
+    showed_up_line: showedUpCopy({ showedUp: showedUpThisWeek }),
     best_day: { date: bestDay.date, count: bestDay.count },
     streak: { current_streak: current, longest_streak: longest, total_kept: total },
     momentum,
@@ -205,6 +233,10 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
   lines.push(`Words kept this week: ${Number(report.kept_this_week) || 0}`);
   lines.push(`Current kept-word run: ${Number(s.current_streak) || 0} (best ever: ${Number(s.longest_streak) || 0})`);
   lines.push(`Words kept, all time: ${Number(s.total_kept) || 0}`);
+  const showedUp = Number(report.showed_up_this_week) || 0;
+  if (showedUp > 0) {
+    lines.push(`FocusBro showed up for you: ${showedUp} time${showedUp === 1 ? '' : 's'} this week`);
+  }
   if (report.momentum && report.momentum.sparkline) {
     lines.push('');
     lines.push(`Momentum (last ${report.momentum.days || MOMENTUM_WINDOW_DAYS} days): ${report.momentum.sparkline}`);
@@ -278,6 +310,18 @@ export function registerReportRoutes(router, ctx) {
       ).bind(auth.userId, windowCutoffISO).all();
       const keptTimestamps = ((keptRows && keptRows.results) || []).map((r) => r.responded_at);
 
+      // The ally's showings-up: first-party 'checkin_delivered' events for THIS
+      // user (the moment the bro rang). Same wide raw window as kept instants;
+      // buildWeeklyReport buckets to the trailing 7 local days. A support signal,
+      // never a miss series — see showedUpCopy's design-LAW note.
+      const deliveredRows = await env.DB.prepare(
+        `SELECT created_at FROM analytics_events
+          WHERE user_id = ? AND event_type = ? AND created_at >= ?
+          ORDER BY created_at ASC
+          LIMIT 1000`
+      ).bind(auth.userId, EVENTS.CHECKIN_DELIVERED, windowCutoffISO).all();
+      const deliveredTimestamps = ((deliveredRows && deliveredRows.results) || []).map((r) => r.created_at);
+
       // Active rhythms + the soonest OUTSTANDING check-in per commitment (one
       // grouped query, not N+1). Outstanding = a future moment about to be kept.
       const commitmentsRes = await env.DB.prepare(
@@ -310,7 +354,7 @@ export function registerReportRoutes(router, ctx) {
         next_checkin: nextByCommitment[c.id] || null,
       }));
 
-      const report = buildWeeklyReport({ streak, keptTimestamps, rhythms, timezone, nowISO });
+      const report = buildWeeklyReport({ streak, keptTimestamps, deliveredTimestamps, rhythms, timezone, nowISO });
       const text = renderReportText(report);
 
       return jsonResponse({ report, text }, 200, 'nocache');
@@ -349,6 +393,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     </div>
     <div class="spark" id="spark" aria-hidden="true"></div>
     <p class="momentum-summary" id="momentum-summary"></p>
+    <p class="showed-up" id="showed-up"></p>
   </div>
 
   <div class="card">
@@ -414,6 +459,13 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
         spark.appendChild(bar);
       }
       el('momentum-summary').textContent = mo.summary || '';
+
+      // Mutual-accountability line: the bro kept its word too. Hidden entirely
+      // when there's nothing yet — a quiet page, never a "0 times" negative.
+      var showedUpLine = rep.showed_up_line || '';
+      var suEl = el('showed-up');
+      if (showedUpLine) { suEl.textContent = showedUpLine; suEl.classList.remove('hidden'); }
+      else { suEl.textContent = ''; suEl.classList.add('hidden'); }
 
       el('rhythms-intro').textContent = rep.rhythms_intro || '';
       var rh = el('rhythms');
