@@ -12,6 +12,7 @@ import { registerConsentRoutes } from './consent.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
+import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
@@ -1887,50 +1888,9 @@ router.get('/me/report/', async () => slashRedirect('/me/report'));
 
 router.get('/coach/', async (request) => {
   if (new URL(request.url).pathname !== '/coach/') return slashRedirect('/coach/');
-  const page = `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="noindex, nofollow" />
-<title>Coach dashboard — FocusBro</title>
-<meta name="description" content="A read-only view of the people you support and the words they're keeping." />
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 880px; margin: 0 auto; padding: 24px; line-height: 1.55; color: #111827; }
-  a { color: #4f46e5; }
-  h1 { margin-bottom: 4px; }
-  .intro { color: #4b5563; margin-top: 0; }
-  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; margin: 12px 0; }
-  .client { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: center; }
-  .streak { font-size: 28px; font-weight: 700; color: #4f46e5; line-height: 1; }
-  .streak small { display: block; font-size: 12px; font-weight: 500; color: #6b7280; }
-  .name { font-weight: 600; }
-  .line { color: #4b5563; font-size: 14px; }
-  .roster-next { color: #4b5563; font-size: 13px; margin-top: 4px; }
-  .roster-next.waiting { color: #7c6f00; }
-  .pending { opacity: .7; }
-  .muted { color: #6b7280; font-size: 13px; }
-  input, button { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid #d1d5db; }
-  button { background: #4f46e5; color: #fff; border: none; cursor: pointer; }
-  button.secondary { background: #f3f4f6; color: #374151; }
-  form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  .hidden { display: none; }
-  .err { color: #b91c1c; font-size: 14px; }
-  .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-  .rhythm { margin-top: 12px; border-top: 1px dashed #e5e7eb; padding-top: 10px; }
-  .rhythm-intro { margin-bottom: 8px; }
-  .rhythm-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 14px; }
-  .rhythm-title { color: #111827; }
-  .rhythm-cadence { color: #4f46e5; white-space: nowrap; }
-  .rhythm-next { color: #6b7280; font-size: 13px; margin: 0 0 6px; }
-  .rhythm-toggle { font-size: 13px; }
-  .momentum { margin-bottom: 10px; }
-  .momentum-intro { margin-bottom: 8px; }
-  .spark { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 6px 0; }
-  .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
-  .spark-bar.zero { background: #e5e7eb; }
-  .momentum-summary { color: #4b5563; font-size: 13px; margin: 4px 0 2px; }
-</style></head>
+  const page = `${pageHead({ title: "Coach dashboard — FocusBro", description: "A read-only view of the people you support and the words they're keeping.", maxWidth: 880 })}
 <body>
-<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/about.html">About</a></nav>
+${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, { href: '/about.html', label: 'About' }])}
 <h1>Coach dashboard</h1>
 <p class="intro" id="intro">The people you show up for, and the words they&rsquo;re keeping.</p>
 

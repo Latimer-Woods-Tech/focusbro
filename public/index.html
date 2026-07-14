@@ -1841,6 +1841,9 @@
   <button class="nav-item" id="navStats" data-view="stats" onclick="setView('stats')" aria-label="Stats & insights">
     📊<span class="nav-label">Stats</span>
   </button>
+  <a class="nav-item" href="/me/" id="navWord" style="text-decoration:none;" aria-label="Your word — accountability check-ins">
+    🤝<span class="nav-label">Your word</span>
+  </a>
   <div class="nav-divider"></div>
   <button class="nav-item" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark/light theme">
     🌙<span class="nav-label">Theme</span>
@@ -2962,6 +2965,36 @@ function recordSessionComplete(tool, durationSeconds) {
   }
 }
 
+// The pomodoro→word bridge (#76). A finished focus block is the most-earned
+// moment in the app; it's also the free→accountability threshold. Once per app
+// session, OFFER — never nag — to carry that win into a kept word. An offer you
+// can wave off with one tap; a quiet day is just quiet. Links into /me/, the
+// accountability front door. Anti-shame LAW: an ally glad you showed up.
+let __fbWordBridgeShown = false;
+function offerWordBridge() {
+  try {
+    if (__fbWordBridgeShown || document.getElementById('wordBridge')) return;
+    __fbWordBridgeShown = true;
+    const el = document.createElement('div');
+    el.id = 'wordBridge';
+    el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;bottom:20px;left:20px;max-width:320px;z-index:9500;background:var(--bg-card,#141d3f);color:var(--text,#e2e8f0);border:1px solid var(--border,#2a3a6f);border-radius:var(--radius,12px);box-shadow:var(--shadow-lg,0 12px 40px rgba(0,0,0,0.4));padding:16px 18px;font-size:14px;line-height:1.5;animation:slideIn 0.3s ease;';
+    el.innerHTML =
+      '<div style="font-weight:600;margin-bottom:8px;">Nice. Want me to hold you to the next one?</div>' +
+      '<div style="display:flex;gap:10px;align-items:center;">' +
+        '<a href="/me/" style="background:linear-gradient(135deg,var(--primary,#0ea5e9),var(--teal,#14b8a6));color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px;">Give my word →</a>' +
+        '<button type="button" id="wordBridgeDismiss" style="background:none;border:none;color:var(--text-muted,#94a3b8);cursor:pointer;font-size:14px;padding:8px;">Not now</button>' +
+      '</div>';
+    el.querySelector('#wordBridgeDismiss').addEventListener('click', function () {
+      el.style.animation = 'slideOut 0.3s ease';
+      setTimeout(function () { el.remove(); }, 280);
+    });
+    document.body.appendChild(el);
+  } catch (e) {
+    console.warn('offerWordBridge failed (non-fatal):', e && e.message);
+  }
+}
+
 // Flush the queue to the ONE live authed ingest route. Only the accepted slice
 // is dropped from the queue, so a network failure retries later, not loses data.
 function fbFlushTelemetry() {
@@ -3049,6 +3082,7 @@ function pomoComplete() {
     document.getElementById('statPomos').textContent = pomoState.completed;
     saveStats();
     recordSessionComplete('pomodoro', POMO_WORK); // signed-in only; feeds retention spine
+    offerWordBridge(); // #76: warm, once-per-session offer to carry this win into a kept word
 
 
 
