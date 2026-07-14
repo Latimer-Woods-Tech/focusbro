@@ -888,6 +888,30 @@ export function streakSummaryCopy({ streak, persona } = {}) {
   return `You’ve kept your word ${cur} time${cur === 1 ? '' : 's'} in a row${bestPart}. Every single one counts.`;
 }
 
+/**
+ * A personal-best celebration for the kept-word streak — the one thing the raw
+ * streak number can't say on its own: you are AT your all-time high right now.
+ * Shown ONLY when the current run equals the longest you've ever kept
+ * (`current === longest`) and it's worth marking (2+ in a row).
+ *
+ * Anti-shame BY CONSTRUCTION: this line can only exist at a peak, so it can
+ * never surface on a decline. The moment the current run drops below your best,
+ * this returns '' and the page says NOTHING about the gap — never a "streak at
+ * risk", never "you were better before". It frames the mark as "the longest
+ * you've ever kept going", which is honest whether you just set a fresh record
+ * or climbed back to match one (we can't tell the two apart, and both are a win
+ * worth the same warmth). Returns '' when there's no peak to celebrate.
+ *
+ * @param {object} p { streak: { current_streak, longest_streak } }
+ * @returns {string} the celebration line, or '' when not at a personal best
+ */
+export function personalBestCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  const best = Number(streak?.longest_streak) || 0;
+  if (cur < 2 || cur !== best) return '';
+  return `🏆 You’re at your best — ${cur} words kept in a row, the longest you’ve ever kept going. Keep it rolling.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -1853,6 +1877,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       return jsonResponse({
         streak,
         message: streakSummaryCopy({ streak }),
+        best: personalBestCopy({ streak }),
       }, 200, 'short');
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
