@@ -9,6 +9,7 @@ import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerConsentRoutes } from './consent.js';
+import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
@@ -241,6 +242,13 @@ async function initializeDatabase(env) {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       )`,
+      // Focus-sprint presence (body doubling): anonymous heartbeat rows, pruned
+      // on write. No user FK — a signed-out timer user is still real company.
+      `CREATE TABLE IF NOT EXISTS focus_presence (
+        client_id TEXT PRIMARY KEY,
+        last_seen DATETIME NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen)`,
       // ── END PHASE 3 TABLES ──
       // ── PHASE 4 TABLES ──
       `CREATE TABLE IF NOT EXISTS slack_integrations (
@@ -1514,6 +1522,8 @@ registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateU
 // delivery cron consumes evaluateContactGate() so no text/voice check-in can be
 // sent without granted consent, inside quiet hours, or after opt-out.
 registerConsentRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+// Focus-sprint presence (body doubling) — anonymous, no auth ctx needed.
+registerRoomRoutes(router, { jsonResponse });
 
 // ── WEB PUSH SUBSCRIPTION INTAKE (Contender #10, Phase A) ──
 // The ONLY writer of push_subscriptions. Previously stranded in the unmounted
