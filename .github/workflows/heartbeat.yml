@@ -1,0 +1,37 @@
+name: FocusBro delivery heartbeat
+
+# External observer for the accountability delivery cron. The crontab->crons bug
+# (#74) let scheduled() run dead for ~5 weeks with nothing watching. This probe
+# runs OFF-platform (GitHub, not the Worker) so it can catch a total Worker/cron
+# death a self-check never could, and fails loudly (default failure email) when
+# the delivery loop goes stale. scheduled() stamps cron:last_tick in KV each pass;
+# /health reports staleness; this asserts it.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /health and assert the delivery cron is alive
+        run: |
+          cat > check.mjs <<'EOF'
+          const url = 'https://focusbro.net/health';
+          const res = await fetch(url).catch((e) => { console.error('health fetch failed:', e.message); process.exit(1); });
+          if (res.status !== 200) { console.error(`::error::/health returned HTTP ${res.status}`); process.exit(1); }
+          const body = await res.json().catch(() => null);
+          console.log('health:', JSON.stringify(body));
+          if (!body || !body.cron) { console.error('::error::/health has no cron block — deploy stale?'); process.exit(1); }
+          if (body.cron.stale) {
+            console.error(`::error::FocusBro delivery cron is STALE — last_tick=${body.cron.last_tick} age_s=${body.cron.age_seconds} (threshold ${body.cron.threshold_seconds}s)`);
+            process.exit(1);
+          }
+          console.log(`delivery cron healthy — last tick ${body.cron.age_seconds}s ago`);
+          EOF
+          node check.mjs

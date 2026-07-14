@@ -80,6 +80,17 @@ export function giveWordHeadingCopy() {
 }
 
 /**
+ * Contextual note shown when the person arrives from a finished focus block
+ * (the pomodoro→word bridge, #76/R-241). The timer carries the "one thing" they
+ * were focused on into `?task=`, and we prefill the title with it — so the most-
+ * earned moment lands one tap from a kept word, not on a blank form. Design LAW:
+ * still an offer, never a demand — the time and the word are always theirs to set.
+ */
+export function carryOverNoteCopy() {
+  return 'Carrying over what you just focused on. Give it your word and I’ll check in.';
+}
+
+/**
  * First-run welcome heading. Shown ONLY to a signed-in person with zero words
  * given — the activation moment the whole product turns on. An invitation, in
  * their own language; never a scold about an empty page.
@@ -258,6 +269,7 @@ export function meCopySurface() {
   return [
     mePageIntroCopy(),
     giveWordHeadingCopy(),
+    carryOverNoteCopy(),
     firstRunHeadingCopy(),
     firstRunBodyCopy(),
     firstRunExamplesLabel(),
@@ -355,6 +367,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 
   <div class="card">
     <h2>${giveWordHeadingCopy()}</h2>
+    <p class="next-step hidden" id="carryNote">${carryOverNoteCopy()}</p>
     <form id="commitForm">
       <label for="title">What will you do?</label>
       <input id="title" type="text" placeholder="start the taxes" maxlength="200" required />
@@ -735,7 +748,24 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     });
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); loadStreak(); loadList(); loadKept(); loadConsent(); }
+  // The pomodoro→word bridge (#76): the timer carries the "one thing" you were
+  // focused on into ?task=. Prefill the title so a finished focus block lands one
+  // tap from a kept word — never auto-committed; you still set the time and give
+  // the word. Read once, at the top, so it survives the sign-in gate.
+  var PREFILL_TASK = (function () {
+    try { return (new URLSearchParams(location.search).get('task') || '').trim().slice(0, 200); }
+    catch (e) { return ''; }
+  })();
+  function applyPrefill() {
+    if (!PREFILL_TASK) return;
+    var t = el('title');
+    if (t && !t.value) { t.value = PREFILL_TASK; }
+    show(el('carryNote'));
+    var w = el('startAt');
+    if (w) { try { w.focus(); } catch (e) {} }
+  }
+
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); loadStreak(); loadList(); loadKept(); loadConsent(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 
@@ -1068,7 +1098,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .then(function (res) {
         if (!res.ok) { var e = el('commitErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
         var m = el('commitMsg'); m.textContent = res.b.message || 'Got it — I’ll check in.'; show(m);
-        el('title').value = ''; el('startAt').value = '';
+        el('title').value = ''; el('startAt').value = ''; hide(el('carryNote'));
         loadStreak(); loadList();
       })
       .catch(function () { var e = el('commitErr'); e.textContent = 'Could not save that commitment. Try again in a moment.'; show(e); });
