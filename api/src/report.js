@@ -1,3 +1,4 @@
+import { pageHead, pageNav } from './page-shell.js';
 // ════════════════════════════════════════════════════════════
 // FOCUSBRO — WEEKLY REPORT  (Contender track, issue #10, Phase A · R-237)
 // ════════════════════════════════════════════════════════════
@@ -328,43 +329,9 @@ export function registerReportRoutes(router, ctx) {
  * @returns {string} full HTML document
  */
 export function renderReportPage() {
-  return `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="noindex, nofollow" />
-<title>Weekly report — FocusBro</title>
-<meta name="description" content="Your week, in the words you kept — copy it or share it with your coach." />
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px; line-height: 1.55; color: #111827; }
-  a { color: #4f46e5; }
-  h1 { margin-bottom: 4px; }
-  .intro { color: #4b5563; margin-top: 0; }
-  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; margin: 14px 0; }
-  .headline { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
-  .stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0 2px; }
-  .stat { text-align: center; }
-  .stat b { display: block; font-size: 26px; font-weight: 700; color: #4f46e5; line-height: 1.1; }
-  .stat small { color: #6b7280; font-size: 12px; }
-  .spark { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 8px 0 4px; }
-  .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
-  .spark-bar.zero { background: #e5e7eb; }
-  .momentum-summary { color: #4b5563; font-size: 13px; margin: 2px 0; }
-  .rhythm-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 14px; border-top: 1px dashed #e5e7eb; }
-  .rhythm-row:first-of-type { border-top: none; }
-  .rhythm-title { color: #111827; }
-  .rhythm-cadence { color: #4f46e5; white-space: nowrap; }
-  .rhythm-next { color: #6b7280; font-size: 13px; }
-  .next-step { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 12px 14px; color: #3730a3; margin-top: 12px; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-  button { font-size: 15px; padding: 9px 14px; border-radius: 8px; border: none; background: #4f46e5; color: #fff; cursor: pointer; }
-  button.secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
-  .muted { color: #6b7280; font-size: 13px; }
-  .err { color: #b91c1c; font-size: 14px; }
-  .hidden { display: none; }
-  .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-</style></head>
+  return `${pageHead({ title: 'Weekly report — FocusBro', description: 'Your week, in the words you kept — copy it or share it with your coach.', maxWidth: 720 })}
 <body>
-<nav style="font-size:14px;color:#374151;"><a href="/me/">Your words</a> | <a href="/">Home</a> | <a href="/coach/">Coach view</a></nav>
+${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, { href: '/coach/', label: 'Coach view' }])}
 <h1>Weekly report</h1>
 <p class="intro" id="intro">Your week, in the words you kept.</p>
 

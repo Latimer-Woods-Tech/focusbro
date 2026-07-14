@@ -33,6 +33,8 @@ import {
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
+import { pageHead, pageNav } from './page-shell.js';
+
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
 
 /**
@@ -307,68 +309,9 @@ export function renderMePage() {
   const VIEW = detailActionLabel();
   const NEXT_LABEL = listNextCheckinLabelCopy();
   const NEXT_WAITING = listNextCheckinWaitingCopy();
-  return `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="noindex, nofollow" />
-<title>Your word — FocusBro</title>
-<meta name="description" content="Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold." />
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px; line-height: 1.55; color: #111827; }
-  a { color: #4f46e5; }
-  h1 { margin-bottom: 4px; }
-  h2 { font-size: 18px; margin: 0 0 8px; }
-  .intro { color: #4b5563; margin-top: 0; }
-  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; margin: 12px 0; }
-  .streakwrap { display: flex; align-items: center; gap: 18px; }
-  .streak { font-size: 44px; font-weight: 700; color: #4f46e5; line-height: 1; }
-  .streak small { display: block; font-size: 12px; font-weight: 500; color: #6b7280; margin-top: 4px; }
-  .streakmsg { color: #4b5563; font-size: 15px; }
-  .name { font-weight: 600; }
-  .when { color: #6b7280; font-size: 13px; }
-  .when.next { margin-top: 2px; color: #4b5563; }
-  /* An open-but-past check-in is warm, never an alarm — no red, a gentle accent. */
-  .when.next.waiting { color: #7c6f00; }
-  .muted { color: #6b7280; font-size: 13px; }
-  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
-  .pill.active { background: #eef2ff; color: #4338ca; }
-  .pill.kept   { background: #ecfdf5; color: #047857; }
-  .pill.moved  { background: #eff6ff; color: #1d4ed8; }
-  .pill.open   { background: #fff7ed; color: #b45309; }
-  label { display: block; font-size: 13px; color: #374151; margin: 10px 0 4px; }
-  input, select, button, textarea { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid #d1d5db; font-family: inherit; }
-  input, select, textarea { width: 100%; box-sizing: border-box; }
-  button { background: #4f46e5; color: #fff; border: none; cursor: pointer; }
-  button.secondary { background: #f3f4f6; color: #374151; }
-  button.small { padding: 6px 12px; font-size: 14px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .row > div { flex: 1 1 220px; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  .hidden { display: none; }
-  .err { color: #b91c1c; font-size: 14px; }
-  .ok { color: #047857; font-size: 14px; }
-  .commit { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
-  .footnote { margin-top: 28px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-  .momentum-intro { color: #6b7280; font-size: 13px; margin: 0 0 8px; }
-  .spark { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 6px 0; }
-  .spark-bar { flex: 1 1 0; min-width: 4px; background: #4f46e5; border-radius: 2px 2px 0 0; min-height: 3px; opacity: .85; }
-  .spark-bar.zero { background: #e5e7eb; }
-  .momentum-summary { color: #4b5563; font-size: 13px; margin: 4px 0 2px; }
-  .momentum-peak { color: #4f46e5; font-size: 13px; font-weight: 600; margin: 2px 0 0; }
-  .keptrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
-  .keptrow:last-child { border-bottom: none; }
-  .keptrow .tick { color: #047857; font-weight: 700; margin-right: 8px; }
-  .editform { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
-  .editform label { margin-top: 6px; }
-  .detail { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
-  .detail .streakmsg { margin: 6px 0; }
-  .firstrun { background: #f5f3ff; border-color: #ddd6fe; }
-  .firstrun h2 { margin-bottom: 6px; }
-  .seedrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .seed { background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff; border-radius: 999px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
-</style></head>
+  return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}
 <body>
-<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/me/report">Weekly report</a> | <a href="/coach/">Coach view</a> | <a href="/about.html">About</a></nav>
+${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/about.html', label: 'About' }])}
 <h1>Your word</h1>
 <p class="intro">${mePageIntroCopy()}</p>
 
