@@ -20,9 +20,9 @@
 // channel marks the check-in `skipped`, never crashes, never touches the timer.
 // ════════════════════════════════════════════════════════════
 
-import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence } from './accountability.js';
+import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy } from './accountability.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
-import { evaluateContactGate } from './consent.js';
+import { evaluateContactGate, localHour } from './consent.js';
 import { generateUUID } from './middleware.js';
 import { recordEvent, EVENTS } from './events.js';
 
@@ -473,4 +473,226 @@ export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
     degraded_streak_threshold: DELIVERY_DEGRADED_STREAK,
     last_summary: lastSummary,
   };
+}
+
+// ════════════════════════════════════════════════════════════
+// RETURN NUDGE  (Wingspan W4 / L3 · focusbro#40 — the ladder applied to RETURNING)
+// ════════════════════════════════════════════════════════════
+// The escalation ladder (W1 above) catches a *single* check-in that went quiet.
+// This catches a whole PERSON who went quiet: someone who has given words before
+// but has now drifted off the app entirely, with nothing already scheduled to
+// bring them back. The bro reaches out ONCE — warm, no agenda — to hold the door
+// open. This is the single most shame-prone moment in the product (every
+// abandoned to-do app was a "you disappeared" machine), so the LAW is enforced by
+// construction here as hard as anywhere:
+//   • exactly ONE nudge per dormancy EPISODE — a per-user KV latch holds the last
+//     nudge time; a user is eligible again only once they've been active SINCE it
+//     (their last real event advances past the latch), so a persistently-dormant
+//     person is never nudged twice. Never a daily drip, never a nag.
+//   • opt-in by channel: push is already subscribed (app UX, not TCPA-scoped);
+//     text passes the same TCPA gate as every text (consent + quiet hours + opt-out).
+//   • an un-scheduled push must never buzz at 3am, so push is held to a sane local
+//     daytime window (a quiet-hours defer leaves the user eligible for a later tick).
+//   • only users with a real accountability footprint (a `commitment_created`
+//     event) and NOTHING already in flight (no pending check-in) — so the nudge
+//     never stacks on top of the check-in / escalation ladder.
+//   • the copy is returnNudgeCopy(): an ally glad you exist, never a tally.
+//
+// Instrumentation note: a sent nudge is recorded with userId=NULL (the real user
+// in event_data) on purpose — recording it as the user's OWN activity would reset
+// the very dormancy this detects, and would inflate active-user/retention counts.
+
+/** Days of total app silence before the one gentle return nudge. */
+export const RETURN_NUDGE_QUIET_DAYS = 3;
+
+/** Max dormant users examined per cron tick. */
+const RETURN_NUDGE_LIMIT = 50;
+
+/** Local-hour window (inclusive start, exclusive end) an un-scheduled push may land in. */
+export const RETURN_NUDGE_DAY_START = 8;
+export const RETURN_NUDGE_DAY_END = 21;
+
+/** Per-user KV latch key holding the ISO time of the last return nudge. */
+export function returnNudgeKey(userId) {
+  return `returnnudge:${userId}`;
+}
+
+/**
+ * True when the local hour at `nowISO` in `timezone` is inside the daytime
+ * window. An unknown/blank timezone falls back to UTC rather than blocking — a
+ * best-effort courtesy, not a hard gate (text still has its own quiet-hours gate).
+ */
+export function withinReturnDaytime(nowISO, timezone) {
+  const h = localHour(nowISO, (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC');
+  if (h === null) return true;
+  return h >= RETURN_NUDGE_DAY_START && h < RETURN_NUDGE_DAY_END;
+}
+
+/** Best-effort per-user latch write — a KV blip never aborts the pass. */
+async function latchReturnNudge(kv, userId, nowISO) {
+  if (!kv) return;
+  try { await kv.put(returnNudgeKey(userId), nowISO); } catch { /* best-effort */ }
+}
+
+/** Deliver the return nudge over Web Push to every active subscription. */
+async function deliverReturnPush(env, userId, message) {
+  if (!vapidConfigured(env)) return { status: 'skipped', detail: 'push_not_configured' };
+  const subs = await env.DB.prepare(
+    `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ? AND is_active = 1`
+  ).bind(userId).all();
+  const list = (subs && subs.results) || [];
+  if (list.length === 0) return { status: 'skipped', detail: 'no_subscription' };
+
+  const payload = {
+    title: 'FocusBro',
+    body: message,
+    tag: 'return-nudge',
+    data: { type: 'return_nudge', url: '/me/' },
+  };
+  let anySent = false;
+  let lastErr = 'push_failed';
+  for (const sub of list) {
+    const r = await sendWebPush(env, sub, payload);
+    if (r.ok) anySent = true;
+    else {
+      lastErr = r.error || lastErr;
+      if (r.gone) {
+        try {
+          await env.DB.prepare(`UPDATE push_subscriptions SET is_active = 0 WHERE endpoint = ?`).bind(sub.endpoint).run();
+        } catch { /* non-fatal */ }
+      }
+    }
+  }
+  return anySent ? { status: 'sent', detail: 'push' } : { status: 'failed', detail: lastErr };
+}
+
+/**
+ * Find people who have gone quiet across the whole app and send each ONE warm
+ * return nudge. Idempotent per dormancy episode via the KV latch; degrades
+ * gracefully (no channel / no consent → parked, never crashes, never touches the
+ * timer). Pure-ish: takes an env with a D1-shaped `DB` and (optionally) `KV_CACHE`
+ * plus a clock, so the whole machine is unit-tested without a live DB or network.
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB` (+ optional KV_CACHE)
+ * @param {object} [opts] { now?: ISO, limit?: number, quietDays?: number }
+ * @returns {Promise<{scanned:number, nudged:number, deferred:number, skipped:number, failed:number}>}
+ */
+export async function runReturnNudges(env, opts = {}) {
+  const now = opts.now || new Date().toISOString();
+  const limit = Number(opts.limit) > 0 ? Number(opts.limit) : RETURN_NUDGE_LIMIT;
+  const quietDays = Number(opts.quietDays) > 0 ? Number(opts.quietDays) : RETURN_NUDGE_QUIET_DAYS;
+  const summary = { scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0 };
+
+  const cutoff = new Date(new Date(now).getTime() - quietDays * 24 * 60 * 60 * 1000).toISOString();
+
+  // Dormant candidates: a real accountability user (has a commitment_created
+  // event) whose most-recent event is older than the cutoff, with NOTHING
+  // pending to reach them (so we never stack on the check-in / escalation ladder).
+  const due = await env.DB.prepare(
+    `SELECT e.user_id AS user_id, MAX(e.created_at) AS last_event_at
+       FROM analytics_events e
+      WHERE e.user_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM analytics_events c
+                     WHERE c.user_id = e.user_id AND c.event_type = 'commitment_created')
+        AND NOT EXISTS (SELECT 1 FROM commitment_checkins ck
+                     WHERE ck.user_id = e.user_id AND ck.status = 'pending')
+      GROUP BY e.user_id
+     HAVING MAX(e.created_at) <= ?
+      ORDER BY last_event_at ASC
+      LIMIT ?`
+  ).bind(cutoff, limit).all();
+
+  const rows = (due && due.results) || [];
+  const kv = env && env.KV_CACHE;
+
+  for (const row of rows) {
+    summary.scanned++;
+    const userId = row.user_id;
+
+    // ONE nudge per dormancy episode: if the latch is newer than their last real
+    // activity, we've already nudged this episode — skip until they return (which
+    // advances last_event_at past the latch and re-opens eligibility).
+    let latch = null;
+    try { latch = kv ? await kv.get(returnNudgeKey(userId)) : null; } catch { latch = null; }
+    if (latch && latch > row.last_event_at) { summary.skipped++; continue; }
+
+    // Tone + local time come from their most recent commitment.
+    const pref = await env.DB.prepare(
+      `SELECT persona, timezone FROM commitments WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(userId).first();
+    const persona = pickPersona(pref && pref.persona);
+    const timezone = (pref && pref.timezone) || 'UTC';
+
+    // Pick a reachable channel: push first (subscribed, no TCPA), else text if
+    // consent was granted. No channel at all → nothing to reach them on.
+    let channel = null;
+    const sub = await env.DB.prepare(
+      `SELECT 1 FROM push_subscriptions WHERE user_id = ? AND is_active = 1 LIMIT 1`
+    ).bind(userId).first();
+    if (sub) channel = 'push';
+    else {
+      const consented = await env.DB.prepare(
+        `SELECT 1 FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
+      ).bind(userId).first();
+      if (consented) channel = 'text';
+    }
+
+    if (!channel) {
+      // Latch so we don't rescan every tick; resets naturally on their return.
+      summary.skipped++;
+      await latchReturnNudge(kv, userId, now);
+      continue;
+    }
+
+    const message = returnNudgeCopy({ persona });
+    let outcome;
+    if (channel === 'push') {
+      // Never buzz an un-scheduled push in the middle of the night. Outside the
+      // window: leave eligible for a later (daytime) tick — do NOT latch.
+      if (!withinReturnDaytime(now, timezone)) { summary.deferred++; continue; }
+      try {
+        outcome = await deliverReturnPush(env, userId, message);
+      } catch (err) {
+        outcome = { status: 'failed', detail: (err && err.message) || 'return_push_error' };
+      }
+    } else {
+      // Text passes the same TCPA gate as every text (consent + quiet hours). A
+      // quiet-hours defer leaves the user eligible for a later tick (no latch).
+      let gate;
+      try {
+        gate = await evaluateContactGate(env, { userId, channel: 'text', nowISO: now });
+      } catch (err) {
+        gate = { skip: (err && err.message) || 'consent_gate_error' };
+      }
+      if (gate.defer) { summary.deferred++; continue; }
+      if (gate.skip) {
+        outcome = { status: 'skipped', detail: gate.skip };
+      } else {
+        try {
+          outcome = await deliverText(env, { user_id: userId }, message);
+        } catch (err) {
+          outcome = { status: 'failed', detail: (err && err.message) || 'return_text_error' };
+        }
+      }
+    }
+
+    // Latch on any terminal outcome (sent / skipped / failed): one attempt per
+    // episode, no retry storm. A defer already `continue`d above without latching.
+    await latchReturnNudge(kv, userId, now);
+
+    if (outcome.status === 'sent') {
+      summary.nudged++;
+      // Aggregate-only signal — userId NULL so it never counts as the user's own
+      // activity (that would reset the dormancy this very pass detects).
+      await recordEvent(env, {
+        userId: null, type: EVENTS.RETURN_NUDGE_SENT, data: { user_id: userId, channel },
+      });
+    } else if (outcome.status === 'skipped') {
+      summary.skipped++;
+    } else {
+      summary.failed++;
+    }
+  }
+
+  return summary;
 }

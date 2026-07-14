@@ -13,7 +13,7 @@ import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
 import { pageHead, pageNav } from './page-shell.js';
-import { runDueCheckins, runEscalations, recordCronHealth, readCronHealth } from './checkins-cron.js';
+import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
@@ -1530,7 +1530,10 @@ router.post('/api/internal/run-checkins', async (request, env) => {
     // Same escalation pass the cron runs (Wingspan W1), so a verification curl
     // exercises the WHOLE ladder: deliver → quiet → the one SMS follow-up.
     const escalations = await runEscalations(env, { now: new Date().toISOString() });
-    return jsonResponse({ ok: true, summary, escalations }, 200);
+    // Same return-nudge pass the cron runs (Wingspan W4 / L3): the gone-quiet
+    // PERSON gets one warm door-open. One curl now exercises both ladders.
+    const returnNudges = await runReturnNudges(env, { now: new Date().toISOString() });
+    return jsonResponse({ ok: true, summary, escalations, returnNudges }, 200);
   } catch (err) {
     console.error('[cron] manual trigger failed:', err && err.message);
     return jsonResponse({ error: 'Delivery pass failed' }, 500);
@@ -2564,6 +2567,16 @@ export default {
       // and a cron that ticks while every send fails.
       const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation });
       if (streak >= 3) console.error(`[cron] delivery DEGRADED — ${streak} consecutive failing ticks`);
+      // Wingspan W4 / L3: after the heartbeat is stamped (so a bug here can never
+      // masquerade as a delivery outage), knock once on anyone who's gone quiet
+      // across the whole app — the gone-quiet PERSON, not just a quiet check-in.
+      // ISOLATED try — the return-nudge is never on the critical delivery path.
+      try {
+        const returnNudges = await runReturnNudges(runtimeEnv, { now: new Date().toISOString() });
+        console.log('[cron] return-nudges:', JSON.stringify(returnNudges));
+      } catch (rnErr) {
+        console.error('[cron] return-nudges failed:', rnErr && rnErr.message);
+      }
     } catch (err) {
       // Delivery itself broke (DB down, etc.) — no heartbeat is stamped, so
       // /health correctly goes stale and the external monitor fires.
