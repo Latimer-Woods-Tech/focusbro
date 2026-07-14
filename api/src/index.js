@@ -1623,11 +1623,29 @@ router.get('/api/internal/metrics', async (request, env) => {
   }
 });
 
+// Liveness + delivery-loop heartbeat. `status:ok`/200 means the Worker is up
+// (this is the canonical health probe). The `cron` block is the observability
+// the crontab→crons outage lacked: scheduled() stamps `cron:last_tick` in KV on
+// every successful pass, so an external monitor can catch a silent delivery
+// death within minutes instead of ~5 weeks. `stale` is authoritative; a missing
+// tick reads stale (never healthy-by-default).
+const CRON_STALE_SECONDS = 10 * 60;
 router.get('/health', async (request, env) => {
+  let lastTick = null;
+  try { lastTick = await env.KV_CACHE.get('cron:last_tick'); } catch (e) { /* KV read best-effort */ }
+  const parsed = lastTick ? Date.parse(lastTick) : NaN;
+  const ageSeconds = Number.isNaN(parsed) ? null : Math.round((Date.now() - parsed) / 1000);
+  const stale = ageSeconds == null ? true : ageSeconds > CRON_STALE_SECONDS;
   return new Response(JSON.stringify({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
+    cron: {
+      last_tick: lastTick,
+      age_seconds: ageSeconds,
+      stale,
+      threshold_seconds: CRON_STALE_SECONDS
+    }
   }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -2536,6 +2554,14 @@ export default {
       // delivered push check-in that has gone quiet past the escalation delay.
       const esc = await runEscalations(runtimeEnv, { now: new Date().toISOString() });
       console.log('[cron] escalations:', JSON.stringify(esc));
+      // Heartbeat: stamp a successful completion so /health + the external
+      // monitor can detect a silent delivery-loop outage. Own try so a KV blip
+      // never masks a real delivery error above it.
+      try {
+        await runtimeEnv.KV_CACHE.put('cron:last_tick', new Date().toISOString());
+      } catch (hbErr) {
+        console.error('[cron] heartbeat write failed:', hbErr && hbErr.message);
+      }
     } catch (err) {
       console.error('[cron] check-in delivery failed:', err && err.message);
     }

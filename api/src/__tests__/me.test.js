@@ -30,6 +30,7 @@ import {
   entryState,
   meCopySurface,
   renderMePage,
+  carryOverNoteCopy,
 } from '../me.js';
 import {
   momentumSelfHeadingCopy,
@@ -305,5 +306,31 @@ describe('a returning person is welcomed back, never cold-started or scolded', (
     const surface = meCopySurface();
     expect(surface).toContain(reentryHeadingCopy());
     expect(surface).toContain(reentryBodyCopy());
+  });
+});
+
+describe('the pomodoro→word bridge prefills the title from ?task= (#76)', () => {
+  it('folds the carry-over note into the design-LAW surface (so it is gate-scanned)', () => {
+    expect(meCopySurface()).toContain(carryOverNoteCopy());
+  });
+
+  it('the carry-over note is an offer, never a demand — and no shame/clinical/AI', () => {
+    const s = carryOverNoteCopy();
+    for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in carry-over copy: "${s}" matched ${pat}`).toBe(false);
+    for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in carry-over copy: "${s}"`).toBe(false);
+    expect(AI_WORD.test(s), 'no "AI" branding in carry-over copy').toBe(false);
+  });
+
+  it('renderMePage reads ?task=, prefills the title, and surfaces the note', () => {
+    const html = renderMePage();
+    // reads the param once at the top so it survives the sign-in gate
+    expect(html).toContain('PREFILL_TASK');
+    expect(html).toContain("get('task')");
+    // the note element carries the gate-scanned copy and is prefilled on enter
+    expect(html).toContain('id="carryNote"');
+    expect(html).toContain(carryOverNoteCopy());
+    expect(html).toContain('applyPrefill');
+    // never auto-commits: the title is only filled when currently empty
+    expect(html).toContain("if (t && !t.value) { t.value = PREFILL_TASK; }");
   });
 });

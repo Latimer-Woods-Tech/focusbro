@@ -2975,6 +2975,13 @@ function offerWordBridge() {
   try {
     if (__fbWordBridgeShown || document.getElementById('wordBridge')) return;
     __fbWordBridgeShown = true;
+    // Carry the "one thing" they were focused on into /me/ so the form lands
+    // prefilled — the earned moment is one tap from a kept word, not a blank page.
+    let bridgeHref = '/me/';
+    try {
+      const intent = (document.getElementById('intentionInput') || {}).value;
+      if (intent && intent.trim()) { bridgeHref = '/me/?task=' + encodeURIComponent(intent.trim().slice(0, 120)); }
+    } catch (e) { /* no intention set — a bare /me/ link still works */ }
     const el = document.createElement('div');
     el.id = 'wordBridge';
     el.setAttribute('role', 'status');
@@ -2982,7 +2989,7 @@ function offerWordBridge() {
     el.innerHTML =
       '<div style="font-weight:600;margin-bottom:8px;">Nice. Want me to hold you to the next one?</div>' +
       '<div style="display:flex;gap:10px;align-items:center;">' +
-        '<a href="/me/" style="background:linear-gradient(135deg,var(--primary,#0ea5e9),var(--teal,#14b8a6));color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px;">Give my word →</a>' +
+        '<a href="' + bridgeHref + '" style="background:linear-gradient(135deg,var(--primary,#0ea5e9),var(--teal,#14b8a6));color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px;">Give my word →</a>' +
         '<button type="button" id="wordBridgeDismiss" style="background:none;border:none;color:var(--text-muted,#94a3b8);cursor:pointer;font-size:14px;padding:8px;">Not now</button>' +
       '</div>';
     el.querySelector('#wordBridgeDismiss').addEventListener('click', function () {
