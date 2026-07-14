@@ -64,6 +64,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .streak { font-size: 44px; font-weight: 700; color: var(--primary-light); line-height: 1; }
   .streak small { display: block; font-size: 12px; font-weight: 500; color: var(--text-dim); margin-top: 4px; }
   .streakmsg { color: var(--text-muted); font-size: 15px; }
+  .streakbest { margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.30); }
   .name { font-weight: 600; color: var(--text); }
   .line { color: var(--text-muted); font-size: 14px; }
   .when { color: var(--text-dim); font-size: 13px; }

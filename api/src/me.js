@@ -30,6 +30,7 @@ import {
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
   detailPeakDayCopy,
+  personalBestCopy,
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
@@ -335,6 +336,8 @@ export function meCopySurface() {
     returnWelcomeBodyCopy(),
     emptyCommitmentsCopy(),
     streakHeadingCopy(),
+    personalBestCopy({ streak: { current_streak: 2, longest_streak: 2 } }),
+    personalBestCopy({ streak: { current_streak: 12, longest_streak: 12 } }),
     labels.kept, labels.missed, labels.reschedule,
     releaseActionLabel(),
     snoozeActionLabel(),
@@ -425,6 +428,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <div class="streak" id="streakNum">0<small>${streakHeadingCopy()}</small></div>
       <div class="streakmsg" id="streakMsg"></div>
     </div>
+    <div class="streakbest hidden" id="streakBest"></div>
   </div>
 
   <div class="card">
@@ -600,6 +604,15 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var s = (data && data.streak) || {};
     el('streakNum').innerHTML = esc(s.current_streak || 0) + '<small>${streakHeadingCopy()}</small>';
     el('streakMsg').textContent = (data && data.message) || '';
+    // Personal-best celebration: shown ONLY when the server sends a non-empty
+    // line (current run === all-time best, 2+). Anti-shame by construction — the
+    // API returns '' on a decline, so this banner can never name a gap.
+    var best = el('streakBest');
+    if (best) {
+      var line = (data && data.best) || '';
+      best.textContent = line;
+      if (line) { best.classList.remove('hidden'); } else { best.classList.add('hidden'); }
+    }
   }
 
   function loadStreak() {

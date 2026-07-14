@@ -42,6 +42,7 @@ import {
   momentumSelfHeadingCopy,
   momentumSelfIntroCopy,
   momentumSelfSummaryCopy,
+  personalBestCopy,
 } from '../accountability.js';
 
 const SHAME_PATTERNS = [
@@ -431,5 +432,52 @@ describe('the escalation ceiling — the wedge, in the person’s control', () =
     // both selectable rungs are offered by label
     expect(html).toContain('>Just the nudge<');
     expect(html).toContain('>A nudge, then one text<');
+  });
+});
+
+describe('personal-best celebration — a peak to celebrate, never "you were better before"', () => {
+  it('celebrates only at a genuine personal best (current === longest, 2+)', () => {
+    // At your all-time high: a warm, specific celebration naming the count.
+    const line = personalBestCopy({ streak: { current_streak: 5, longest_streak: 5 } });
+    expect(line.length).toBeGreaterThan(0);
+    expect(line).toContain('5');
+    expect(line.toLowerCase()).toContain('best');
+    // A fresh 2-in-a-row record still earns the moment.
+    expect(personalBestCopy({ streak: { current_streak: 2, longest_streak: 2 } }).length).toBeGreaterThan(0);
+  });
+
+  it('says NOTHING on a decline — the anti-shame guarantee is structural', () => {
+    // Below your best: no "streak at risk", no "you were better before" — silence.
+    expect(personalBestCopy({ streak: { current_streak: 3, longest_streak: 9 } })).toBe('');
+    expect(personalBestCopy({ streak: { current_streak: 0, longest_streak: 12 } })).toBe('');
+    // A streak of 1 is the number itself, not a trophy — no celebration yet.
+    expect(personalBestCopy({ streak: { current_streak: 1, longest_streak: 1 } })).toBe('');
+    // Defensive: garbage / missing input never throws and never celebrates.
+    expect(personalBestCopy()).toBe('');
+    expect(personalBestCopy({ streak: {} })).toBe('');
+  });
+
+  it('never shames, brands "AI", names a gap, or makes a clinical claim', () => {
+    const s = personalBestCopy({ streak: { current_streak: 8, longest_streak: 8 } });
+    for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in best copy: "${s}" matched ${pat}`).toBe(false);
+    expect(AI_WORD.test(s), `"AI" in best copy: "${s}"`).toBe(false);
+    for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in best copy: "${s}"`).toBe(false);
+    // Never frames the peak against a decline — no "were", "used to", "before".
+    const low = s.toLowerCase();
+    for (const w of ['were better', 'used to', 'before', 'at risk', 'don’t lose', "don't lose"]) {
+      expect(low.includes(w), `frames peak against a loss ("${w}")`).toBe(false);
+    }
+  });
+
+  it('folds the celebration into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(personalBestCopy({ streak: { current_streak: 12, longest_streak: 12 } }));
+  });
+
+  it('renderMePage mounts the best element, hidden until the server sends a peak line', () => {
+    const html = renderMePage();
+    expect(html).toContain('id="streakBest"');
+    expect(html).toContain('streakbest hidden'); // hidden by default; revealed only on data.best
+    expect(html).toContain('data && data.best'); // renderStreak reads the server-computed line
   });
 });
