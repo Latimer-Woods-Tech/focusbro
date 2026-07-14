@@ -90,6 +90,34 @@ export function carryOverNoteCopy() {
   return 'Carrying over what you just focused on. Give it your word and I’ll check in.';
 }
 
+/** Heading over the escalation-ceiling control — the wedge, in the person's words. */
+export function escalationCeilingHeadingCopy() {
+  return 'How hard should I nudge you?';
+}
+
+/** The promise under the heading: you set the ceiling, I never cross it. */
+export function escalationCeilingIntroCopy() {
+  return 'You set the ceiling and I never cross it. If a nudge goes quiet, this is the most I’ll ever do — your call, changeable any time.';
+}
+
+/**
+ * The selectable ceiling rungs, low→high, each with a plain promise of exactly
+ * what the bro will and won't do. Values mirror the API's CEILING_LEVELS; the
+ * voice rung ('call') is previewed separately (coming soon), not selectable yet.
+ * @returns {Array<{value:string,label:string,desc:string}>}
+ */
+export function escalationCeilingOptions() {
+  return [
+    { value: 'none', label: 'Just the nudge', desc: 'One push notification, and that’s it — no text follow-up, ever.' },
+    { value: 'text', label: 'A nudge, then one text', desc: 'If the nudge stays quiet for 15 minutes, I’ll send a single warm text. Never more than one.' },
+  ];
+}
+
+/** Preview of the voice rung — the top of the ladder, opt-in, still to come. */
+export function escalationCeilingVoiceSoonCopy() {
+  return 'A gentle call is on the way — soon you’ll be able to add it as the last rung, only if you want it.';
+}
+
 /**
  * First-run welcome heading. Shown ONLY to a signed-in person with zero words
  * given — the activation moment the whole product turns on. An invitation, in
@@ -270,6 +298,10 @@ export function meCopySurface() {
     mePageIntroCopy(),
     giveWordHeadingCopy(),
     carryOverNoteCopy(),
+    escalationCeilingHeadingCopy(),
+    escalationCeilingIntroCopy(),
+    ...escalationCeilingOptions().flatMap((o) => [o.label, o.desc]),
+    escalationCeilingVoiceSoonCopy(),
     firstRunHeadingCopy(),
     firstRunBodyCopy(),
     firstRunExamplesLabel(),
@@ -417,6 +449,18 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${keptLogHeadingCopy()}</h2>
     <p class="streakmsg" id="keptMsg"></p>
     <div id="keptList"></div>
+  </div>
+
+  <div class="card" id="ceilingCard">
+    <h2>${escalationCeilingHeadingCopy()}</h2>
+    <p class="muted">${escalationCeilingIntroCopy()}</p>
+    <label for="ceiling">The most I’ll do</label>
+    <select id="ceiling">${escalationCeilingOptions()
+      .map((o) => `<option value="${o.value}">${o.label.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`)
+      .join('')}</select>
+    <p class="muted" id="ceilingDesc"></p>
+    <p class="muted">${escalationCeilingVoiceSoonCopy()}</p>
+    <p class="ok hidden" id="ceilingMsg"></p>
   </div>
 
   <div class="card" id="consentCard">
@@ -765,9 +809,49 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (w) { try { w.focus(); } catch (e) {} }
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); loadStreak(); loadList(); loadKept(); loadConsent(); }
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
+
+  // ── Escalation ceiling (the wedge): the person caps how far the ladder may
+  // ever climb, and we save it the instant they change it. A control, never a
+  // demand — the default preserves the gentle push→one-text ladder.
+  var CEILING_OPTS = ${JSON.stringify(escalationCeilingOptions())};
+  function ceilingDescFor(v) {
+    for (var i = 0; i < CEILING_OPTS.length; i++) { if (CEILING_OPTS[i].value === v) return CEILING_OPTS[i].desc; }
+    return '';
+  }
+  function updateCeilingDesc() {
+    var sel = el('ceiling'); var d = el('ceilingDesc');
+    if (sel && d) d.textContent = ceilingDescFor(sel.value);
+  }
+  function loadCeiling() {
+    var sel = el('ceiling');
+    if (!sel) return;
+    fetch('/api/escalation', { headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
+      .then(function (data) { if (data && data.ceiling) { sel.value = data.ceiling; } updateCeilingDesc(); })
+      .catch(function () { updateCeilingDesc(); });
+  }
+  var ceilingSel = el('ceiling');
+  if (ceilingSel) {
+    ceilingSel.addEventListener('change', function () {
+      updateCeilingDesc();
+      hide(el('ceilingMsg'));
+      fetch('/api/escalation', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ ceiling: ceilingSel.value })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          var m = el('ceilingMsg');
+          m.textContent = res.ok ? 'Got it — that’s the most I’ll do.' : (res.b.error || 'Could not save that just now — try again.');
+          m.className = res.ok ? 'ok' : 'err';
+          show(m);
+        })
+        .catch(function () { var m = el('ceilingMsg'); m.textContent = 'Could not save that just now — try again.'; m.className = 'err'; show(m); });
+    });
+  }
 
   function fillHours(sel) {
     if (!sel) return;

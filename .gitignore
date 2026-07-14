@@ -24,3 +24,6 @@ docs/_catalog/metadata.json
 # Playwright
 api/test-results/
 api/playwright-report/
+
+# Claude Code agent worktrees (never commit)
+.claude/

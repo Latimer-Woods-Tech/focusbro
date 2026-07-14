@@ -347,6 +347,29 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
     expect(scanSql).toMatch(/channel\s*=\s*'push'/);
     expect(scanSql).toMatch(/responded_at IS NULL/);
     expect(scanSql).toMatch(/m\.status\s*=\s*'active'/);
+    // the ceiling join — the escalation is capped by the user's chosen rung
+    expect(scanSql).toMatch(/LEFT JOIN escalation_prefs/);
+    expect(scanSql).toMatch(/ceiling/);
+  });
+
+  it('ceiling "none" sends no text but still latches (a chosen limit, not a failure)', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow({ ceiling: 'none' })], phone: '+15550002222' });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(escalationLatch(db, 'ci9')).toBeTruthy();
+    expect(s.escalated).toBe(0);
+    expect(s.skipped).toBe(1);
+  });
+
+  it('ceiling "text" escalates normally — push → one SMS', async () => {
+    const fetchSpy = okFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ esc: [escRow({ ceiling: 'text' })], phone: '+15550002222' });
+    const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(s.escalated).toBe(1);
   });
 
   it('passes a cutoff exactly ESCALATION_DELAY_MIN before now', async () => {

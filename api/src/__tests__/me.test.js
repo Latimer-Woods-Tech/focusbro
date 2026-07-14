@@ -31,6 +31,10 @@ import {
   meCopySurface,
   renderMePage,
   carryOverNoteCopy,
+  escalationCeilingHeadingCopy,
+  escalationCeilingIntroCopy,
+  escalationCeilingOptions,
+  escalationCeilingVoiceSoonCopy,
 } from '../me.js';
 import {
   momentumSelfHeadingCopy,
@@ -322,6 +326,7 @@ describe('the pomodoro→word bridge prefills the title from ?task= (#76)', () =
   });
 
   it('renderMePage reads ?task=, prefills the title, and surfaces the note', () => {
+    /* prefill wiring assertions below */
     const html = renderMePage();
     // reads the param once at the top so it survives the sign-in gate
     expect(html).toContain('PREFILL_TASK');
@@ -332,5 +337,44 @@ describe('the pomodoro→word bridge prefills the title from ?task= (#76)', () =
     expect(html).toContain('applyPrefill');
     // never auto-commits: the title is only filled when currently empty
     expect(html).toContain("if (t && !t.value) { t.value = PREFILL_TASK; }");
+  });
+});
+
+describe('the escalation ceiling — the wedge, in the person’s control', () => {
+  it('folds every ceiling string into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(escalationCeilingHeadingCopy());
+    expect(surface).toContain(escalationCeilingIntroCopy());
+    expect(surface).toContain(escalationCeilingVoiceSoonCopy());
+    for (const o of escalationCeilingOptions()) {
+      expect(surface).toContain(o.label);
+      expect(surface).toContain(o.desc);
+    }
+  });
+
+  it('the ceiling copy never shames, never goes clinical, never says AI', () => {
+    const strings = [
+      escalationCeilingHeadingCopy(),
+      escalationCeilingIntroCopy(),
+      escalationCeilingVoiceSoonCopy(),
+      ...escalationCeilingOptions().flatMap((o) => [o.label, o.desc]),
+    ];
+    for (const s of strings) {
+      for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in ceiling copy: "${s}" matched ${pat}`).toBe(false);
+      for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in ceiling copy: "${s}"`).toBe(false);
+      expect(AI_WORD.test(s), `no "AI" in ceiling copy: "${s}"`).toBe(false);
+    }
+  });
+
+  it('renderMePage mounts the ceiling control wired to /api/escalation', () => {
+    const html = renderMePage();
+    expect(html).toContain('id="ceilingCard"');
+    expect(html).toContain('id="ceiling"');
+    expect(html).toContain('loadCeiling');
+    expect(html).toContain("fetch('/api/escalation'");
+    expect(html).toContain(escalationCeilingHeadingCopy());
+    // both selectable rungs are offered by label
+    expect(html).toContain('>Just the nudge<');
+    expect(html).toContain('>A nudge, then one text<');
   });
 });
