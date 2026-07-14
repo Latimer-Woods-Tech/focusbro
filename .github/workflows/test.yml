@@ -31,6 +31,9 @@ jobs:
     - name: Install API dependencies
       run: cd api && npm ci
 
+    - name: Content ledger up to date (un-ledgered guides are a hard fail)
+      run: node scripts/generate-content-ledger.mjs --check
+
     - name: Lint API (fails on errors; warnings are a ratcheting baseline)
       run: cd api && npm run lint
 
