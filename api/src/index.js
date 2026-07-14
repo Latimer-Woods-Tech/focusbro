@@ -13,7 +13,7 @@ import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
 import { pageHead, pageNav } from './page-shell.js';
-import { runDueCheckins, runEscalations } from './checkins-cron.js';
+import { runDueCheckins, runEscalations, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
@@ -1623,29 +1623,23 @@ router.get('/api/internal/metrics', async (request, env) => {
   }
 });
 
-// Liveness + delivery-loop heartbeat. `status:ok`/200 means the Worker is up
-// (this is the canonical health probe). The `cron` block is the observability
-// the crontab→crons outage lacked: scheduled() stamps `cron:last_tick` in KV on
-// every successful pass, so an external monitor can catch a silent delivery
-// death within minutes instead of ~5 weeks. `stale` is authoritative; a missing
-// tick reads stale (never healthy-by-default).
+// Liveness + delivery-loop SLO. `status:ok`/200 means the Worker is up (this is
+// the canonical health probe). The `cron` block is the observability the
+// crontab→crons outage lacked, and it now carries TWO independent signals:
+//   • LIVENESS  — `stale`: scheduled() stamps `cron:last_tick` every pass, so a
+//     total cron death is caught within minutes instead of ~5 weeks (R-242).
+//   • CORRECTNESS — `delivery_degraded`: a cron can tick fresh while EVERY send
+//     fails (bad D1 migration, Telnyx 500s, push-key regression); a rolling
+//     `fail_streak` surfaces that so a green /health can't hide a dead moat.
+// Both read the SAFE value when a signal is missing (stale / not-degraded).
 const CRON_STALE_SECONDS = 10 * 60;
 router.get('/health', async (request, env) => {
-  let lastTick = null;
-  try { lastTick = await env.KV_CACHE.get('cron:last_tick'); } catch (e) { /* KV read best-effort */ }
-  const parsed = lastTick ? Date.parse(lastTick) : NaN;
-  const ageSeconds = Number.isNaN(parsed) ? null : Math.round((Date.now() - parsed) / 1000);
-  const stale = ageSeconds == null ? true : ageSeconds > CRON_STALE_SECONDS;
+  const cron = await readCronHealth(env, { staleSeconds: CRON_STALE_SECONDS });
   return new Response(JSON.stringify({
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    cron: {
-      last_tick: lastTick,
-      age_seconds: ageSeconds,
-      stale,
-      threshold_seconds: CRON_STALE_SECONDS
-    }
+    cron
   }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -2545,24 +2539,34 @@ export default {
   // come and delivers the warm, anti-shame nudge (push/text). Fully guarded:
   // an error here never affects the fetch path or the timer product.
   async scheduled(event, env, ctx) {
+    const nowISO = new Date().toISOString();
     try {
       const runtimeEnv = withJwtSecretFallback(env);
       await initializeDatabase(runtimeEnv);
-      const summary = await runDueCheckins(runtimeEnv, { now: new Date().toISOString(), limit: 100 });
-      console.log('[cron] check-in delivery:', JSON.stringify(summary));
+      // PRIMARY DUTY: deliver due check-ins. Its summary IS the SLO signal —
+      // failed/retry counts feed the degraded detector below.
+      const delivery = await runDueCheckins(runtimeEnv, { now: nowISO, limit: 100 });
+      console.log('[cron] check-in delivery:', JSON.stringify(delivery));
       // Wingspan W1: after primary delivery, knock once more (SMS) on any
       // delivered push check-in that has gone quiet past the escalation delay.
-      const esc = await runEscalations(runtimeEnv, { now: new Date().toISOString() });
-      console.log('[cron] escalations:', JSON.stringify(esc));
-      // Heartbeat: stamp a successful completion so /health + the external
-      // monitor can detect a silent delivery-loop outage. Own try so a KV blip
-      // never masks a real delivery error above it.
+      // ISOLATED try — a bug in the secondary escalation knock must never abort
+      // the pass before the heartbeat, or a false "delivery is dead" (#74's
+      // exact signature) would fire while delivery actually succeeded.
+      let escalation = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
       try {
-        await runtimeEnv.KV_CACHE.put('cron:last_tick', new Date().toISOString());
-      } catch (hbErr) {
-        console.error('[cron] heartbeat write failed:', hbErr && hbErr.message);
+        escalation = await runEscalations(runtimeEnv, { now: new Date().toISOString() });
+        console.log('[cron] escalations:', JSON.stringify(escalation));
+      } catch (escErr) {
+        console.error('[cron] escalations failed:', escErr && escErr.message);
       }
+      // SLO signals: liveness (last_tick) + correctness (delivery fail streak),
+      // so /health + the off-platform monitor catch both a silent cron death
+      // and a cron that ticks while every send fails.
+      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation });
+      if (streak >= 3) console.error(`[cron] delivery DEGRADED — ${streak} consecutive failing ticks`);
     } catch (err) {
+      // Delivery itself broke (DB down, etc.) — no heartbeat is stamped, so
+      // /health correctly goes stale and the external monitor fires.
       console.error('[cron] check-in delivery failed:', err && err.message);
     }
   }
