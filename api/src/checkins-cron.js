@@ -375,3 +375,102 @@ export async function runEscalations(env, opts = {}) {
 
   return summary;
 }
+
+// ════════════════════════════════════════════════════════════
+// DELIVERY-LOOP SLO SIGNALS  (Contender #10, Phase A · reliability-as-SLO)
+// ════════════════════════════════════════════════════════════
+// R-242 (#78) gave the loop a LIVENESS signal — `cron:last_tick` + /health
+// `stale` + the off-platform heartbeat.yml probe — so a total cron death (the
+// #74 crontab→crons outage) can't run dead unnoticed again. But liveness is not
+// enough: a cron that ticks every minute while EVERY send errors (a bad D1
+// migration, Telnyx 500s, a push-key regression) would stamp a fresh `last_tick`
+// and read perfectly healthy — the moat silently dead behind a green /health.
+// That is the next silent-failure class, and this closes it: a CORRECTNESS
+// signal that reports the loop degraded when deliveries keep failing.
+
+/**
+ * True when a delivery pass actually failed to deliver — i.e. a send/DB attempt
+ * errored (parked `failed`, or will `retry`). Deliberately NOT counted as a
+ * failure: `deferred` (held for quiet hours — a healthy, correct hold) and
+ * `skipped` (no channel / no consent — a terminal, correct park). Only a real
+ * send error moves this true, so the degraded signal can never be tripped by
+ * the normal anti-shame / TCPA guard paths.
+ * @param {{failed?:number, retry?:number}} summary  a runDueCheckins() summary
+ */
+export function isDeliveryFailingTick(summary = {}) {
+  return (Number(summary.failed) || 0) > 0 || (Number(summary.retry) || 0) > 0;
+}
+
+/** Consecutive delivery-failing ticks before /health reports the loop degraded.
+ *  Ticks are ~1/min, so 3 filters a single transient blip (one Telnyx 500) from
+ *  a sustained outage without waiting long — degraded fires within ~3 minutes. */
+export const DELIVERY_DEGRADED_STREAK = 3;
+
+/** KV keys for the delivery-loop SLO signals. */
+export const CRON_HEALTH_KEYS = Object.freeze({
+  lastTick: 'cron:last_tick',
+  failStreak: 'cron:delivery_fail_streak',
+  lastSummary: 'cron:last_summary',
+});
+
+/**
+ * Persist the delivery-loop SLO signals after a scheduled pass. Two distinct
+ * signals, by design: LIVENESS (`cron:last_tick`, kept byte-compatible with
+ * R-242 so /health `stale` + heartbeat.yml keep working) and CORRECTNESS (a
+ * rolling `cron:delivery_fail_streak` + the last summary for at-a-glance
+ * debugging). Best-effort per key — a KV blip on one signal never masks another
+ * or aborts the caller. Returns the new fail streak (for logging/tests).
+ * @returns {Promise<number>} the fail streak after this tick
+ */
+export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {} } = {}) {
+  const kv = env && env.KV_CACHE;
+  const now = nowISO || new Date().toISOString();
+  let streak = 0;
+  if (!kv) return streak;
+  // LIVENESS — the loop ran (whatever the per-send outcomes).
+  try { await kv.put(CRON_HEALTH_KEYS.lastTick, now); } catch { /* best-effort */ }
+  // CORRECTNESS — bump the streak on a delivery-failing tick, reset otherwise.
+  try {
+    const prev = Number(await kv.get(CRON_HEALTH_KEYS.failStreak)) || 0;
+    streak = isDeliveryFailingTick(delivery) ? prev + 1 : 0;
+    await kv.put(CRON_HEALTH_KEYS.failStreak, String(streak));
+  } catch { /* best-effort */ }
+  try {
+    await kv.put(CRON_HEALTH_KEYS.lastSummary, JSON.stringify({ at: now, delivery, escalation }));
+  } catch { /* best-effort */ }
+  return streak;
+}
+
+/**
+ * Read the delivery-loop SLO signals back for /health. All staleness/degraded
+ * math lives here so the route stays declarative. Every read is best-effort:
+ * a missing/blipped signal reads as the SAFE value — `stale` (never
+ * healthy-by-default) and `delivery_degraded:false` (a monitoring blip must not
+ * fabricate an outage the deliveries didn't have).
+ * @returns {Promise<object>} the /health `cron` block
+ */
+export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
+  const kv = env && env.KV_CACHE;
+  const at = typeof nowMs === 'number' ? nowMs : Date.now();
+  let lastTick = null, failStreak = 0, lastSummary = null;
+  try { lastTick = kv ? await kv.get(CRON_HEALTH_KEYS.lastTick) : null; } catch { /* best-effort */ }
+  try { failStreak = kv ? (Number(await kv.get(CRON_HEALTH_KEYS.failStreak)) || 0) : 0; } catch { /* best-effort */ }
+  try {
+    const raw = kv ? await kv.get(CRON_HEALTH_KEYS.lastSummary) : null;
+    lastSummary = raw ? JSON.parse(raw) : null;
+  } catch { lastSummary = null; }
+  const parsed = lastTick ? Date.parse(lastTick) : NaN;
+  const ageSeconds = Number.isNaN(parsed) ? null : Math.round((at - parsed) / 1000);
+  const threshold = Number(staleSeconds) > 0 ? Number(staleSeconds) : 600;
+  const stale = ageSeconds == null ? true : ageSeconds > threshold;
+  return {
+    last_tick: lastTick,
+    age_seconds: ageSeconds,
+    stale,
+    threshold_seconds: threshold,
+    fail_streak: failStreak,
+    delivery_degraded: failStreak >= DELIVERY_DEGRADED_STREAK,
+    degraded_streak_threshold: DELIVERY_DEGRADED_STREAK,
+    last_summary: lastSummary,
+  };
+}
