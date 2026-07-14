@@ -16,6 +16,7 @@ import {
   reportIntroCopy,
   reportHeadlineCopy,
   nextStepCopy,
+  showedUpCopy,
   rhythmsIntroCopy,
   rhythmNextCopy,
   buildWeeklyReport,
@@ -93,6 +94,54 @@ describe('buildWeeklyReport — kept-this-week math', () => {
   });
 });
 
+describe('buildWeeklyReport — "the bro showed up" (delivered check-ins this week)', () => {
+  it('counts only delivered instants inside the same trailing 7 local days', () => {
+    // 4 deliveries this week (0,1,3,6 days ago), 2 older (9, 12 — outside).
+    const deliveredTimestamps = [daysAgo(0), daysAgo(1), daysAgo(3), daysAgo(6), daysAgo(9), daysAgo(12)];
+    const rep = buildWeeklyReport({ keptTimestamps: [], deliveredTimestamps, timezone: 'UTC', nowISO: NOW });
+    expect(rep.showed_up_this_week).toBe(4);
+    expect(rep.showed_up_line).toContain('4 times');
+    expect(rep.showed_up_line).toMatch(/kept its word too/);
+  });
+
+  it('is singular for exactly one showing-up', () => {
+    const rep = buildWeeklyReport({ deliveredTimestamps: [daysAgo(1)], timezone: 'UTC', nowISO: NOW });
+    expect(rep.showed_up_this_week).toBe(1);
+    expect(rep.showed_up_line).toContain('1 time this week');
+    expect(rep.showed_up_line).not.toContain('1 times');
+  });
+
+  it('hides the line entirely when the bro has not shown up yet this week (no "0 times")', () => {
+    const rep = buildWeeklyReport({ deliveredTimestamps: [], timezone: 'UTC', nowISO: NOW });
+    expect(rep.showed_up_this_week).toBe(0);
+    expect(rep.showed_up_line).toBe('');
+  });
+
+  it('is independent from kept-word count (a delivery is not a kept word)', () => {
+    // one kept word, three deliveries — the two numbers do not merge.
+    const rep = buildWeeklyReport({
+      keptTimestamps: [daysAgo(1)],
+      deliveredTimestamps: [daysAgo(0), daysAgo(1), daysAgo(2)],
+      timezone: 'UTC', nowISO: NOW,
+    });
+    expect(rep.kept_this_week).toBe(1);
+    expect(rep.showed_up_this_week).toBe(3);
+  });
+});
+
+describe('showedUpCopy — support signal, never a scorecard', () => {
+  it('is empty at zero (a quiet page, not a negative)', () => {
+    expect(showedUpCopy({ showedUp: 0 })).toBe('');
+    expect(showedUpCopy({})).toBe('');
+    expect(showedUpCopy({ showedUp: -3 })).toBe('');
+  });
+  it('names the ally keeping its word, in the person’s favour', () => {
+    const s = showedUpCopy({ showedUp: 5 });
+    expect(s).toContain('showed up for you 5 times');
+    expect(s).toMatch(/kept its word too/);
+  });
+});
+
 describe('rhythmNextCopy', () => {
   it('names a concrete future moment', () => {
     const s = rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: NOW });
@@ -113,6 +162,7 @@ describe('renderReportText — shareable plain text', () => {
     const rep = buildWeeklyReport({
       streak: { current_streak: 3, longest_streak: 9, total_kept: 40 },
       keptTimestamps: [daysAgo(0), daysAgo(2), daysAgo(6)],
+      deliveredTimestamps: [daysAgo(0), daysAgo(2)],
       rhythms: [{ title: 'Taxes', recurrence: 'none', local_time: null, timezone: 'UTC', next_checkin: daysAgo(-1) }],
       timezone: 'UTC',
       nowISO: NOW,
@@ -122,6 +172,7 @@ describe('renderReportText — shareable plain text', () => {
     expect(text).toContain('Words kept this week: 3');
     expect(text).toContain('Current kept-word run: 3 (best ever: 9)');
     expect(text).toContain('Words kept, all time: 40');
+    expect(text).toContain('FocusBro showed up for you: 2 times this week');
     expect(text).toMatch(/Momentum \(last 14 days\): /);
     expect(text).toContain('- Taxes');
     expect(text).toContain('One tiny next step:');
@@ -162,6 +213,8 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     nextStepCopy({ keptThisWeek: 0, activeCount: 0, current: 0 }),
     nextStepCopy({ keptThisWeek: 0, activeCount: 2, current: 0 }),
     nextStepCopy({ keptThisWeek: 4, activeCount: 2, current: 4 }),
+    showedUpCopy({ showedUp: 1 }),
+    showedUpCopy({ showedUp: 6 }),
     rhythmsIntroCopy(0),
     rhythmsIntroCopy(3),
     rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: NOW }),
@@ -202,6 +255,7 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     const rep = buildWeeklyReport({
       streak: { current_streak: 2, longest_streak: 5, total_kept: 12 },
       keptTimestamps: [daysAgo(1)],
+      deliveredTimestamps: [daysAgo(1), daysAgo(2)],
       rhythms: [{ title: 'Write', recurrence: 'weekdays', local_time: '09:05', timezone: 'UTC', next_checkin: daysAgo(-1) }],
       timezone: 'UTC',
       nowISO: NOW,
