@@ -452,6 +452,18 @@
   .pomo-dot.done { background: var(--success); border-color: var(--success); box-shadow: 0 0 12px rgba(16, 185, 129, 0.3); }
   .pomo-dot.current { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 16px rgba(14, 165, 233, 0.5); }
 
+  /* Focus sprints — body doubling presence line (shown while a work block runs) */
+  .focus-room {
+    margin-top: 20px;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    background: var(--success-dim, rgba(16, 185, 129, 0.12));
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .focus-room-line { font-size: 14px; color: var(--text); font-weight: 500; }
+  .focus-room-sprint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
   /* ── MEETING COUNTDOWN ── */
   .meeting-input-row {
     display: flex;
@@ -1947,6 +1959,10 @@
             <div class="pomo-dot"></div>
             <div class="pomo-dot"></div>
           </div>
+          <div class="focus-room hidden" id="focusRoom" role="status" aria-live="polite">
+            <div class="focus-room-line" id="focusRoomLine">🟢 <span id="focusRoomText"></span></div>
+            <div class="focus-room-sprint" id="focusRoomSprint"></div>
+          </div>
         </div>
       </div>
 
@@ -3033,6 +3049,54 @@ try { fbFlushTelemetry(); } catch (e) {}
 let pomoState = { running: false, seconds: POMO_WORK, phase: 'work', session: 0, completed: 0 };
 let pomoInterval = null;
 
+// ── Focus sprints (body doubling): while a WORK pomodoro runs, send an
+// anonymous heartbeat and show how many people are focusing alongside you. The
+// server returns the exact (anti-shame) line to render; a quiet room is framed
+// as warmth, never as being alone (the cold-start law). Best-effort throughout —
+// presence never breaks the timer.
+function fbFocusClientId() {
+  try {
+    var k = 'fb_focus_client';
+    var v = localStorage.getItem(k);
+    if (!v) {
+      v = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : 'c-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem(k, v);
+    }
+    return v;
+  } catch (e) { return 'c-' + Date.now().toString(36); }
+}
+var __fbFocusTimer = null;
+function focusRoomRender(d) {
+  var box = document.getElementById('focusRoom');
+  if (!box || !d) return;
+  var t = document.getElementById('focusRoomText');
+  var s = document.getElementById('focusRoomSprint');
+  if (t && d.line) t.textContent = d.line;
+  if (s && d.next_sprint_line) s.textContent = d.next_sprint_line;
+  box.classList.remove('hidden');
+}
+function focusRoomBeat() {
+  fetch('/api/room/heartbeat', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: fbFocusClientId() })
+  }).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d) focusRoomRender(d); })
+    .catch(function () { /* presence is best-effort; never break the timer */ });
+}
+function focusRoomStart() {
+  if (pomoState.phase !== 'work') return; // only during a focus block, not breaks
+  focusRoomBeat();                        // show company right away
+  if (__fbFocusTimer) clearInterval(__fbFocusTimer);
+  __fbFocusTimer = setInterval(focusRoomBeat, 45000);
+}
+function focusRoomStop() {
+  if (__fbFocusTimer) { clearInterval(__fbFocusTimer); __fbFocusTimer = null; }
+  var box = document.getElementById('focusRoom');
+  if (box) box.classList.add('hidden');
+}
+window.addEventListener('beforeunload', focusRoomStop);
+
 function togglePomodoro() {
   if (pomoState.running) {
     pausePomodoro();
@@ -3056,6 +3120,7 @@ function startPomodoro() {
   document.getElementById('pomoStartBtn').innerHTML = '⏸ Pause';
   document.body.classList.add('session-active');
   pomoInterval = setInterval(tickPomodoro, 1000);
+  focusRoomStart(); // join the room — show who's focusing alongside you
 }
 
 function pausePomodoro() {
@@ -3063,6 +3128,7 @@ function pausePomodoro() {
   document.getElementById('pomoStartBtn').innerHTML = '▶ Start';
   document.body.classList.remove('session-active');
   clearInterval(pomoInterval);
+  focusRoomStop(); // stepped away — leave the room
 }
 
 function tickPomodoro() {
@@ -3082,6 +3148,7 @@ function tickPomodoro() {
 function pomoComplete() {
   clearInterval(pomoInterval);
   pomoState.running = false;
+  focusRoomStop(); // session done — leave the room (breaks don't count as focus)
 
   if (pomoState.phase === 'work') {
     pomoState.completed++;
