@@ -25,7 +25,8 @@ permissions:
 
 jobs:
   docs-health:
-    uses: Latimer-Woods-Tech/Factory/.github/workflows/_docs-health.yml@main
+    uses: Latimer-Woods-Tech/Factory/.github/workflows/_docs-health.yml@b4ecb6cd402f6827f85313b00043dc1625a65052
+    secrets: inherit
     with:
       repo_profile: app
       tools_ref: main
