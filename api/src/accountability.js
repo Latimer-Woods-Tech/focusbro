@@ -626,6 +626,24 @@ export function escalationCopy({ title, persona } = {}) {
   return `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`;
 }
 
+/**
+ * The gentle RETURN nudge (Wingspan W4 / L3, #40): the escalation ladder applied
+ * to *returning*, not just starting. When someone who has given words before has
+ * gone quiet across the whole app — with nothing already in flight to reach them
+ * — the bro reaches out exactly ONCE per dormancy episode, warmly, with zero
+ * agenda. The LAW is at its sharpest here: this is the most shame-prone moment in
+ * the product (the abandoned to-do app's "you disappeared"), so the copy NEVER
+ * names the absence, never a streak-at-risk, never a "you missed" — it is an ally
+ * glad they exist, holding the door open. Opt-in by channel (push is subscribed;
+ * text is TCPA consent-gated). Persona shifts the energy, never the care.
+ */
+export function returnNudgeCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?';
+  }
+  return 'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?';
+}
+
 /** After a kept word: celebrate the person, name the streak, mean it. */
 export function keptCopy({ persona, streak } = {}) {
   const n = Number(streak) || 0;

@@ -20,6 +20,7 @@ import {
   computeStreakAfter,
   checkinPromptCopy,
   escalationCopy,
+  returnNudgeCopy,
   keptCopy,
   missRescheduleCopy,
   rescheduleConfirmCopy,
@@ -258,6 +259,7 @@ describe('copy law — never shame, never "AI", never a clinical claim', () => {
     samples.push(checkinPromptCopy({ persona })); // no title → generic
     samples.push(escalationCopy({ title: 'call the dentist', persona })); // the ONE SMS follow-up (W1)
     samples.push(escalationCopy({ persona })); // no title → generic
+    samples.push(returnNudgeCopy({ persona })); // the gone-quiet-person door-open (W4 / L3)
     for (const streak of [0, 1, 2, 25]) {
       samples.push(keptCopy({ persona, streak }));
     }
