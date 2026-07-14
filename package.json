@@ -7,7 +7,9 @@
     "build:html": "node create-html-module.js",
     "predeploy": "node create-html-module.js",
     "deploy": "wrangler deploy --env production",
-    "test": "cd api && npm test"
+    "test": "cd api && npm test",
+    "content:ledger": "node scripts/generate-content-ledger.mjs",
+    "content:ledger:check": "node scripts/generate-content-ledger.mjs --check"
   },
   "repository": {
     "type": "git",
