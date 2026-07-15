@@ -2029,13 +2029,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
         var backLine = c.back_line
           ? '<div class="roster-back">' + esc(c.back_line) + '</div>'
           : '';
+        // The coach twin of the person-side kept-word milestone badge (R-255):
+        // shown only when the server marks this client's current run as exactly
+        // at a milestone count — a celebration and an invitation to send a word,
+        // never a flag. Independent of the reach-out / back cues; may sit beside
+        // them.
+        var milestoneLine = c.milestone_line
+          ? '<div class="roster-milestone">' + esc(c.milestone_line) + '</div>'
+          : '';
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
-          +     nextLine + reachLine + backLine + '</div>'
+          +     nextLine + reachLine + backLine + milestoneLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
