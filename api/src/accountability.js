@@ -912,6 +912,34 @@ export function personalBestCopy({ streak } = {}) {
   return `🏆 You’re at your best — ${cur} words kept in a row, the longest you’ve ever kept going. Keep it rolling.`;
 }
 
+/** Kept-word streak counts worth a distinct "you just reached it" mark. */
+export const STREAK_MILESTONES = [3, 7, 14, 30, 100];
+
+/**
+ * A milestone badge for the kept-word streak — fires ONLY when the current run is
+ * EXACTLY at one of {@link STREAK_MILESTONES}. It marks a discrete "you just
+ * reached N kept words in a row" moment, independent of {@link personalBestCopy}
+ * (which marks being at your all-time peak): you can cross the 14-word milestone
+ * while your best is 30, and you can set a fresh personal best of 5 without
+ * crossing a milestone. On the streak card the two can co-occur (at N === best ===
+ * a milestone) — two true, unshaming wins that say different things.
+ *
+ * Anti-shame BY CONSTRUCTION: it reads current_streak (kept words ONLY), names a
+ * count reached, and never references the past, a gap, a distance-to-the-next
+ * milestone, or a "you were better." Between milestones it returns '' and the page
+ * says nothing — it is never a "you're not there yet" nag. A run that climbs back
+ * to 14 after a reset earns the exact same warmth as the first time (we can't tell
+ * the two apart, and both are 14 words kept — worth the same mark).
+ *
+ * @param {object} p { streak: { current_streak } }
+ * @returns {string} the milestone line, or '' when not exactly at a milestone
+ */
+export function milestoneCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  if (!STREAK_MILESTONES.includes(cur)) return '';
+  return `🎯 ${cur} kept words in a row — that’s a real milestone. Proud of you.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -1933,6 +1961,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         streak,
         message: streakSummaryCopy({ streak }),
         best: personalBestCopy({ streak }),
+        milestone: milestoneCopy({ streak }),
       }, 200, 'short');
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);

@@ -31,6 +31,7 @@ import {
   detailMomentumSummaryCopy,
   detailPeakDayCopy,
   personalBestCopy,
+  milestoneCopy,
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
@@ -338,6 +339,8 @@ export function meCopySurface() {
     streakHeadingCopy(),
     personalBestCopy({ streak: { current_streak: 2, longest_streak: 2 } }),
     personalBestCopy({ streak: { current_streak: 12, longest_streak: 12 } }),
+    milestoneCopy({ streak: { current_streak: 3 } }),
+    milestoneCopy({ streak: { current_streak: 100 } }),
     labels.kept, labels.missed, labels.reschedule,
     releaseActionLabel(),
     snoozeActionLabel(),
@@ -429,6 +432,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <div class="streakmsg" id="streakMsg"></div>
     </div>
     <div class="streakbest hidden" id="streakBest"></div>
+    <div class="streakmilestone hidden" id="streakMilestone"></div>
   </div>
 
   <div class="card">
@@ -612,6 +616,16 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       var line = (data && data.best) || '';
       best.textContent = line;
       if (line) { best.classList.remove('hidden'); } else { best.classList.add('hidden'); }
+    }
+    // Milestone badge: shown ONLY when the server sends a non-empty line (the
+    // current run is exactly at a kept-word milestone). Independent of the
+    // personal-best line — both can show at once, each a true win. Anti-shame by
+    // construction: the API returns '' between milestones, so this never nags.
+    var mile = el('streakMilestone');
+    if (mile) {
+      var mline = (data && data.milestone) || '';
+      mile.textContent = mline;
+      if (mline) { mile.classList.remove('hidden'); } else { mile.classList.add('hidden'); }
     }
   }
 
