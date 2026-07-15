@@ -806,15 +806,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // (when a word is on the books). On the first-run empty load we gently place
   // the cursor in the title field, focused once so a later reload never steals it.
   var _firstRunFocused = false;
+  var _lastCommitments = null;
+  // Re-run the entry-door logic against the last-rendered list — used when the
+  // async homecoming check resolves AFTER the list already painted a generic door,
+  // so the nudged-back welcome can take over cleanly.
+  function refreshEntryDoors() { if (_lastCommitments) updateFirstRun(_lastCommitments); }
   function updateFirstRun(commitments) {
+    _lastCommitments = commitments;
     var state = entryState(commitments);
     var first = el('firstRun');
     var back = el('reentry');
-    // When the nudged-back welcome is up (arrived via ?from=return), it replaces
-    // the generic first-run/re-entry doors — a returning person never sees the
+    // When the nudged-back welcome is up — arrived via ?from=return (FROM_RETURN)
+    // OR come back under their own steam after a nudge (HOMECOMING) — it replaces
+    // the generic first-run/re-entry doors: a returning person never sees the
     // cold-start pitch, and two "welcome back" banners never stack.
-    if (first) { if (state === 'first-word' && !FROM_RETURN) show(first); else hide(first); }
-    if (back) { if (state === 'welcome-back' && !FROM_RETURN) show(back); else hide(back); }
+    var returning = FROM_RETURN || HOMECOMING;
+    if (first) { if (state === 'first-word' && !returning) show(first); else hide(first); }
+    if (back) { if (state === 'welcome-back' && !returning) show(back); else hide(back); }
     if (state === 'first-word' && !_firstRunFocused) {
       _firstRunFocused = true;
       var t = el('title');
@@ -874,7 +882,28 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     } catch (e) {}
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
+  // The person-side twin of the coach "back and moving" cue (R-252): a person the
+  // bro reached out to during a quiet stretch has come back UNDER THEIR OWN STEAM —
+  // no ?from=return deep-link. The server confirms it's a genuine homecoming (and
+  // closes the episode so a reload never re-greets), and we open the SAME warm
+  // nudged-back welcome the deep-link shows — never naming the gap. Runs even on the
+  // deep-link path so the server episode is consumed there too (no cross-session
+  // re-greet). Non-fatal: any failure just leaves the ordinary re-entry door in place.
+  var HOMECOMING = false;
+  function loadHomecoming() {
+    fetch('/api/accountability/homecoming', { headers: authHeaders() })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.homecoming) {
+          HOMECOMING = true;
+          show(el('returnWelcome'));
+          refreshEntryDoors();
+        }
+      })
+      .catch(function () {});
+  }
+
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 

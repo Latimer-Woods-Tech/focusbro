@@ -357,9 +357,12 @@ describe('a nudged-back person is greeted, never questioned about the gap (#40 W
   });
 
   it('replaces — never stacks with — the generic first-run / re-entry doors', () => {
-    // Both generic banners are suppressed while the nudged-back welcome is up.
-    expect(html).toContain("state === 'first-word' && !FROM_RETURN");
-    expect(html).toContain("state === 'welcome-back' && !FROM_RETURN");
+    // Both generic banners are suppressed while the nudged-back welcome is up —
+    // whether reached via the ?from=return deep-link (FROM_RETURN) or a self-powered
+    // homecoming (HOMECOMING, R-253). One `returning` gate drives both doors.
+    expect(html).toContain('var returning = FROM_RETURN || HOMECOMING;');
+    expect(html).toContain("state === 'first-word' && !returning");
+    expect(html).toContain("state === 'welcome-back' && !returning");
   });
 
   it('folds the nudged-back copy into the design-LAW surface (so it is gate-scanned)', () => {
