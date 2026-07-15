@@ -73,6 +73,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .when.next.waiting { color: var(--warn-light); }
   .roster-next { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
   .roster-next.waiting { color: var(--warn-light); }
+  .roster-reach { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.22); }
   .pending { opacity: .7; }
   /* pills */
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }

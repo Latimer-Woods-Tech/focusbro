@@ -25,6 +25,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { describeCadence, formatWhenLocal } from './accountability.js';
+import { RETURN_NUDGE_QUIET_DAYS } from './checkins-cron.js';
 import {
   MOMENTUM_WINDOW_DAYS,
   localDayInZone,
@@ -158,6 +159,40 @@ export function rosterNextCheckinLine({ iso, timezone, nowISO } = {}) {
   const now = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
   if (Date.parse(iso) <= now) return rosterNextCheckinWaitingCopy();
   return nextCheckinCopy({ iso, timezone, nowISO });
+}
+
+// ── RE-ENGAGEMENT CUE (the operator-side twin of the return nudge) ─
+// The product already reaches out to a person who has gone quiet across the
+// whole app on its own (the return nudge — Wingspan W4 / #40). A human coach
+// does the SAME thing by hand between sessions; this gives them the cue to add
+// their personal touch at the same moment the automated nudge fires. It rides
+// the exact dormancy threshold as the return nudge (RETURN_NUDGE_QUIET_DAYS) so
+// the two signals can never drift apart.
+//
+// DESIGN LAW, by construction: quiet is NEVER a delinquency flag here. The cue
+// exists only to open a warm connection — "a good moment to reach out" — and
+// names nothing about what wasn't done. A brand-new client with no activity yet
+// is a clean page, not a quiet one, and is never flagged (the roster query only
+// surfaces clients who WERE here and have since gone quiet).
+
+/** Days of app-wide silence before a coach sees the reach-out cue — the same
+ * dormancy line the automated return nudge uses, so they move together. */
+export const COACH_REACH_OUT_QUIET_DAYS = RETURN_NUDGE_QUIET_DAYS;
+
+/**
+ * The warm coach-voice cue for an active client who has gone quiet across the
+ * app for at least COACH_REACH_OUT_QUIET_DAYS. Returns '' below that line (and
+ * for missing/garbage input) so a card only ever carries the cue when there is
+ * genuinely a quiet stretch to answer — never for a client who is simply new or
+ * currently active. Purely an invitation to connect; it says nothing about a
+ * gap, a miss, or a lapse, for the coach or the client.
+ * @param {object} p { quietDays }
+ * @returns {string} the cue, or '' when there is nothing to surface
+ */
+export function reachOutCueCopy({ quietDays } = {}) {
+  const n = Number(quietDays);
+  if (!Number.isFinite(n) || n < COACH_REACH_OUT_QUIET_DAYS) return '';
+  return 'A quiet stretch lately — a warm moment to reach out and let them know you’re in their corner.';
 }
 
 // ── KEPT-WORD MOMENTUM SPARKLINE ─────────────────────────────
@@ -376,6 +411,36 @@ export function registerCoachRoutes(router, ctx) {
           entry.next_checkin_line = rosterNextCheckinLine({
             iso: n && n.iso, timezone: n && n.timezone, nowISO,
           });
+        }
+
+        // Re-engagement cue: the operator-side twin of the return nudge. Which
+        // active clients have gone quiet across the whole app (their most recent
+        // first-party event is older than the SAME dormancy line the automated
+        // return nudge uses) — so a coach knows the exact moment a personal note
+        // would land. ONE grouped query (no N+1). We compare on the calendar-day
+        // prefix (`substr(created_at,1,10)`), the format-agnostic pattern
+        // events.js already uses for cohorts, so mixed ISO/space timestamps sort
+        // correctly. A client with NO events never appears here — a clean page,
+        // never flagged. DESIGN LAW: quiet is only ever an invitation to
+        // connect; the query surfaces WHO to reach, the copy never names a miss.
+        const cutoffMs = Date.parse(nowISO) - COACH_REACH_OUT_QUIET_DAYS * 24 * 60 * 60 * 1000;
+        const cutoffDay = new Date(cutoffMs).toISOString().slice(0, 10);
+        const quietRows = await env.DB.prepare(
+          `SELECT user_id AS client_id
+             FROM analytics_events
+            WHERE user_id IN (${placeholders})
+            GROUP BY user_id
+           HAVING substr(MAX(created_at), 1, 10) <= ?`
+        ).bind(...activeIds, cutoffDay).all();
+        const quietSet = new Set();
+        for (const r of (quietRows && quietRows.results) || []) quietSet.add(r.client_id);
+        for (const entry of roster) {
+          if (entry.status !== 'active') continue;
+          // quietDays is day-granular and only needs to clear the threshold to
+          // show the cue (the copy itself is non-numeric — never a countdown).
+          entry.reach_out_line = quietSet.has(entry.client_id)
+            ? reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS })
+            : '';
         }
       }
 

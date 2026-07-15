@@ -26,8 +26,11 @@ import {
   momentumIntroCopy,
   momentumSummaryCopy,
   buildMomentum,
+  reachOutCueCopy,
+  COACH_REACH_OUT_QUIET_DAYS,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
+import { RETURN_NUDGE_QUIET_DAYS } from '../checkins-cron.js';
 
 describe('coach link states', () => {
   it('exposes the four link states', () => {
@@ -161,6 +164,8 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     describeCadence({ recurrence: 'none' }),
     describeCadence({ recurrence: 'daily', localTime: '08:40' }),
     describeCadence({ recurrence: 'weekdays', localTime: '09:05' }),
+    reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
+    reachOutCueCopy({ quietDays: 30 }),
   ];
 
   it('produces non-empty strings for every roster copy path', () => {
@@ -189,6 +194,42 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
       for (const pat of CLINICAL_PATTERNS) {
         expect(pat.test(s), `clinical claim in coach copy: "${s}" matched ${pat}`).toBe(false);
       }
+    }
+  });
+});
+
+// ── RE-ENGAGEMENT CUE — the operator-side twin of the return nudge ─
+describe('reachOutCueCopy — a warm invitation to reach out, never a delinquency flag', () => {
+  it('rides the exact dormancy line the automated return nudge uses', () => {
+    // The whole point is that the coach cue and the automated nudge fire on the
+    // same threshold, so they can never drift apart.
+    expect(COACH_REACH_OUT_QUIET_DAYS).toBe(RETURN_NUDGE_QUIET_DAYS);
+    expect(COACH_REACH_OUT_QUIET_DAYS).toBeGreaterThan(0);
+  });
+
+  it('is silent below the threshold, and for missing or garbage input', () => {
+    expect(reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS - 1 })).toBe('');
+    expect(reachOutCueCopy({ quietDays: 0 })).toBe('');
+    expect(reachOutCueCopy({ quietDays: -5 })).toBe('');
+    expect(reachOutCueCopy({ quietDays: NaN })).toBe('');
+    expect(reachOutCueCopy({ quietDays: 'soon' })).toBe('');
+    expect(reachOutCueCopy({})).toBe('');
+    expect(reachOutCueCopy()).toBe('');
+  });
+
+  it('surfaces a warm cue at the threshold and beyond', () => {
+    const at = reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS });
+    const beyond = reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS + 20 });
+    expect(at.trim().length).toBeGreaterThan(0);
+    expect(beyond).toBe(at); // non-numeric by design — never a day-count scoreboard
+    expect(at.toLowerCase()).toMatch(/reach out/);
+  });
+
+  it('never frames the quiet as a gap, a loss, or the client disappearing', () => {
+    const s = reachOutCueCopy({ quietDays: 14 });
+    // No countdown / delinquency framing: the cue opens a connection, full stop.
+    for (const pat of [/\bgone\b/i, /\blapsed?\b/i, /\bdisappear/i, /\bdropp?ed\b/i, /\binactive\b/i, /\bat risk\b/i, /\boverdue\b/i, /\bstill\s+haven/i]) {
+      expect(pat.test(s), `reach-out cue reads as a delinquency flag: "${s}" matched ${pat}`).toBe(false);
     }
   });
 });
