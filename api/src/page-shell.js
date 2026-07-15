@@ -65,6 +65,8 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .streak small { display: block; font-size: 12px; font-weight: 500; color: var(--text-dim); margin-top: 4px; }
   .streakmsg { color: var(--text-muted); font-size: 15px; }
   .streakbest { margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.30); }
+  /* Milestone badge — a discrete "you reached it" win, so a warm success accent (distinct from the blue personal-best line; the two can show together). */
+  .streakmilestone { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.30); }
   .name { font-weight: 600; color: var(--text); }
   .line { color: var(--text-muted); font-size: 14px; }
   .when { color: var(--text-dim); font-size: 13px; }

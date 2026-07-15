@@ -43,6 +43,7 @@ import {
   momentumSelfIntroCopy,
   momentumSelfSummaryCopy,
   personalBestCopy,
+  milestoneCopy,
 } from '../accountability.js';
 
 const SHAME_PATTERNS = [
@@ -482,5 +483,60 @@ describe('personal-best celebration — a peak to celebrate, never "you were bet
     expect(html).toContain('id="streakBest"');
     expect(html).toContain('streakbest hidden'); // hidden by default; revealed only on data.best
     expect(html).toContain('data && data.best'); // renderStreak reads the server-computed line
+  });
+});
+
+describe('milestone badge — a discrete "you reached it" mark, never a "not there yet" nag', () => {
+  it('fires ONLY when the current run is exactly at a milestone, naming the count', () => {
+    for (const n of [3, 7, 14, 30, 100]) {
+      const line = milestoneCopy({ streak: { current_streak: n } });
+      expect(line.length, `milestone ${n} should celebrate`).toBeGreaterThan(0);
+      expect(line).toContain(String(n));
+      expect(line.toLowerCase()).toContain('milestone');
+    }
+  });
+
+  it('says NOTHING between milestones — silence, never a "you\'re not there yet"', () => {
+    for (const n of [0, 1, 2, 4, 6, 8, 13, 29, 99, 101]) {
+      expect(milestoneCopy({ streak: { current_streak: n } }), `no badge at ${n}`).toBe('');
+    }
+    // Defensive: garbage / missing input never throws and never celebrates.
+    expect(milestoneCopy()).toBe('');
+    expect(milestoneCopy({ streak: {} })).toBe('');
+    expect(milestoneCopy({ streak: { current_streak: 'oops' } })).toBe('');
+  });
+
+  it('is independent of the personal best — reads only the current run, not the peak', () => {
+    // Crosses the 14 milestone even though the all-time best is higher: a milestone
+    // is a real win regardless of history, and it never references that history.
+    expect(milestoneCopy({ streak: { current_streak: 14, longest_streak: 99 } }).length).toBeGreaterThan(0);
+    // At a fresh best of 5 (not a milestone value): the personal-best line carries
+    // it; the milestone badge stays silent. The two signals are orthogonal.
+    expect(milestoneCopy({ streak: { current_streak: 5, longest_streak: 5 } })).toBe('');
+  });
+
+  it('never shames, brands "AI", names a gap, or makes a clinical claim', () => {
+    for (const n of [3, 7, 14, 30, 100]) {
+      const s = milestoneCopy({ streak: { current_streak: n } });
+      for (const pat of SHAME_PATTERNS) expect(pat.test(s), `shame in milestone copy: "${s}" matched ${pat}`).toBe(false);
+      expect(AI_WORD.test(s), `"AI" in milestone copy: "${s}"`).toBe(false);
+      for (const pat of CLINICAL_PATTERNS) expect(pat.test(s), `clinical in milestone copy: "${s}"`).toBe(false);
+      const low = s.toLowerCase();
+      for (const w of ['almost', 'so close', 'next up', 'to go', 'were better', 'used to', 'don’t lose', "don't lose"]) {
+        expect(low.includes(w), `milestone frames a distance/loss ("${w}")`).toBe(false);
+      }
+    }
+  });
+
+  it('folds the badge into the design-LAW surface (so it is gate-scanned)', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(milestoneCopy({ streak: { current_streak: 100 } }));
+  });
+
+  it('renderMePage mounts the milestone element, hidden until the server sends a line', () => {
+    const html = renderMePage();
+    expect(html).toContain('id="streakMilestone"');
+    expect(html).toContain('streakmilestone hidden'); // hidden by default; revealed only on data.milestone
+    expect(html).toContain('data && data.milestone'); // renderStreak reads the server-computed line
   });
 });
