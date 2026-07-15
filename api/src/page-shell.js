@@ -74,6 +74,8 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .roster-next { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
   .roster-next.waiting { color: var(--warn-light); }
   .roster-reach { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.22); }
+  /* The joyful twin of the reach-out cue — a celebration, so a warm success accent, never the worried blue. */
+  .roster-back { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.22); }
   .pending { opacity: .7; }
   /* pills */
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
