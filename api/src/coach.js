@@ -24,7 +24,7 @@
 // coach.test.js (banned-word + no-"AI" + no-clinical-claim assertions).
 // ════════════════════════════════════════════════════════════
 
-import { describeCadence, formatWhenLocal } from './accountability.js';
+import { describeCadence, formatWhenLocal, STREAK_MILESTONES } from './accountability.js';
 import { RETURN_NUDGE_QUIET_DAYS } from './checkins-cron.js';
 import {
   MOMENTUM_WINDOW_DAYS,
@@ -223,6 +223,37 @@ export function reachOutCueCopy({ quietDays } = {}) {
 export function backAfterReachCopy({ back } = {}) {
   if (back !== true) return '';
   return 'Back and moving again — a great moment to tell them you noticed, and that you’re glad they’re here.';
+}
+
+// ── KEPT-WORD MILESTONE CUE (the coach twin of the person-side badge) ──────
+// The person's own /me/ streak card shows a discrete "you just reached it"
+// badge the moment a kept-word run crosses a meaningful count (3/7/14/30/100 —
+// R-255, `milestoneCopy`). This is its operator mirror: when a client's current
+// kept-word run is EXACTLY at one of those counts, the roster surfaces a warm
+// coach-voice cue so the coach can send a word at the moment it lands. It reads
+// the streak already loaded for the card — no extra query, no schema change.
+//
+// DESIGN LAW, by construction: this reads `current_streak` (kept words ONLY),
+// fires exactly at a milestone and returns '' everywhere else, and names only
+// the count reached and the invitation to celebrate — never a gap, a distance
+// to the next milestone, a "not there yet", or anything owed. Between milestones
+// the card carries nothing, so it is never a "this one is slipping" prompt. It
+// is independent of the reach-out / back-and-moving cues — a milestone is its
+// own good news and can sit beside any of them.
+
+/**
+ * The warm coach-voice cue for an active client whose CURRENT kept-word run has
+ * just crossed a milestone ({@link STREAK_MILESTONES}). Returns '' unless the
+ * current streak is exactly a milestone value, so a card only ever carries it at
+ * the moment the count lands. Purely a celebration and an invitation to send a
+ * word; it names the count reached and nothing about a gap or a distance to go.
+ * @param {object} p { streak } — the client streak row ({ current_streak })
+ * @returns {string} the cue, or '' when the run is not exactly at a milestone
+ */
+export function clientMilestoneCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  if (!STREAK_MILESTONES.includes(cur)) return '';
+  return `🎯 ${cur} kept words in a row — a milestone just landed. A great moment to send a word.`;
 }
 
 // ── WEEKLY HOMECOMING DIGEST (the batched, between-session twin of the cues) ─
@@ -492,6 +523,11 @@ export function registerCoachRoutes(router, ctx) {
           };
           entry.active_commitments = Number(active && active.n) || 0;
           entry.status_line = clientStatusLine({ streak });
+          // Coach twin of the person-side kept-word milestone badge (R-255): a
+          // warm cue exactly when this client's current run lands on a milestone
+          // count. Reads the streak already loaded above — no extra query. ''
+          // between milestones, so it is never a nag.
+          entry.milestone_line = clientMilestoneCopy({ streak });
         } else {
           entry.status_line = invitePendingCopy();
         }

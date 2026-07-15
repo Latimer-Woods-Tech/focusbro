@@ -29,6 +29,7 @@ import {
   reachOutCueCopy,
   COACH_REACH_OUT_QUIET_DAYS,
   backAfterReachCopy,
+  clientMilestoneCopy,
   HOMECOMING_DIGEST_WINDOW_DAYS,
   homecomingDigestIntroCopy,
   homecomingDigestSummaryCopy,
@@ -172,6 +173,11 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
     reachOutCueCopy({ quietDays: 30 }),
     backAfterReachCopy({ back: true }),
+    clientMilestoneCopy({ streak: { current_streak: 3 } }),
+    clientMilestoneCopy({ streak: { current_streak: 7 } }),
+    clientMilestoneCopy({ streak: { current_streak: 14 } }),
+    clientMilestoneCopy({ streak: { current_streak: 30 } }),
+    clientMilestoneCopy({ streak: { current_streak: 100 } }),
     homecomingDigestIntroCopy(),
     homecomingDigestSummaryCopy({ count: 0 }),
     homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
@@ -289,6 +295,54 @@ describe('backAfterReachCopy — celebrates a return, never names the gap', () =
     // Each state surfaces exactly its own cue.
     expect(quiet.reach.length > 0).toBe(true);
     expect(returned.back.length > 0).toBe(true);
+  });
+});
+
+describe('clientMilestoneCopy — the coach twin of the person-side milestone badge', () => {
+  it('fires EXACTLY at each milestone count and nowhere else', () => {
+    for (const m of [3, 7, 14, 30, 100]) {
+      expect(clientMilestoneCopy({ streak: { current_streak: m } }).trim().length).toBeGreaterThan(0);
+    }
+    // Between milestones (and above the top one) it says nothing — never a
+    // "you're not there yet" nag, never a distance-to-the-next prompt.
+    for (const n of [0, 1, 2, 4, 6, 8, 13, 15, 29, 31, 99, 101, 250]) {
+      expect(clientMilestoneCopy({ streak: { current_streak: n } })).toBe('');
+    }
+  });
+
+  it('reads the current run only, and is robust to missing/garbage input', () => {
+    // Only the CURRENT kept-word run matters — a client at longest 30 but a
+    // current run of 5 gets no badge; the milestone marks the live moment.
+    expect(clientMilestoneCopy({ streak: { current_streak: 5, longest_streak: 30 } })).toBe('');
+    expect(clientMilestoneCopy({ streak: { current_streak: 7, longest_streak: 30 } }).length).toBeGreaterThan(0);
+    // Never throws on a shape it doesn't own.
+    expect(clientMilestoneCopy({ streak: null })).toBe('');
+    expect(clientMilestoneCopy({ streak: {} })).toBe('');
+    expect(clientMilestoneCopy({})).toBe('');
+    expect(clientMilestoneCopy()).toBe('');
+    expect(clientMilestoneCopy({ streak: { current_streak: 'seven' } })).toBe('');
+  });
+
+  it('names the count and an invitation — never a gap or a distance to go', () => {
+    const s = clientMilestoneCopy({ streak: { current_streak: 30 } });
+    expect(s).toMatch(/30/);
+    // The design LAW: it points at the win and forward, never at what is owed or
+    // still ahead. No countdown, no "almost", no reference to the next rung.
+    for (const pat of [
+      /\balmost\b/i, /\bso close\b/i, /\bto go\b/i, /\bnext milestone\b/i,
+      /\baway\b/i, /\buntil\b/i, /\bgap\b/i, /\bmiss(es|ed|ing)?\b/i,
+    ]) {
+      expect(pat.test(s), `milestone cue smuggles a distance/shame frame: "${s}" matched ${pat}`).toBe(false);
+    }
+  });
+
+  it('is independent of the reach-out / back cues — a milestone is its own good news', () => {
+    // A client can land a milestone regardless of the return-loop state; the copy
+    // carries no coupling to either cue.
+    const m = clientMilestoneCopy({ streak: { current_streak: 14 } });
+    expect(m.length > 0).toBe(true);
+    expect(m).not.toBe(backAfterReachCopy({ back: true }));
+    expect(m).not.toBe(reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }));
   });
 });
 
