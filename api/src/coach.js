@@ -195,6 +195,36 @@ export function reachOutCueCopy({ quietDays } = {}) {
   return 'A quiet stretch lately — a warm moment to reach out and let them know you’re in their corner.';
 }
 
+// ── "BACK AND MOVING" CELEBRATION (the positive twin of the reach-out cue) ─
+// The reach-out cue (above) is the *worried* half of the operator-side return
+// loop: it marks who has gone quiet so a coach can add their personal touch at
+// the moment the automated nudge fires. This is its *joyful* half — the coach
+// mirror of the person-side nudged-back welcome (`/me/`, R-249): when a client
+// the bro reached out to during a quiet stretch has come back and is moving
+// again, the roster celebrates it, so the coach reconnects at the good moment,
+// not only the worried one.
+//
+// DESIGN LAW, by construction: this ONLY ever fires on a return, and the copy
+// celebrates the return itself — it names no gap, no absence, nothing owed. The
+// two cues are exact complements on ONE dormancy line (COACH_REACH_OUT_QUIET_DAYS):
+// reach-out marks the currently-quiet; "back" marks the once-quiet-now-active who
+// were nudged in between — a client can never carry both at once.
+
+/**
+ * The warm coach-voice cue for an active client who was reached out to during a
+ * quiet stretch and has since come back and been active again. Returns '' unless
+ * the caller passes an explicit `back: true` (the roster query owns the decision;
+ * any falsy/garbage input is silent) so a card only ever carries this on a
+ * genuine return. Purely a celebration and an invitation to reconnect; it names
+ * nothing about the gap that preceded the return.
+ * @param {object} p { back }
+ * @returns {string} the cue, or '' when there is nothing to celebrate
+ */
+export function backAfterReachCopy({ back } = {}) {
+  if (back !== true) return '';
+  return 'Back and moving again — a great moment to tell them you noticed, and that you’re glad they’re here.';
+}
+
 // ── KEPT-WORD MOMENTUM SPARKLINE ─────────────────────────────
 // A coach should feel a client's momentum at a glance, not just read a single
 // streak number. So the detail view carries a per-day count of KEPT words over
@@ -440,6 +470,55 @@ export function registerCoachRoutes(router, ctx) {
           // show the cue (the copy itself is non-numeric — never a countdown).
           entry.reach_out_line = quietSet.has(entry.client_id)
             ? reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS })
+            : '';
+        }
+
+        // "Back and moving" celebration: the positive twin of the reach-out cue.
+        // Which active clients were reached out to by the automated return nudge
+        // during a quiet stretch (a return_nudge_sent whose day is on/before the
+        // SAME cutoff) and have since come back and been active again (their most
+        // recent event is AFTER that cutoff day). ONE grouped query, no N+1: a
+        // per-client last-activity day joined to a per-client last-nudge day. The
+        // nudge event carries the client id in its JSON payload (userId is NULL so
+        // it never counts as the client's own activity — events.js), so we read it
+        // via json_extract. Non-fatal by construction: a celebration must never be
+        // able to take down the roster, so a failure here just yields no cue.
+        // DESIGN LAW: this fires ONLY on a genuine return; the copy celebrates the
+        // return and names nothing about the gap. Exact complement of reach-out on
+        // the one cutoffDay line — currently-active here (`last_day > cutoffDay`)
+        // vs currently-quiet there (`<= cutoffDay`) — so no client is ever both.
+        let backSet = new Set();
+        try {
+          const backRows = await env.DB.prepare(
+            `SELECT act.client_id AS client_id
+               FROM (
+                 SELECT user_id AS client_id, substr(MAX(created_at), 1, 10) AS last_day
+                   FROM analytics_events
+                  WHERE user_id IN (${placeholders})
+                  GROUP BY user_id
+               ) act
+               JOIN (
+                 SELECT json_extract(event_data, '$.user_id') AS uid,
+                        substr(MAX(created_at), 1, 10) AS nudge_day
+                   FROM analytics_events
+                  WHERE event_type = 'return_nudge_sent'
+                    AND json_extract(event_data, '$.user_id') IN (${placeholders})
+                  GROUP BY uid
+               ) nud ON nud.uid = act.client_id
+              WHERE act.last_day > ?
+                AND nud.nudge_day <= ?`
+          ).bind(...activeIds, ...activeIds, cutoffDay, cutoffDay).all();
+          for (const r of (backRows && backRows.results) || []) backSet.add(r.client_id);
+        } catch (err) {
+          console.warn('[coach] back-after-reach query failed:', err && err.message);
+          backSet = new Set();
+        }
+        for (const entry of roster) {
+          if (entry.status !== 'active') continue;
+          // Exact complement in code, too: never celebrate a return for a client
+          // the same pass marks as currently quiet (the SQL already guarantees it).
+          entry.back_line = (!quietSet.has(entry.client_id) && backSet.has(entry.client_id))
+            ? backAfterReachCopy({ back: true })
             : '';
         }
       }

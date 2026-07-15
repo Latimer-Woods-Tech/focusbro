@@ -28,6 +28,7 @@ import {
   buildMomentum,
   reachOutCueCopy,
   COACH_REACH_OUT_QUIET_DAYS,
+  backAfterReachCopy,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
 import { RETURN_NUDGE_QUIET_DAYS } from '../checkins-cron.js';
@@ -166,6 +167,7 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     describeCadence({ recurrence: 'weekdays', localTime: '09:05' }),
     reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
     reachOutCueCopy({ quietDays: 30 }),
+    backAfterReachCopy({ back: true }),
   ];
 
   it('produces non-empty strings for every roster copy path', () => {
@@ -231,6 +233,53 @@ describe('reachOutCueCopy — a warm invitation to reach out, never a delinquenc
     for (const pat of [/\bgone\b/i, /\blapsed?\b/i, /\bdisappear/i, /\bdropp?ed\b/i, /\binactive\b/i, /\bat risk\b/i, /\boverdue\b/i, /\bstill\s+haven/i]) {
       expect(pat.test(s), `reach-out cue reads as a delinquency flag: "${s}" matched ${pat}`).toBe(false);
     }
+  });
+});
+
+// ── "BACK AND MOVING" CELEBRATION — the positive twin of the reach-out cue ─
+describe('backAfterReachCopy — celebrates a return, never names the gap', () => {
+  it('is silent unless the caller passes an explicit back: true', () => {
+    // The roster query owns the decision; the copy trusts nothing else.
+    expect(backAfterReachCopy({ back: false })).toBe('');
+    expect(backAfterReachCopy({ back: 1 })).toBe('');
+    expect(backAfterReachCopy({ back: 'yes' })).toBe('');
+    expect(backAfterReachCopy({ back: null })).toBe('');
+    expect(backAfterReachCopy({})).toBe('');
+    expect(backAfterReachCopy()).toBe('');
+  });
+
+  it('celebrates the return with a warm, connection-opening cue', () => {
+    const s = backAfterReachCopy({ back: true });
+    expect(s.trim().length).toBeGreaterThan(0);
+    // Reads as a celebration and an invitation to reconnect — glad, not worried.
+    expect(s.toLowerCase()).toMatch(/glad/);
+  });
+
+  it('names nothing about the gap that preceded the return', () => {
+    const s = backAfterReachCopy({ back: true });
+    // The joyful half must never smuggle in the worried framing: no absence, no
+    // gap, no shame, no countdown — it points only forward.
+    for (const pat of [
+      /\bgone\b/i, /\blapsed?\b/i, /\bdisappear/i, /\bdropp?ed\b/i, /\binactive\b/i,
+      /\bat risk\b/i, /\boverdue\b/i, /\bgap\b/i, /\baway\b/i, /\babsen/i, /\bfinally\b/i,
+      /\bmiss(es|ed|ing)?\b/i, /\bfail(ed|ure|ing|s)?\b/i,
+    ]) {
+      expect(pat.test(s), `back cue reads as a worried/shaming flag: "${s}" matched ${pat}`).toBe(false);
+    }
+  });
+
+  it('is the exact complement of the reach-out cue — a card can never carry both', () => {
+    // Same client, same pass: reach-out fires only while currently quiet, "back"
+    // only once currently active. The copy pair encodes that: reach-out needs the
+    // quiet threshold met; "back" needs an explicit return signal. There is no
+    // input that yields both a reach-out string AND a back string at once.
+    const quiet = { reach: reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }), back: backAfterReachCopy({ back: false }) };
+    const returned = { reach: reachOutCueCopy({ quietDays: 0 }), back: backAfterReachCopy({ back: true }) };
+    expect(quiet.reach.length > 0 && quiet.back.length > 0).toBe(false);
+    expect(returned.reach.length > 0 && returned.back.length > 0).toBe(false);
+    // Each state surfaces exactly its own cue.
+    expect(quiet.reach.length > 0).toBe(true);
+    expect(returned.back.length > 0).toBe(true);
   });
 });
 

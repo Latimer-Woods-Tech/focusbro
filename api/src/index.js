@@ -2005,13 +2005,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
         var reachLine = c.reach_out_line
           ? '<div class="roster-reach">' + esc(c.reach_out_line) + '</div>'
           : '';
+        // The positive twin of the reach-out cue: shown only when the server
+        // marks this client as back-and-moving after the bro reached out during a
+        // quiet stretch — the coach-side mirror of the nudged-back welcome. A
+        // celebration, never a flag; it and the reach-out cue are complements and
+        // never appear together.
+        var backLine = c.back_line
+          ? '<div class="roster-back">' + esc(c.back_line) + '</div>'
+          : '';
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
-          +     nextLine + reachLine + '</div>'
+          +     nextLine + reachLine + backLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
