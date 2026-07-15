@@ -29,6 +29,10 @@ import {
   reachOutCueCopy,
   COACH_REACH_OUT_QUIET_DAYS,
   backAfterReachCopy,
+  HOMECOMING_DIGEST_WINDOW_DAYS,
+  homecomingDigestIntroCopy,
+  homecomingDigestSummaryCopy,
+  buildHomecomingDigest,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
 import { RETURN_NUDGE_QUIET_DAYS } from '../checkins-cron.js';
@@ -168,6 +172,11 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
     reachOutCueCopy({ quietDays: 30 }),
     backAfterReachCopy({ back: true }),
+    homecomingDigestIntroCopy(),
+    homecomingDigestSummaryCopy({ count: 0 }),
+    homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
+    homecomingDigestSummaryCopy({ count: 3, names: ['Sam', 'Ari', 'Jo'] }),
+    homecomingDigestSummaryCopy({ count: 9, names: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] }),
   ];
 
   it('produces non-empty strings for every roster copy path', () => {
@@ -280,6 +289,83 @@ describe('backAfterReachCopy — celebrates a return, never names the gap', () =
     // Each state surfaces exactly its own cue.
     expect(quiet.reach.length > 0).toBe(true);
     expect(returned.back.length > 0).toBe(true);
+  });
+});
+
+// ── WEEKLY HOMECOMING DIGEST — the batched, between-session twin of the cues ─
+describe('homecomingDigestSummaryCopy — celebrates who came home, never who stayed away', () => {
+  it('a week with none reads as a clean, calm page — never a shortfall', () => {
+    const s = homecomingDigestSummaryCopy({ count: 0 });
+    expect(s.trim().length).toBeGreaterThan(0);
+    expect(s.toLowerCase()).toMatch(/calm week|clean|come back|comes back/);
+    // No worried/shaming framing about who did NOT return.
+    for (const pat of [/\bmiss(es|ed|ing)?\b/i, /\bfail(ed|ure|ing|s)?\b/i, /\bbehind\b/i, /\bgone\b/i, /\binactive\b/i, /\bat risk\b/i]) {
+      expect(pat.test(s), `empty digest reads as a shortfall: "${s}" matched ${pat}`).toBe(false);
+    }
+  });
+
+  it('names the count and who came back, in warm celebration', () => {
+    const one = homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] });
+    expect(one).toMatch(/1 person/);
+    expect(one).toContain('Sam');
+    expect(one.toLowerCase()).toMatch(/glad|noticed/);
+    const three = homecomingDigestSummaryCopy({ count: 3, names: ['Sam', 'Ari', 'Jo'] });
+    expect(three).toMatch(/3 people/);
+    // All three named, with an Oxford "and" before the last.
+    expect(three).toContain('Sam');
+    expect(three).toContain('Ari');
+    expect(three).toMatch(/and Jo\b/);
+  });
+
+  it('caps the inline name list and rolls the rest into "and N more"', () => {
+    const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+    const s = homecomingDigestSummaryCopy({ count: 9, names });
+    expect(s).toMatch(/9 people/);
+    expect(s).toMatch(/and 3 more/); // 9 names, cap 6 → 3 more
+  });
+
+  it('tolerates missing/garbage names without throwing or leaking noise', () => {
+    const s = homecomingDigestSummaryCopy({ count: 2, names: [null, '  ', 42] });
+    expect(typeof s).toBe('string');
+    expect(s).toMatch(/2 people/);
+    // No dangling separators when every name was filtered out.
+    expect(s).not.toMatch(/ — \./);
+  });
+});
+
+describe('buildHomecomingDigest — the assembled coach-facing digest', () => {
+  it('an empty week is a count of zero and a clean-page summary', () => {
+    const d = buildHomecomingDigest({ rows: [] });
+    expect(d.count).toBe(0);
+    expect(d.clients).toEqual([]);
+    expect(d.window_days).toBe(HOMECOMING_DIGEST_WINDOW_DAYS);
+    expect(d.intro).toBe(homecomingDigestIntroCopy());
+    expect(d.summary.toLowerCase()).toMatch(/calm week/);
+  });
+
+  it('counts each person once (dedup), newest homecoming first', () => {
+    const d = buildHomecomingDigest({
+      rows: [
+        { client_id: 'u1', label: 'Sam', at: '2026-07-14T09:00:00Z' },
+        { client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' }, // same person, later
+        { client_id: 'u2', label: 'Ari', at: '2026-07-13T09:00:00Z' },
+      ],
+    });
+    expect(d.count).toBe(2); // u1 counted once
+    expect(d.clients.map((c) => c.client_id)).toEqual(['u1', 'u2']); // newest 'at' first
+    expect(d.clients[0].at).toBe('2026-07-15T09:00:00Z'); // kept the latest marker
+    expect(d.summary).toMatch(/2 people/);
+  });
+
+  it('gives an unlabeled returner a warm fallback name, never an email or blank', () => {
+    const d = buildHomecomingDigest({ rows: [{ client_id: 'u3', label: '', at: '2026-07-14T09:00:00Z' }] });
+    expect(d.clients[0].label).toBe('Someone you support');
+    expect(d.count).toBe(1);
+  });
+
+  it('ignores rows with no client id', () => {
+    const d = buildHomecomingDigest({ rows: [{ label: 'x', at: '2026-07-14T09:00:00Z' }, { client_id: '', label: 'y' }] });
+    expect(d.count).toBe(0);
   });
 });
 

@@ -1952,6 +1952,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     </form>
     <p class="err hidden" id="inviteMsg"></p>
   </div>
+  <div id="digest"></div>
   <div id="roster"></div>
   <p class="muted"><a href="#" id="signout">Sign out</a></p>
 </div>
@@ -1977,8 +1978,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
   var token = function () { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
   var authHeaders = function () { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; };
 
+  // The weekly homecoming digest — the batched, between-session twin of the
+  // per-client reach-out / back-and-moving cues. It celebrates who came HOME this
+  // week and, on a quiet week, reads as a clean page. Shown whenever the app is
+  // loaded so a coach always knows where to look; it never names an absence.
+  function renderDigest(dg) {
+    var host = el('digest');
+    if (!host) { return; }
+    if (!dg || !dg.summary) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="card digest">'
+      + '<strong>' + esc(dg.intro || 'Homecomings this week') + '</strong>'
+      + '<p class="digest-summary">' + esc(dg.summary) + '</p>'
+      + '</div>';
+  }
+
   function render(data) {
     if (data && data.intro) { el('intro').textContent = data.intro; }
+    renderDigest(data && data.homecoming_digest);
     var roster = (data && data.roster) || [];
     var host = el('roster');
     if (!roster.length) {
