@@ -1999,13 +1999,19 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
           var waitCls = (!isNaN(nt) && nt <= Date.now()) ? ' waiting' : '';
           nextLine = '<div class="roster-next' + waitCls + '">' + esc(c.next_checkin_line) + '</div>';
         }
+        // The re-engagement cue: shown only when the server marks this client as
+        // having gone quiet across the app — the coach-side twin of the return
+        // nudge. A warm invitation to reach out, never a delinquency flag.
+        var reachLine = c.reach_out_line
+          ? '<div class="roster-reach">' + esc(c.reach_out_line) + '</div>'
+          : '';
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
-          +     nextLine + '</div>'
+          +     nextLine + reachLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
