@@ -1277,6 +1277,193 @@ export const guides = [
 <li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
 </ul>
 </div>`
+  },
+  {
+    slug: 'movement-breaks-and-focus',
+    howto: {
+      name: 'How to take a movement break',
+      description: 'Break up long sitting with a few minutes of easy movement to refresh attention.',
+      steps: [
+        'When a focus block ends, stand up instead of reaching for your phone.',
+        'Move for two to five minutes — a brisk walk, a lap of the building, or a set of easy stretches and squats.',
+        'Keep the effort light to moderate; you want to feel refreshed, not winded.',
+        'Sit back down and start the next block while the lift in alertness is still with you.',
+      ],
+    },
+    title: 'Movement Breaks: Why Getting Up Sharpens Your Focus',
+    description: 'What the research on physical activity and attention actually shows, why prolonged sitting dulls concentration, and how to use short movement breaks to reset your focus.',
+    lastmod: '2026-07-15',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">The advice to "get up and move" sounds like something you tolerate rather than something that helps you think. But the link between the body and the focusing brain is real: a short bout of easy movement is one of the more reliable ways to lift your alertness between blocks of work. Here is what the research supports, what it doesn't, and how to fit movement into a focus day.</p>
+
+<h2>What sitting still does to attention</h2>
+<p>Long, unbroken sitting is not just hard on the back. Sitting for hours tends to leave people feeling foggy and restless, and the effect shows up in how well they sustain attention. Part of this is circulation and metabolism — prolonged stillness slows blood flow and blunts the body's handling of glucose — and part of it is simple: attention is a limited resource that frays when you hold it on one thing for too long without a break. Movement addresses both at once. It nudges the body out of its idling state and it forces a clean pause from the task, which is often exactly what a tired attention system needs.</p>
+
+<h2>What a bout of exercise does to the brain</h2>
+<p>The stronger evidence is for what happens <em>after</em> you move. A single session of light-to-moderate aerobic exercise — even a brisk walk — is followed, in many controlled studies, by a short-lived improvement in the kind of attention and self-control that focused work depends on. In a well-known 2008 review in <em>Nature Reviews Neuroscience</em>, "Be smart, exercise your heart," Charles Hillman, Kirk Erickson, and Arthur Kramer gathered evidence that physical activity supports brain function and cognition, with particular benefits for executive control — the umbrella term for planning, resisting distraction, and switching between tasks.</p>
+<p>The effect can follow a surprisingly small dose. In one often-cited experiment by Hillman and colleagues, a single twenty-minute treadmill walk was followed by better performance on a test of attention and on an academic task in preadolescent children. The proposed mechanisms are physiological: a bout of exercise raises heart rate and blood flow to the brain, increases arousal, and, over time, is associated with higher levels of <strong>brain-derived neurotrophic factor</strong>, a protein that supports the health of neurons. You do not need to understand the biology to use the finding — you need to know that the walk comes first and the sharper focus follows.</p>
+
+<h2>Acute lift versus long-term fitness</h2>
+<p>It is worth separating two different claims so you can trust the one you are relying on. The first is that <em>regular</em> physical activity, sustained over months and years, is associated with better cognitive health and slower age-related decline — a broad and well-supported finding. The second is that a <em>single</em> bout of movement gives you a short, immediate lift in attention. Both appear to be true, but the immediate lift is modest and temporary — measured in tens of minutes, not hours — and it is the one that matters for structuring a work day. Do not expect a five-minute walk to transform your afternoon; expect it to take the edge off the slump and buy you a cleaner start on the next block.</p>
+
+<h2>Movement and thinking, not just alertness</h2>
+<p>There is a second, quieter benefit worth knowing about: movement seems to help a particular kind of thinking. In a series of experiments published in 2014 in the <em>Journal of Experimental Psychology</em>, Marily Oppezzo and Daniel Schwartz at Stanford found that walking — whether on a treadmill indoors or outside — substantially increased people's performance on tests of <strong>divergent</strong> thinking, the free-flowing generation of many possible ideas. The effect even lingered briefly after people sat back down. Note the honest limit the same study found: walking helped divergent, open-ended idea generation but did <em>not</em> help <strong>convergent</strong> thinking, the search for a single correct answer. So a walk is a good move when you are stuck and need options — brainstorming, planning, working a problem loose — and less obviously useful when you need to lock onto one precise solution. Match the break to the kind of thinking the next block needs.</p>
+
+<h2>How to build movement into a focus day</h2>
+<ul>
+<li><strong>Move on the break, not the task.</strong> The natural home for a movement break is the rest interval of a <a href="/guides/how-long-should-a-pomodoro-be.html">Pomodoro cycle</a>. Stand up when the timer ends; the reset is more restorative than scrolling, which keeps your attention working.</li>
+<li><strong>Keep it easy.</strong> The goal is refreshed, not exhausted. A brisk walk, a flight of stairs, or a couple of minutes of stretching does the job. Hard exercise late in a work session can leave you depleted rather than sharpened.</li>
+<li><strong>Use it to break a sitting streak.</strong> If you have been at the desk for well over an hour, a short walk is worth more than pushing through. The most useful posture, as ergonomists like to say, is your next one.</li>
+<li><strong>Pair it with daylight.</strong> Taking the movement outdoors folds in a second, separate benefit — natural settings help restore directed attention, covered in the guide on <a href="/guides/attention-restoration-nature-breaks.html">nature breaks</a>.</li>
+</ul>
+
+<h2>What movement won't do</h2>
+<p>Movement is a reset, not a cure for a badly planned day. It will not rescue focus that is failing because the task is unclear, the sleep debt is large, or the work is genuinely uninteresting — those need different fixes. And the acute boost fades, so a walk is something you spend across the day in small amounts, not once in the morning. Used that way — little and often, on the breaks — it is one of the cheapest and most dependable tools you have for staying sharp.</p>
+
+<p>Ready for your next reset? <a class="app-cta" href="/?tool=movement">Start a movement break</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/attention-restoration-nature-breaks.html">Attention restoration: how nature breaks refill your focus</a></li>
+<li><a href="/guides/ultradian-rhythms-and-focus.html">Ultradian rhythms: working with your body's natural focus cycles</a></li>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How long should a Pomodoro be? Sizing your focus intervals</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'How long should a movement break be?', a: 'A few minutes is enough. Most of the studies showing an attention benefit used short bouts — on the order of ten to twenty minutes of light-to-moderate activity — but even two to five minutes of standing and walking breaks up a long sitting streak and clears the head between focus blocks.' },
+      { q: 'Does the exercise have to be intense to help focus?', a: 'No. Light-to-moderate movement such as a brisk walk is what most of the acute-attention research used. Very hard exercise can leave you tired rather than sharpened, especially late in a work session, so keep it easy when the goal is focus.' },
+      { q: 'How long does the focus boost last?', a: 'The immediate lift from a single bout of movement is modest and short-lived — roughly tens of minutes, not the whole afternoon. That is why movement works best spent in small amounts across the day rather than in one long session.' },
+    ],
+  },
+  {
+    slug: 'the-body-scan',
+    howto: {
+      name: 'How to do a body scan',
+      description: 'Move your attention slowly through the body, noticing sensation without trying to change it.',
+      steps: [
+        'Settle into a comfortable position, sitting or lying down, and let your eyes close or soften.',
+        'Bring your attention to one point — often the feet — and simply notice whatever sensation is there.',
+        'Move your attention slowly upward through the body, part by part, pausing at each to feel what is present.',
+        'When the mind wanders, notice where it went and gently return attention to the part you left.',
+      ],
+    },
+    title: 'The Body Scan: Training Attention by Feeling the Body',
+    description: 'What the body scan is, where it comes from in mindfulness-based stress reduction, what the evidence on mindfulness actually supports, and how the practice trains the same attention you use to focus.',
+    lastmod: '2026-07-15',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">The body scan is a simple practice with an unglamorous method: you move your attention slowly through the body, from the feet to the head, noticing whatever sensation is there without trying to fix or change it. It looks like relaxation, but its real work is attention training — and that is why it belongs in a toolkit built for focus. Here is where it comes from and what the research does and doesn't show.</p>
+
+<h2>Where the body scan comes from</h2>
+<p>The body scan in its familiar modern form is a cornerstone of <strong>Mindfulness-Based Stress Reduction</strong> (MBSR), the eight-week program that Jon Kabat-Zinn developed at the University of Massachusetts Medical School beginning in 1979. Kabat-Zinn took a practice with long roots in contemplative traditions and turned it into a secular, structured exercise taught in clinics: lie down, and over the course of twenty to forty minutes, sweep your attention through the body region by region. In the decades since, the body scan has spread well beyond MBSR into therapy, sleep programs, and self-guided apps — usually in shorter forms of five to fifteen minutes.</p>
+
+<h2>What the practice actually trains</h2>
+<p>The body scan is often described as a relaxation exercise, and it frequently is relaxing. But that is a side effect, not the point. What you are really practising is the core move of all attention work: choosing where to place your attention, noticing when it has wandered off, and bringing it back without self-criticism. A body scan gives that skill an easy, always-available object — the sensations of your own body — so you can rehearse the return-to-focus motion dozens of times in a single session.</p>
+<p>It also builds <strong>interoception</strong>, the awareness of internal bodily signals. Most of us spend the working day almost entirely in our heads, unaware of a clenched jaw or held breath until it becomes an ache. Practising the body scan makes those signals easier to notice earlier — which is useful in its own right, because the tension of a long focus session often shows up in the body before it shows up as a thought.</p>
+
+<h2>What the evidence supports — and what it doesn't</h2>
+<p>Here honesty matters, because mindfulness is heavily marketed and the claims often outrun the data. The most careful summary is a 2014 meta-analysis by Madhav Goyal and colleagues in <em>JAMA Internal Medicine</em>, which pooled dozens of randomized trials of meditation programs. It found <em>moderate</em> evidence that mindfulness-meditation programs improve anxiety, depression, and pain, and <em>low or insufficient</em> evidence for effects on attention, mood, sleep, and other outcomes. In plain terms: the strongest support is for how these practices make you feel, not for a direct, proven boost to raw concentration.</p>
+<p>So the honest case for the body scan as a focus tool is indirect. It reliably trains the mechanics of redirecting attention, and it tends to lower the anxiety and rumination that pull attention off task — and a mind that wanders less has more attention to spend. There is a well-known finding from Matthew Killingsworth and Daniel Gilbert, published in <em>Science</em> in 2010, that people's minds wander for a large share of waking life and that a wandering mind tends to be a less happy one. Practices that make wandering easier to catch address that directly. What the body scan is <em>not</em> is a guaranteed way to make you concentrate harder on command. Treat it as conditioning for the attention system, not a stimulant.</p>
+
+<h2>Starting when it feels awkward</h2>
+<p>Many people try a body scan once, notice their mind wandering constantly, decide they are "bad at it," and stop. That reaction misreads the exercise. Because the whole practice is noticing-and-returning, a session full of wandering is not a failed session — it is a session with a lot of repetitions. If a long scan feels like too much, start with a short one: one or two minutes spent on just the feet and the breath is a legitimate practice, and a small daily habit beats a long one you dread and skip. It also helps to lower the stakes on outcome. You are not trying to reach a special state or feel a particular way by the end; you are practising the plain, repeatable act of placing attention on the body and bringing it back when it drifts. Done regularly, that is the same act you will reach for when a work session starts to fray.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>As a reset between demanding blocks.</strong> A short five-minute scan clears the residue of one task before you pick up the next, in the same spirit as the pause in a <a href="/guides/how-long-should-a-pomodoro-be.html">Pomodoro cycle</a>.</li>
+<li><strong>To defuse building tension.</strong> When a session has left you tight and irritable, a scan surfaces where you are holding stress so you can let it go, rather than carrying it into the next hour.</li>
+<li><strong>As a wind-down.</strong> A slow body scan is a common part of a bedtime routine because it draws attention away from a churning to-do list — related to why quieting the mind helps, covered in the guide on <a href="/guides/sleep-and-executive-function.html">sleep and executive function</a>.</li>
+<li><strong>Paired with the breath.</strong> If a full scan feels like too much, anchoring on a few slow breaths first, as in <a href="/guides/box-breathing.html">box breathing</a>, settles the body enough to make the scan easier.</li>
+</ul>
+
+<h2>Common misunderstandings</h2>
+<ul>
+<li><strong>You are not trying to relax on purpose.</strong> Chasing relaxation makes it harder to find. The instruction is only to notice; calm, when it comes, is a by-product.</li>
+<li><strong>A wandering mind is not failure.</strong> Noticing that your attention drifted and bringing it back <em>is</em> the exercise, not an interruption to it. Every return is a repetition.</li>
+<li><strong>There is no correct sensation.</strong> Numbness, warmth, tension, or nothing at all are all valid. You are cataloguing what is there, not producing a particular feeling.</li>
+</ul>
+
+<p>Want to try a guided pass through the body? <a class="app-cta" href="/?tool=bodyscan">Open the body scan</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: the fastest way to calm down between blocks</a></li>
+<li><a href="/guides/box-breathing.html">Box breathing: the four-count square for steady calm</a></li>
+<li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'How long should a body scan take?', a: 'The classic MBSR body scan runs twenty to forty minutes, but shorter versions of five to fifteen minutes are common and useful. For a between-blocks reset, even a few minutes moving attention through the body is worthwhile; length matters less than the quality of noticing.' },
+      { q: 'Is the body scan the same as relaxation?', a: 'Not exactly. It often feels relaxing, but the aim is to notice bodily sensation without trying to change it. Relaxation is a frequent side effect, not the goal — chasing it deliberately tends to backfire.' },
+      { q: 'Will a body scan improve my concentration?', a: 'Indirectly, and modestly. Careful reviews find the strongest evidence for effects on anxiety, depression, and pain rather than a direct boost to attention. The body scan trains the skill of redirecting attention and lowers the rumination that pulls focus away, which helps concentration without being a guaranteed lever for it.' },
+    ],
+  },
+  {
+    slug: 'the-5-4-3-2-1-grounding-technique',
+    howto: {
+      name: 'How to do the 5-4-3-2-1 grounding technique',
+      description: 'Name what you can sense, one fewer each step, to pull attention out of anxious thought and into the present.',
+      steps: [
+        'Name five things you can see around you, looking at each for a moment.',
+        'Name four things you can feel — the chair, your feet on the floor, the air on your skin.',
+        'Name three things you can hear, near and far.',
+        'Name two things you can smell, then one thing you can taste, and take a slow breath.',
+      ],
+    },
+    title: 'The 5-4-3-2-1 Grounding Technique: Pulling Attention Back to Now',
+    description: 'How the 5-4-3-2-1 senses exercise interrupts anxious spirals by redirecting attention outward, what the psychology of attentional deployment actually supports, and how to use grounding to get back to focus.',
+    lastmod: '2026-07-15',
+    lastmodLabel: 'July 2026',
+    body: `
+<p class="lede">When worry takes over, attention collapses inward — onto the racing thoughts, the what-ifs, the tight chest — and there is nothing left over for the work in front of you. The 5-4-3-2-1 grounding technique is a deliberate way to break that spiral: you name five things you can see, four you can feel, three you can hear, two you can smell, and one you can taste. Here is why redirecting attention this way works, and what the evidence honestly says.</p>
+
+<h2>What grounding is for</h2>
+<p>Grounding is a family of coping techniques designed to bring a distressed mind back to the present moment and out of anxious rumination, flashback, or overwhelm. The 5-4-3-2-1 sensory exercise is the most widely taught version. It has deep roots in clinical practice — grounding skills are a standard part of trauma-informed care and appear in the distress-tolerance skills of <strong>Dialectical Behavior Therapy</strong>, the treatment developed by Marsha Linehan for managing intense emotion. The idea is not to suppress the anxious feeling but to change what your attention is doing while the feeling passes.</p>
+
+<h2>Why redirecting attention helps</h2>
+<p>Anxiety is, among other things, an attention problem. A worried mind narrows onto internal threat — the anxious thought, the physical symptoms — and loops there, each pass amplifying the last. Deliberately directing attention <em>outward</em>, onto concrete, neutral sensory detail, competes for the same limited attentional resources and interrupts the loop.</p>
+<p>This has a name in the science of emotion. The psychologist James Gross, whose process model of emotion regulation is one of the most influential frameworks in the field, identifies <strong>attentional deployment</strong> — shifting what you attend to — as one of the basic strategies people use to regulate how they feel. Grounding is attentional deployment made concrete and repeatable. There is also a simpler reflex at work: the <em>orienting response</em>, the automatic turn of attention toward a new sensory input, first described by researchers such as Ivan Sokolov. Naming what you can see, hear, and feel deliberately triggers that outward turn, again and again, until the inward pull loosens.</p>
+
+<h2>What the evidence supports — and what it doesn't</h2>
+<p>Be honest about the strength of the claim. The broad principle is well supported: attention is central to how emotion is regulated, and redirecting it away from threat and toward the external world is a recognized, effective regulation strategy. What is <em>not</em> well established is the specific 5-4-3-2-1 recipe. It is a clinical heuristic — a memorable, teachable structure — rather than an intervention that has been isolated and proven superior in controlled trials. The countdown from five to one is a device for keeping you engaged in the exercise, not a number with special power. So the fair summary is this: the <em>mechanism</em> grounding uses is real and supported; the <em>exact protocol</em> is a practical convention that works because it reliably puts that mechanism to use, not because a study crowned it best.</p>
+
+<h2>Grounding is not the same as avoidance</h2>
+<p>It is fair to ask how naming objects in the room differs from simply distracting yourself — scrolling your phone, say, to avoid a feeling. The difference is direction and presence. Avoidant distraction pulls you <em>away</em> from the present into something else entirely, and it tends to keep the anxious loop running underneath, ready to resume the moment you stop. Grounding does the opposite: it anchors you more firmly <em>into</em> the present moment and your actual surroundings, using specific sensory detail rather than a replacement stimulus. You are not fleeing the experience; you are widening it to include the solid, neutral facts of where you are. That is why grounding tends to leave you steadier and ready to re-engage, whereas a distraction binge often leaves the worry exactly where it was, plus lost time.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>Before a block, to clear the runway.</strong> If you sit down still buzzing from a stressful email or conversation, a single pass of 5-4-3-2-1 pulls attention out of the churn so you can actually start.</li>
+<li><strong>When overwhelm hijacks a task.</strong> Mid-work anxiety — a looming deadline, a hard problem — can flip attention inward. Grounding is a thirty-second circuit-breaker that returns you to the room.</li>
+<li><strong>Paired with a slow breath.</strong> Ending the sequence with a long exhale, as in the <a href="/guides/the-physiological-sigh.html">physiological sigh</a>, adds a physiological calming signal to the attentional one.</li>
+<li><strong>As a first step before deeper work.</strong> Once the acute spike has passed, it is easier to move into a longer settling practice like the <a href="/guides/the-body-scan.html">body scan</a> — grounding gets you to the door; the scan takes you through it.</li>
+</ul>
+
+<h2>Getting the most from it</h2>
+<ul>
+<li><strong>Go slowly and specifically.</strong> "A blue mug, a scratch on the desk, the hum of the fan" works better than rushing through five vague items. The detail is what holds your attention outward.</li>
+<li><strong>Use whichever senses are available.</strong> If you cannot smell or taste anything distinct, substitute another thing you can see or feel. The structure is a guide, not a test.</li>
+<li><strong>Do not expect the feeling to vanish.</strong> Grounding changes where your attention is, which usually takes the intensity down a notch — it does not erase the emotion. That is enough to get moving again.</li>
+<li><strong>It is not a substitute for care.</strong> Grounding is a self-help skill for everyday stress and mild anxiety. Persistent or severe anxiety deserves support from a professional; a sensory exercise is a bridge, not a treatment.</li>
+</ul>
+
+<p>Need to get back to the present right now? <a class="app-cta" href="/?tool=grounding">Start the grounding exercise</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/box-breathing.html">Box breathing: the four-count square for steady calm</a></li>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: the fastest way to calm down between blocks</a></li>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is the 5-4-3-2-1 grounding technique?', a: 'It is a sensory exercise for interrupting anxiety or overwhelm: you name five things you can see, four you can feel, three you can hear, two you can smell, and one you can taste. Working through the senses pulls your attention out of anxious thought and back to the present.' },
+      { q: 'Does 5-4-3-2-1 grounding really work?', a: 'The mechanism it uses — redirecting attention away from internal threat and toward the external world — is a well-supported way to regulate emotion. The specific 5-4-3-2-1 recipe, though, is a clinical teaching device rather than a protocol proven superior in controlled trials. It works because it reliably puts a real mechanism to use.' },
+      { q: 'When should I use grounding instead of breathing?', a: 'Reach for grounding when your attention is trapped in anxious thoughts and you need to get back into the room; reach for slow breathing when your body feels activated and you want to calm the nervous system. They pair well — many people ground first, then finish with a long, slow exhale.' },
+    ],
   }
 ];
 
