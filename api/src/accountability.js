@@ -1117,6 +1117,61 @@ function formatWhen(iso) {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
+/**
+ * Person-side homecoming detection — the twin of the coach "back and moving" cue
+ * (R-252), read on the person's OWN `/me/`. A person the bro reached out to during
+ * a quiet stretch has come back UNDER THEIR OWN STEAM — no `?from=return` deep-link
+ * tap. Returns `true` exactly once per dormancy episode so `/me/` can open the SAME
+ * warm nudged-back welcome (R-249) a self-powered return earns, then never re-greets.
+ *
+ * Consume-once by construction: a `return_welcome_shown` marker recorded AFTER the
+ * latest `return_nudge_sent` closes the episode. A genuine homecoming records that
+ * marker (as the person's own activity) and returns `true`; a later reload — or a
+ * new dormancy episode with no fresh nudge — finds the marker and returns `false`.
+ * The nudge event carries the person's id in its payload (its own `user_id` is NULL
+ * by construction, so it never counts as their activity), read back via
+ * `json_extract` exactly as the coach roster query does.
+ *
+ * DESIGN LAW: this only decides WHETHER to open the existing warm door — it emits no
+ * copy and names no gap. Non-fatal: any failure resolves to `false` (a missed
+ * greeting, never a broken door).
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function detectHomecoming(env, userId) {
+  if (!env || !env.DB || !userId) return false;
+  try {
+    // Latest nudge sent to this person (payload carries the id; row user_id is NULL).
+    const nudge = await env.DB.prepare(
+      `SELECT MAX(created_at) AS last_nudge_at
+         FROM analytics_events
+        WHERE event_type = 'return_nudge_sent'
+          AND json_extract(event_data, '$.user_id') = ?`
+    ).bind(userId).first();
+    const lastNudgeAt = nudge && nudge.last_nudge_at;
+    if (!lastNudgeAt) return false;
+
+    // Episode already greeted? A welcome-shown marker after the latest nudge closes it.
+    const shown = await env.DB.prepare(
+      `SELECT 1 FROM analytics_events
+        WHERE event_type = 'return_welcome_shown'
+          AND user_id = ?
+          AND created_at > ?
+        LIMIT 1`
+    ).bind(userId, lastNudgeAt).first();
+    if (shown) return false;
+
+    // Genuine homecoming: close the episode (their own activity) and greet once.
+    await recordEvent(env, { userId, type: EVENTS.RETURN_WELCOME_SHOWN, data: {} });
+    return true;
+  } catch (err) {
+    console.error('[accountability] homecoming detect error:', err && err.message);
+    return false;
+  }
+}
+
 // ── ROUTES ───────────────────────────────────────────────────
 // Registered from index.js. `ctx` supplies the module-private helpers that
 // live in index.js so this module stays import-free of the router internals.
@@ -1882,6 +1937,25 @@ export function registerAccountabilityRoutes(router, ctx) {
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
       return jsonResponse({ error: 'Could not load your streak.' }, 500);
+    }
+  });
+
+  // ── GET my homecoming — am I a person the bro reached out to who has just
+  // come back under my own steam? The person-side twin of the coach "back and
+  // moving" cue (R-252). `true` exactly once per dormancy episode → `/me/` opens
+  // the same warm nudged-back welcome (R-249) a self-powered return earns (no
+  // `?from=return` tap). Consume-once + non-fatal live in detectHomecoming; the
+  // response is nocache because the detection closes the episode with a marker
+  // write, so a cached "true" would let a reload re-greet.
+  router.get('/api/accountability/homecoming', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const homecoming = await detectHomecoming(env, auth.userId);
+      return jsonResponse({ homecoming }, 200);
+    } catch (err) {
+      console.error('[accountability] homecoming error:', err && err.message);
+      return jsonResponse({ homecoming: false }, 200);
     }
   });
 
