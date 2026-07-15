@@ -76,6 +76,10 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .roster-reach { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.22); }
   /* The joyful twin of the reach-out cue — a celebration, so a warm success accent, never the worried blue. */
   .roster-back { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.22); }
+  /* The weekly homecoming digest — the batched twin of the per-client cues; a
+     celebration of returns, so the same warm success accent, never a worried tone. */
+  .digest .digest-summary { margin: 6px 0 0; font-size: 14px; color: var(--success-light); }
+  .digest { border-left: 3px solid var(--success-light); }
   .pending { opacity: .7; }
   /* pills */
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }

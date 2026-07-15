@@ -225,6 +225,97 @@ export function backAfterReachCopy({ back } = {}) {
   return 'Back and moving again — a great moment to tell them you noticed, and that you’re glad they’re here.';
 }
 
+// ── WEEKLY HOMECOMING DIGEST (the batched, between-session twin of the cues) ─
+// The reach-out cue and "back and moving" celebration above are LIVE, per-client
+// signals that live on the roster card. A coach preparing for a between-session
+// review also wants the batched roll-up: over the past week, WHICH of the people
+// they support went quiet and have come back. This is that digest — one warm,
+// glanceable line the coach can carry into the review.
+//
+// DESIGN LAW, by construction: the digest counts ONLY homecomings — a person who
+// was quiet, was reached out to (the automated return nudge), and came home (a
+// `return_welcome_shown` marker, the SAME signal the person-side welcome records
+// on a genuine return, R-249/R-253). It never counts, names, or hints at who did
+// NOT come back. A quiet week is just a quiet week — a clean page, never a
+// shortfall. It rides the trailing-week window of the weekly report.
+
+/** The digest's trailing window — the past week, matching the weekly report. */
+export const HOMECOMING_DIGEST_WINDOW_DAYS = 7;
+
+/** A display name for a returning client — their label, or a warm fallback that
+ * never exposes an email and never reads as anonymous. */
+function homecomingClientName(label) {
+  return normalizeClientLabel(label) || 'Someone you support';
+}
+
+/** Join client display names into a warm human list, capped so the line stays
+ * glanceable ("A", "A and B", "A, B, and C", "A, B, and 4 more"). */
+function joinClientNames(names) {
+  const CAP = 6;
+  const shown = names.slice(0, CAP);
+  const extra = names.length - shown.length;
+  if (extra > 0) return `${shown.join(', ')}, and ${extra} more`;
+  if (shown.length === 1) return shown[0];
+  if (shown.length === 2) return `${shown[0]} and ${shown[1]}`;
+  return `${shown.slice(0, -1).join(', ')}, and ${shown[shown.length - 1]}`;
+}
+
+/** Header copy for the digest panel — names the panel as a celebration of returns. */
+export function homecomingDigestIntroCopy() {
+  return 'Homecomings this week — the people you support who went quiet and have come back.';
+}
+
+/**
+ * Warm one-line summary of the week's homecomings. Celebration-only: it names
+ * how many people came back (and who), and on a week with none reads as a clean,
+ * calm page — never a count of who stayed away.
+ * @param {object} p { count, names }
+ * @returns {string}
+ */
+export function homecomingDigestSummaryCopy({ count, names = [] } = {}) {
+  const n = Number(count) || 0;
+  if (n <= 0) {
+    return 'No homecomings to note this week — and that’s just a calm week, nothing more. When someone you support comes back, they’ll show up right here.';
+  }
+  const who = Array.isArray(names)
+    ? names.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : [];
+  const list = who.length ? ` — ${joinClientNames(who)}` : '';
+  const people = n === 1 ? 'person' : 'people';
+  return `${n} ${people} you support came back this week${list}. A great moment to tell them you noticed, and that you’re glad they’re here.`;
+}
+
+/**
+ * Assemble the coach-facing weekly homecoming digest from raw marker rows. Each
+ * row is one person's most-recent homecoming inside the window:
+ * { client_id, label, at }. De-duplicates by person (a person is counted once,
+ * however many times they returned this week), newest first. Celebration-only by
+ * construction — the assembled shape holds only who came back, never who didn't.
+ * @param {object} p { rows, days }
+ * @returns {object} { window_days, count, clients, intro, summary }
+ */
+export function buildHomecomingDigest({ rows = [], days = HOMECOMING_DIGEST_WINDOW_DAYS } = {}) {
+  const span = Number(days) || HOMECOMING_DIGEST_WINDOW_DAYS;
+  const seen = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || !r.client_id) continue;
+    const at = typeof r.at === 'string' ? r.at : '';
+    const prev = seen.get(r.client_id);
+    if (!prev || (at && at > prev.at)) {
+      seen.set(r.client_id, { client_id: r.client_id, label: homecomingClientName(r.label), at });
+    }
+  }
+  const clients = Array.from(seen.values()).sort((a, b) => (b.at > a.at ? 1 : b.at < a.at ? -1 : 0));
+  const count = clients.length;
+  return {
+    window_days: span,
+    count,
+    clients,
+    intro: homecomingDigestIntroCopy(),
+    summary: homecomingDigestSummaryCopy({ count, names: clients.map((c) => c.label) }),
+  };
+}
+
 // ── KEPT-WORD MOMENTUM SPARKLINE ─────────────────────────────
 // A coach should feel a client's momentum at a glance, not just read a single
 // streak number. So the detail view carries a per-day count of KEPT words over
@@ -407,6 +498,11 @@ export function registerCoachRoutes(router, ctx) {
         roster.push(entry);
       }
 
+      // The weekly homecoming digest starts empty (also the correct answer for a
+      // coach with no active clients — no one to have come home) and is filled in
+      // below once we know the active-client set.
+      let homecomingDigest = buildHomecomingDigest({ rows: [] });
+
       // At-a-glance next check-in per active client — the soonest concrete
       // moment the bro next shows up for them — so a coach sees it across the
       // whole roster, not only by opening "View rhythm" per client (R-224). ONE
@@ -521,11 +617,47 @@ export function registerCoachRoutes(router, ctx) {
             ? backAfterReachCopy({ back: true })
             : '';
         }
+
+        // Weekly homecoming digest: the batched, between-session twin of the
+        // live reach-out / back-and-moving cues above. Which active clients came
+        // HOME this week — a `return_welcome_shown` marker (the SAME signal /me/
+        // records on a genuine return, R-249/R-253; the row's user_id is the
+        // person's own id) inside the trailing week. ONE grouped query, newest
+        // marker per person (no N+1). We compare on the calendar-day prefix
+        // (`substr(created_at,1,10)`), the format-agnostic pattern events.js uses,
+        // so mixed ISO/space timestamps sort correctly. Non-fatal by construction:
+        // a celebration must never be able to take down the roster, so any failure
+        // just yields an empty digest. DESIGN LAW: the digest holds only who came
+        // back this week, never who stayed away.
+        try {
+          const weekCutoffDay = new Date(
+            Date.parse(nowISO) - HOMECOMING_DIGEST_WINDOW_DAYS * 24 * 60 * 60 * 1000
+          ).toISOString().slice(0, 10);
+          const homeRows = await env.DB.prepare(
+            `SELECT user_id AS client_id, MAX(created_at) AS at
+               FROM analytics_events
+              WHERE event_type = 'return_welcome_shown'
+                AND user_id IN (${placeholders})
+                AND substr(created_at, 1, 10) >= ?
+              GROUP BY user_id`
+          ).bind(...activeIds, weekCutoffDay).all();
+          const labelById = new Map(roster.map((e) => [e.client_id, e.label]));
+          const homeInput = ((homeRows && homeRows.results) || []).map((r) => ({
+            client_id: r.client_id,
+            label: labelById.get(r.client_id) || '',
+            at: r.at,
+          }));
+          homecomingDigest = buildHomecomingDigest({ rows: homeInput });
+        } catch (err) {
+          console.warn('[coach] homecoming digest query failed:', err && err.message);
+          homecomingDigest = buildHomecomingDigest({ rows: [] });
+        }
       }
 
       return jsonResponse({
         intro: dashboardIntroCopy(),
         roster,
+        homecoming_digest: homecomingDigest,
         empty_message: roster.length ? null : rosterEmptyCopy(),
       }, 200, 'nocache');
     } catch (err) {
