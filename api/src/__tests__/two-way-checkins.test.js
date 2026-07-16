@@ -403,6 +403,35 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('thurs', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-09T08:40:00.000Z');
   });
 
+  it('reads an explicit calendar date within the horizon (NOW is Monday 2026-07-06 15:00Z)', () => {
+    // Month + day, both orders, long and short forms — all at the default time.
+    expect(parseWhenReply('jul 8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('july 8th', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('8 july', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    // A bare day-of-month (ordinal required) = this month if still future.
+    expect(parseWhenReply('the 8th', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('on the 20th', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T09:00:00.000Z');
+    // The usual check-in time is honored when no clock is given.
+    expect(parseWhenReply('jul 8', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-08T08:40:00.000Z');
+    // A clock time / part-of-day rides the date, same reading as the other branches.
+    expect(parseWhenReply('jul 8 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('the 8th at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T14:00:00.000Z');
+    expect(parseWhenReply('jul 8 morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    // A bare hour is NEVER read as a date — "8" stays the clock branch (20:00 today).
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // A date beyond the 14-day horizon re-asks warmly (never assumes): a past
+    // day rolls to next month (out of range) and a past month to next year.
+    expect(parseWhenReply('the 3rd', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('jan 20', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A day that overflows its month is dropped, not rolled forward.
+    expect(parseWhenReply('feb 30', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
+  it('reads a calendar date DST-correctly in the recipient timezone', () => {
+    // 3pm on Jul 8 in America/New_York (EDT, UTC-4) → 19:00Z.
+    expect(parseWhenReply('jul 8 3pm', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-08T19:00:00.000Z');
+  });
+
   it('is DST-correct in the recipient timezone', () => {
     // 08:00 EDT (UTC-4). "in 1 hour" → 13:00Z. "3pm" local → 19:00Z same day.
     const now = '2026-07-06T12:00:00.000Z';
