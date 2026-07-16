@@ -203,7 +203,10 @@ function clockTo24(m) {
  * morning", "next friday" (bare = soonest future; "next X" = the following week);
  * an explicit calendar date within the horizon — "the 20th", "jul 20", "july
  * 20th", "20 july", "jul 20 3pm" (a bare day-of-month requires an ordinal so a
- * plain hour is never read as a date).
+ * plain hour is never read as a date); a numeric MM/DD date — "7/20", "07-08",
+ * "7/8 3pm" (a "/" or "-" separator is required so a lone number stays a clock,
+ * and an out-of-horizon numeric date falls through to the clock reading rather
+ * than re-asking).
  *
  * @param {object} p { nowISO, timezone, defaultTime }  defaultTime='HH:MM' usual check-in time
  * @returns {string|null}
@@ -222,6 +225,15 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     .trim();
   if (!t) return null;
   t = t.replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim(); // "at 3pm" → "3pm"
+
+  // A second, separator-preserving normalization: the pass above strips "/" and
+  // "-" (so "7/20" collapses to "7 20"), but a numeric MM/DD date needs the
+  // separator to be readable. Keep it here for the numeric-date branch only.
+  const tSep = String(text == null ? '' : text).toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[^a-z0-9:/\s'-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   const inRange = (ms) => (ms != null && ms > soonest && ms <= nowMs + HORIZON_MS) ? new Date(ms).toISOString() : null;
 
@@ -382,6 +394,55 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
       .filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS)
       .sort((a, b) => a - b);
     return future.length ? new Date(future[0]).toISOString() : null;
+  }
+
+  // ── A numeric calendar date: "7/20", "07-08", "7 / 20" ──
+  // A slash or dash between two 1–2 digit numbers is the last date shape the
+  // parser couldn't read. REQUIRING the separator is exactly the guard that
+  // keeps a lone number ("20", "3") a clock — the bare-number reading is
+  // untouched. Read US month-first. A meridiem right after the pair ("3-4pm")
+  // is a time range, not a date, so it's excluded. Unlike the named-date branch
+  // above, this one only *commits* when it lands inside the horizon: an
+  // out-of-window ("3/4" in July) or invalid pair falls THROUGH to the clock
+  // reading, so a reply that already parsed never regresses to a re-ask —
+  // strictly upgrade-only, per the design LAW.
+  const numDate = tSep.match(/\b(\d{1,2})\s*[/-]\s*(\d{1,2})\b(?!\s*(?:am|pm))/);
+  if (numDate) {
+    const nm = parseInt(numDate[1], 10);
+    const nd = parseInt(numDate[2], 10);
+    if (nm >= 1 && nm <= 12 && nd >= 1 && nd <= 31) {
+      // Time-of-day from the message with the date pair stripped, so "7/20 3pm"
+      // reads 3pm — not 20:00 from the day number. Bare pair → usual/default time.
+      const rest = t.replace(`${numDate[1]} ${numDate[2]}`, ' ').replace(/\s+/g, ' ').trim();
+      const clockN = rest.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+      let h = null, mi = 0;
+      if (clockN) {
+        const [ch, cm] = clockTo24(clockN);
+        if (ch != null) {
+          // A bare small hour "7/20 3" reads as afternoon; "9" as morning.
+          h = (!clockN[3] && !clockN[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
+          mi = cm;
+        }
+      }
+      if (h == null) {
+        if (partOfDay) { [h, mi] = partOfDay; }
+        else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
+      }
+      // The named month → that day this year, else next year. A day that
+      // overflows its month ("2/30") is dropped via a tzParts match, never
+      // rolled. The horizon filter then keeps only an in-window instant.
+      const cands = [];
+      for (const yy of [y0, y0 + 1]) {
+        const ms = at(yy, nm, nd, h, mi);
+        const chk = tzParts(ms, tz);
+        if (chk && +chk.day === nd && +chk.month === nm) cands.push(ms);
+      }
+      const future = cands
+        .filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS)
+        .sort((a, b) => a - b);
+      if (future.length) return new Date(future[0]).toISOString();
+      // else: not consumed — fall through to the clock branch (no regression).
+    }
   }
 
   // ── Clock time today (roll to tomorrow if already past) ──
