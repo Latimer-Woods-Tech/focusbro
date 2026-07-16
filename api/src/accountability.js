@@ -198,7 +198,9 @@ function clockTo24(m) {
  *
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
- * (soonest future); "tonight"; "tomorrow", "tomorrow 9am", "tomorrow morning".
+ * (soonest future); "tonight"; "tomorrow", "tomorrow 9am", "tomorrow morning";
+ * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
+ * morning", "next friday" (bare = soonest future; "next X" = the following week).
  *
  * @param {object} p { nowISO, timezone, defaultTime }  defaultTime='HH:MM' usual check-in time
  * @returns {string|null}
@@ -272,6 +274,49 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     } else if (partOfDay) { [h, mi] = partOfDay; }
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
     return inRange(at(ty, tm, td, h, mi));
+  }
+
+  // ── A named weekday: "monday", "mon 3pm", "next friday", "saturday morning" ──
+  // Within the 14-day horizon a weekday name is a natural way to reschedule
+  // ("let's do saturday"). Bare form = the soonest future occurrence of that
+  // day; "next X" forces the following week. Time-of-day reuses the SAME clock /
+  // part-of-day / default-time reading as the tomorrow branch, so "mon 3" and
+  // "tomorrow 3" behave alike. "weekend" reads as Saturday.
+  const wdMatch = t.match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/
+  );
+  if (wdMatch) {
+    const WD = {
+      sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tues: 2, tue: 2,
+      wednesday: 3, weds: 3, wed: 3, thursday: 4, thurs: 4, thur: 4, thu: 4,
+      friday: 5, fri: 5, saturday: 6, sat: 6, weekend: 6,
+    };
+    const WD_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const targetWd = WD[wdMatch[1]];
+    const todayWd = WD_INDEX[p.weekday];
+    if (targetWd == null || todayWd == null) return null;
+
+    let h, mi;
+    if (clock) {
+      const [ch, cm] = clockTo24(clock);
+      if (ch == null) return null;
+      // A bare small hour "monday 3" reads as afternoon; "monday 9" as morning.
+      h = (!clock[3] && !clock[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
+      mi = cm;
+    } else if (partOfDay) { [h, mi] = partOfDay; }
+    else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
+
+    const base = (targetWd - todayWd + 7) % 7; // 0..6 days ahead (0 = today)
+    const offsets = /\bnext\b/.test(t) ? [base + 7] : [base, base + 7];
+    const cands = [];
+    for (const off of offsets) {
+      const [yy, mm2, dd] = addDay(y0, mo0, d0, off);
+      cands.push(at(yy, mm2, dd, h, mi));
+    }
+    const future = cands
+      .filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS)
+      .sort((a, b) => a - b);
+    return future.length ? new Date(future[0]).toISOString() : null;
   }
 
   // ── Clock time today (roll to tomorrow if already past) ──
