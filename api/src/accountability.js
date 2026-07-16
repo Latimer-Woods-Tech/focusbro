@@ -1193,10 +1193,14 @@ export function smsAmbiguousReplyCopy({ persona } = {}) {
  * reached them.
  */
 export function smsAskWhenCopy({ persona } = {}) {
+  // Advertise the full vocabulary parseWhenReply actually reads — a clock time,
+  // a relative offset, a named weekday (R-258), and a calendar date (R-259/260).
+  // A natural-language time surface is only as usable as the phrasings people
+  // know they can say; keep the examples in lock-step with the parser (tested).
   if (pickPersona(persona) === 'hype') {
-    return 'No stress at all — when do you want to try again? Text me a time like 3pm, in 1 hour, or tomorrow 9am and I’ll be right there. 🔥';
+    return 'No stress at all — when do you want to try again? Text me a time like 3pm, tomorrow 9am, Saturday, or Jul 20 and I’ll be right there. 🔥';
   }
-  return 'No problem at all — when do you want to try again? Text me a time like 3pm, in 1 hour, or tomorrow 9am, and I’ll check back then.';
+  return 'No problem at all — when do you want to try again? Text me a time like 3pm, tomorrow 9am, Saturday, or Jul 20, and I’ll check back then.';
 }
 
 /** Confirm the new time the person gave over text. The word still counts; the streak is safe. */
@@ -1210,10 +1214,12 @@ export function smsRescheduledCopy({ persona, when, timezone, nowISO } = {}) {
 
 /** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
 export function smsWhenUnclearCopy({ persona } = {}) {
+  // Same widened vocabulary as the ask copy — when a reply didn't land, steer
+  // toward the phrasings that WORK (weekday, date), never away from them.
   if (pickPersona(persona) === 'hype') {
-    return 'I didn’t quite catch a time there — try something like 3pm, in 30 min, or tomorrow 9am and I’ve got you. 💪';
+    return 'I didn’t quite catch a time there — try something like 3pm, tomorrow 9am, Saturday, or the 20th and I’ve got you. 💪';
   }
-  return 'I didn’t catch a time there — try something like 3pm, in 30 min, or tomorrow 9am, and I’ll check back then.';
+  return 'I didn’t catch a time there — try something like 3pm, tomorrow 9am, Saturday, or the 20th, and I’ll check back then.';
 }
 
 /**
