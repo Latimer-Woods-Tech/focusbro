@@ -481,6 +481,22 @@ describe('formatWhenLocal — warm, recipient-local confirmation', () => {
   it('prefixes "tomorrow" across the local day boundary', () => {
     expect(formatWhenLocal('2026-07-07T12:40:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('tomorrow at 8:40 AM');
   });
+  it('uses a bare weekday within this week (2–6 days out)', () => {
+    // Mon 2026-07-06 → Sat 2026-07-11 is 5 days out: one Saturday in the window, unambiguous.
+    expect(formatWhenLocal('2026-07-11T13:00:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('Sat at 9:00 AM');
+  });
+  it('names the calendar date for a target 7+ days out so a bare weekday cannot be misheard', () => {
+    // Mon 2026-07-06 → Mon 2026-07-20 is 14 days out and shares "Mon" with the nearer 07-13.
+    expect(formatWhenLocal('2026-07-20T19:00:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('Mon Jul 20 at 3:00 PM');
+  });
+  it('names the date exactly at the 7-day boundary (same weekday as today)', () => {
+    // Mon → Mon, 7 days out: bare "Mon" would read as today, so the date is named.
+    expect(formatWhenLocal('2026-07-13T19:00:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('Mon Jul 13 at 3:00 PM');
+  });
+  it('stays recipient-local + DST-correct when naming a far date', () => {
+    // America/New_York is EDT (UTC−4) on this date; 19:00Z → 3:00 PM local.
+    expect(formatWhenLocal('2026-07-18T19:00:00.000Z', 'America/New_York', '2026-07-06T12:00:00.000Z')).toBe('Sat Jul 18 at 3:00 PM');
+  });
 });
 
 // ── The design LAW, on the conversational-reschedule copy ──
