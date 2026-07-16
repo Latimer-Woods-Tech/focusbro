@@ -22,6 +22,7 @@ import {
   buildWeeklyReport,
   renderReportText,
 } from '../report.js';
+import { STREAK_MILESTONES, milestoneCopy } from '../accountability.js';
 
 const NOW = '2026-07-13T12:00:00Z';
 
@@ -129,6 +130,55 @@ describe('buildWeeklyReport — "the bro showed up" (delivered check-ins this we
   });
 });
 
+describe('buildWeeklyReport — milestone recognition (R-257)', () => {
+  it('fires the milestone line only when the run is EXACTLY at a milestone', () => {
+    for (const m of STREAK_MILESTONES) {
+      const rep = buildWeeklyReport({
+        streak: { current_streak: m, longest_streak: m, total_kept: m * 2 },
+        keptTimestamps: [daysAgo(0)],
+        timezone: 'UTC', nowISO: NOW,
+      });
+      expect(rep.milestone).toBe(milestoneCopy({ streak: { current_streak: m } }));
+      expect(rep.milestone).toContain(String(m));
+      expect(rep.milestone.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('is silent between milestones — never a "not there yet" line', () => {
+    for (const between of [0, 1, 2, 5, 8, 13, 29, 50, 99, 101]) {
+      const rep = buildWeeklyReport({
+        streak: { current_streak: between, longest_streak: 100, total_kept: 200 },
+        keptTimestamps: [daysAgo(0)],
+        timezone: 'UTC', nowISO: NOW,
+      });
+      expect(rep.milestone).toBe('');
+    }
+  });
+
+  it('a quiet week (run 0) carries no milestone', () => {
+    const rep = buildWeeklyReport({ keptTimestamps: [], timezone: 'UTC', nowISO: NOW });
+    expect(rep.milestone).toBe('');
+  });
+
+  it('the milestone rides with the run number in the shareable text, only at a milestone', () => {
+    const atMilestone = buildWeeklyReport({
+      streak: { current_streak: 7, longest_streak: 9, total_kept: 40 },
+      keptTimestamps: [daysAgo(0)], timezone: 'UTC', nowISO: NOW,
+    });
+    const textAt = renderReportText(atMilestone);
+    expect(textAt).toContain(atMilestone.milestone);
+    // it sits right after the run/all-time lines it belongs to.
+    expect(textAt.indexOf(atMilestone.milestone)).toBeGreaterThan(textAt.indexOf('Words kept, all time:'));
+
+    const between = buildWeeklyReport({
+      streak: { current_streak: 8, longest_streak: 9, total_kept: 40 },
+      keptTimestamps: [daysAgo(0)], timezone: 'UTC', nowISO: NOW,
+    });
+    const textBetween = renderReportText(between);
+    expect(textBetween).not.toMatch(/milestone/i);
+  });
+});
+
 describe('showedUpCopy — support signal, never a scorecard', () => {
   it('is empty at zero (a quiet page, not a negative)', () => {
     expect(showedUpCopy({ showedUp: 0 })).toBe('');
@@ -220,6 +270,8 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: NOW }),
     rhythmNextCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: NOW }),
     rhythmNextCopy({ iso: null }),
+    // R-257 milestone line, at every milestone value — it ships in the report.
+    ...STREAK_MILESTONES.map((m) => milestoneCopy({ streak: { current_streak: m } })),
   ];
 
   it('produces non-empty strings for every report copy path', () => {
