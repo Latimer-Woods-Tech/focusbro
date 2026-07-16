@@ -383,6 +383,26 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('tomorrow morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
   });
 
+  it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
+    // Bare weekday = soonest future occurrence at the usual/default time.
+    expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    expect(parseWhenReply('sunday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-12T09:00:00.000Z');
+    // Naming today's own weekday rolls to next week when the default time has passed.
+    expect(parseWhenReply('monday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T09:00:00.000Z');
+    // A clock time rides the weekday, same reading as the tomorrow branch.
+    expect(parseWhenReply('mon 5pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('friday 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-10T15:00:00.000Z');
+    // Part-of-day rides the weekday too.
+    expect(parseWhenReply('saturday morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // "weekend" reads as Saturday.
+    expect(parseWhenReply('this weekend', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // "next X" forces the following week.
+    expect(parseWhenReply('next tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-14T09:00:00.000Z');
+    // "at" is stripped, short forms and abbreviations understood.
+    expect(parseWhenReply('weds at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T14:00:00.000Z');
+    expect(parseWhenReply('thurs', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-09T08:40:00.000Z');
+  });
+
   it('is DST-correct in the recipient timezone', () => {
     // 08:00 EDT (UTC-4). "in 1 hour" → 13:00Z. "3pm" local → 19:00Z same day.
     const now = '2026-07-06T12:00:00.000Z';
