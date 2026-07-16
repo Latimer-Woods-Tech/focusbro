@@ -432,6 +432,30 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('jul 8 3pm', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-08T19:00:00.000Z');
   });
 
+  it('reads a numeric MM/DD date, requiring a separator so a lone number stays a clock (R-260)', () => {
+    // Slash and dash, month-first (US), zero-padded forms — the default time.
+    expect(parseWhenReply('7/8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('07-08', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    // Spaces around the separator are fine; "7 / 20" is still Jul 20.
+    expect(parseWhenReply('7 / 20', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T09:00:00.000Z');
+    // The usual check-in time is honored when no clock is given.
+    expect(parseWhenReply('7/8', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-08T08:40:00.000Z');
+    // A clock time rides the numeric date, same reading as the named-date branch.
+    expect(parseWhenReply('7/8 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('7-8 at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T14:00:00.000Z');
+    // DST-correct: 3pm on Jul 8 in America/New_York (EDT, UTC-4) → 19:00Z.
+    expect(parseWhenReply('7/8 3pm', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-08T19:00:00.000Z');
+    // GUARD 1 — a lone number (no separator) is still a clock, never a date.
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // GUARD 2 — a clock range "3-4pm" (a meridiem right after the pair) is NOT a date.
+    expect(parseWhenReply('3-4pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    // UPGRADE-ONLY — an out-of-horizon numeric date (Mar 4) falls through to the
+    // clock reading rather than regressing a previously-working reply to a re-ask.
+    expect(parseWhenReply('3/4', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    // An invalid month (>12) is not a date; it falls through, never asserting a miss.
+    expect(parseWhenReply('13/5', { nowISO: NOW, timezone: 'UTC' })).not.toBeNull();
+  });
+
   it('is DST-correct in the recipient timezone', () => {
     // 08:00 EDT (UTC-4). "in 1 hour" → 13:00Z. "3pm" local → 19:00Z same day.
     const now = '2026-07-06T12:00:00.000Z';
