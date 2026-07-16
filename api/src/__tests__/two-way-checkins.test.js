@@ -524,3 +524,31 @@ describe('conversational-reschedule copy obeys the one LAW: never shame', () => 
     });
   }
 });
+
+// ── The invitation copy may only advertise phrasings the parser can read ──
+// The ask/re-ask copy is the ONLY thing that tells a person what they can text.
+// After teaching parseWhenReply to hear a named weekday (R-258) and a calendar
+// date (R-259/260), the copy must actually offer them — and must never advertise
+// an example the parser can't parse. This locks the two together so they can't drift.
+describe('reschedule invitation copy stays in lock-step with parseWhenReply', () => {
+  const nowISO = '2026-07-10T12:00:00.000Z'; // a Friday in NY — "Saturday", "Jul 20", "the 20th" all land ≤14 days out
+  const timezone = 'America/New_York';
+  const examples = ['3pm', 'tomorrow 9am', 'Saturday', 'Jul 20', 'the 20th'];
+  for (const ex of examples) {
+    it(`parseWhenReply reads the advertised example "${ex}"`, () => {
+      expect(parseWhenReply(ex, { nowISO, timezone })).not.toBeNull();
+    });
+  }
+  for (const persona of ['ally', 'hype']) {
+    it(`smsAskWhenCopy (${persona}) advertises a weekday and a date`, () => {
+      const s = smsAskWhenCopy({ persona });
+      expect(s).toMatch(/Saturday/);
+      expect(s).toMatch(/Jul 20/);
+    });
+    it(`smsWhenUnclearCopy (${persona}) advertises a weekday and a date`, () => {
+      const s = smsWhenUnclearCopy({ persona });
+      expect(s).toMatch(/Saturday/);
+      expect(s).toMatch(/the 20th/);
+    });
+  }
+});
