@@ -200,7 +200,10 @@ function clockTo24(m) {
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
  * (soonest future); "tonight"; "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
- * morning", "next friday" (bare = soonest future; "next X" = the following week).
+ * morning", "next friday" (bare = soonest future; "next X" = the following week);
+ * an explicit calendar date within the horizon — "the 20th", "jul 20", "july
+ * 20th", "20 july", "jul 20 3pm" (a bare day-of-month requires an ordinal so a
+ * plain hour is never read as a date).
  *
  * @param {object} p { nowISO, timezone, defaultTime }  defaultTime='HH:MM' usual check-in time
  * @returns {string|null}
@@ -312,6 +315,68 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     for (const off of offsets) {
       const [yy, mm2, dd] = addDay(y0, mo0, d0, off);
       cands.push(at(yy, mm2, dd, h, mi));
+    }
+    const future = cands
+      .filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS)
+      .sort((a, b) => a - b);
+    return future.length ? new Date(future[0]).toISOString() : null;
+  }
+
+  // ── An explicit calendar date: "the 20th", "jul 20", "july 20th", "20 july" ──
+  // Naming a date is a natural way to move a word ("let's do the 20th", "jul
+  // 20") that a weekday name can't express when someone knows the date but not
+  // the day-of-week. Stays inside the SAME ≤14-day reschedule horizon as every
+  // branch (the horizon bound is applied below), reuses the SAME clock / part-of-
+  // day / default-time reading, and — like every branch here — can only turn a
+  // previously-unreadable reply into a landed reschedule, never a miss.
+  const MONTHS = {
+    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+  };
+  const MON_RE = '(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*';
+  const ORD = '(?:st|nd|rd|th)';
+  let dateMonth = null, dateDay = null, dateSpan = null;
+  const md = t.match(new RegExp(`\\b${MON_RE}\\s+(\\d{1,2})${ORD}?\\b`))
+          || t.match(new RegExp(`\\b(\\d{1,2})${ORD}?\\s+${MON_RE}\\b`));
+  if (md) {
+    if (MONTHS[md[1]] != null) { dateMonth = MONTHS[md[1]]; dateDay = parseInt(md[2], 10); }
+    else { dateMonth = MONTHS[md[2]]; dateDay = parseInt(md[1], 10); }
+    dateSpan = md[0];
+  } else {
+    // A bare day-of-month MUST carry an ordinal ("the 20th", "25th") so a plain
+    // hour ("20", "3") is never mistaken for a date and stays with the clock branch.
+    const ord = t.match(new RegExp(`\\b(?:the\\s+)?(\\d{1,2})${ORD}\\b`));
+    if (ord) { dateDay = parseInt(ord[1], 10); dateSpan = ord[0]; }
+  }
+  if (dateDay != null && dateDay >= 1 && dateDay <= 31) {
+    // Time-of-day from the message with the date tokens stripped, so "jul 20
+    // 3pm" reads 3pm — not 20:00 from the day number.
+    const rest = t.replace(dateSpan, ' ').replace(/\s+/g, ' ').trim();
+    const clock2 = rest.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+    let h, mi;
+    if (clock2) {
+      const [ch, cm] = clockTo24(clock2);
+      if (ch == null) return null;
+      // A bare small hour "the 20th 3" reads as afternoon; "9" as morning.
+      h = (!clock2[3] && !clock2[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
+      mi = cm;
+    } else if (partOfDay) { [h, mi] = partOfDay; }
+    else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
+
+    // Named month → that day this year, else next year. Bare day → this month,
+    // else next month. A day that overflows its month (e.g. "feb 30") is dropped,
+    // never rolled forward. The horizon filter then keeps only a candidate inside
+    // the reschedule window — an explicit date beyond it re-asks warmly, as ever.
+    const nextMo = mo0 === 12 ? 1 : mo0 + 1;
+    const nextY = mo0 === 12 ? y0 + 1 : y0;
+    const tryMonths = dateMonth != null
+      ? [[y0, dateMonth], [y0 + 1, dateMonth]]
+      : [[y0, mo0], [nextY, nextMo]];
+    const cands = [];
+    for (const [yy, mm2] of tryMonths) {
+      const ms = at(yy, mm2, dateDay, h, mi);
+      const chk = tzParts(ms, tz);
+      if (chk && +chk.day === dateDay && +chk.month === mm2) cands.push(ms);
     }
     const future = cands
       .filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS)
