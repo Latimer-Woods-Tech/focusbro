@@ -476,9 +476,11 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
 
 /**
  * A warm, recipient-local rendering of an instant for SMS confirmations —
- * "at 3:00 PM", "tomorrow at 8:40 AM", "Sat at 9:00 AM". Falls back to a plain
- * UTC stamp if Intl or the zone is unusable. Pure; pass nowISO for a stable
- * today/tomorrow prefix.
+ * "at 3:00 PM", "tomorrow at 8:40 AM", "Sat at 9:00 AM". A target 7+ days out
+ * names the calendar date too ("Mon Jul 20 at 3:00 PM") so a bare weekday can't
+ * be misheard as the nearer same-weekday inside the 14-day reschedule horizon.
+ * Falls back to a plain UTC stamp if Intl or the zone is unusable. Pure; pass
+ * nowISO for a stable today/tomorrow prefix.
  */
 export function formatWhenLocal(iso, timezone, nowISO) {
   const d = new Date(iso);
@@ -495,7 +497,19 @@ export function formatWhenLocal(iso, timezone, nowISO) {
         return `tomorrow at ${time}`;
       }
       const wd = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d);
-      return `${wd} at ${time}`;
+      // A bare weekday name is only unambiguous within this week. The reschedule
+      // horizon runs 14 days (parseWhenReply), so a target 7+ days out shares its
+      // weekday with a nearer day and a read-back like "Mon at 3:00 PM" reads as
+      // the CLOSER Monday when the real one is 11 days away — a quiet "he didn't
+      // get me" on the exact loop the reschedule parser feeds. Name the calendar
+      // date past the 6-day mark so the confirmation can't be misheard.
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const diffDays = Math.round(
+        (Date.UTC(+dp.year, +dp.month - 1, +dp.day) - Date.UTC(+np.year, +np.month - 1, +np.day)) / DAY_MS
+      );
+      if (diffDays >= 2 && diffDays <= 6) return `${wd} at ${time}`;
+      const md = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric' }).format(d);
+      return `${wd} ${md} at ${time}`;
     }
     return `at ${time}`;
   } catch {
