@@ -27,7 +27,7 @@ import { pageHead, pageNav } from './page-shell.js';
 // The route (registerReportRoutes) does the D1 reads and hands the rows here.
 // ════════════════════════════════════════════════════════════
 
-import { describeCadence, formatWhenLocal } from './accountability.js';
+import { describeCadence, formatWhenLocal, milestoneCopy } from './accountability.js';
 import { EVENTS } from './events.js';
 import {
   MOMENTUM_WINDOW_DAYS,
@@ -205,6 +205,13 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     showed_up_line: showedUpCopy({ showedUp: showedUpThisWeek }),
     best_day: { date: bestDay.date, count: bestDay.count },
     streak: { current_streak: current, longest_streak: longest, total_kept: total },
+    // A milestone recognition for the report — the shareable/coach-proof twin of
+    // the /me/ badge (R-255) and the coach-roster cue (R-256). Reuses the SAME
+    // guaranteed-anti-shame helper: fires ONLY when the current kept-word run is
+    // EXACTLY at a milestone (3/7/14/30/100), '' otherwise, so a between-milestone
+    // week carries nothing — never a "not there yet" line in the artifact a person
+    // hands their coach. Named count reached only; no gap, no distance-to-next.
+    milestone: milestoneCopy({ streak: { current_streak: current } }),
     momentum,
     rhythms_intro: rhythmsIntroCopy(activeCount),
     rhythms: rhythmRows,
@@ -233,6 +240,10 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
   lines.push(`Words kept this week: ${Number(report.kept_this_week) || 0}`);
   lines.push(`Current kept-word run: ${Number(s.current_streak) || 0} (best ever: ${Number(s.longest_streak) || 0})`);
   lines.push(`Words kept, all time: ${Number(s.total_kept) || 0}`);
+  // Milestone celebration rides with the run number it belongs to. Only present
+  // when the run is exactly at a milestone; between milestones the line is absent,
+  // never a "0" or a shortfall — same construction as the showed-up line below.
+  if (report.milestone) lines.push(report.milestone);
   const showedUp = Number(report.showed_up_this_week) || 0;
   if (showedUp > 0) {
     lines.push(`FocusBro showed up for you: ${showedUp} time${showedUp === 1 ? '' : 's'} this week`);
@@ -394,6 +405,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     <div class="spark" id="spark" aria-hidden="true"></div>
     <p class="momentum-summary" id="momentum-summary"></p>
     <p class="showed-up" id="showed-up"></p>
+    <p class="streakmilestone hidden" id="milestone"></p>
   </div>
 
   <div class="card">
@@ -466,6 +478,13 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
       var suEl = el('showed-up');
       if (showedUpLine) { suEl.textContent = showedUpLine; suEl.classList.remove('hidden'); }
       else { suEl.textContent = ''; suEl.classList.add('hidden'); }
+
+      // Milestone celebration — shown only when the run is exactly at a milestone;
+      // hidden entirely otherwise, so a between-milestone week is a clean page.
+      var milestoneLine = rep.milestone || '';
+      var miEl = el('milestone');
+      if (milestoneLine) { miEl.textContent = milestoneLine; miEl.classList.remove('hidden'); }
+      else { miEl.textContent = ''; miEl.classList.add('hidden'); }
 
       el('rhythms-intro').textContent = rep.rhythms_intro || '';
       var rh = el('rhythms');
