@@ -1223,6 +1223,28 @@ export function smsWhenUnclearCopy({ persona } = {}) {
 }
 
 /**
+ * The canonical in-app "when" examples for the `/me/` time fields — the
+ * give-a-word placeholder, the reschedule prompt, and the empty-field re-ask.
+ * Kept in lock-step with `parseWhenReply` exactly as `smsAskWhenCopy` is for the
+ * text channel (R-262): a relative offset, a clock time, a named weekday
+ * (R-258), and a calendar date (R-259/260) — the full range the ONE parser
+ * reads. There is a single parser on every surface (R-233), so the in-app fields
+ * must advertise what a person can actually type, or the weekday/date parsing is
+ * stranded in the app the same way it was on SMS before R-262. The literal
+ * examples are matched to `smsAskWhenCopy` so the app and the text channel speak
+ * with one voice.
+ * @returns {string[]}
+ */
+export function inAppWhenExamples() {
+  return ['in 30 min', 'tomorrow 9am', 'Saturday', 'Jul 20'];
+}
+
+/** The in-app "when" examples as one comma-joined phrase for a placeholder / prose re-ask. */
+export function inAppWhenExamplesText() {
+  return inAppWhenExamples().join(', ');
+}
+
+/**
  * The shared check-in resolution core. Used by the in-app route AND the inbound
  * SMS reply path so both keep the streak the same way. Given an already-loaded
  * check-in row joined with its commitment, this:
