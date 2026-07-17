@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { runDueCheckins, runEscalations, deliverCheckin, MAX_ATTEMPTS, ESCALATION_DELAY_MIN } from '../checkins-cron.js';
+import { runDueCheckins, runEscalations, deliverCheckin, isPermanentDeliveryError, MAX_ATTEMPTS, ESCALATION_DELAY_MIN } from '../checkins-cron.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `consent` is the row returned for the contact_consent gate query. It defaults
@@ -287,6 +287,35 @@ describe('failure + retry cap', () => {
     expect(s.scanned).toBe(2);
     expect(s.sent).toBe(1);
     expect(updateFor(db, 'ciB').sql).toMatch(/status = 'sent'/);
+  });
+});
+
+describe('permanent vs. transient delivery errors', () => {
+  it('classifies statuses: 4xx permanent except 408/429; 5xx/network transient', () => {
+    // Permanent — a bad/unreachable number can never succeed on retry.
+    for (const s of [400, 401, 403, 404, 422]) expect(isPermanentDeliveryError(s)).toBe(true);
+    // Transient — retry to the cap.
+    for (const s of [0, 408, 429, 500, 502, 503, 200]) expect(isPermanentDeliveryError(s)).toBe(false);
+  });
+
+  it('parks a row as failed on the FIRST permanent (4xx) failure — no retry storm', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400 })));
+    const db = makeDB({ due: [textRow({ attempts: 0 })], phone: '+15557654321' });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    expect(s.failed).toBe(1);
+    expect(s.retry).toBe(0);
+    const up = updateFor(db, 'ci1');
+    expect(up.params[0]).toBe('failed'); // terminal on attempt 1, not left pending
+    expect(up.params[1]).toBe(1);        // attempts bumped to 1
+  });
+
+  it('still retries a transient (5xx) failure to the cap (permanent path does not over-fire)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
+    const db = makeDB({ due: [textRow({ attempts: 0 })], phone: '+15557654321' });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    expect(s.retry).toBe(1);
+    expect(s.failed).toBe(0);
+    expect(updateFor(db, 'ci1').params[0]).toBe('pending');
   });
 });
 
