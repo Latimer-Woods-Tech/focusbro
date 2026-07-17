@@ -15,6 +15,7 @@ import {
   pickRecurrence,
   parseLocalTime,
   nextOccurrenceISO,
+  alignStartToRecurrence,
   localTimeFromISO,
   validateCommitmentInput,
   computeStreakAfter,
@@ -176,6 +177,76 @@ describe('validateCommitmentInput — recurring commitments', () => {
     expect(r.value.recurrence).toBe('none');
     expect(r.value.localTime).toBe('');
     expect(new Date(r.value.checkinAt).getTime() - new Date(r.value.startAt).getTime()).toBe(60 * 60 * 1000);
+  });
+
+  // A 'weekdays' word given an EXPLICIT weekend start (e.g. the in-app "9am"
+  // parsed on a Friday night or Saturday) must not fire its FIRST check-in on
+  // the weekend — the explicit start bypasses the derive-path's weekday filter,
+  // so validateCommitmentInput re-aligns it forward. 2026-07-11 = Saturday,
+  // 2026-07-12 = Sunday, 2026-07-13 = Monday.
+  it('pulls a weekdays commitment off a Saturday start onto the next weekday (start + check-in)', () => {
+    const r = validateCommitmentInput(
+      { title: 'stretch', recurrence: 'weekdays', start_at: '2026-07-11T09:00:00Z', timezone: 'UTC', channel: 'text' },
+      '2026-07-10T12:00:00Z',
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.startAt).toBe('2026-07-13T09:00:00.000Z'); // Monday, same 09:00 wall-clock
+    expect(r.value.checkinAt).toBe(r.value.startAt);          // the recurring check-in IS that moment
+    expect(r.value.localTime).toBe('09:00');
+  });
+
+  it('pulls a weekdays commitment off a Sunday start onto Monday', () => {
+    const r = validateCommitmentInput(
+      { title: 'stretch', recurrence: 'weekdays', start_at: '2026-07-12T09:00:00Z', timezone: 'UTC', channel: 'text' },
+      '2026-07-10T12:00:00Z',
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.startAt).toBe('2026-07-13T09:00:00.000Z');
+  });
+
+  it('leaves a weekdays commitment already on a weekday exactly where it is (never pushes a valid start forward)', () => {
+    const r = validateCommitmentInput(
+      { title: 'stretch', recurrence: 'weekdays', start_at: '2026-07-13T09:00:00Z', timezone: 'UTC', channel: 'text' },
+      '2026-07-10T12:00:00Z',
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.startAt).toBe('2026-07-13T09:00:00.000Z'); // Monday, unchanged
+  });
+
+  it('never re-aligns a daily commitment — daily excludes no day, so a Saturday start stays Saturday', () => {
+    const r = validateCommitmentInput(
+      { title: 'water', recurrence: 'daily', start_at: '2026-07-11T09:00:00Z', timezone: 'UTC', channel: 'text' },
+      '2026-07-10T12:00:00Z',
+    );
+    expect(r.ok).toBe(true);
+    expect(r.value.startAt).toBe('2026-07-11T09:00:00.000Z'); // Saturday, unchanged
+  });
+});
+
+describe('alignStartToRecurrence — first-occurrence weekday alignment', () => {
+  it('advances an excluded weekend day to the next allowed weekday at the same local time', () => {
+    // 2026-07-11 09:00Z is a Saturday.
+    expect(alignStartToRecurrence('2026-07-11T09:00:00.000Z', 'weekdays', 'UTC', '09:00'))
+      .toBe('2026-07-13T09:00:00.000Z');
+  });
+
+  it('is idempotent and a no-op for none / daily / an allowed day', () => {
+    const mon = '2026-07-13T09:00:00.000Z';
+    expect(alignStartToRecurrence(mon, 'weekdays', 'UTC', '09:00')).toBe(mon); // already allowed
+    expect(alignStartToRecurrence('2026-07-11T09:00:00.000Z', 'daily', 'UTC', '09:00'))
+      .toBe('2026-07-11T09:00:00.000Z'); // daily excludes nothing
+    expect(alignStartToRecurrence('2026-07-11T09:00:00.000Z', 'none', 'UTC', '09:00'))
+      .toBe('2026-07-11T09:00:00.000Z'); // one-shot
+    // Idempotent: aligning an already-aligned instant returns it unchanged.
+    const once = alignStartToRecurrence('2026-07-11T09:00:00.000Z', 'weekdays', 'UTC', '09:00');
+    expect(alignStartToRecurrence(once, 'weekdays', 'UTC', '09:00')).toBe(once);
+  });
+
+  it('judges the weekend by the RECIPIENT-local weekday, not UTC (DST/offset-correct)', () => {
+    // 2026-07-10T23:00Z is Friday in UTC but Saturday 13:00 in Kiritimati (+14),
+    // so a weekdays word anchored there must advance to the local Monday.
+    const aligned = alignStartToRecurrence('2026-07-10T23:00:00.000Z', 'weekdays', 'Pacific/Kiritimati', '13:00');
+    expect(aligned).toBe('2026-07-12T23:00:00.000Z'); // Monday 13:00 local
   });
 });
 

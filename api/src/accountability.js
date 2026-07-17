@@ -174,6 +174,40 @@ export function nextOccurrenceISO({ recurrence, timezone, localTime, afterISO } 
   return null;
 }
 
+/**
+ * Pull the FIRST occurrence of a recurring commitment onto a day the recurrence
+ * actually allows. The derive-from-local-time path already runs through
+ * `nextOccurrenceISO` (which honors the weekday filter), but an EXPLICIT
+ * `start_at` bypasses that filter — so a 'weekdays' word handed a weekend start
+ * (e.g. the in-app "9am" parsed on a Saturday) would otherwise fire its very
+ * first check-in on the weekend, contradicting the choice the person made.
+ *
+ * A start already on an allowed day is returned UNCHANGED (a Monday 9am stays
+ * Monday 9am — we never push a valid start forward); only an excluded day is
+ * advanced to the next allowed occurrence at the same recipient-local time.
+ * Idempotent, DST-correct (delegates to `nextOccurrenceISO`), and a no-op for
+ * one-shots and 'daily' (which excludes no day).
+ *
+ * @param {string} startISO the resolved first-occurrence instant
+ * @param {string} recurrence
+ * @param {string} timezone
+ * @param {string} localTime  the HH:MM wall-clock anchor (must match startISO)
+ * @returns {string} the aligned ISO instant (or startISO unchanged)
+ */
+export function alignStartToRecurrence(startISO, recurrence, timezone, localTime) {
+  const rec = pickRecurrence(recurrence);
+  if (rec === 'none' || rec === 'daily') return startISO;
+  const ms = new Date(startISO).getTime();
+  if (Number.isNaN(ms)) return startISO;
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const wd = (tzParts(ms, tz) || {}).weekday;
+  const excluded = rec === 'weekdays' && (wd === 'Sat' || wd === 'Sun');
+  if (!excluded) return startISO;
+  // The start's day is excluded — advance to the next allowed occurrence at the
+  // same local time. afterISO=startISO makes the search strictly forward from it.
+  return nextOccurrenceISO({ recurrence: rec, timezone: tz, localTime, afterISO: startISO }) || startISO;
+}
+
 /** Convert a clock regex match [full, hh, mm?, meridiem?] to [h, m] 24h; [null,null] if impossible. */
 function clockTo24(m) {
   const hh = parseInt(m[1], 10);
@@ -585,6 +619,19 @@ export function validateCommitmentInput(body, nowISO) {
     };
   }
 
+  // For a recurring commitment the cron needs a local-time anchor to compute
+  // each next occurrence; derive it from the start instant when not given.
+  const localTime = recurrence === 'none'
+    ? ''
+    : (localTimeIn ? fmtLocalTime(localTimeIn.h, localTimeIn.m) : localTimeFromISO(startAt, timezone));
+
+  // Pull the FIRST occurrence onto a day the recurrence allows. An explicit
+  // start_at bypasses the derive-path's weekday filter, so a 'weekdays' word
+  // given a weekend start would otherwise fire its first check-in on the weekend.
+  if (recurrence !== 'none' && localTime) {
+    startAt = alignStartToRecurrence(startAt, recurrence, timezone, localTime);
+  }
+
   let checkinAt = parseWhen(body.checkin_at);
   if (!checkinAt) {
     checkinAt = recurrence !== 'none'
@@ -601,12 +648,6 @@ export function validateCommitmentInput(body, nowISO) {
   }
 
   const persona = pickPersona(body.persona);
-
-  // For a recurring commitment the cron needs a local-time anchor to compute
-  // each next occurrence; derive it from the start instant when not given.
-  const localTime = recurrence === 'none'
-    ? ''
-    : (localTimeIn ? fmtLocalTime(localTimeIn.h, localTimeIn.m) : localTimeFromISO(startAt, timezone));
 
   return { ok: true, value: { title, details, startAt, checkinAt, channel, persona, timezone, recurrence, localTime } };
 }
