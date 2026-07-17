@@ -49,6 +49,18 @@ describe('guide CTAs are tool deep-links', () => {
       expect(renderGuidePage(g)).not.toContain('class="app-cta" href="/"');
     }
   });
+
+  it('the 20-20-20 guide opens the Eye Rest tool, not the Movement Break modal', () => {
+    // Regression: the CTA read "Try the Eye Rest tool" but deep-linked to
+    // /?tool=movement, which opens the cardio Movement Break — the wrong tool.
+    // Eye Rest is the 20-20-20 Break Reminder; it must land there.
+    const g = guides.find((x) => x.slug === 'the-20-20-20-rule');
+    expect(g, 'the 20-20-20 guide should exist').toBeTruthy();
+    const hrefs = ctaHrefs(renderGuidePage(g));
+    expect(hrefs).toContain('/?tool=eyerest');
+    expect(hrefs).not.toContain('/?tool=movement');
+    expect(TOOL_DEEPLINK_IDS).toContain('eyerest');
+  });
 });
 
 describe('guide pages carry structured data + social meta', () => {

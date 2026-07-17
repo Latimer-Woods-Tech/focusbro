@@ -198,6 +198,14 @@
     50% { opacity: 0.4; }
   }
 
+  /* Guide deep-link: briefly ring the exact tool card a reader arrived for,
+     so a guide CTA lands them ON the tool, not just in the right view. */
+  @keyframes deeplinkFlash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    30%      { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.55); }
+  }
+  .deeplink-flash { animation: deeplinkFlash 1.6s ease-in-out; }
+
   /* ── PROFESSIONAL MAIN GRID ── */
   .dashboard {
     display: grid;
@@ -5147,6 +5155,21 @@ const TOOL_DEEPLINKS = {
     if (m) { m.style.display = 'flex'; try { renderSleepHistory(); newSleepTip(); } catch (e) {} }
   },
   dopamine:   () => openDopamineMenu(),
+  // Eye Rest = the 20-20-20 Break Reminder card (lives in the Restore view).
+  // Land the reader in Restore and ring the exact card, not the cardio
+  // Movement Break modal the 20-20-20 guide used to (wrongly) open.
+  eyerest:    () => {
+    setView('rest');
+    try {
+      const btn = document.getElementById('breakToggle');
+      const card = btn && btn.closest ? btn.closest('.card') : null;
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('deeplink-flash');
+        setTimeout(() => { card.classList.remove('deeplink-flash'); }, 1600);
+      }
+    } catch (e) { console.warn('eyerest deep-link failed:', e && e.message); }
+  },
 };
 (function initToolDeepLink() {
   function run() {
