@@ -115,10 +115,14 @@ async function checkRateLimit(request, env, endpoint) {
 let dbInitialized = false;
 
 async function initializeDatabase(env) {
+  // R1 (#10 · reliability): every schema statement below runs once per isolate.
+  // A warm request or cron tick returns here before issuing any CREATE / ALTER /
+  // verify. Previously only the CREATE loop was guarded, so the ALTER loop and
+  // the verify SELECT re-ran on EVERY fetch and EVERY cron tick (~9 D1
+  // round-trips per call) — pure latency + cost with no effect after the first.
+  if (dbInitialized) return;
   try {
-    // Only run CREATE statements once
-    if (!dbInitialized) {
-      dbLog('Initializing database schema...');
+    dbLog('Initializing database schema...');
       
     const createTableStatements = [
       `CREATE TABLE IF NOT EXISTS users (
@@ -402,17 +406,6 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id)`
     ];
 
-    // Add missing columns to users table
-    const alterTableStatements = [
-      `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
-      `ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'`,
-      `ALTER TABLE users ADD COLUMN last_login DATETIME`,
-      `ALTER TABLE sessions ADD COLUMN is_active INTEGER DEFAULT 1`,
-      `ALTER TABLE sessions ADD COLUMN device_id TEXT`,
-      `ALTER TABLE sessions ADD COLUMN device_name TEXT`,
-      `ALTER TABLE sessions ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP`
-    ];
-
     for (const sql of createTableStatements) {
       try {
         await env.DB.prepare(sql).run();
@@ -423,11 +416,22 @@ async function initializeDatabase(env) {
           console.warn('DB initialization notice:', e.message.slice(0, 100));
         }
       }
-      }
     }
 
     // Try to add columns - will fail silently if they already exist
     const alterTableStatements = [
+      // Legacy user/session columns for tables that predate them in production.
+      // These previously lived in a SECOND alterTableStatements array that was
+      // declared but never iterated, so on a long-lived production table the
+      // columns were never actually added. Folding them in here runs them once
+      // with the rest — each is a silent no-op where the column already exists.
+      `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
+      `ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'`,
+      `ALTER TABLE users ADD COLUMN last_login DATETIME`,
+      `ALTER TABLE sessions ADD COLUMN is_active INTEGER DEFAULT 1`,
+      `ALTER TABLE sessions ADD COLUMN device_id TEXT`,
+      `ALTER TABLE sessions ADD COLUMN device_name TEXT`,
+      `ALTER TABLE sessions ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP`,
       // ── ACCOUNTABILITY delivery cron (Contender #10, Phase A · R-205) ──
       // New columns on the existing production commitment_checkins table so the
       // delivery cron can track send state without recreating the table.
@@ -562,6 +566,9 @@ async function verifyPassword(password, hash) {
 
 // ── EXPORT UTILITIES FOR OTHER MODULES ──
 export { hashPassword, verifyPassword, generateToken, verifyToken, generateUUID };
+// Exported for the run-once guard test (R1). Not used by other modules — the
+// fetch/scheduled handlers call it internally.
+export { initializeDatabase };
 
 /**
  * Generate HMAC-SHA256 JWT token with 30-day expiration.
