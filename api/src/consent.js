@@ -590,18 +590,46 @@ export function registerConsentRoutes(router, ctx) {
       // ── Fresh reply to a delivered nudge ──
       const reply = detectCheckinReply(text);
 
+      if (reply === 'kept') return await resolveKept();
+
+      // ── Answered directly with a new TIME? Reschedule in one step ──
+      // The most natural way to reschedule is to answer the nudge with a concrete
+      // time — "3pm", "Saturday", "tomorrow 9am", "Jul 20" — not the literal word
+      // LATER. The widened parser (R-258→R-263) already reads all of it, but this
+      // fresh-nudge path never called it: such a reply was either re-asked (the
+      // "when?" round-trip throwing away the time they just gave) or — for a
+      // phrasing detectCheckinReply can't classify, like a bare "3pm" — met with
+      // "I didn't catch that", which reads as the bro not listening on the exact
+      // two-way interaction the moat is built on. Honor it here, one step, exactly
+      // like the awaiting-time branch: re-pend THIS check-in and read the new time
+      // back. The nudge is itself a "Ready?" prompt, so a time in reply to it is
+      // unambiguously a reschedule; the streak is NEVER touched — a reschedule
+      // protects the chain. Runs before the ambiguous/ask-when fallbacks so a
+      // "tomorrow 9am" lands directly instead of being re-asked "when tomorrow?".
+      const directWhenISO = parseWhenReply(text, {
+        nowISO, timezone: open.timezone, defaultTime: open.local_time,
+      });
+      if (directWhenISO) {
+        await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+            WHERE id = ? AND user_id = ?`
+        ).bind(directWhenISO, open.checkin_id, user.id).run();
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO }));
+        return jsonResponse({ ok: true, action: 'rescheduled', scheduled_for: directWhenISO }, 200);
+      }
+
       if (reply === null) {
-        // We couldn't read it — ask, warmly. NEVER assume a miss from a message
-        // we didn't understand; leave the check-in open for a real answer.
+        // Not DONE, not LATER, and no concrete time — ask, warmly. NEVER assume a
+        // miss from a message we didn't understand; leave the check-in open.
         await sendSms(env, phone, smsAmbiguousReplyCopy({ persona }));
         return jsonResponse({ ok: true, action: 'checkin_unclear' }, 200);
       }
 
-      if (reply === 'kept') return await resolveKept();
-
-      // "later" → don't punt to the app. Ask when, right here over text, and hold
-      // this check-in in 'awaiting_time' for the person's next reply. The design
-      // LAW's literal promise: "no problem — when do you want to try again?"
+      // "later" / "not yet" with no time attached → don't punt to the app. Ask
+      // when, right here over text, and hold this check-in in 'awaiting_time' for
+      // the person's next reply. The design LAW's literal promise: "no problem —
+      // when do you want to try again?"
       await env.DB.prepare(
         `UPDATE commitment_checkins SET status = 'awaiting_time'
           WHERE id = ? AND user_id = ? AND status = 'sent'`

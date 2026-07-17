@@ -280,6 +280,75 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(sent.text.toLowerCase()).not.toMatch(/in the app/);
   });
 
+  // ── Answering the FRESH nudge directly with a time (R-264) ──
+  // A person's most natural reschedule is to answer "Ready?" with a new time, not
+  // the literal word LATER. Before R-264 that reply was stranded on the fresh
+  // path: a clock/weekday/date detectCheckinReply can't classify hit the "I
+  // didn't catch that" copy, and even "tomorrow 9am" cost a redundant "when?"
+  // round-trip. These lock the one-step reschedule — same read-back, streak safe.
+  it('a bare TIME reply to a fresh nudge ("3pm") reschedules in one step — no "when?" round-trip, no "I didn\'t catch that"', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('3pm'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    // re-pended directly at the chosen time — never parked awaiting_time, never ambiguous
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    // streak is NEVER touched — a reschedule protects the chain by construction
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // the warm read-back confirmation went out (not the "I didn't catch that" copy)
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|pick a new time/);
+  });
+
+  it('a weekday reply to a fresh nudge ("Saturday") reschedules directly', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('Saturday'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+  });
+
+  it('"tomorrow 9am" on a fresh nudge lands directly instead of a redundant "when tomorrow?"', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('tomorrow 9am'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    // one step: rescheduled, NOT parked awaiting a further "when?" answer
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).not.toMatch(/when do you want to try again/);
+  });
+
+  it('regression: bare "later" (no time) STILL asks when — the direct path only fires on a real time', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('later'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('reschedule_ask_when');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins SET status = 'awaiting_time'/.test(x.sql))).toBe(true);
+    // no direct re-pend happened
+    expect(db.runs.some((x) => /SET status = 'pending', scheduled_for/.test(x.sql))).toBe(false);
+  });
+
+  it('regression: a truly unreadable fresh reply ("who is this?") STILL leaves it open (never a miss)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('who is this?'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('checkin_unclear');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+  });
+
   it('a time reply while awaiting → re-arms THIS check-in for that time (streak safe, no app)', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
