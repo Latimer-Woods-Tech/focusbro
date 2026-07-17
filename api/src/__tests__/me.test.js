@@ -44,6 +44,10 @@ import {
   momentumSelfSummaryCopy,
   personalBestCopy,
   milestoneCopy,
+  inAppWhenExamples,
+  inAppWhenExamplesText,
+  parseWhenReply,
+  smsAskWhenCopy,
 } from '../accountability.js';
 
 const SHAME_PATTERNS = [
@@ -538,5 +542,60 @@ describe('milestone badge — a discrete "you reached it" mark, never a "not the
     expect(html).toContain('id="streakMilestone"');
     expect(html).toContain('streakmilestone hidden'); // hidden by default; revealed only on data.milestone
     expect(html).toContain('data && data.milestone'); // renderStreak reads the server-computed line
+  });
+});
+
+// ── The in-app time fields may only advertise phrasings the parser can read ──
+// Direct in-app counterpart of the SMS lock-step test (R-262). After the ONE
+// parser learned to hear a named weekday (R-258) and a calendar date (R-259/260),
+// the /me/ give-a-word placeholder, the reschedule prompt, and the empty-field
+// re-ask must OFFER them — and never advertise a phrasing the parser can't read —
+// or the weekday/date parsing is stranded in the app exactly as it was on SMS.
+describe('in-app when-field copy stays in lock-step with parseWhenReply (R-263)', () => {
+  const nowISO = '2026-07-10T12:00:00.000Z'; // a Friday in NY — "Saturday" and "Jul 20" both land ≤14 days out
+  const timezone = 'America/New_York';
+
+  for (const ex of inAppWhenExamples()) {
+    it(`parseWhenReply reads the advertised in-app example "${ex}"`, () => {
+      expect(parseWhenReply(ex, { nowISO, timezone })).not.toBeNull();
+    });
+  }
+
+  it('advertises the full range: a relative offset, a clock time, a weekday, and a date', () => {
+    const t = inAppWhenExamplesText();
+    expect(t).toMatch(/in \d+ min/); // relative offset
+    expect(t).toMatch(/9am/);        // clock time
+    expect(t).toMatch(/Saturday/);   // named weekday (R-258)
+    expect(t).toMatch(/Jul 20/);     // calendar date (R-259/260)
+  });
+
+  it('advertises the same weekday + date vocabulary as the SMS ask copy (one product, one voice)', () => {
+    // The two surfaces phrase the offset/clock example differently ("in 30 min"
+    // in-app vs "3pm" on SMS), but the NEW vocabulary that R-258/259/260 unlocked
+    // — a named weekday and a calendar date — must be offered on both, so a person
+    // learns the same phrasings wherever the bro reaches them.
+    const ask = smsAskWhenCopy({ persona: 'ally' });
+    const inApp = inAppWhenExamplesText();
+    for (const shared of ['Saturday', 'Jul 20']) {
+      expect(ask, shared).toContain(shared);
+      expect(inApp, shared).toContain(shared);
+    }
+  });
+
+  it('renders the widened vocabulary into the give-a-word placeholder', () => {
+    const html = renderMePage();
+    expect(html).toContain(`placeholder="${inAppWhenExamplesText()}"`);
+  });
+
+  it('offers the widened vocabulary in the reschedule prompt and the empty-field re-ask', () => {
+    const html = renderMePage();
+    // placeholder + reschedule prompt() + empty-field validation error each carry the one list
+    const occurrences = html.split(inAppWhenExamplesText()).length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(3);
+  });
+
+  it('no longer strands the parser: the old offset-only example set is gone from the fields', () => {
+    const html = renderMePage();
+    expect(html).not.toContain('in 30 min, tomorrow 9am, 3pm');
   });
 });

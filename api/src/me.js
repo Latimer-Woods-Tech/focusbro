@@ -32,6 +32,7 @@ import {
   detailPeakDayCopy,
   personalBestCopy,
   milestoneCopy,
+  inAppWhenExamplesText,
 } from './accountability.js';
 
 /** The commitment lifecycle states the consumer view can render. */
@@ -444,7 +445,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <div class="row">
         <div>
           <label for="startAt">When?</label>
-          <input id="startAt" type="text" placeholder="in 30 min, tomorrow 9am, 3pm" autocomplete="off" required />
+          <input id="startAt" type="text" placeholder="${inAppWhenExamplesText()}" autocomplete="off" required />
         </div>
         <div>
           <label for="persona">Companion tone</label>
@@ -1229,10 +1230,11 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       return;
     }
     if (act === 'reschedule') {
-      var when = prompt('No problem — when do you want to try again? (e.g. in 30 min, tomorrow 9am, 3pm)');
+      var when = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
       if (!when || !when.trim()) return;
       // Send the words as typed — the server reads them with the SAME parser as a
-      // text reply, so "in 30 min" / "tomorrow 9am" / "3pm" all work in-app too.
+      // text reply, so a relative offset, a clock time, a weekday, and a date all
+      // work in-app too (R-258/259/260 vocabulary, one parser per R-233).
       // A warm nudge comes back if the time can't be read; never a rigid format.
       resolve(id, 'reschedule', { when_text: when.trim() });
     }
@@ -1267,11 +1269,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     ev.preventDefault();
     hide(el('commitMsg')); hide(el('commitErr'));
     // The very first "when" now speaks the same warm language as the reschedule
-    // and the text channel — "in 30 min", "tomorrow 9am", "3pm". The server runs
-    // the shared parseWhenReply; for a repeating word it derives the same-time-
-    // each-day anchor from the resolved instant, so no separate local_time here.
+    // and the text channel — a relative offset, a clock time, a weekday, and a
+    // date all land here. The server runs the shared parseWhenReply; for a
+    // repeating word it derives the same-time-each-day anchor from the resolved
+    // instant, so no separate local_time here.
     var whenText = el('startAt').value.trim();
-    if (!whenText) { var e = el('commitErr'); e.textContent = 'When do you want to start? Try “in 30 min”, “tomorrow 9am”, or “3pm”.'; show(e); return; }
+    if (!whenText) { var e = el('commitErr'); e.textContent = 'When do you want to start? Try something like ${inAppWhenExamplesText()}.'; show(e); return; }
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
     var repeat = el('repeat').value;
