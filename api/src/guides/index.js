@@ -83,6 +83,7 @@ const SITE_FOOTER = `<footer class="site">
 export const TOOL_DEEPLINK_IDS = Object.freeze([
   'focus', 'rest', 'sounds', 'stats', 'home', 'pomodoro',
   'breathing', 'grounding', 'meditation', 'bodyscan', 'movement', 'sleep', 'dopamine',
+  'eyerest',
 ]);
 
 /** Strip HTML tags and collapse whitespace to plain text. */
@@ -508,7 +509,7 @@ export const guides = [
 <h2>The supporting cast</h2>
 <p>The 20-20-20 rule works best alongside a few basics that reduce the underlying load on your eyes: position the screen a little below eye level and roughly an arm's length away; keep the room lit so the screen is not a bright rectangle in a dark room; nudge text size up so you are not leaning in; and keep the air from being too dry. If your eyes still ache constantly, or vision blurs and does not clear, that is a reason to see an eye-care professional rather than to push through — persistent strain can be a sign you need an updated prescription.</p>
 
-<p><a class="app-cta" href="/?tool=movement">Try the Eye Rest tool</a></p>
+<p><a class="app-cta" href="/?tool=eyerest">Try the Eye Rest tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
