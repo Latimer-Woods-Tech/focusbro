@@ -63,6 +63,26 @@ export async function materializeNextOccurrence(env, row, nowISO) {
 /** Max delivery attempts before a check-in is parked as `failed` (transient errors only). */
 export const MAX_ATTEMPTS = 3;
 
+/**
+ * True when a delivery provider's HTTP status describes a PERMANENT failure —
+ * one that can never succeed on retry (e.g. Telnyx 400/422 for a mistyped or
+ * unreachable number). These are parked `failed` on the first attempt instead
+ * of burning the remaining ticks against a send that will never land.
+ *
+ * Retryable-therefore-NOT-permanent: network/timeout (status 0), any 5xx
+ * (server-side, transient), and the two 4xx that are explicitly transient —
+ * 408 Request Timeout and 429 Too Many Requests (back off and retry). Anything
+ * unknown falls through as transient, so we never fail-fast on a status we
+ * can't confidently call permanent.
+ *
+ * @param {number} status  an HTTP status code (0 for a network error)
+ */
+export function isPermanentDeliveryError(status) {
+  const s = Number(status) || 0;
+  if (s === 408 || s === 429) return false;
+  return s >= 400 && s < 500;
+}
+
 /** Default batch size per cron tick. */
 const DEFAULT_LIMIT = 100;
 
@@ -140,7 +160,11 @@ async function deliverText(env, row, message) {
   }).catch((e) => ({ ok: false, status: 0, _netErr: e && e.message }));
 
   if (res.ok) return { status: 'sent', detail: 'text' };
-  return { status: 'failed', detail: (res._netErr || `telnyx_status_${res.status || 0}`) };
+  // A network error (no HTTP status) is transient; an HTTP error is permanent
+  // only for a non-retryable 4xx (bad/unreachable number). The caller uses
+  // `permanent` to decide fail-fast vs. retry-to-cap.
+  const permanent = res._netErr ? false : isPermanentDeliveryError(res.status);
+  return { status: 'failed', detail: (res._netErr || `telnyx_status_${res.status || 0}`), permanent };
 }
 
 /**
@@ -239,9 +263,12 @@ export async function runDueCheckins(env, opts = {}) {
         summary.skipped++;
         leftPending = true;
       } else {
-        // Transient failure: bump attempts, park as 'failed' once the cap is hit.
+        // Delivery failure: bump attempts. Park as 'failed' once the retry cap
+        // is hit — OR immediately when the error is permanent (a Telnyx 4xx for
+        // a bad/unreachable number can never succeed, so retrying it two more
+        // ticks just delays the terminal park and wastes API calls).
         const nextAttempts = (Number(row.attempts) || 0) + 1;
-        const terminal = nextAttempts >= MAX_ATTEMPTS;
+        const terminal = outcome.permanent === true || nextAttempts >= MAX_ATTEMPTS;
         await env.DB.prepare(
           `UPDATE commitment_checkins
               SET status = ?, attempts = ?, last_error = ?
