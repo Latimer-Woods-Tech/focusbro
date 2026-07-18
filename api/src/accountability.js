@@ -1180,13 +1180,26 @@ export function milestoneCopy({ streak } = {}) {
  * @returns {'kept'|'reschedule'|null}  null = couldn't tell (ask, don't assume)
  */
 export function detectCheckinReply(text) {
-  const t = String(text == null ? '' : text)
+  const raw = String(text == null ? '' : text);
+  const t = raw
     .toLowerCase()
     .replace(/[’‘]/g, "'")            // normalize curly apostrophes to straight
     .replace(/[^a-z0-9\s']/g, ' ')    // keep letters/digits/apostrophes; drop other punctuation/emoji
     .replace(/\s+/g, ' ')
     .trim();
-  if (!t) return null;
+
+  // A bare affirmation emoji (👍 ✅ 🙌 💪 …) is a near-universal "done" — but the
+  // alnum normalization above strips every emoji, so a reply that is ONLY an emoji
+  // collapses to empty and used to read as "I didn't catch that" on the exact
+  // two-way channel that is the live moat. Recognize the positive ones as KEPT.
+  // The word signals below still win whenever they're present ("not yet 👍" stays
+  // a reschedule, "did it 🎉" stays kept via the words), so this emoji reading only
+  // ever decides the case the words couldn't. We NEVER map an emoji to reschedule:
+  // a truly unreadable reply (e.g. 🤔) must fall through to the warm "when do you
+  // want to try again?" ask — never assume a miss.
+  const AFFIRM_EMOJI = /[\u{1F44D}\u{1F44C}\u{1F64C}\u{1F4AA}\u{1F389}\u{1F525}\u{1F4AF}✅✔]/u;
+  const hasAffirmEmoji = AFFIRM_EMOJI.test(raw);
+  if (!t) return hasAffirmEmoji ? 'kept' : null;
 
   // "did it" / "got it done" / "all done" → kept. Check the reschedule forms
   // first — especially the NEGATED ones — so "not done" / "haven't yet" is never
@@ -1199,6 +1212,8 @@ export function detectCheckinReply(text) {
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
+  // A positive emoji rode along with words we couldn't classify ("meh 👍") → keep.
+  if (hasAffirmEmoji) return 'kept';
   return null;
 }
 

@@ -69,6 +69,32 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply('who is this')).toBeNull();
     expect(detectCheckinReply('🤔')).toBeNull();
   });
+
+  it('reads a bare positive emoji as KEPT — a 👍 is a "done" on the live moat', () => {
+    for (const t of ['👍', '✅', '✔️', '🙌', '💪', '🎉', '🔥', '💯', '👌',
+                     '👍👍', '👍 ', ' ✅']) {
+      expect(detectCheckinReply(t), t).toBe('kept');
+    }
+  });
+
+  it('lets the words win when a positive emoji rides along with them', () => {
+    // A textual reschedule signal is never overridden by a trailing 👍.
+    expect(detectCheckinReply('not yet 👍')).toBe('reschedule');
+    expect(detectCheckinReply('later 🙌')).toBe('reschedule');
+    expect(detectCheckinReply("can't 💪")).toBe('reschedule');
+    // A textual "done" still reads as kept via the words (independent of emoji).
+    expect(detectCheckinReply('did it 🎉')).toBe('kept');
+    // A positive emoji beside words we can't classify still counts as done.
+    expect(detectCheckinReply('meh 👍')).toBe('kept');
+  });
+
+  it('never maps a non-affirmation emoji to a miss — it falls through to the warm ask', () => {
+    // Only positive-completion emoji mean "done"; anything else stays ambiguous so
+    // the bro asks "when do you want to try again?" instead of assuming a miss.
+    expect(detectCheckinReply('🤔')).toBeNull();
+    expect(detectCheckinReply('😴')).toBeNull();
+    expect(detectCheckinReply('👎')).toBeNull();
+  });
 });
 
 // ── DESIGN LAW on the reply copy ─────────────────────────────
