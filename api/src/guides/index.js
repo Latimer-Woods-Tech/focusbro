@@ -322,17 +322,29 @@ export function renderGuidesIndex(list) {
       { '@type': 'ListItem', position: 2, name: 'Guides', item: 'https://focusbro.net/guides/' },
     ],
   }).replace(/</g, '\\u003c');
+  // One source for the title + description so the <title>, <meta description>,
+  // and the Open Graph / Twitter tags can never drift apart. The guides HUB is
+  // the most-shared page of the reader→user funnel (L4); it must preview as
+  // richly as the individual guide pages do — a description, an image, and a
+  // Twitter card — not a bare title with no card at all.
+  const indexTitle = 'Focus &amp; Wellness Guides — FocusBro';
+  const indexDesc = 'Research-grounded guides on focus, attention, breaks, breathing, and recovery — the science behind the tools in FocusBro.';
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Focus &amp; Wellness Guides — FocusBro</title>
-<meta name="description" content="Research-grounded guides on focus, attention, breaks, breathing, and recovery — the science behind the tools in FocusBro." />
+<title>${indexTitle}</title>
+<meta name="description" content="${indexDesc}" />
 <link rel="canonical" href="https://focusbro.net/guides/" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="FocusBro" />
-<meta property="og:title" content="Focus &amp; Wellness Guides — FocusBro" />
+<meta property="og:title" content="${indexTitle}" />
+<meta property="og:description" content="${indexDesc}" />
 <meta property="og:url" content="https://focusbro.net/guides/" />
+<meta property="og:image" content="https://focusbro.net/icon-192.svg" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="${indexTitle}" />
+<meta name="twitter:description" content="${indexDesc}" />
 <script type="application/ld+json">${collectionLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
 ${AD_CLIENT_SCRIPT}
