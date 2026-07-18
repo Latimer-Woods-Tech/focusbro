@@ -61,6 +61,19 @@ describe('guide CTAs are tool deep-links', () => {
     expect(hrefs).not.toContain('/?tool=movement');
     expect(TOOL_DEEPLINK_IDS).toContain('eyerest');
   });
+
+  it('the music-and-noise guide opens the Ambient Sounds card, not the bare Restore view', () => {
+    // A reader who came for music/sounds landed on /?tool=rest, which only
+    // switches to the Restore view and drops them among breathing, fidgets,
+    // and meditation — they have to hunt for the sounds panel. It must target
+    // /?tool=sounds, which rings the Ambient Sounds card specifically.
+    const g = guides.find((x) => x.slug === 'music-and-noise-for-focus');
+    expect(g, 'the music-and-noise guide should exist').toBeTruthy();
+    const hrefs = ctaHrefs(renderGuidePage(g));
+    expect(hrefs).toContain('/?tool=sounds');
+    expect(hrefs).not.toContain('/?tool=rest');
+    expect(TOOL_DEEPLINK_IDS).toContain('sounds');
+  });
 });
 
 describe('guide pages carry structured data + social meta', () => {
@@ -121,6 +134,17 @@ describe('the served app can honor every deep-link a guide uses', () => {
         new RegExp(`\\b${id}:\\s*\\(\\)\\s*=>`)
       );
     }
+  });
+
+  it('the sounds deep-link rings the Ambient Sounds card, not just the Restore view', () => {
+    // Behavior, not just presence: `sounds` must route through the shared
+    // ring-a-card helper anchored on the Ambient Sounds volume control, the
+    // same mechanism `eyerest` uses — so the reader lands ON the card.
+    expect(servedHtml).toContain('function deepLinkToRestCard');
+    expect(servedHtml).toMatch(/sounds:\s*\(\)\s*=>\s*deepLinkToRestCard\('soundVolume'\)/);
+    expect(servedHtml).toMatch(/eyerest:\s*\(\)\s*=>\s*deepLinkToRestCard\('breakToggle'\)/);
+    // The helper must flash the matched card (the warm "you're here" signal).
+    expect(servedHtml).toContain("card.classList.add('deeplink-flash')");
   });
 });
 
