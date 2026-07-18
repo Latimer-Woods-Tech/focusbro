@@ -163,4 +163,27 @@ describe('design LAW — deep-link CTAs stay warm and clean', () => {
     const idx = renderGuidesIndex(guides);
     expect(idx).toContain('class="card"');
   });
+
+  it('the /guides/ index previews as richly as a guide page (og:description, og:image, twitter card)', () => {
+    const idx = renderGuidesIndex(guides);
+    // Parity with renderGuidePage: the funnel hub must carry a description, an
+    // image, and a Twitter card — not just a bare og:title with no card.
+    expect(idx).toContain('property="og:description"');
+    expect(idx).toContain('property="og:image" content="https://focusbro.net/icon-192.svg"');
+    expect(idx).toContain('name="twitter:card" content="summary"');
+    expect(idx).toContain('name="twitter:title"');
+    expect(idx).toContain('name="twitter:description"');
+  });
+
+  it('the /guides/ index title and description are shared across <title>, meta, og, and twitter (no drift)', () => {
+    const idx = renderGuidesIndex(guides);
+    const title = 'Focus &amp; Wellness Guides — FocusBro';
+    const descNeedle = 'the science behind the tools in FocusBro.';
+    // The same title string appears in <title>, og:title, and twitter:title.
+    expect(idx).toContain(`<title>${title}</title>`);
+    expect(idx).toContain(`property="og:title" content="${title}"`);
+    expect(idx).toContain(`name="twitter:title" content="${title}"`);
+    // The same description backs meta description, og:description, twitter:description.
+    expect(idx.match(new RegExp(descNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).toHaveLength(3);
+  });
 });
