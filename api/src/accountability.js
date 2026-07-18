@@ -1205,7 +1205,15 @@ export function detectCheckinReply(text) {
   // first — especially the NEGATED ones — so "not done" / "haven't yet" is never
   // misread as "done".
   const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
-  const KEPT = /\b(done|did it|did that|didit|finished|complete[d]?|got it done|all done|handled|nailed it|crushed it|yep|yup|yeah|yes|yeh|ya|kept|on it done)\b/;
+  // The yes-family alternatives are elongation-tolerant on purpose: a casual
+  // "yesss", "yaas", "yea", "yah" is a near-universal "done", but the plain
+  // `yes|yeah|ya` forms only matched the un-stretched spelling — so an excited
+  // one-word affirmation fell through to "I didn't catch that" on the exact
+  // two-way channel that is the live moat. The vowel/consonant runs (`ye+s+`,
+  // `yea+h*`, `ya+s+`, `yah+`, `yep+`, `yup+`, `yay+`) stay anchored by `\b` on
+  // both ends, so "year"/"yeast"/"yesterday" never match, and RESCHEDULE still
+  // runs first so a negated "not yet yea" is a reschedule, never misread as kept.
+  const KEPT = /\b(done|did it|did that|didit|finished|complete[d]?|got it done|all done|handled|nailed it|crushed it|yep+|yup+|yea+h*|ye+s+|yeh+|ya+s+|yah+|yay+|ya|kept|on it done)\b/;
 
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';

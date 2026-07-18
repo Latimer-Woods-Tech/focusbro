@@ -42,6 +42,25 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     }
   });
 
+  it('reads an elongated / variant yes ("yea", "yesss", "yaas", "yah") as KEPT', () => {
+    // An excited one-word affirmation is a near-universal "done" on the live
+    // two-way moat; the un-stretched forms used to be the only ones that landed,
+    // so "yesss"/"yea"/"yah" fell through to "I didn't catch that".
+    for (const t of ['yea', 'yeaah', 'yesss', 'yess', 'yaas', 'yasss', 'yah', 'yahh',
+                     'yepp', 'yuppp', 'yayyy', 'YESSS!']) {
+      expect(detectCheckinReply(t), t).toBe('kept');
+    }
+  });
+
+  it('does not read a real word that merely starts with a yes-run as KEPT', () => {
+    // The elongation runs are anchored on both ends, so ordinary words never trip it.
+    for (const t of ['yeast', 'year', 'yesterday', 'yard']) {
+      expect(detectCheckinReply(t), t).toBeNull();
+    }
+    // A negated affirmation is still a reschedule, never misread as kept.
+    expect(detectCheckinReply('not yet yea')).toBe('reschedule');
+  });
+
   it('reads "later" and its family as the no-shame RESCHEDULE', () => {
     for (const t of ['later', 'not yet', 'notyet', 'nope', 'tomorrow', 'reschedule',
                      'snooze', 'skip', 'rain check', 'another time', "can't right now",
