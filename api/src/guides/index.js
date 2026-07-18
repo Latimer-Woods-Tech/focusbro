@@ -1150,7 +1150,7 @@ export const guides = [
 </ul>
 <p>Above all, trust the test over the trend. Preference and habit matter, and the honest state of the science is "it depends." Try a week of silence for your hardest verbal work and a moderate backdrop for your loosest creative work, and keep whatever measurably helps <em>you</em> get more done — not what a playlist promises.</p>
 
-<p><a class="app-cta" href="/?tool=rest">Open the Focus Music and Ambient Sounds tools</a></p>
+<p><a class="app-cta" href="/?tool=sounds">Open the Focus Music and Ambient Sounds tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>

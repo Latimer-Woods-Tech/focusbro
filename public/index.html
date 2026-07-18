@@ -5138,11 +5138,29 @@ function setView(view) {
 // an unknown id is a no-op, every action is try/caught, and the query param is
 // cleared so a refresh never re-fires and the address bar stays clean.
 // ══════════════════════════════════════
+// Land the reader in the Restore view and ring one specific card so they
+// arrive ON the tool they came for, not on a cold view. `anchorId` is any
+// stable element inside the target card. Defensive: no-op if it's absent.
+function deepLinkToRestCard(anchorId) {
+  setView('rest');
+  try {
+    const el = document.getElementById(anchorId);
+    const card = el && el.closest ? el.closest('.card') : null;
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('deeplink-flash');
+      setTimeout(() => { card.classList.remove('deeplink-flash'); }, 1600);
+    }
+  } catch (e) { console.warn('rest-card deep-link failed:', e && e.message); }
+}
 const TOOL_DEEPLINKS = {
   focus:      () => setView('focus'),
   pomodoro:   () => setView('focus'),
   rest:       () => setView('rest'),
-  sounds:     () => setView('rest'),
+  // Sounds = the 🎧 Ambient Sounds card (lives in the Restore view). Land the
+  // reader ON the card and ring it, not just in the view, so a "music/sounds"
+  // guide reader doesn't have to hunt among breathing, fidgets, and meditation.
+  sounds:     () => deepLinkToRestCard('soundVolume'),
   stats:      () => setView('stats'),
   home:       () => setView('home'),
   breathing:  () => openBreathingGuide(),
@@ -5155,21 +5173,10 @@ const TOOL_DEEPLINKS = {
     if (m) { m.style.display = 'flex'; try { renderSleepHistory(); newSleepTip(); } catch (e) {} }
   },
   dopamine:   () => openDopamineMenu(),
-  // Eye Rest = the 20-20-20 Break Reminder card (lives in the Restore view).
-  // Land the reader in Restore and ring the exact card, not the cardio
-  // Movement Break modal the 20-20-20 guide used to (wrongly) open.
-  eyerest:    () => {
-    setView('rest');
-    try {
-      const btn = document.getElementById('breakToggle');
-      const card = btn && btn.closest ? btn.closest('.card') : null;
-      if (card) {
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        card.classList.add('deeplink-flash');
-        setTimeout(() => { card.classList.remove('deeplink-flash'); }, 1600);
-      }
-    } catch (e) { console.warn('eyerest deep-link failed:', e && e.message); }
-  },
+  // Eye Rest = the 👁️ 20-20-20 Break Reminder card (lives in the Restore view).
+  // Ring the exact card, not the cardio Movement Break modal the 20-20-20 guide
+  // used to (wrongly) open.
+  eyerest:    () => deepLinkToRestCard('breakToggle'),
 };
 (function initToolDeepLink() {
   function run() {
