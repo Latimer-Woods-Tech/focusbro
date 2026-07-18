@@ -300,6 +300,12 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     return inRange(at(y0, mo0, d0, 12, 0)) || inRange(at(ty, tm, td, 12, 0));
   }
 
+  // "day after tomorrow" CONTAINS "tomorrow" but means +2 days. Detect it first
+  // so the tomorrow branch below can land it two days out instead of one — a
+  // reschedule for the day-after must never arrive a full day early on the exact
+  // two-way text channel that is the moat (showing up a day early reads as a nag,
+  // the opposite of the anti-shame design LAW).
+  const wantsDayAfterTomorrow = /\bday after (tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTomorrow = /\b(tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTonight = /\b(tonight|this evening)\b/.test(t);
   const partOfDay = /\bmorning\b/.test(t) ? [9, 0]
@@ -313,6 +319,9 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   }
 
   if (wantsTomorrow) {
+    // "day after tomorrow" is two days out; a plain "tomorrow" is one. Time-of-
+    // day reads exactly the same either way.
+    const [dy, dmo, dd] = wantsDayAfterTomorrow ? addDay(y0, mo0, d0, 2) : [ty, tm, td];
     let h, mi;
     if (clock) {
       const [ch, cm] = clockTo24(clock);
@@ -322,7 +331,7 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
       mi = cm;
     } else if (partOfDay) { [h, mi] = partOfDay; }
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
-    return inRange(at(ty, tm, td, h, mi));
+    return inRange(at(dy, dmo, dd, h, mi));
   }
 
   // ── A named weekday: "monday", "mon 3pm", "next friday", "saturday morning" ──

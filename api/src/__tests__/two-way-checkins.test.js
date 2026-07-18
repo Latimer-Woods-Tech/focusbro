@@ -497,6 +497,21 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('tomorrow morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
   });
 
+  it('reads "day after tomorrow" as two days out, not one (contains "tomorrow" but means +2)', () => {
+    // NOW is Monday 2026-07-06 → day-after-tomorrow is Wednesday 2026-07-08.
+    expect(parseWhenReply('day after tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('day after tomorrow', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-08T08:40:00.000Z');
+    // A clock time / part-of-day / abbreviation rides it, same reading as the tomorrow branch.
+    expect(parseWhenReply('day after tomorrow 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('the day after tomorrow at 10am', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T10:00:00.000Z');
+    expect(parseWhenReply('day after tmrw', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('day after tomorrow morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    // A plain "tomorrow" is unchanged — still one day out.
+    expect(parseWhenReply('tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // DST-correct in the recipient zone: 3pm on Jul 8 in America/New_York (EDT, UTC-4) → 19:00Z.
+    expect(parseWhenReply('day after tomorrow 3pm', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-08T19:00:00.000Z');
+  });
+
   it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
     // Bare weekday = soonest future occurrence at the usual/default time.
     expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
