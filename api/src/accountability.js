@@ -271,14 +271,28 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
 
   const inRange = (ms) => (ms != null && ms > soonest && ms <= nowMs + HORIZON_MS) ? new Date(ms).toISOString() : null;
 
-  // ── Relative: "in ..." ──
+  // ── Relative: "in ..." ── minutes/hours AND days/weeks. A bare "in 2 days"
+  // used to fall through to the numeric branch with no unit and land 2 *minutes*
+  // out (the bro showing up seconds later, not in two days) — a nag, the opposite
+  // of the anti-shame LAW on the two-way text channel that is the moat while voice
+  // is gated. Day/week units are now first-class; anything past the 14-day
+  // reschedule horizon (e.g. "in 3 weeks") still falls through to the warm ask.
   if (/^in\b/.test(t)) {
     let mins = null;
     if (/\bhalf(\s+an?)?\s+hour\b/.test(t)) mins = 30;
     else if (/\ban?\s+hour\b/.test(t)) mins = 60;
+    else if (/\ban?\s+day\b/.test(t)) mins = 24 * 60;
+    else if (/\ban?\s+week\b/.test(t)) mins = 7 * 24 * 60;
     else {
-      const m = t.match(/^in\s+(\d{1,4})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\b/);
-      if (m) { const n = parseInt(m[1], 10); mins = /^h/.test(m[2] || 'm') ? n * 60 : n; }
+      const m = t.match(/^in\s+(\d{1,4})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)?\b/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        const u = m[2] || 'm';
+        mins = /^w/.test(u) ? n * 7 * 24 * 60
+          : /^d/.test(u) ? n * 24 * 60
+          : /^h/.test(u) ? n * 60
+          : n;
+      }
     }
     if (!(mins > 0)) return null;
     return inRange(nowMs + Math.round(mins) * MIN_MS);

@@ -482,6 +482,25 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('in 20', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
   });
 
+  it('reads relative "in N days / weeks" forms, not as N minutes', () => {
+    // Regression: "in 2 days" used to land 2 *minutes* out (no unit → numeric
+    // branch), the bro arriving seconds later instead of in two days — a nag.
+    expect(parseWhenReply('in 2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('in 1 day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('in 3d', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    expect(parseWhenReply('in a day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('in a week', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T15:00:00.000Z');
+    expect(parseWhenReply('in 1 week', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T15:00:00.000Z');
+    // Two weeks is exactly the 14-day reschedule horizon — still in range.
+    expect(parseWhenReply('in 2 weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    // Past the horizon → unreadable, falls through to the warm "when again?" ask.
+    expect(parseWhenReply('in 3 weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('in 30 days', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // Minutes/hours unchanged; a bare number still reads as minutes.
+    expect(parseWhenReply('in 45 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:45:00.000Z');
+    expect(parseWhenReply('in 5', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:05:00.000Z');
+  });
+
   it('reads clock times, rolling to tomorrow when already past', () => {
     expect(parseWhenReply('6pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
     expect(parseWhenReply('18:00', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
