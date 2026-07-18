@@ -1,33 +1,37 @@
 name: Docs Health
 
+# Self-contained docs-health for focusbro. Vendored from Factory's
+# scripts/docs/{health,check-generated-current}.mjs (node-builtin-only, no deps)
+# on 2026-07-18 because focusbro is PUBLIC and cannot call Factory's now-private
+# reusable `_docs-health.yml` (see Factory#2332). Advisory / non-blocking.
+
 on:
   pull_request:
-    paths:
-      - 'docs/**'
-      - '.github/workflows/**'
-      - 'package.json'
-      - '.nvmrc'
-      - 'README.md'
+    paths: ['**/*.md', 'docs/**', 'README*']
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/**'
-      - 'package.json'
-      - '.nvmrc'
-      - 'README.md'
-  workflow_dispatch:
   schedule:
-    - cron: '17 9 * * 1'
+    - cron: '17 7 * * 1'   # Mondays 07:17 UTC
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   docs-health:
-    uses: Latimer-Woods-Tech/Factory/.github/workflows/_docs-health.yml@b4ecb6cd402f6827f85313b00043dc1625a65052
-    secrets: inherit
-    with:
-      repo_profile: app
-      tools_ref: main
-      enforce_generated: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Docs health
+        continue-on-error: true
+        env:
+          DOCS_TARGET_ROOT: ${{ github.workspace }}
+        run: node scripts/docs/health.mjs
+      - name: Generated docs are current
+        continue-on-error: true
+        env:
+          DOCS_TARGET_ROOT: ${{ github.workspace }}
+        run: node scripts/docs/check-generated-current.mjs
