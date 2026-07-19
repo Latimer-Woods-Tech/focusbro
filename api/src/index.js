@@ -1942,6 +1942,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
   .between-note .note-title { margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
   .between-note .note-body { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.5; margin: 0 0 10px; }
   .between-note .note-copy { padding: 6px 12px; font-size: 14px; }
+  .between-note .note-share { padding: 6px 12px; font-size: 14px; }
   .between-note .note-status { margin-left: 8px; }
 </style>
 
@@ -2118,6 +2119,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
       + '<div class="muted note-title">Between-session note</div>'
       + '<pre class="note-body"></pre>'
       + '<button type="button" class="note-copy">Copy this note</button> '
+      + '<button type="button" class="note-share">Share by email</button> '
       + '<span class="muted note-status" aria-live="polite"></span>'
       + '</div>';
   }
@@ -2128,17 +2130,31 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     if (body) body.textContent = noteText;
     var btn = panel.querySelector('.note-copy');
     var status = panel.querySelector('.note-status');
-    if (!btn) return;
-    btn.addEventListener('click', function () {
-      var done = function () { if (status) status.textContent = 'Copied — paste it into a text or email.'; };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(noteText).then(done, function () {
-          if (status) status.textContent = 'Select the note above and copy it manually.';
-        });
-      } else if (status) {
-        status.textContent = 'Select the note above and copy it manually.';
-      }
-    });
+    if (btn) {
+      btn.addEventListener('click', function () {
+        var done = function () { if (status) status.textContent = 'Copied — paste it into a text or email.'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(noteText).then(done, function () {
+            if (status) status.textContent = 'Select the note above and copy it manually.';
+          });
+        } else if (status) {
+          status.textContent = 'Select the note above and copy it manually.';
+        }
+      });
+    }
+    // The coach twin of /me/report's "Share with coach": one tap opens a
+    // pre-filled email with the note as the body, so the coach can send the
+    // between-session touch without retyping it. No recipient is set (the coach
+    // fills in their client) and the client's email never enters this payload.
+    var share = panel.querySelector('.note-share');
+    if (share) {
+      share.addEventListener('click', function () {
+        var subject = encodeURIComponent('A quick note between our sessions');
+        var body = encodeURIComponent(noteText);
+        window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+        if (status) status.textContent = 'Opening your email — the note is ready to send.';
+      });
+    }
   }
 
   function renderRhythm(panel, d) {

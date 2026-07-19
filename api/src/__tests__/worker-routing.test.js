@@ -43,6 +43,22 @@ describe('Worker routing', () => {
     expect(redirect.headers.get('Location')).toBe('/coach/');
   });
 
+  it('gives the coach between-session note a share-by-email affordance', async () => {
+    const html = await (await call('GET', '/coach/')).text();
+    // Both actions on the note: copy (R-256) and the new one-tap email share.
+    expect(html).toContain('class="note-copy"');
+    expect(html).toContain('>Copy this note<');
+    expect(html).toContain('class="note-share"');
+    expect(html).toContain('>Share by email<');
+    // The share opens a pre-filled mailto with the note as the body and a warm,
+    // anti-shame subject — no recipient (the coach fills in their client), so the
+    // client's email never enters the payload.
+    expect(html).toContain("'mailto:?subject=' + subject + '&body=' + body");
+    expect(html).toContain('A quick note between our sessions');
+    // Design LAW: the share subject/status copy names no miss or clinical claim.
+    expect(html).not.toMatch(/\boverdue\b|\byou missed\b|\byou failed\b|\bbehind\b/i);
+  });
+
   it('canonicalizes the guides index slash', async () => {
     const redirect = await call('GET', '/guides');
     expect(redirect.status).toBe(301);
