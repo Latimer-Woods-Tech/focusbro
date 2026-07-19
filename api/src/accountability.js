@@ -232,7 +232,9 @@ function clockTo24(m) {
  *
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
- * (soonest future); "tonight"; "tomorrow", "tomorrow 9am", "tomorrow morning";
+ * (soonest future); "tonight", "this afternoon", "this morning" (a bare part of
+ * day today, rolling to the same part of day tomorrow if it's already past);
+ * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
  * morning", "next friday" (bare = soonest future; "next X" = the following week);
  * an explicit calendar date within the horizon — "the 20th", "jul 20", "july
@@ -500,6 +502,22 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
       if (future.length) return new Date(future[0]).toISOString();
       // else: not consumed — fall through to the clock branch (no regression).
     }
+  }
+
+  // ── A bare part-of-day today ("this afternoon", "this morning") ──
+  // "tonight"/"this evening" already land above; the OTHER parts of day, said on
+  // their own about today, deserve the same graceful read instead of falling
+  // through to "I didn't catch a time" — a natural reschedule answer ("this
+  // afternoon") going unread is a quiet "he didn't get me" on the exact two-way
+  // text channel that is the moat while voice is gated. Mirror the tonight
+  // branch: try today at that part-of-day hour, else the SAME part-of-day
+  // tomorrow (inRange enforces never-past + within-horizon, and the confirmation
+  // reads the concrete time back, so a rolled-forward "morning" is never a silent
+  // wrong assumption). Only when there's no clock (a clock is more specific and
+  // is handled below) and no weekday/date already consumed it above.
+  if (partOfDay && !clock) {
+    const [ph, pmin] = partOfDay;
+    return inRange(at(y0, mo0, d0, ph, pmin)) || inRange(at(ty, tm, td, ph, pmin));
   }
 
   // ── Clock time today (roll to tomorrow if already past) ──
