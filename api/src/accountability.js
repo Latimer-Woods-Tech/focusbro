@@ -232,8 +232,9 @@ function clockTo24(m) {
  *
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
- * (soonest future); "tonight", "this afternoon", "this morning" (a bare part of
- * day today, rolling to the same part of day tomorrow if it's already past);
+ * (soonest future); "tonight", "this afternoon", "this morning", "in the
+ * morning", "in the afternoon", "in the evening" (a bare part of day today,
+ * rolling to the same part of day tomorrow if it's already past);
  * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
  * morning", "next friday" (bare = soonest future; "next X" = the following week);
@@ -296,8 +297,16 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
           : n;
       }
     }
-    if (!(mins > 0)) return null;
-    return inRange(nowMs + Math.round(mins) * MIN_MS);
+    if (mins > 0) return inRange(nowMs + Math.round(mins) * MIN_MS);
+    // No quantity found — but "in the morning / in the afternoon / in the evening"
+    // is a natural reschedule answer whose part-of-day the branch below reads
+    // cleanly. Fall through to it instead of the hard re-ask this branch used to
+    // do: a common casual answer going unread is a quiet "he didn't get me" on the
+    // exact two-way text channel that is the moat while voice is gated. Anything
+    // else vague after "in" ("in a bit", "in a while") carries no concrete time,
+    // so it still falls to the warm "when do you want to try again?" ask.
+    if (!/\b(morning|afternoon|evening|night)\b/.test(t)) return null;
+    // else: fall through to the part-of-day / tomorrow / weekday branches below.
   }
 
   // Local calendar anchor for "today" in the recipient's zone.

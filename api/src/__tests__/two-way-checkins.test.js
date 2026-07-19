@@ -580,6 +580,30 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('this afternoon', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T18:00:00.000Z');
   });
 
+  it('reads "in the morning / in the afternoon / in the evening" as a bare part-of-day, not a hard re-ask', () => {
+    // Regression: the "in ..." branch used to hard-return null the moment it found
+    // no minute/hour/day/week quantity, so "in the morning" — one of the most
+    // natural reschedule answers there is — fell to "I didn't catch a time" even
+    // though the part-of-day branch below reads it perfectly. It now falls through.
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('in the morning', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T09:00:00.000Z');
+    expect(parseWhenReply('in the afternoon', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T14:00:00.000Z');
+    expect(parseWhenReply('in the evening', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T19:00:00.000Z');
+    // "in the morning tomorrow" rides the tomorrow branch — one day out, 9am.
+    expect(parseWhenReply('in the morning tomorrow', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // Once that part of day has passed (NOW is 15:00), it rolls to the SAME part of
+    // day tomorrow — never-past, mirroring the bare "this afternoon" reading.
+    expect(parseWhenReply('in the morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    expect(parseWhenReply('in the afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    // DST-correct: "in the afternoon" (14:00 local) in America/New_York (EDT) → 18:00Z.
+    expect(parseWhenReply('in the afternoon', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T18:00:00.000Z');
+    // No regression — a real quantity after "in" is unchanged, and a genuinely
+    // vague "in ..." with no part of day still falls to the warm re-ask (null).
+    expect(parseWhenReply('in an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('in a bit', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('in a while', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads "day after tomorrow" as two days out, not one (contains "tomorrow" but means +2)', () => {
     // NOW is Monday 2026-07-06 → day-after-tomorrow is Wednesday 2026-07-08.
     expect(parseWhenReply('day after tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
