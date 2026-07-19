@@ -516,6 +516,28 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('tomorrow morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
   });
 
+  it('reads a bare part-of-day today ("this afternoon", "this morning"), rolling to the same part of day tomorrow if it has passed', () => {
+    // Early in the day (08:00 UTC) the part of day is still ahead → lands TODAY,
+    // instead of falling through to a null "I didn't catch a time" (the bug this
+    // pins: a natural reschedule answer going unread on the two-way text moat).
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('this morning', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T09:00:00.000Z');
+    expect(parseWhenReply('this afternoon', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T14:00:00.000Z');
+    expect(parseWhenReply('later this afternoon', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T14:00:00.000Z');
+    // Bare part-of-day (no "this") reads the same way.
+    expect(parseWhenReply('afternoon', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T14:00:00.000Z');
+    // Once that part of day has passed, it rolls to the SAME part of day tomorrow
+    // (never-past, mirroring the "tonight" branch) — never a null. NOW is 15:00,
+    // so today's afternoon (14:00) and morning (09:00) are both behind us.
+    expect(parseWhenReply('this afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    expect(parseWhenReply('this morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // "this evening"/"tonight" are unchanged — their own branch lands today 20:00.
+    expect(parseWhenReply('this evening', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // DST-correct in the recipient zone: this afternoon (14:00 local) in
+    // America/New_York (EDT, UTC-4) → 18:00Z.
+    expect(parseWhenReply('this afternoon', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T18:00:00.000Z');
+  });
+
   it('reads "day after tomorrow" as two days out, not one (contains "tomorrow" but means +2)', () => {
     // NOW is Monday 2026-07-06 → day-after-tomorrow is Wednesday 2026-07-08.
     expect(parseWhenReply('day after tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
