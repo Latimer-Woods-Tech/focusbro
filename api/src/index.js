@@ -1937,6 +1937,13 @@ router.get('/coach/', async (request) => {
 ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, { href: '/about.html', label: 'About' }])}
 <h1>Coach dashboard</h1>
 <p class="intro" id="intro">The people you show up for, and the words they&rsquo;re keeping.</p>
+<style>
+  .between-note { margin: 12px 0; padding: 12px 14px; background: var(--bg-card-hover); border: 1px solid var(--border); border-radius: 10px; }
+  .between-note .note-title { margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .between-note .note-body { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.5; margin: 0 0 10px; }
+  .between-note .note-copy { padding: 6px 12px; font-size: 14px; }
+  .between-note .note-status { margin-left: 8px; }
+</style>
 
 <div id="signin" class="card hidden">
   <p class="muted">Sign in to see your roster.</p>
@@ -2102,15 +2109,49 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     return html + '</div>';
   }
 
+  // The ready-to-send between-session note the coach can copy into a text or
+  // email. The body is set as textContent (never innerHTML) so its newlines
+  // survive and nothing in it can inject markup.
+  function noteHtml(noteText) {
+    if (!noteText) return '';
+    return '<div class="between-note">'
+      + '<div class="muted note-title">Between-session note</div>'
+      + '<pre class="note-body"></pre>'
+      + '<button type="button" class="note-copy">Copy this note</button> '
+      + '<span class="muted note-status" aria-live="polite"></span>'
+      + '</div>';
+  }
+
+  function wireNote(panel, noteText) {
+    if (!noteText) return;
+    var body = panel.querySelector('.note-body');
+    if (body) body.textContent = noteText;
+    var btn = panel.querySelector('.note-copy');
+    var status = panel.querySelector('.note-status');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var done = function () { if (status) status.textContent = 'Copied — paste it into a text or email.'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(noteText).then(done, function () {
+          if (status) status.textContent = 'Select the note above and copy it manually.';
+        });
+      } else if (status) {
+        status.textContent = 'Select the note above and copy it manually.';
+      }
+    });
+  }
+
   function renderRhythm(panel, d) {
     var week = weekHtml(d && d.week);
+    var note = noteHtml(d && d.note_text);
     var momentum = momentumHtml(d && d.momentum);
     var items = (d && d.active_commitments) || [];
     if (!items.length) {
-      panel.innerHTML = week + momentum + '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
+      panel.innerHTML = week + note + momentum + '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
+      wireNote(panel, d && d.note_text);
       return;
     }
-    var out = week + momentum + '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
+    var out = week + note + momentum + '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var tzRaw = (it.timezone && it.timezone !== 'UTC') ? ' (' + it.timezone + ')' : '';
@@ -2121,6 +2162,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
       }
     }
     panel.innerHTML = out;
+    wireNote(panel, d && d.note_text);
   }
 
   // The roster host is a stable node; delegate rhythm toggles so it survives
