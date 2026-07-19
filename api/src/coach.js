@@ -26,6 +26,8 @@
 
 import { describeCadence, formatWhenLocal, STREAK_MILESTONES } from './accountability.js';
 import { RETURN_NUDGE_QUIET_DAYS } from './checkins-cron.js';
+import { buildWeeklyReport } from './report.js';
+import { EVENTS } from './events.js';
 import {
   MOMENTUM_WINDOW_DAYS,
   localDayInZone,
@@ -254,6 +256,53 @@ export function clientMilestoneCopy({ streak } = {}) {
   const cur = Number(streak?.current_streak) || 0;
   if (!STREAK_MILESTONES.includes(cur)) return '';
   return `🎯 ${cur} kept words in a row — a milestone just landed. A great moment to send a word.`;
+}
+
+// ── COACH-VISIBLE WEEKLY SNAPSHOT (the coach-proof report, operator side) ────
+// A person can generate a /me/report and copy/paste or mail it to their coach.
+// This surfaces the SAME seven-day kept-word summary natively on the coach's
+// client view, so a report becomes coach-visible without the person having to
+// hand it over by hand — the concrete surface the Phase 3 coach-GTM gate ("≥5
+// real coach-visible reports", docs/IMPROVEMENT_PLAN.md L5) needs. The numbers
+// come from the SAME pure buildWeeklyReport the person's own report uses, so a
+// coach's "this week" count can never drift from what the client sees; only the
+// VOICE differs — these two helpers re-frame the report's second-person headline
+// and mutual-accountability line into the coach's third person.
+//
+// DESIGN LAW, by construction: buildWeeklyReport buckets KEPT instants only and
+// counts the ally's own showings-up — never a client's misses. A quiet week is a
+// clean page here exactly as it is on the person's report, never a shortfall.
+
+/**
+ * The coach-voice one-line summary of a client's last seven days of KEPT words —
+ * the third-person twin of report.js `reportHeadlineCopy`. Kept-word framed: the
+ * count is only ever the wins, and a quiet week reads as a clean page, never a
+ * gap. Always non-empty so it can anchor the client-detail "this week" block.
+ * @param {object} p { keptThisWeek }
+ * @returns {string}
+ */
+export function clientWeeklyKeptCopy({ keptThisWeek = 0 } = {}) {
+  const n = Number(keptThisWeek) || 0;
+  if (n <= 0) {
+    return 'A quiet week so far — a clean page. Their next kept word lands right here.';
+  }
+  return `This week: ${n} kept word${n === 1 ? '' : 's'}.`;
+}
+
+/**
+ * The coach-voice mutual-accountability line — the third-person twin of report.js
+ * `showedUpCopy`: how many times FocusBro itself showed up for this client over
+ * the last seven days (the check-ins it delivered when it said it would). Counts
+ * the ALLY keeping its word, never the client's outcomes, so it can only read as
+ * support. Returns '' when the bro has not had a moment to show up yet this week —
+ * a quiet page, nothing to celebrate and nothing to apologise for.
+ * @param {object} p { showedUp }
+ * @returns {string}
+ */
+export function clientWeeklyShowedUpCopy({ showedUp = 0 } = {}) {
+  const n = Number(showedUp) || 0;
+  if (n <= 0) return '';
+  return `FocusBro showed up for them ${n} time${n === 1 ? '' : 's'} this week — the bro kept its word too.`;
 }
 
 // ── WEEKLY HOMECOMING DIGEST (the batched, between-session twin of the cues) ─
@@ -787,6 +836,46 @@ export function registerCoachRoutes(router, ctx) {
         };
       });
 
+      // ── Coach-visible WEEKLY snapshot ──
+      // The seven-day kept-word summary from the person's own /me/report, made
+      // coach-visible natively here (Phase 3 GTM gate: "≥5 real coach-visible
+      // reports"). The ally's showings-up: first-party 'checkin_delivered' events
+      // for THIS client over the same wide raw window buildWeeklyReport trims to
+      // the trailing 7 local days. A support signal, never a miss series.
+      const deliveredRows = await env.DB.prepare(
+        `SELECT created_at FROM analytics_events
+          WHERE user_id = ? AND event_type = ? AND created_at >= ?
+          ORDER BY created_at ASC
+          LIMIT 1000`
+      ).bind(clientId, EVENTS.CHECKIN_DELIVERED, windowCutoffISO).all();
+      const deliveredTimestamps = ((deliveredRows && deliveredRows.results) || []).map((r) => r.created_at);
+
+      // Built from the SAME pure buildWeeklyReport the person's report uses, so a
+      // coach's "this week" count can never drift from what the client sees. We
+      // consume only the kept-word counts + window and re-voice them for the coach
+      // (clientWeekly*Copy); the person-voiced headline / next-step stay on
+      // /me/report. DESIGN LAW: buildWeeklyReport is kept-word-framed by
+      // construction, so this surface carries no miss, for the coach or the client.
+      const weekly = buildWeeklyReport({
+        streak,
+        keptTimestamps,
+        deliveredTimestamps,
+        rhythms: activeCommitments.map((c) => ({
+          title: c.title, recurrence: c.recurrence, local_time: c.local_time,
+          timezone: c.timezone, next_checkin: c.next_checkin,
+        })),
+        timezone: momentumTz,
+        nowISO,
+      });
+      const week = {
+        kept_this_week: weekly.kept_this_week,
+        showed_up_this_week: weekly.showed_up_this_week,
+        since: weekly.window && weekly.window.since,
+        until: weekly.window && weekly.window.until,
+        summary_line: clientWeeklyKeptCopy({ keptThisWeek: weekly.kept_this_week }),
+        showed_up_line: clientWeeklyShowedUpCopy({ showedUp: weekly.showed_up_this_week }),
+      };
+
       return jsonResponse({
         client_id: clientId,
         label: link.client_label || '',
@@ -796,6 +885,7 @@ export function registerCoachRoutes(router, ctx) {
           total_kept: Number(streak.total_kept) || 0,
         },
         status_line: clientStatusLine({ streak }),
+        week,
         momentum,
         rhythm_intro: rhythmIntroCopy(),
         rhythm_empty: activeCommitments.length ? null : rhythmEmptyCopy(),
