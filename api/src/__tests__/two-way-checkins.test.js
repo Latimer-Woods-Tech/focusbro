@@ -74,6 +74,28 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply("didn't finish")).toBe('reschedule');
   });
 
+  it('reads "I\'m on it" and the mid-task family as SNOOZE — the third answer', () => {
+    // The in-app nudge always offered a snooze beside DONE / LATER; the SMS
+    // channel understood only two answers, so an engaged person mid-task got the
+    // cold "reply DONE or LATER". These ACTIVELY-doing-it phrasings now read as
+    // "check back in a bit" — a snooze, never a resolution, never a miss.
+    for (const t of ['on it', "I'm on it", 'im on it', 'working on it',
+                     'still working on it', 'still on it', 'still going',
+                     'almost there', 'nearly there', 'getting to it',
+                     'in the middle of it', 'give me a few', 'gimme a sec',
+                     'one sec', 'hang on', 'hold on', 'few more min']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+    }
+  });
+
+  it('lets DONE and RESCHEDULE win over a snooze phrase — order and negation are safe', () => {
+    // KEPT and RESCHEDULE both run before SNOOZE, so a completion or a negation is
+    // never downgraded to "still going".
+    expect(detectCheckinReply('on it done')).toBe('kept');       // explicit completion
+    expect(detectCheckinReply("can't, still working on it")).toBe('reschedule'); // negation wins
+    expect(detectCheckinReply('not on it')).toBeNull();          // bare negation → warm ask, never a wrong snooze
+  });
+
   it('handles bare one-letter answers', () => {
     expect(detectCheckinReply('y')).toBe('kept');
     expect(detectCheckinReply('n')).toBe('reschedule');
@@ -372,6 +394,26 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).not.toMatch(/when do you want to try again/);
+  });
+
+  it('"on it!" on a fresh nudge SNOOZES — re-pends this check-in a few minutes out, streak untouched, warm reply', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it!'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(typeof body.scheduled_for).toBe('string');
+    // the check-in was re-pended (mid-task, not resolved) — never parked awaiting_time
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    // a snooze is NOT a resolution and NOT a miss — the streak/commitment are never touched
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(false);
+    // the warm "you got it, I'll swing back" copy went out — never "reply DONE or LATER"
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|did you|when do you want to try again/);
   });
 
   it('regression: bare "later" (no time) STILL asks when — the direct path only fires on a real time', async () => {

@@ -1218,7 +1218,7 @@ export function milestoneCopy({ streak } = {}) {
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
- * @returns {'kept'|'reschedule'|null}  null = couldn't tell (ask, don't assume)
+ * @returns {'kept'|'reschedule'|'snooze'|null}  null = couldn't tell (ask, don't assume)
  */
 export function detectCheckinReply(text) {
   const raw = String(text == null ? '' : text);
@@ -1255,9 +1255,21 @@ export function detectCheckinReply(text) {
   // both ends, so "year"/"yeast"/"yesterday" never match, and RESCHEDULE still
   // runs first so a negated "not yet yea" is a reschedule, never misread as kept.
   const KEPT = /\b(done|did it|did that|didit|finished|complete[d]?|got it done|all done|handled|nailed it|crushed it|yep+|yup+|yea+h*|ye+s+|yeh+|ya+s+|yah+|yay+|ya|kept|on it done)\b/;
+  // The third answer, mid-task: "I'm on it — check back in a bit." The in-app
+  // nudge has always offered a snooze button beside DONE / LATER, but the SMS
+  // channel — the live moat — only understood two answers: an engaged person who
+  // texted back "on it!" / "still working on it" got the confused "I didn't catch
+  // that, reply DONE or LATER" instead of the warm "you got it, I'll swing back."
+  // These are the ACTIVELY-doing-it phrasings — never "done", never "can't" — so
+  // this only ever decides a reply that KEPT and RESCHEDULE both left as null; both
+  // run first, so "on it done" stays kept and any negation stays a reschedule. A
+  // residual bare "not on it" is guarded out below (it falls through to the warm
+  // ask, never a wrong snooze) rather than being read as "check back."
+  const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on)\b/;
 
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
+  if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
