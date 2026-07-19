@@ -42,6 +42,8 @@ import {
   smsAskWhenCopy,
   smsRescheduledCopy,
   smsWhenUnclearCopy,
+  snoozeConfirmCopy,
+  SNOOZE_DEFAULT_MIN,
   pickPersona,
 } from './accountability.js';
 
@@ -591,6 +593,27 @@ export function registerConsentRoutes(router, ctx) {
       const reply = detectCheckinReply(text);
 
       if (reply === 'kept') return await resolveKept();
+
+      // ── "I'm on it" over text: the third answer, mid-task ──
+      // The in-app nudge has always had a snooze button beside DONE / LATER; the
+      // SMS channel — the live moat — did not, so an engaged person mid-task who
+      // texts "on it!" / "still working on it" got the generic "reply DONE or
+      // LATER" instead of the warm "you got it, I'll swing back." That is the
+      // BEST-case user (actively doing the thing) meeting the coldest reply. Mirror
+      // the in-app snooze exactly: re-pend THIS check-in a few minutes out, reset
+      // its attempts, and never touch the kept-word streak — a snooze is not a
+      // resolution and not a miss, by construction. On the next return they can
+      // still say DONE or LATER. Runs before the direct-time/ambiguous fallbacks.
+      if (reply === 'snooze') {
+        const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
+        await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+            WHERE id = ? AND user_id = ?`
+        ).bind(snoozedUntil, open.checkin_id, user.id).run();
+        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN }));
+        return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
+      }
 
       // ── Answered directly with a new TIME? Reschedule in one step ──
       // The most natural way to reschedule is to answer the nudge with a concrete
