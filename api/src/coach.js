@@ -305,6 +305,86 @@ export function clientWeeklyShowedUpCopy({ showedUp = 0 } = {}) {
   return `FocusBro showed up for them ${n} time${n === 1 ? '' : 's'} this week — the bro kept its word too.`;
 }
 
+// ── BETWEEN-SESSION NOTE (the coach's copy/share artifact) ───────────────────
+// The weekly snapshot above lets a coach SEE where a client's week stands. This
+// turns that same seven-day picture into a ready-to-send, copy-pasteable note a
+// coach can drop into a text or email BETWEEN sessions — the leverage artifact
+// the whole coach-operator channel is about (issue #10: "the coach gets the
+// dashboard and keeps the client"). It reads in the client's own second person,
+// so the coach can send it as-is or personalise it first.
+//
+// DESIGN LAW, by construction: it is built from the SAME kept-word-framed
+// buildWeeklyReport as everything else on this surface. It celebrates kept words
+// and the ally's showings-up; it never tallies, names, or hints at a miss. A
+// quiet week reads as a clean page — an open door, never "you fell behind." No
+// "AI", no clinical/treatment claim.
+
+/**
+ * The warm, second-person kept-word line at the heart of the between-session
+ * note. Kept-word framed: a quiet week is a clean page (an open door), never a
+ * shortfall, and the count is only ever the wins. Always a non-empty string.
+ * The first character is capitalised so the line stands on its own.
+ * @param {object} p { keptThisWeek }
+ * @returns {string}
+ */
+export function clientNoteKeptCopy({ keptThisWeek = 0 } = {}) {
+  const n = Number(keptThisWeek) || 0;
+  const s = n <= 0
+    ? 'a quiet week so far — and that’s a clean page, not a mark against you. Whenever you’re ready for your next word, I’m right here for it.'
+    : `you kept ${n} word${n === 1 ? '' : 's'} this week — that’s you showing up for yourself, and it’s really good to see.`;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Build the plain-text between-session note a coach can copy and send a client.
+ * Second person, no markup — ready to paste into a text or email. Assembled
+ * purely from a buildWeeklyReport() result (report.js), so its counts can never
+ * drift from what the client sees on their own /me/report or the coach sees in
+ * the "this week" snapshot.
+ *
+ * DESIGN LAW: every line here is a kept word, a milestone reached, or the next
+ * moment the bro will show up — never a miss. The milestone line rides straight
+ * from the report (present only AT a milestone) and the upcoming-word line reads
+ * only a future, about-to-be-kept check-in.
+ *
+ * @param {object} weekly  a buildWeeklyReport() result
+ * @param {object} [opts]  { label } the client's roster label, used as a first name
+ * @returns {string}
+ */
+export function buildClientNote(weekly, { label = '' } = {}) {
+  const w = (weekly && typeof weekly === 'object') ? weekly : {};
+  const name = normalizeClientLabel(label);
+  const kept = Number(w.kept_this_week) || 0;
+
+  const lines = [];
+  lines.push(`Hi${name ? ' ' + name : ''} — a quick note between our sessions.`);
+  lines.push('');
+  lines.push(clientNoteKeptCopy({ keptThisWeek: kept }));
+  // The milestone line is already anti-shame by construction (present only when
+  // the current kept-word run is exactly at a milestone; '' otherwise), so a
+  // between-milestone week carries nothing rather than a "not there yet" line.
+  if (w.milestone) lines.push(w.milestone);
+  // The soonest still-open check-in across the client's active rhythms — the
+  // concrete next moment the bro shows up. The endpoint feeds this from
+  // OUTSTANDING check-ins only (pending/sent/deferred), so it is momentum by
+  // construction: a moment about to be kept, never a resolved miss. It may sit
+  // slightly in the past but still open, and the copy stays forward-looking
+  // ("I’ll be there for it") — never "overdue".
+  const rhythms = Array.isArray(w.rhythms) ? w.rhythms : [];
+  const upcoming = rhythms
+    .filter((r) => r && r.next_checkin && !Number.isNaN(Date.parse(r.next_checkin)))
+    .sort((a, b) => Date.parse(a.next_checkin) - Date.parse(b.next_checkin))[0];
+  if (upcoming && upcoming.title) {
+    const cadence = upcoming.cadence ? ` — ${upcoming.cadence}` : '';
+    lines.push(`You’ve got "${upcoming.title}" on the books${cadence}. I’ll be there for it.`);
+  }
+  lines.push('');
+  lines.push('I’m in your corner — talk soon.');
+  lines.push('');
+  lines.push('— sent with FocusBro (focusbro.net)');
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
 // ── WEEKLY HOMECOMING DIGEST (the batched, between-session twin of the cues) ─
 // The reach-out cue and "back and moving" celebration above are LIVE, per-client
 // signals that live on the roster card. A coach preparing for a between-session
@@ -876,6 +956,11 @@ export function registerCoachRoutes(router, ctx) {
         showed_up_line: clientWeeklyShowedUpCopy({ showedUp: weekly.showed_up_this_week }),
       };
 
+      // A ready-to-send between-session note built from the SAME weekly picture,
+      // so the coach can copy it straight into a text or email (issue #10, the
+      // coach-operator leverage artifact). Kept-word framed by construction.
+      const noteText = buildClientNote(weekly, { label: link.client_label });
+
       return jsonResponse({
         client_id: clientId,
         label: link.client_label || '',
@@ -886,6 +971,7 @@ export function registerCoachRoutes(router, ctx) {
         },
         status_line: clientStatusLine({ streak }),
         week,
+        note_text: noteText,
         momentum,
         rhythm_intro: rhythmIntroCopy(),
         rhythm_empty: activeCommitments.length ? null : rhythmEmptyCopy(),
