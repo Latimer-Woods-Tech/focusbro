@@ -2087,14 +2087,30 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
       + '</div>';
   }
 
+  // The coach-visible weekly snapshot — the seven-day kept-word summary the
+  // person sees on their own /me/report, re-voiced for the coach. Kept-word only,
+  // never a miss; the "showed up" line is present only when the bro rang at least
+  // once this week. Always shown (even with no active rhythms) so a coach opening
+  // a client always sees where their week stands.
+  function weekHtml(w) {
+    if (!w) return '';
+    var html = '<div class="week-snapshot"><div class="muted week-title">This week</div>'
+      + '<div class="week-summary">' + esc(w.summary_line || '') + '</div>';
+    if (w.showed_up_line) {
+      html += '<div class="muted week-showed-up">' + esc(w.showed_up_line) + '</div>';
+    }
+    return html + '</div>';
+  }
+
   function renderRhythm(panel, d) {
+    var week = weekHtml(d && d.week);
     var momentum = momentumHtml(d && d.momentum);
     var items = (d && d.active_commitments) || [];
     if (!items.length) {
-      panel.innerHTML = momentum + '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
+      panel.innerHTML = week + momentum + '<div class="muted">' + esc((d && d.rhythm_empty) || 'Nothing on the books right now.') + '</div>';
       return;
     }
-    var out = momentum + '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
+    var out = week + momentum + '<div class="muted rhythm-intro">' + esc((d && d.rhythm_intro) || '') + '</div>';
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var tzRaw = (it.timezone && it.timezone !== 'UTC') ? ' (' + it.timezone + ')' : '';
