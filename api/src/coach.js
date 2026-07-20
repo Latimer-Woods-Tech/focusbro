@@ -360,6 +360,18 @@ export function buildClientNote(weekly, { label = '' } = {}) {
   lines.push(`Hi${name ? ' ' + name : ''} — a quick note between our sessions.`);
   lines.push('');
   lines.push(clientNoteKeptCopy({ keptThisWeek: kept }));
+  // The week's SHAPE, not just its count: the same kept-per-day sparkline the
+  // person sees on /me/report, dropped into the note as plain text so a coach's
+  // between-session message carries the momentum picture, not a bare number.
+  // Anti-shame by construction — momentum.js buckets KEPT instants only, so a
+  // quiet day is the shortest baseline glyph (the absence of a win), never a
+  // miss mark; "taller means more words kept" names only the wins. Guarded the
+  // same way report.js guards it, so a garbage/empty weekly simply omits it.
+  const momentum = (w.momentum && typeof w.momentum === 'object') ? w.momentum : null;
+  if (momentum && momentum.sparkline) {
+    const days = Number(momentum.days) || MOMENTUM_WINDOW_DAYS;
+    lines.push(`Here’s the shape of your last ${days} days — taller means more words kept: ${momentum.sparkline}`);
+  }
   // The milestone line is already anti-shame by construction (present only when
   // the current kept-word run is exactly at a milestone; '' otherwise), so a
   // between-milestone week carries nothing rather than a "not there yet" line.
