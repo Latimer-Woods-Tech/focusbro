@@ -521,11 +521,33 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     }
   });
 
+  // Share with coach. On a phone the native share sheet (navigator.share) reaches
+  // text, WhatsApp, or email — the channels a person actually uses to get their
+  // week to their coach. Where Web Share isn't available (most desktop browsers)
+  // it degrades to the same pre-filled mailto: as before. Parity with the coach
+  // page's "Share note" (index.js). No recipient is set either way.
   el('share').addEventListener('click', function () {
     if (!reportText) return;
-    var subject = encodeURIComponent('My FocusBro weekly report');
-    var body = encodeURIComponent(reportText);
-    window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+    var subjectText = 'My FocusBro weekly report';
+    var sendByEmail = function () {
+      var subject = encodeURIComponent(subjectText);
+      var body = encodeURIComponent(reportText);
+      window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+      el('action-note').textContent = 'Opening your email — your report is ready to send.';
+    };
+    var data = { title: subjectText, text: reportText };
+    if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+      navigator.share(data).then(function () {
+        el('action-note').textContent = 'Shared — your report is on its way.';
+      }, function (err) {
+        // A cancelled share sheet is not a failure — say nothing, leave the report
+        // in place. Only a genuine Web Share error degrades to email.
+        if (err && err.name === 'AbortError') { el('action-note').textContent = ''; return; }
+        sendByEmail();
+      });
+    } else {
+      sendByEmail();
+    }
   });
 
   el('download').addEventListener('click', function () {

@@ -1925,7 +1925,7 @@ router.get('/me', async () => slashRedirect('/me/'));
 // ── WEEKLY REPORT PAGE (coach-proof artifact — Contender #10, Phase A · R-237) ──
 // A calm, standalone reading surface for the signed-in person's weekly report.
 // Loads /api/me/report with the localStorage Bearer token (same as /me/), and
-// offers Copy report + Share with coach (mailto) + Download (.txt).
+// offers Copy report + Share with coach (native share sheet → mailto) + Download (.txt).
 router.get('/me/report', async () =>
   new Response(renderReportPage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }));
 router.get('/me/report/', async () => slashRedirect('/me/report'));
