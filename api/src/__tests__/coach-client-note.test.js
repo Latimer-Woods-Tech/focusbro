@@ -119,6 +119,36 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     expect(banned.test(note)).toBe(false);
   });
 
+  it('carries the momentum sparkline (the week\'s shape) when the weekly has one', () => {
+    const note = buildClientNote({
+      kept_this_week: 3,
+      momentum: { days: 14, sparkline: '▁▂▃▄▅▆▇█' },
+    }, { label: 'Ivy' });
+    expect(note).toContain('shape of your last 14 days');
+    expect(note).toContain('▁▂▃▄▅▆▇█');
+    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+  });
+
+  it('omits the sparkline line entirely when the weekly has no momentum', () => {
+    const note = buildClientNote({ kept_this_week: 2 }, { label: 'Jo' });
+    expect(note).not.toContain('shape of your last');
+  });
+
+  it('the sparkline is present and clean when built from a real buildWeeklyReport', () => {
+    const H = 3600 * 1000;
+    const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+    const weekly = buildWeeklyReport({
+      streak: { current_streak: 2, longest_streak: 5, total_kept: 12 },
+      keptTimestamps: [iso(1 * H), iso(26 * H)],
+      timezone: 'UTC',
+    });
+    const note = buildClientNote(weekly, { label: 'Kai' });
+    // buildWeeklyReport always builds a momentum block with a sparkline string.
+    expect(note).toContain('shape of your last');
+    expect(note).toContain(weekly.momentum.sparkline);
+    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+  });
+
   it('the whole note is clean when built from a real buildWeeklyReport at a milestone', () => {
     const H = 3600 * 1000;
     const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
