@@ -19,6 +19,7 @@ import {
   showedUpCopy,
   rhythmsIntroCopy,
   rhythmNextCopy,
+  reportPeakDayCopy,
   buildWeeklyReport,
   renderReportText,
 } from '../report.js';
@@ -236,6 +237,65 @@ describe('renderReportText — shareable plain text', () => {
   });
 });
 
+describe('reportPeakDayCopy — the momentum shape gets a named strongest day', () => {
+  it('names a genuine standout (a day with 2+ kept), so-far framed', () => {
+    expect(reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }))
+      .toBe('Your strongest day so far: Saturday — 3 words kept. 🔥');
+  });
+
+  it('stays silent when the peak is a single kept word (no arbitrary "best day")', () => {
+    expect(reportPeakDayCopy({ count: 1, whenPhrase: 'Saturday' })).toBe('');
+  });
+
+  it('stays silent when there is no day phrase to name (a quiet window)', () => {
+    expect(reportPeakDayCopy({ count: 4, whenPhrase: '' })).toBe('');
+    expect(reportPeakDayCopy({})).toBe('');
+  });
+});
+
+describe('buildWeeklyReport + renderReportText — peak-day anchor rides the sparkline', () => {
+  // Two kept instants on the SAME local (UTC) day → a day-count of 2 → a standout.
+  const twoOnOneDay = [
+    new Date(Date.parse(NOW) - 2 * 86400000).toISOString(),
+    new Date(Date.parse(NOW) - 2 * 86400000 - 2 * 3600000).toISOString(),
+  ];
+
+  it('sets peak_day and renders it directly under the sparkline on a standout', () => {
+    const rep = buildWeeklyReport({
+      streak: { current_streak: 2, longest_streak: 5, total_kept: 20 },
+      keptTimestamps: [...twoOnOneDay, daysAgo(5)],
+      timezone: 'UTC',
+      nowISO: NOW,
+    });
+    expect(rep.peak_day).toMatch(/^Your strongest day so far: /);
+    expect(rep.peak_day).toContain('2 words kept');
+    const text = renderReportText(rep);
+    const moIdx = text.indexOf('Momentum (last 14 days)');
+    const peakIdx = text.indexOf('Your strongest day so far');
+    expect(moIdx).toBeGreaterThan(-1);
+    // The anchor sits on the line right after the sparkline.
+    expect(peakIdx).toBe(text.indexOf('\n', moIdx) + 1);
+  });
+
+  it('names no day when every kept day is a single (the absence of a callout)', () => {
+    const rep = buildWeeklyReport({
+      keptTimestamps: [daysAgo(1), daysAgo(3), daysAgo(6)],
+      timezone: 'UTC',
+      nowISO: NOW,
+    });
+    expect(rep.peak_day).toBe('');
+    expect(renderReportText(rep)).not.toContain('strongest day');
+  });
+
+  it('names no day on a quiet week — the sparkline stands alone', () => {
+    const rep = buildWeeklyReport({ keptTimestamps: [], timezone: 'UTC', nowISO: NOW });
+    expect(rep.peak_day).toBe('');
+    const text = renderReportText(rep);
+    expect(text).toMatch(/Momentum \(last 14 days\): /);
+    expect(text).not.toContain('strongest day');
+  });
+});
+
 describe('copy law — a weekly report never reads shame, "AI", or a clinical claim', () => {
   const SHAME_PATTERNS = [
     /\bfail(ed|ure|ing|s)?\b/i,
@@ -272,6 +332,9 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     rhythmNextCopy({ iso: null }),
     // R-257 milestone line, at every milestone value — it ships in the report.
     ...STREAK_MILESTONES.map((m) => milestoneCopy({ streak: { current_streak: m } })),
+    // The peak-day anchor for the momentum shape — celebrates a high point only.
+    reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }),
+    reportPeakDayCopy({ count: 2, whenPhrase: 'today' }),
   ];
 
   it('produces non-empty strings for every report copy path', () => {

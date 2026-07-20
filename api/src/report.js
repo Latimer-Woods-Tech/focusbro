@@ -33,6 +33,7 @@ import {
   MOMENTUM_WINDOW_DAYS,
   bucketKeptByDay,
   buildMomentum as buildMomentumBlock,
+  describePeakDay,
 } from './momentum.js';
 
 /** The reporting window: the trailing week (inclusive of today). */
@@ -132,6 +133,28 @@ export function rhythmNextCopy({ iso, timezone, nowISO } = {}) {
   return `Next up ${formatWhenLocal(iso, timezone, nowISO)}`;
 }
 
+/**
+ * A warm "strongest day" anchor for the report's momentum shape — the piece the
+ * sparkline can't say: WHICH day the 14-day window peaked, and how many words
+ * were kept then. Second person, so it sits straight under the sparkline line in
+ * the shared report text. The person's own twin of coach.js `clientNotePeakDayCopy`
+ * (identical wording, kept module-local because report.js is upstream of coach.js).
+ * Shown only for a genuine standout (a day with 2+ kept), so a week whose kept
+ * days are all singles — or a quiet week — never gets an arbitrary "best day".
+ * Anti-shame by construction, same law as detailPeakDayCopy: it celebrates a high
+ * point and never sets it against now — "so far" frames the mark as still open to
+ * being beaten, never "you were better before". Returns '' when there is no
+ * standout to name.
+ * @param {object} p { count, whenPhrase } peak.count and describePeakDay(peak.date)
+ * @returns {string}
+ */
+export function reportPeakDayCopy({ count, whenPhrase } = {}) {
+  const n = Number(count) || 0;
+  const when = typeof whenPhrase === 'string' ? whenPhrase.trim() : '';
+  if (n < 2 || !when) return '';
+  return `Your strongest day so far: ${when} — ${n} words kept. 🔥`;
+}
+
 // ── REPORT BUILDER ───────────────────────────────────────────
 
 /**
@@ -182,6 +205,20 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     timestamps: keptTimestamps, days: MOMENTUM_WINDOW_DAYS, nowISO: anchorISO, timezone: tz,
   });
 
+  // A warm anchor for that 14-day shape: WHICH day it peaked. Resolve the phrase
+  // HERE, where anchorISO/tz are in scope, so "today"/"yesterday"/weekday agrees
+  // exactly with the bars the sparkline draws (same trick the coach note uses).
+  // Gated on a genuine 2+ standout by reportPeakDayCopy, so a flat or all-singles
+  // week names no day at all — the absence of a callout, never a low-day note.
+  const peakDayPhrase = describePeakDay(
+    momentum && momentum.peak && momentum.peak.date,
+    { nowISO: anchorISO, timezone: tz }
+  );
+  const peakDay = reportPeakDayCopy({
+    count: momentum && momentum.peak && momentum.peak.count,
+    whenPhrase: peakDayPhrase,
+  });
+
   const activeCount = Array.isArray(rhythms) ? rhythms.length : 0;
   const rhythmRows = (Array.isArray(rhythms) ? rhythms : []).map((r) => ({
     title: r.title || 'Your word',
@@ -213,6 +250,9 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     // hands their coach. Named count reached only; no gap, no distance-to-next.
     milestone: milestoneCopy({ streak: { current_streak: current } }),
     momentum,
+    // The warm "strongest day" anchor for the momentum shape ('' unless a genuine
+    // 2+ standout). Rendered directly under the sparkline in the shared text.
+    peak_day: peakDay,
     rhythms_intro: rhythmsIntroCopy(activeCount),
     rhythms: rhythmRows,
     next_step: nextStepCopy({ keptThisWeek, activeCount, current }),
@@ -251,6 +291,10 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
   if (report.momentum && report.momentum.sparkline) {
     lines.push('');
     lines.push(`Momentum (last ${report.momentum.days || MOMENTUM_WINDOW_DAYS} days): ${report.momentum.sparkline}`);
+    // A warm anchor riding directly on the shape: which day it peaked. Present
+    // only for a genuine standout (reportPeakDayCopy gates it), so a flat or
+    // quiet window carries the sparkline alone — never a named low day.
+    if (report.peak_day) lines.push(report.peak_day);
   }
   const rhythms = Array.isArray(report.rhythms) ? report.rhythms : [];
   lines.push('');
