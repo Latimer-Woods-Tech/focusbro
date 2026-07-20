@@ -43,18 +43,25 @@ describe('Worker routing', () => {
     expect(redirect.headers.get('Location')).toBe('/coach/');
   });
 
-  it('gives the coach between-session note a share-by-email affordance', async () => {
+  it('gives the coach between-session note a native share affordance that degrades to email', async () => {
     const html = await (await call('GET', '/coach/')).text();
-    // Both actions on the note: copy (R-256) and the new one-tap email share.
+    // Both actions on the note: copy (R-256) and the one-tap share.
     expect(html).toContain('class="note-copy"');
     expect(html).toContain('>Copy this note<');
     expect(html).toContain('class="note-share"');
-    expect(html).toContain('>Share by email<');
-    // The share opens a pre-filled mailto with the note as the body and a warm,
-    // anti-shame subject — no recipient (the coach fills in their client), so the
-    // client's email never enters the payload.
+    // The share button reaches the phone's native sheet (text / WhatsApp / email)
+    // and is labelled for the general share, not email specifically.
+    expect(html).toContain('>Share note<');
+    // On mobile it prefers the Web Share sheet, guarded by canShare when present.
+    expect(html).toContain('navigator.share');
+    expect(html).toContain('navigator.canShare');
+    // Where Web Share is unavailable it degrades to a pre-filled mailto with the
+    // note as the body and a warm, anti-shame subject — no recipient (the coach
+    // fills in their client), so the client's email never enters the payload.
     expect(html).toContain("'mailto:?subject=' + subject + '&body=' + body");
     expect(html).toContain('A quick note between our sessions');
+    // A cancelled share sheet must not silently pop email in its place.
+    expect(html).toContain("err.name === 'AbortError'");
     // Design LAW: the share subject/status copy names no miss or clinical claim.
     expect(html).not.toMatch(/\boverdue\b|\byou missed\b|\byou failed\b|\bbehind\b/i);
   });
