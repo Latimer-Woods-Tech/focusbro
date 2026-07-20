@@ -2119,7 +2119,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
       + '<div class="muted note-title">Between-session note</div>'
       + '<pre class="note-body"></pre>'
       + '<button type="button" class="note-copy">Copy this note</button> '
-      + '<button type="button" class="note-share">Share by email</button> '
+      + '<button type="button" class="note-share">Share note</button> '
       + '<span class="muted note-status" aria-live="polite"></span>'
       + '</div>';
   }
@@ -2142,17 +2142,36 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
         }
       });
     }
-    // The coach twin of /me/report's "Share with coach": one tap opens a
-    // pre-filled email with the note as the body, so the coach can send the
-    // between-session touch without retyping it. No recipient is set (the coach
-    // fills in their client) and the client's email never enters this payload.
+    // Sending the note. On a phone the native share sheet (navigator.share) is
+    // the right home for this — it reaches text, WhatsApp, or email, which is
+    // exactly how a coach does a between-session touch. Where Web Share isn't
+    // available (most desktop browsers) it degrades to a pre-filled mailto: with
+    // the note as the body — the coach twin of /me/report's "Share with coach".
+    // No recipient is set either way (the coach fills in their client), so the
+    // client's contact never enters the payload.
     var share = panel.querySelector('.note-share');
     if (share) {
-      share.addEventListener('click', function () {
-        var subject = encodeURIComponent('A quick note between our sessions');
+      var subjectText = 'A quick note between our sessions';
+      var sendByEmail = function () {
+        var subject = encodeURIComponent(subjectText);
         var body = encodeURIComponent(noteText);
         window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
         if (status) status.textContent = 'Opening your email — the note is ready to send.';
+      };
+      share.addEventListener('click', function () {
+        var data = { title: subjectText, text: noteText };
+        if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+          navigator.share(data).then(function () {
+            if (status) status.textContent = 'Shared — the note is on its way.';
+          }, function (err) {
+            // A cancelled share sheet is not a failure — say nothing and leave the
+            // note in place. Only a genuine Web Share error degrades to email.
+            if (err && err.name === 'AbortError') { if (status) status.textContent = ''; return; }
+            sendByEmail();
+          });
+        } else {
+          sendByEmail();
+        }
       });
     }
   }
