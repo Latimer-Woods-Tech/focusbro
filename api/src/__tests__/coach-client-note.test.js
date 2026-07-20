@@ -19,6 +19,7 @@ import { Router } from 'itty-router';
 import {
   registerCoachRoutes,
   clientNoteKeptCopy,
+  clientNotePeakDayCopy,
   buildClientNote,
 } from '../coach.js';
 import { buildWeeklyReport } from '../report.js';
@@ -47,6 +48,25 @@ describe('clientNoteKeptCopy — the note\'s kept-word line', () => {
     expect(clientNoteKeptCopy().length).toBeGreaterThan(0);
     expect(clientNoteKeptCopy({ keptThisWeek: -3 }).toLowerCase()).toContain('clean page');
     expect(clientNoteKeptCopy({ keptThisWeek: 'x' }).toLowerCase()).toContain('clean page');
+  });
+});
+
+// ── pure helper: the "strongest day" callout under the sparkline ──
+describe('clientNotePeakDayCopy — a warm anchor for the shape', () => {
+  it('names the peak day and its count on a genuine standout (2+ kept)', () => {
+    const s = clientNotePeakDayCopy({ count: 4, whenPhrase: 'Wednesday' });
+    expect(s).toContain('Wednesday');
+    expect(s).toContain('4 words kept');
+    expect(s.toLowerCase()).toContain('strongest day');
+    expect(banned.test(s), `banned word: ${s}`).toBe(false);
+  });
+  it('stays silent for an all-singles window (no arbitrary best day)', () => {
+    expect(clientNotePeakDayCopy({ count: 1, whenPhrase: 'Monday' })).toBe('');
+  });
+  it('stays silent for a quiet window and for a missing day phrase', () => {
+    expect(clientNotePeakDayCopy({ count: 0, whenPhrase: 'Monday' })).toBe('');
+    expect(clientNotePeakDayCopy({ count: 3, whenPhrase: '' })).toBe('');
+    expect(clientNotePeakDayCopy()).toBe('');
   });
 });
 
@@ -132,6 +152,36 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
   it('omits the sparkline line entirely when the weekly has no momentum', () => {
     const note = buildClientNote({ kept_this_week: 2 }, { label: 'Jo' });
     expect(note).not.toContain('shape of your last');
+  });
+
+  it('carries the strongest-day callout under the sparkline on a standout window', () => {
+    const note = buildClientNote({
+      kept_this_week: 5,
+      momentum: { days: 14, sparkline: '▁▂▃▄▅▆▇█', peak: { date: '2026-07-15', count: 3 } },
+    }, { label: 'Nia', peakDayName: 'Wednesday' });
+    const spark = note.indexOf('shape of your last');
+    const peak = note.indexOf('strongest day so far');
+    expect(spark).toBeGreaterThan(-1);
+    expect(peak).toBeGreaterThan(spark); // sits directly under the shape line
+    expect(note).toContain('Wednesday — 3 words kept');
+    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+  });
+
+  it('omits the callout when the peak is only a single kept day', () => {
+    const note = buildClientNote({
+      kept_this_week: 2,
+      momentum: { days: 14, sparkline: '▁▁▁█', peak: { date: '2026-07-15', count: 1 } },
+    }, { label: 'Ola', peakDayName: 'Wednesday' });
+    expect(note).toContain('shape of your last'); // shape still shows
+    expect(note).not.toContain('strongest day'); // but no arbitrary best day
+  });
+
+  it('omits the callout when no peak-day phrase is supplied', () => {
+    const note = buildClientNote({
+      kept_this_week: 5,
+      momentum: { days: 14, sparkline: '▁▂▃█', peak: { date: '2026-07-15', count: 3 } },
+    }, { label: 'Pax' }); // no peakDayName
+    expect(note).not.toContain('strongest day');
   });
 
   it('the sparkline is present and clean when built from a real buildWeeklyReport', () => {

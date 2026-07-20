@@ -33,6 +33,7 @@ import {
   localDayInZone,
   bucketKeptByDay,
   sparklineBars,
+  describePeakDay,
   buildMomentum as buildMomentumBlock,
 } from './momentum.js';
 
@@ -336,6 +337,26 @@ export function clientNoteKeptCopy({ keptThisWeek = 0 } = {}) {
 }
 
 /**
+ * A warm "strongest day" callout for the note's momentum shape — the piece the
+ * sparkline can't say: WHICH day the window peaked, and how many words were kept
+ * then. Second person, in the client's voice, so it can sit straight under the
+ * sparkline line in the between-session note. Shown only for a genuine standout
+ * (a day with 2+ kept), so a week whose kept days are all singles — or a quiet
+ * week — never gets an arbitrary "best day". Anti-shame by construction, the
+ * same law as detailPeakDayCopy: it celebrates a high point and never sets it
+ * against now — "so far" frames the mark as still open to being beaten, never
+ * "you were better before". Returns '' when there is no standout to name.
+ * @param {object} p { count, whenPhrase } peak.count and describePeakDay(peak.date)
+ * @returns {string}
+ */
+export function clientNotePeakDayCopy({ count, whenPhrase } = {}) {
+  const n = Number(count) || 0;
+  const when = typeof whenPhrase === 'string' ? whenPhrase.trim() : '';
+  if (n < 2 || !when) return '';
+  return `Your strongest day so far: ${when} — ${n} words kept. 🔥`;
+}
+
+/**
  * Build the plain-text between-session note a coach can copy and send a client.
  * Second person, no markup — ready to paste into a text or email. Assembled
  * purely from a buildWeeklyReport() result (report.js), so its counts can never
@@ -348,10 +369,13 @@ export function clientNoteKeptCopy({ keptThisWeek = 0 } = {}) {
  * only a future, about-to-be-kept check-in.
  *
  * @param {object} weekly  a buildWeeklyReport() result
- * @param {object} [opts]  { label } the client's roster label, used as a first name
+ * @param {object} [opts]  { label, peakDayName } roster label (used as a first
+ *   name) + the already-resolved describePeakDay() phrase for the momentum peak,
+ *   passed from the route so the "today"/"yesterday"/weekday anchor matches the
+ *   exact nowISO the buckets were built with.
  * @returns {string}
  */
-export function buildClientNote(weekly, { label = '' } = {}) {
+export function buildClientNote(weekly, { label = '', peakDayName = '' } = {}) {
   const w = (weekly && typeof weekly === 'object') ? weekly : {};
   const name = normalizeClientLabel(label);
   const kept = Number(w.kept_this_week) || 0;
@@ -371,6 +395,15 @@ export function buildClientNote(weekly, { label = '' } = {}) {
   if (momentum && momentum.sparkline) {
     const days = Number(momentum.days) || MOMENTUM_WINDOW_DAYS;
     lines.push(`Here’s the shape of your last ${days} days — taller means more words kept: ${momentum.sparkline}`);
+    // A warm anchor for that shape: WHICH day it peaked, in the same words the
+    // detail view uses. Rides on the sparkline (only when there's a shape to
+    // name) and is itself gated on a genuine standout, so a flat/quiet window
+    // adds nothing — the absence of a callout, never a low-day note.
+    const peakLine = clientNotePeakDayCopy({
+      count: momentum.peak && momentum.peak.count,
+      whenPhrase: peakDayName,
+    });
+    if (peakLine) lines.push(peakLine);
   }
   // The milestone line is already anti-shame by construction (present only when
   // the current kept-word run is exactly at a milestone; '' otherwise), so a
@@ -971,7 +1004,15 @@ export function registerCoachRoutes(router, ctx) {
       // A ready-to-send between-session note built from the SAME weekly picture,
       // so the coach can copy it straight into a text or email (issue #10, the
       // coach-operator leverage artifact). Kept-word framed by construction.
-      const noteText = buildClientNote(weekly, { label: link.client_label });
+      // Resolve the peak-day phrase here, where nowISO/momentumTz are in scope,
+      // so "today"/"yesterday"/weekday agrees exactly with the bars the note
+      // carries (same trick as the per-word detail route). buildClientNote gates
+      // it on a 2+ standout, so a flat week simply omits the callout.
+      const peakDayName = describePeakDay(
+        weekly.momentum && weekly.momentum.peak && weekly.momentum.peak.date,
+        { nowISO, timezone: momentumTz }
+      );
+      const noteText = buildClientNote(weekly, { label: link.client_label, peakDayName });
 
       return jsonResponse({
         client_id: clientId,
