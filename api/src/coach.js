@@ -33,6 +33,7 @@ import {
   localDayInZone,
   bucketKeptByDay,
   sparklineBars,
+  describePeakDay,
   buildMomentum as buildMomentumBlock,
 } from './momentum.js';
 
@@ -336,22 +337,55 @@ export function clientNoteKeptCopy({ keptThisWeek = 0 } = {}) {
 }
 
 /**
+ * The note's optional longer-arc line: a kept-word momentum picture over the
+ * recent window (the same MOMENTUM_WINDOW_DAYS the coach already sees charted on
+ * screen), voiced for the client in second person and carried into the sendable
+ * note so the momentum rides along with the copy, not just the weekly count.
+ *
+ * DESIGN LAW, by construction: momentum.js buckets KEPT instants ONLY, so this
+ * line can only ever celebrate wins. A window with no wins returns '' — the note
+ * simply carries nothing rather than a "0 over N days" tally, exactly as a quiet
+ * week reads as a clean page above. The peak callout names a strongest day, never
+ * a slow one. No "AI", no clinical claim.
+ *
+ * @param {object} momentum  a buildMomentum() result { total, days, sparkline, ... }
+ * @param {object} [opts]    { peakDayName } a warm day name from describePeakDay()
+ * @returns {string} the momentum line, or '' when there is nothing to celebrate
+ */
+export function clientNoteMomentumCopy(momentum, { peakDayName = '' } = {}) {
+  const m = (momentum && typeof momentum === 'object') ? momentum : {};
+  const total = Number(m.total) || 0;
+  if (total <= 0) return ''; // a quiet window adds nothing — never a "0 kept" tally
+  const days = Number(m.days) || MOMENTUM_WINDOW_DAYS;
+  const spark = (typeof m.sparkline === 'string' && m.sparkline) ? m.sparkline : '';
+  const peak = (typeof peakDayName === 'string' && peakDayName.trim()) ? peakDayName.trim() : '';
+  const peakClause = peak ? ` — your strongest day was ${peak}` : '';
+  const shape = spark ? ` Here’s the shape of it: ${spark}` : '';
+  return `Zooming out to the last ${days} days, you’ve kept ${total} word${total === 1 ? '' : 's'}${peakClause}.${shape}`;
+}
+
+/**
  * Build the plain-text between-session note a coach can copy and send a client.
  * Second person, no markup — ready to paste into a text or email. Assembled
  * purely from a buildWeeklyReport() result (report.js), so its counts can never
  * drift from what the client sees on their own /me/report or the coach sees in
  * the "this week" snapshot.
  *
- * DESIGN LAW: every line here is a kept word, a milestone reached, or the next
- * moment the bro will show up — never a miss. The milestone line rides straight
- * from the report (present only AT a milestone) and the upcoming-word line reads
- * only a future, about-to-be-kept check-in.
+ * DESIGN LAW: every line here is a kept word, a milestone reached, the longer
+ * arc of kept-word momentum, or the next moment the bro will show up — never a
+ * miss. The milestone line rides straight from the report (present only AT a
+ * milestone), the momentum line only ever celebrates wins (omitted on a quiet
+ * window), and the upcoming-word line reads only a future, about-to-be-kept
+ * check-in.
  *
  * @param {object} weekly  a buildWeeklyReport() result
- * @param {object} [opts]  { label } the client's roster label, used as a first name
+ * @param {object} [opts]  { label, momentum, peakDayName } — label is the client's
+ *   roster label (used as a first name); momentum is an optional buildMomentum()
+ *   result whose longer-arc kept-word line rides along; peakDayName is a warm day
+ *   name from describePeakDay() for that momentum window.
  * @returns {string}
  */
-export function buildClientNote(weekly, { label = '' } = {}) {
+export function buildClientNote(weekly, { label = '', momentum = null, peakDayName = '' } = {}) {
   const w = (weekly && typeof weekly === 'object') ? weekly : {};
   const name = normalizeClientLabel(label);
   const kept = Number(w.kept_this_week) || 0;
@@ -364,6 +398,12 @@ export function buildClientNote(weekly, { label = '' } = {}) {
   // the current kept-word run is exactly at a milestone; '' otherwise), so a
   // between-milestone week carries nothing rather than a "not there yet" line.
   if (w.milestone) lines.push(w.milestone);
+  // The longer arc: a kept-word momentum picture over the recent window, the
+  // sendable twin of the sparkline the coach sees charted on screen. Present
+  // only when there are wins to show (kept-instants only) — a quiet window adds
+  // nothing rather than a tally, mirroring the clean-page kept-word line above.
+  const momentumLine = clientNoteMomentumCopy(momentum, { peakDayName });
+  if (momentumLine) lines.push(momentumLine);
   // The soonest still-open check-in across the client's active rhythms — the
   // concrete next moment the bro shows up. The endpoint feeds this from
   // OUTSTANDING check-ins only (pending/sent/deferred), so it is momentum by
@@ -958,8 +998,13 @@ export function registerCoachRoutes(router, ctx) {
 
       // A ready-to-send between-session note built from the SAME weekly picture,
       // so the coach can copy it straight into a text or email (issue #10, the
-      // coach-operator leverage artifact). Kept-word framed by construction.
-      const noteText = buildClientNote(weekly, { label: link.client_label });
+      // coach-operator leverage artifact). Kept-word framed by construction. The
+      // note now also carries the longer kept-word arc — the same momentum block
+      // charted on screen — voiced for the client, so a copied/emailed note shows
+      // the shape of their momentum, not just this week's count. describePeakDay
+      // reuses the on-screen peak-day naming (reads '' on an all-quiet window).
+      const peakDayName = describePeakDay(momentum.peak && momentum.peak.date, { nowISO, timezone: momentumTz });
+      const noteText = buildClientNote(weekly, { label: link.client_label, momentum, peakDayName });
 
       return jsonResponse({
         client_id: clientId,

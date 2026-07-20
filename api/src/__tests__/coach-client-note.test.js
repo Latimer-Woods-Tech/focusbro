@@ -19,6 +19,7 @@ import { Router } from 'itty-router';
 import {
   registerCoachRoutes,
   clientNoteKeptCopy,
+  clientNoteMomentumCopy,
   buildClientNote,
 } from '../coach.js';
 import { buildWeeklyReport } from '../report.js';
@@ -47,6 +48,39 @@ describe('clientNoteKeptCopy — the note\'s kept-word line', () => {
     expect(clientNoteKeptCopy().length).toBeGreaterThan(0);
     expect(clientNoteKeptCopy({ keptThisWeek: -3 }).toLowerCase()).toContain('clean page');
     expect(clientNoteKeptCopy({ keptThisWeek: 'x' }).toLowerCase()).toContain('clean page');
+  });
+});
+
+// ── pure helper: the note's longer-arc kept-word momentum line ──
+describe('clientNoteMomentumCopy — the note\'s momentum line', () => {
+  it('names the count, the window, and the sparkline when there are wins', () => {
+    const s = clientNoteMomentumCopy({ total: 12, days: 14, sparkline: '▁▂▅▃▇▄▂▅▆█▃▂▄▅' });
+    expect(s).toContain('last 14 days');
+    expect(s).toContain('kept 12 words');
+    expect(s).toContain('▁▂▅▃▇▄▂▅▆█▃▂▄▅');
+    expect(banned.test(s), `banned word in momentum line:\n${s}`).toBe(false);
+  });
+
+  it('is singular for a single kept word', () => {
+    expect(clientNoteMomentumCopy({ total: 1, days: 14, sparkline: '▁' })).toContain('kept 1 word.');
+  });
+
+  it('adds a strongest-day callout only when a peak day name is supplied', () => {
+    const withPeak = clientNoteMomentumCopy({ total: 5, days: 14, sparkline: '▁▂▇' }, { peakDayName: 'Tuesday' });
+    expect(withPeak).toContain('your strongest day was Tuesday');
+    const noPeak = clientNoteMomentumCopy({ total: 5, days: 14, sparkline: '▁▂▇' });
+    expect(noPeak).not.toContain('strongest day');
+  });
+
+  it('omits itself on a quiet window — never a "0 over N days" tally', () => {
+    expect(clientNoteMomentumCopy({ total: 0, days: 14, sparkline: '▁▁▁▁' })).toBe('');
+    expect(clientNoteMomentumCopy({ total: -2, days: 14 })).toBe('');
+  });
+
+  it('is defensive about missing/garbage input (returns the empty string)', () => {
+    expect(clientNoteMomentumCopy()).toBe('');
+    expect(clientNoteMomentumCopy(null)).toBe('');
+    expect(clientNoteMomentumCopy({})).toBe('');
   });
 });
 
@@ -79,6 +113,24 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     expect(withM).toContain('milestone');
     const withoutM = buildClientNote({ kept_this_week: 2, milestone: '' }, { label: 'Cy' });
     expect(withoutM).not.toContain('milestone');
+  });
+
+  it('carries the momentum line when a momentum block with wins is supplied', () => {
+    const note = buildClientNote(
+      { kept_this_week: 3 },
+      { label: 'Ivy', momentum: { total: 9, days: 14, sparkline: '▁▂▅▃▇▄▂▅▆' }, peakDayName: 'Wednesday' },
+    );
+    expect(note).toContain('Zooming out to the last 14 days');
+    expect(note).toContain('kept 9 words');
+    expect(note).toContain('your strongest day was Wednesday');
+    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+  });
+
+  it('omits the momentum line on a quiet window (and when no momentum is supplied)', () => {
+    const quiet = buildClientNote({ kept_this_week: 0 }, { label: 'Jo', momentum: { total: 0, days: 14, sparkline: '▁▁▁' } });
+    expect(quiet).not.toContain('Zooming out');
+    const none = buildClientNote({ kept_this_week: 2 }, { label: 'Jo' });
+    expect(none).not.toContain('Zooming out');
   });
 
   it('names the SOONEST upcoming word (a future check-in only) and its cadence', () => {
@@ -206,6 +258,9 @@ describe('GET /api/coach/clients/:clientId — the between-session note artifact
     expect(body.note_text).toContain('Hi Alex —');
     expect(body.note_text).toContain('You kept 3 words this week');
     expect(body.note_text).toContain('"Taxes" on the books');
+    // The sendable note now also carries the longer kept-word arc (the same
+    // momentum the endpoint attaches as `momentum`), voiced for the client.
+    expect(body.note_text).toContain('Zooming out to the last');
     expect(banned.test(body.note_text), `banned word in note:\n${body.note_text}`).toBe(false);
   });
 
@@ -221,6 +276,7 @@ describe('GET /api/coach/clients/:clientId — the between-session note artifact
     const body = await res.json();
     expect(body.note_text.toLowerCase()).toContain('clean page');
     expect(body.note_text).not.toContain('on the books');
+    expect(body.note_text).not.toContain('Zooming out'); // no momentum tally on a quiet window
     expect(banned.test(body.note_text)).toBe(false);
   });
 
