@@ -66,6 +66,25 @@ describe('Worker routing', () => {
     expect(html).not.toMatch(/\boverdue\b|\byou missed\b|\byou failed\b|\bbehind\b/i);
   });
 
+  it('gives the person-side /me/report the same native share affordance that degrades to email', async () => {
+    const html = await (await call('GET', '/me/report')).text();
+    // Both actions the person already had stay: copy and the coach share.
+    expect(html).toContain('>Copy report<');
+    expect(html).toContain('>Share with coach<');
+    // Share parity with the coach note: prefer the phone's Web Share sheet
+    // (text / WhatsApp / email), guarded by canShare when present.
+    expect(html).toContain('navigator.share');
+    expect(html).toContain('navigator.canShare');
+    // Where Web Share is unavailable it degrades to the same pre-filled mailto
+    // with the report as the body and no recipient set.
+    expect(html).toContain("'mailto:?subject=' + subject + '&body=' + body");
+    expect(html).toContain('My FocusBro weekly report');
+    // A cancelled share sheet must not silently pop email in its place.
+    expect(html).toContain("err.name === 'AbortError'");
+    // Design LAW: the share subject/status copy names no miss or clinical claim.
+    expect(html).not.toMatch(/\boverdue\b|\byou missed\b|\byou failed\b|\bbehind\b/i);
+  });
+
   it('canonicalizes the guides index slash', async () => {
     const redirect = await call('GET', '/guides');
     expect(redirect.status).toBe(301);
