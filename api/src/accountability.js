@@ -1396,13 +1396,29 @@ export function smsAskWhenCopy({ persona } = {}) {
   return 'No problem at all — when do you want to try again? Text me a time like 3pm, tomorrow 9am, Saturday, or Jul 20, and I’ll check back then.';
 }
 
-/** Confirm the new time the person gave over text. The word still counts; the streak is safe. */
-export function smsRescheduledCopy({ persona, when, timezone, nowISO } = {}) {
+/**
+ * Confirm the new time the person gave over text. The word still counts; the
+ * streak is safe — a reschedule protects the chain by construction, never a miss.
+ *
+ * `progress` (true when the same reply also REPORTED movement — "made good
+ * progress, tomorrow 9am" — per `isProgressReply`) meets that momentum by name:
+ * "love that you got moving." Same warmth, same new time, still never a count or
+ * a scold — it just sees the work they told us they did while pushing the check-in
+ * out. Mirrors `snoozeConfirmCopy`'s progress arm so the two reschedule surfaces
+ * (a snooze that holds the time, a reschedule that sets a new one) read the same.
+ * A reschedule with no movement reported leaves `progress` false and keeps the
+ * generic warm confirm.
+ */
+export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false } = {}) {
   const at = when ? formatWhenLocal(when, timezone, nowISO) : 'then';
   if (pickPersona(persona) === 'hype') {
-    return `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
+    return progress
+      ? `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`
+      : `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
   }
-  return `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
+  return progress
+    ? `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`
+    : `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
 }
 
 /** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
