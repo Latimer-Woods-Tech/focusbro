@@ -1275,9 +1275,24 @@ export function detectCheckinReply(text) {
   // residual bare "not on it" is guarded out below (it falls through to the warm
   // ask, never a wrong snooze) rather than being read as "check back."
   const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on)\b/;
+  // Partial progress is the SAME third answer, said the other way round. "halfway",
+  // "made a start", "chipping away", "in progress" all mean *I'm mid-thing, check
+  // back* — an engaged person, never done, never a miss. Most of these used to fall
+  // through to the cold "I didn't catch that". Split into two nets so a real
+  // completion always wins: PARTIAL_DONE catches the qualified-"done" spellings
+  // ("half done", "halfway done", "partly done") that tripped KEPT's `done` and got
+  // over-credited as a resolved word — it runs BEFORE KEPT precisely to intercept
+  // that. Everything else runs AFTER KEPT, so "started and all done" still keeps the
+  // word. A `no`/`not` guard keeps a negated "no progress" / "not started" out of a
+  // wrong snooze (RESCHEDULE runs first, so "haven't started" stays the reschedule),
+  // and a residual bare negation falls through to the warm ask, never a mislabel.
+  const PARTIAL_DONE = /\b(half\s?way done|half\s?done|partly done|part done)\b/;
+  const PARTIAL = /\b(half\s?way|part\s?way|part of the way|mid\s?way|made a start|made (?:some |good )?progress|making progress|some progress|good progress|just started|getting started|started|chipping (?:away|at it)|working through(?: it)?|in progress|underway)\b/;
 
   if (RESCHEDULE.test(t)) return 'reschedule';
+  if (PARTIAL_DONE.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (KEPT.test(t)) return 'kept';
+  if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
