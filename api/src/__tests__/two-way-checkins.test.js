@@ -461,6 +461,44 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(true);
   });
 
+  it('"on it" while awaiting a time SNOOZES — re-pends a few minutes out, never "I couldn\'t read that time", streak safe', async () => {
+    // The engaged person who answered "when?" with "actually I'm on it, gimme a
+    // few" is the best-case user mid-task, not a reschedule. The fresh nudge
+    // already reads this as a snooze; before this fix the awaiting_time path
+    // parsed it as a time, failed, and replied with the cold "try something
+    // like…" — the coldest answer to the most engaged reply on the live moat.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('actually on it, gimme a few'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(typeof body.scheduled_for).toBe('string');
+    // re-pended a few minutes out (mid-task, not resolved) — never re-asked
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    // a snooze is NOT a resolution and NOT a miss — streak/commitment never touched
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(false);
+    // the warm "you got it, I'll swing back" copy — never the "I couldn't read that time" copy
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/check back|swing back|on it/);
+    expect(sent.text.toLowerCase()).not.toMatch(/try something like|reply done/);
+  });
+
+  it('regression: a plain "later" while awaiting is NOT a snooze — it re-asks for a time (never a wrong snooze)', async () => {
+    // detectCheckinReply runs RESCHEDULE before SNOOZE, so a reschedule word
+    // answering "when?" must fall through to the warm re-ask, not the snooze.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('later'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('reschedule_when_unclear');
+    // no snooze re-pend happened; the check-in stays awaiting a real time
+    expect(db.runs.some((x) => /SET status = 'pending', scheduled_for/.test(x.sql))).toBe(false);
+  });
+
   it('an unreadable time while awaiting → re-asks warmly, still no miss', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
