@@ -1869,6 +1869,61 @@ export function registerAccountabilityRoutes(router, ctx) {
         : outcome === 'kept' ? 'kept'
         : outcome === 'missed' ? 'missed' : 'rescheduled';
 
+      // "I'm on it" while answering the in-app "Move it → when?" prompt is a
+      // SNOOZE, not a reschedule — the best-case user, mid-task, saying "gimme a
+      // few". Over SMS the awaiting-time reply already reads this warmly, so the
+      // engaged person meets the same warmth on both channels; without this, an
+      // in-app "actually I'm on it" fell through parseWhenReply to the cold
+      // "I couldn't read that time" — the wrong answer for the exact person who
+      // IS doing the thing. Honor it BEFORE any resolution write, so the check-in
+      // is re-pended (not resolved) and the kept-word streak is never read or
+      // written — a snooze is not a resolution and not a miss, by construction.
+      // Guards, all load-bearing: only on 'reschedule' (the "when?" surface),
+      // only for a natural-language when_text with no explicit picker instant
+      // (an ISO new_start_at is an unambiguous reschedule), and only on an active
+      // word (a settled one-shot has no live nudge to push). detectCheckinReply
+      // runs RESCHEDULE before SNOOZE, so a plain "later" here stays a reschedule
+      // and still gets the warm re-ask — never a wrong snooze.
+      const rescheduleWhenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
+      const hasExplicitInstant = typeof body.new_start_at === 'string' && body.new_start_at.trim();
+      if (
+        outcome === 'reschedule'
+        && commitment.status === 'active'
+        && rescheduleWhenText
+        && !hasExplicitInstant
+        && detectCheckinReply(rescheduleWhenText) === 'snooze'
+      ) {
+        const minutes = SNOOZE_DEFAULT_MIN;
+        const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
+        // Mirror the /snooze endpoint exactly: re-arm the latest still-open
+        // check-in (or open a fresh one), reset attempts, clear last_error /
+        // responded_at — this check-in is not resolved, just moved a little.
+        const open = await env.DB.prepare(
+          `SELECT id FROM commitment_checkins
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
+            ORDER BY scheduled_for DESC LIMIT 1`
+        ).bind(id, auth.userId).first();
+        if (open && open.id) {
+          await env.DB.prepare(
+            `UPDATE commitment_checkins
+                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+              WHERE id = ? AND user_id = ?`
+          ).bind(snoozedUntil, open.id, auth.userId).run();
+        } else {
+          await env.DB.prepare(
+            `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+             VALUES (?, ?, ?, ?, ?, 'pending')`
+          ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
+        }
+        return jsonResponse({
+          commitment_id: id,
+          snoozed_until: snoozedUntil,
+          minutes,
+          action: 'snoozed',
+          message: snoozeConfirmCopy({ persona, minutes }),
+        }, 200);
+      }
+
       // Record the resolution on the pending check-in (or the latest one).
       await env.DB.prepare(
         `UPDATE commitment_checkins
