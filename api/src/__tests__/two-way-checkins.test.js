@@ -19,6 +19,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
+  isProgressReply,
   applyCheckinOutcome,
   parseWhenReply,
   formatWhenLocal,
@@ -28,6 +29,7 @@ import {
   smsAskWhenCopy,
   smsRescheduledCopy,
   smsWhenUnclearCopy,
+  snoozeConfirmCopy,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -161,6 +163,71 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply('🤔')).toBeNull();
     expect(detectCheckinReply('😴')).toBeNull();
     expect(detectCheckinReply('👎')).toBeNull();
+  });
+});
+
+// ── isProgressReply ──────────────────────────────────────────
+// Both a bare "on it" and a "halfway there" classify as SNOOZE (the third
+// answer), but only the second REPORTS movement. isProgressReply is what lets
+// the snooze confirmation meet real progress by name — "love that you're moving"
+// — while a plain hold keeps the generic glad-you're-on-it copy. It's a wording
+// tuner only: never reads or writes the streak, a snooze is still not a miss.
+describe('isProgressReply — did they actually move the needle, or just say "on it"?', () => {
+  it('reads reported progress as progress', () => {
+    for (const t of ['halfway', 'halfway there', 'made good progress', 'making progress',
+                     'some progress', 'chipping away', 'chipping at it', 'in progress',
+                     'underway', 'just started', 'getting started', 'working through it',
+                     'still working on it', 'almost there', 'nearly there', 'in the middle',
+                     'half done', 'halfway done', 'partly done']) {
+      expect(isProgressReply(t), t).toBe(true);
+    }
+  });
+
+  it('reads a bare hold ("on it", "hang on", "one sec") as NOT progress — generic copy', () => {
+    for (const t of ['on it', 'onit', 'getting to it', 'hang on', 'hold on', 'one sec',
+                     'give me a few', 'gimme a sec', 'need a minute']) {
+      expect(isProgressReply(t), t).toBe(false);
+    }
+  });
+
+  it('never reads a negation as progress', () => {
+    // "no progress" / "not started" report the ABSENCE of movement — never met
+    // with "love that you're moving." (These fall through to the warm ask anyway.)
+    for (const t of ['no progress', 'not started', "haven't started", 'no movement']) {
+      expect(isProgressReply(t), t).toBe(false);
+    }
+  });
+
+  it('is empty-safe', () => {
+    expect(isProgressReply('')).toBe(false);
+    expect(isProgressReply(null)).toBe(false);
+    expect(isProgressReply(undefined)).toBe(false);
+  });
+});
+
+// ── snoozeConfirmCopy — meets reported progress by name, never a count ────────
+describe('snoozeConfirmCopy — glad you’re on it; gladder when you’re moving', () => {
+  it('acknowledges movement when progress is reported, on both personas', () => {
+    const calm = snoozeConfirmCopy({ persona: 'calm', minutes: 15, progress: true });
+    const hype = snoozeConfirmCopy({ persona: 'hype', minutes: 15, progress: true });
+    expect(calm.toLowerCase()).toContain('moving');
+    expect(hype.toLowerCase()).toContain('moving');
+    // Still concrete about the return, still warm, and NEVER a count/scold.
+    expect(calm).toContain('15 minutes');
+    expect(hype).toContain('15 minutes');
+    for (const s of [calm, hype]) {
+      expect(s.toLowerCase()).not.toMatch(/\b(missed|behind|fail|should have|only|again)\b/);
+      expect(s).not.toMatch(/\bAI\b/);
+    }
+  });
+
+  it('keeps the generic glad-you’re-on-it copy for a plain hold (no progress)', () => {
+    const calm = snoozeConfirmCopy({ persona: 'calm', minutes: 15 });
+    const hype = snoozeConfirmCopy({ persona: 'hype', minutes: 15, progress: false });
+    expect(calm.toLowerCase()).not.toContain('moving');
+    expect(hype.toLowerCase()).not.toContain('moving');
+    expect(calm).toContain('15 minutes');
+    expect(hype).toContain('15 minutes');
   });
 });
 
