@@ -88,6 +88,32 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     }
   });
 
+  it('reads partial progress ("halfway", "made a start", "chipping away") as SNOOZE — the same third answer', () => {
+    // Partial progress means "I'm mid-thing, check back" — an engaged person, never
+    // done, never a miss. Most of these used to fall through to the cold "I didn't
+    // catch that"; the two "…done" spellings tripped KEPT's `done` and were
+    // over-credited as a resolved word. Now they all read as the warm snooze.
+    for (const t of ['halfway', 'halfway there', 'halfway through', 'half done',
+                     'halfway done', 'partway', 'part way', 'part of the way',
+                     'made a start', 'made progress', 'making progress',
+                     'some progress', 'started', 'just started', 'getting started',
+                     'chipping away', 'chipping at it', 'working through it',
+                     'in progress', 'underway']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+    }
+  });
+
+  it('keeps partial progress from ever becoming a wrong snooze on a negation', () => {
+    // RESCHEDULE runs first, so a genuinely negated "haven't started" stays the warm
+    // reschedule; a bare "no progress" / "not started" the reschedule net misses
+    // falls through to the warm ask — never a mislabeled snooze, never a scold.
+    expect(detectCheckinReply("haven't started")).toBe('reschedule');
+    expect(detectCheckinReply('no progress')).toBeNull();
+    expect(detectCheckinReply('not started')).toBeNull();
+    // A real completion still wins even when a progress word rides along.
+    expect(detectCheckinReply('started and all done')).toBe('kept');
+  });
+
   it('lets DONE and RESCHEDULE win over a snooze phrase — order and negation are safe', () => {
     // KEPT and RESCHEDULE both run before SNOOZE, so a completion or a negation is
     // never downgraded to "still going".
