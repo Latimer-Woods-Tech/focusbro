@@ -30,6 +30,7 @@ import {
   smsRescheduledCopy,
   smsWhenUnclearCopy,
   snoozeConfirmCopy,
+  rescheduleConfirmCopy,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -242,6 +243,44 @@ describe('snoozeConfirmCopy — glad you’re on it; gladder when you’re movin
     expect(hype.toLowerCase()).not.toContain('moving');
     expect(calm).toContain('15 minutes');
     expect(hype).toContain('15 minutes');
+  });
+});
+
+// ── rescheduleConfirmCopy — the IN-APP reschedule twin of smsRescheduledCopy ──
+// A person who taps "Move it → when?" and answers with a new time AND reported
+// movement in the same breath ("made good progress, tomorrow 9am") must be met by
+// name on the app exactly as the SMS reschedule now is (R-263). Full channel
+// parity: the two reschedule surfaces read reported work identically.
+describe('rescheduleConfirmCopy — meets reported progress by name, in-app parity', () => {
+  const when = '2026-07-06T19:00:00.000Z';
+  for (const persona of ['calm', 'hype']) {
+    it(`(${persona}) acknowledges movement when progress is reported, still names the time & protects the streak`, () => {
+      const withProgress = rescheduleConfirmCopy({ persona, when, progress: true });
+      const generic = rescheduleConfirmCopy({ persona, when, progress: false });
+      // Movement reported alongside the new time is met by name — parity with SMS/snooze.
+      expect(withProgress.toLowerCase()).toContain('moving');
+      expect(generic.toLowerCase()).not.toContain('moving');
+      // Still a reschedule: names the new time, keeps the streak/word safe, never scolds.
+      for (const s of [withProgress, generic]) {
+        expect(s.toLowerCase()).toMatch(/check back|locked in/);
+        // The word/streak is safe by construction — calm says it as "your word's
+        // still good", hype as "nothing broken". Either assures the chain holds.
+        expect(s.toLowerCase()).toMatch(/word|streak|counts|good with me|nothing broken/);
+        expect(s.toLowerCase()).not.toMatch(/\b(missed|behind|fail|should have)\b/);
+        expect(s).not.toMatch(/\bAI\b/);
+      }
+    });
+  }
+
+  it('a reschedule reply that reports movement is classified reschedule AND reads as progress (the wiring source)', () => {
+    // This is what feeds the in-app copy: when_text goes through the same detector
+    // and isProgressReply the SMS channel uses, so app parity is exact, not parallel.
+    for (const t of ['made good progress, tomorrow 9am', 'chipping away, move it to tomorrow', 'halfway there, push it to 3pm tomorrow']) {
+      expect(detectCheckinReply(t), t).toBe('reschedule');
+      expect(isProgressReply(t), t).toBe(true);
+    }
+    // A bare new time reports no movement → generic copy.
+    expect(isProgressReply('tomorrow 9am')).toBe(false);
   });
 });
 

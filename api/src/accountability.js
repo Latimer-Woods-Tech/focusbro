@@ -938,13 +938,29 @@ export function missRescheduleCopy({ persona } = {}) {
   return 'No problem at all — life happens, and I’m still on your side. When do you want to try again?';
 }
 
-/** Confirming a reschedule: the word still counts; the chain is intact. */
-export function rescheduleConfirmCopy({ persona, when } = {}) {
+/**
+ * Confirming a reschedule: the word still counts; the chain is intact. This is
+ * the IN-APP twin of `smsRescheduledCopy` — a person who taps "Move it" and gives
+ * a new time gets the same warmth a texted reschedule does.
+ *
+ * `progress` (true when the "when?" reply actually REPORTED movement — "made good
+ * progress, tomorrow 9am", "chipping away, move it to tomorrow" — per
+ * `isProgressReply`) meets that momentum by name: "love that you got moving." Same
+ * warmth, still names the new time, still keeps the streak safe, never a count or
+ * a scold. A bare time ("tomorrow 9am") leaves `progress` false and keeps the
+ * generic copy. Mirrors `smsRescheduledCopy` and `snoozeConfirmCopy` so every
+ * reschedule surface — text and app — sees reported work the same way.
+ */
+export function rescheduleConfirmCopy({ persona, when, progress = false } = {}) {
   const at = when ? ` for ${formatWhen(when)}` : '';
   if (pickPersona(persona) === 'hype') {
-    return `Locked in${at}. I got you — nothing broken, we just go again. 💪`;
+    return progress
+      ? `Love that you got moving — that’s momentum! Locked in${at}. Nothing broken, we just go again. 💪`
+      : `Locked in${at}. I got you — nothing broken, we just go again. 💪`;
   }
-  return `Got it — I’ll check back${at}. Your word’s still good with me; we just pick it back up.`;
+  return progress
+    ? `Love that you got moving — I’ll check back${at}. Your word’s still good with me; we just pick it back up.`
+    : `Got it — I’ll check back${at}. Your word’s still good with me; we just pick it back up.`;
 }
 
 /**
@@ -2091,7 +2107,11 @@ export function registerAccountabilityRoutes(router, ctx) {
            VALUES (?, ?, ?, ?, ?, 'pending')`
         ).bind(newCheckinId, newId, auth.userId, v.checkinAt, v.channel).run();
 
-        response.message = rescheduleConfirmCopy({ persona, when: v.startAt });
+        // Parity with the SMS reschedule (R-263): if the "when?" reply reported
+        // movement alongside the new time ("made good progress, tomorrow 9am"),
+        // meet it by name. Only the natural-language `when_text` can carry a
+        // progress phrase; an explicit picker instant has none, so it stays generic.
+        response.message = rescheduleConfirmCopy({ persona, when: v.startAt, progress: isProgressReply(rescheduleWhenText) });
         response.new_commitment = {
           id: newId, title: v.title, start_at: v.startAt, checkin_at: v.checkinAt,
           channel: v.channel, persona: v.persona, status: 'active',
