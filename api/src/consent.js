@@ -565,11 +565,34 @@ export function registerConsentRoutes(router, ctx) {
       };
 
       // ── Mid-conversation: we already asked "when?", so read this as a time ──
-      // A late "done" is still honored (they did it after all); otherwise parse a
-      // concrete time and re-arm THIS check-in for it — never a miss, never punt
-      // to the app.
+      // A late "done" is still honored (they did it after all); an "I'm on it"
+      // mid-task is honored as a snooze — the engaged person never meets "I
+      // couldn't read that time" on the exact channel the moat is built on;
+      // otherwise parse a concrete time and re-arm THIS check-in for it — never a
+      // miss, never punt to the app.
       if (open.checkin_status === 'awaiting_time') {
-        if (detectCheckinReply(text) === 'kept') return await resolveKept();
+        const awaitingReply = detectCheckinReply(text);
+        if (awaitingReply === 'kept') return await resolveKept();
+        // "I'm on it — gimme a few" AFTER we asked "when?" is still the best-case
+        // user: actively doing the thing, not rescheduling. The fresh-nudge path
+        // already reads this warmly as a snooze; without this, the awaiting_time
+        // path parsed it as a time, failed, and replied "I couldn't read that
+        // time" — the coldest answer to the most engaged reply. Mirror the
+        // fresh-nudge snooze exactly: re-pend a few minutes out, reset attempts,
+        // never touch the streak (a snooze is not a resolution and not a miss). A
+        // reschedule word ("later" again) is NOT a snooze — detectCheckinReply
+        // runs RESCHEDULE before SNOOZE, so it returns 'reschedule' and falls
+        // through to the time parse below, which warmly re-asks for a time.
+        if (awaitingReply === 'snooze') {
+          const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
+          await env.DB.prepare(
+            `UPDATE commitment_checkins
+                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+              WHERE id = ? AND user_id = ?`
+          ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN }));
+          return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
+        }
         const whenISO = parseWhenReply(text, {
           nowISO, timezone: open.timezone, defaultTime: open.local_time,
         });
