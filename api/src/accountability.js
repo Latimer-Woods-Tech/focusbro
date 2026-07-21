@@ -965,13 +965,23 @@ export function releaseConfirmCopy({ persona } = {}) {
  * to check back shortly — not a resolution, not a reschedule, not a miss. The
  * copy is glad they're on it and promises to come back, never "don't forget,"
  * never pressure. Names the interval so the return is concrete.
+ *
+ * `progress` (true when the reply actually REPORTED movement — "halfway", "made
+ * good progress", "still working" — per `isProgressReply`) meets that momentum
+ * by name: "love that you're moving." Same warmth, same interval, still never a
+ * count or a scold — it just sees the work they told us they did. A bare "on it"
+ * / "hang on" leaves `progress` false and keeps the generic glad-you're-on-it copy.
  */
-export function snoozeConfirmCopy({ persona, minutes } = {}) {
+export function snoozeConfirmCopy({ persona, minutes, progress = false } = {}) {
   const m = clampSnoozeMinutes(minutes);
   if (pickPersona(persona) === 'hype') {
-    return `Love it — you’re on it! I’ll swing back in ${m} minutes. Right here cheering you on. 🔥`;
+    return progress
+      ? `Love that you’re moving — that’s momentum! I’ll swing back in ${m} minutes. Right here cheering you on. 🔥`
+      : `Love it — you’re on it! I’ll swing back in ${m} minutes. Right here cheering you on. 🔥`;
   }
-  return `You got it — I’ll check back in ${m} minutes. No rush at all; I’m right here.`;
+  return progress
+    ? `Love that you’re moving on it — I’ll check back in ${m} minutes. No rush at all; I’m right here.`
+    : `You got it — I’ll check back in ${m} minutes. No rush at all; I’m right here.`;
 }
 
 /**
@@ -1225,18 +1235,61 @@ export function milestoneCopy({ streak } = {}) {
 // intercepted upstream (consent.js) before this runs, so they never land here.
 
 /**
+ * Normalize an inbound reply the one way every reply-reading surface reads it:
+ * lowercase, straighten curly apostrophes, drop punctuation/emoji to spaces,
+ * collapse whitespace. Shared by `detectCheckinReply` and `isProgressReply` so
+ * the two never drift on what counts as, say, "half-way" vs "halfway".
+ */
+function normalizeReplyText(text) {
+  return String(text == null ? '' : text)
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")            // normalize curly apostrophes to straight
+    .replace(/[^a-z0-9\s']/g, ' ')    // keep letters/digits/apostrophes; drop other punctuation/emoji
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Partial-progress phrasing, shared between the classifier and the progress
+// reader. PARTIAL_DONE catches the qualified-"done" spellings that must be
+// intercepted BEFORE KEPT; PARTIAL is everything else, read AFTER KEPT so a real
+// completion still wins. Kept at module scope (not re-declared per call) so
+// `detectCheckinReply` and `isProgressReply` share one definition of "progress".
+const PARTIAL_DONE = /\b(half\s?way done|half\s?done|partly done|part done)\b/;
+const PARTIAL = /\b(half\s?way|part\s?way|part of the way|mid\s?way|made a start|made (?:some |good )?progress|making progress|some progress|good progress|just started|getting started|started|chipping (?:away|at it)|working through(?: it)?|in progress|underway)\b/;
+// The subset of the plain-snooze family that ALSO reports movement (not just
+// "about to" / "hold on"): "still working", "almost there", "in the middle".
+// These read as progress for the confirmation copy; a bare "on it" / "hang on"
+// does not.
+const PROGRESS_MOVEMENT = /\b(working on it|still working|still on it|still at it|still going|almost there|nearly there|in the middle|middle of it)\b/;
+
+/**
+ * Does this reply report the person has actually MOVED the needle — as opposed
+ * to merely "on it" / "hold on"? Meant to be called only when the reply already
+ * classified as a snooze; lets the confirmation copy meet real progress with
+ * "love that you're moving" instead of the generic "you got it". A negation
+ * ("no progress" / "not started") is never progress. Never reads or writes the
+ * streak — this only tunes wording; a snooze is not a resolution, by construction.
+ * @param {string} text  the raw SMS body
+ * @returns {boolean}
+ */
+export function isProgressReply(text) {
+  const t = normalizeReplyText(text);
+  if (!t) return false;
+  // A negation is never progress: the bare "no progress" / "not started" and the
+  // contracted "haven't started" / "didn't" (a reschedule the classifier catches
+  // upstream, but guarded here too so isProgressReply is safe to call on any text).
+  if (/\b(no|not|never)\b/.test(t) || /n't\b/.test(t)) return false;
+  return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t);
+}
+
+/**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
  * @returns {'kept'|'reschedule'|'snooze'|null}  null = couldn't tell (ask, don't assume)
  */
 export function detectCheckinReply(text) {
   const raw = String(text == null ? '' : text);
-  const t = raw
-    .toLowerCase()
-    .replace(/[’‘]/g, "'")            // normalize curly apostrophes to straight
-    .replace(/[^a-z0-9\s']/g, ' ')    // keep letters/digits/apostrophes; drop other punctuation/emoji
-    .replace(/\s+/g, ' ')
-    .trim();
+  const t = normalizeReplyText(raw);
 
   // A bare affirmation emoji (👍 ✅ 🙌 💪 …) is a near-universal "done" — but the
   // alnum normalization above strips every emoji, so a reply that is ONLY an emoji
@@ -1286,8 +1339,7 @@ export function detectCheckinReply(text) {
   // word. A `no`/`not` guard keeps a negated "no progress" / "not started" out of a
   // wrong snooze (RESCHEDULE runs first, so "haven't started" stays the reschedule),
   // and a residual bare negation falls through to the warm ask, never a mislabel.
-  const PARTIAL_DONE = /\b(half\s?way done|half\s?done|partly done|part done)\b/;
-  const PARTIAL = /\b(half\s?way|part\s?way|part of the way|mid\s?way|made a start|made (?:some |good )?progress|making progress|some progress|good progress|just started|getting started|started|chipping (?:away|at it)|working through(?: it)?|in progress|underway)\b/;
+  // (PARTIAL_DONE / PARTIAL live at module scope now, shared with isProgressReply.)
 
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (PARTIAL_DONE.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
@@ -1935,7 +1987,7 @@ export function registerAccountabilityRoutes(router, ctx) {
           snoozed_until: snoozedUntil,
           minutes,
           action: 'snoozed',
-          message: snoozeConfirmCopy({ persona, minutes }),
+          message: snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(rescheduleWhenText) }),
         }, 200);
       }
 

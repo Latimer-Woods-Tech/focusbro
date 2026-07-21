@@ -35,6 +35,7 @@
 
 import {
   detectCheckinReply,
+  isProgressReply,
   applyCheckinOutcome,
   parseWhenReply,
   smsKeptReplyCopy,
@@ -590,7 +591,7 @@ export function registerConsentRoutes(router, ctx) {
                 SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
               WHERE id = ? AND user_id = ?`
           ).bind(snoozedUntil, open.checkin_id, user.id).run();
-          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN }));
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
           return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
         }
         const whenISO = parseWhenReply(text, {
@@ -634,7 +635,7 @@ export function registerConsentRoutes(router, ctx) {
               SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
             WHERE id = ? AND user_id = ?`
         ).bind(snoozedUntil, open.checkin_id, user.id).run();
-        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN }));
+        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
         return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
       }
 
