@@ -203,6 +203,20 @@ describe('isProgressReply — did they actually move the needle, or just say "on
     expect(isProgressReply(null)).toBe(false);
     expect(isProgressReply(undefined)).toBe(false);
   });
+
+  it('a progress report given WITH a new time still reschedules — and reads as progress', () => {
+    // The exact shape the reschedule-confirm progress arm exists for: a person who
+    // reports movement AND names a new time in one breath. A reschedule/time word
+    // makes detectCheckinReply return 'reschedule' (so the reply reaches the time
+    // parse + reschedule confirm, not the snooze branch), while isProgressReply
+    // still sees the movement — so the confirm meets it by name. A bare-time reply
+    // with no movement stays generic.
+    for (const t of ['made good progress, tomorrow 9am', 'chipping away, move it to tomorrow', 'halfway there, push it to 3pm tomorrow']) {
+      expect(detectCheckinReply(t), t).toBe('reschedule');
+      expect(isProgressReply(t), t).toBe(true);
+    }
+    expect(isProgressReply('tomorrow 9am')).toBe(false);
+  });
 });
 
 // ── snoozeConfirmCopy — meets reported progress by name, never a count ────────
@@ -888,6 +902,20 @@ describe('conversational-reschedule copy obeys the one LAW: never shame', () => 
       expect(s).not.toMatch(AI);
       expect(s.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(s.toLowerCase()).toMatch(/still counts|streak/);
+    });
+    it(`smsRescheduledCopy (${persona}) meets reported progress by name, still no shame`, () => {
+      const args = { persona, when: '2026-07-06T19:00:00.000Z', timezone: 'America/New_York', nowISO: '2026-07-06T12:00:00.000Z' };
+      const withProgress = smsRescheduledCopy({ ...args, progress: true });
+      const generic = smsRescheduledCopy({ ...args, progress: false });
+      // Movement reported alongside the new time is met by name — parity with snooze.
+      expect(withProgress.toLowerCase()).toContain('moving');
+      expect(generic.toLowerCase()).not.toContain('moving');
+      // Still a reschedule: names the new time, keeps the streak safe, never scolds.
+      expect(withProgress.toLowerCase()).toMatch(/check back .*3:00 pm/);
+      expect(withProgress.toLowerCase()).toMatch(/still counts|streak/);
+      expect(withProgress).not.toMatch(SHAME);
+      expect(withProgress).not.toMatch(CLINICAL);
+      expect(withProgress).not.toMatch(AI);
     });
   }
 });
