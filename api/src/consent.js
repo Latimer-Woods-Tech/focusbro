@@ -36,6 +36,7 @@
 import {
   detectCheckinReply,
   isProgressReply,
+  keptNoteFromReply,
   applyCheckinOutcome,
   parseWhenReply,
   smsKeptReplyCopy,
@@ -559,7 +560,12 @@ export function registerConsentRoutes(router, ctx) {
         const result = await applyCheckinOutcome(env, {
           userId: user.id,
           checkin: { id: open.checkin_id, commitment_id: open.commitment_id },
-          commitment, outcome: 'kept', note: 'via SMS reply',
+          // Keep the person's OWN words as the note when their "done" carried
+          // them ("done, finally filed the taxes 🎉"), so the kept-word history
+          // reads back in their voice, not a robotic label. A wordless emoji
+          // "done" falls back to the neutral provenance note. `text` is the raw
+          // inbound body in scope at both call sites.
+          commitment, outcome: 'kept', note: keptNoteFromReply(text),
         });
         await sendSms(env, phone, smsKeptReplyCopy({ persona, streak: result.streak.current_streak }));
         return jsonResponse({ ok: true, action: 'checkin_kept' }, 200);
