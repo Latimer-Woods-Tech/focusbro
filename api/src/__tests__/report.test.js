@@ -20,6 +20,7 @@ import {
   rhythmsIntroCopy,
   rhythmNextCopy,
   reportPeakDayCopy,
+  reportKeptNoteLabelCopy,
   buildWeeklyReport,
   renderReportText,
 } from '../report.js';
@@ -296,6 +297,45 @@ describe('buildWeeklyReport + renderReportText — peak-day anchor rides the spa
   });
 });
 
+describe('own-voice note (R-266) — the person\'s last kept word rides in the report', () => {
+  const base = {
+    streak: { current_streak: 2, longest_streak: 5, total_kept: 12 },
+    keptTimestamps: [daysAgo(1)],
+    rhythms: [],
+    timezone: 'UTC',
+    nowISO: NOW,
+  };
+
+  it('surfaces the most recent kept-with-a-note as { label, note }', () => {
+    const rep = buildWeeklyReport({ ...base, latestNote: { note: 'finally filed the taxes 🎉', title: 'Taxes', kept_at: daysAgo(1) } });
+    expect(rep.kept_note).toEqual({ label: reportKeptNoteLabelCopy(), note: 'finally filed the taxes 🎉' });
+  });
+
+  it('trims surrounding whitespace but keeps the person\'s words verbatim', () => {
+    const rep = buildWeeklyReport({ ...base, latestNote: { note: '  got the first paragraph down  ', title: 'Write' } });
+    expect(rep.kept_note.note).toBe('got the first paragraph down');
+  });
+
+  it('is null when no kept word carried a note (absent, empty, or whitespace)', () => {
+    expect(buildWeeklyReport({ ...base }).kept_note).toBeNull();
+    expect(buildWeeklyReport({ ...base, latestNote: null }).kept_note).toBeNull();
+    expect(buildWeeklyReport({ ...base, latestNote: { note: '' } }).kept_note).toBeNull();
+    expect(buildWeeklyReport({ ...base, latestNote: { note: '   ' } }).kept_note).toBeNull();
+  });
+
+  it('reads the note back, quoted, in the rendered report text', () => {
+    const rep = buildWeeklyReport({ ...base, latestNote: { note: 'finally filed the taxes', title: 'Taxes' } });
+    const text = renderReportText(rep);
+    expect(text).toContain(reportKeptNoteLabelCopy());
+    expect(text).toContain('“finally filed the taxes”');
+  });
+
+  it('adds no note line to the text when there is no note', () => {
+    const text = renderReportText(buildWeeklyReport({ ...base }));
+    expect(text).not.toContain(reportKeptNoteLabelCopy());
+  });
+});
+
 describe('copy law — a weekly report never reads shame, "AI", or a clinical claim', () => {
   const SHAME_PATTERNS = [
     /\bfail(ed|ure|ing|s)?\b/i,
@@ -335,6 +375,9 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     // The peak-day anchor for the momentum shape — celebrates a high point only.
     reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }),
     reportPeakDayCopy({ count: 2, whenPhrase: 'today' }),
+    // The own-voice note frame (R-266): the label the copy-law gate scans; the
+    // person's note text rides beside it verbatim and is never scanned.
+    reportKeptNoteLabelCopy(),
   ];
 
   it('produces non-empty strings for every report copy path', () => {
