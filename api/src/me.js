@@ -327,6 +327,20 @@ export function keptLogEmptyCopy() {
 // accountability.js — the API that emits it — and is imported at the top of this
 // module for the page shell + the design-LAW copy surface.
 
+/**
+ * Warm framing label for the /me/ "momentum read" — the person's OWN words from
+ * the most recent word they kept-with-a-note, read back to them beneath the
+ * momentum sparkline. Returning to the page is greeted by your last win in your
+ * own voice, not a bare tick. The label is the frame only; the person's note
+ * text is rendered (escaped, in quotes) alongside it by the client, so THEIR
+ * words are never scanned — this label carries all the tone the gate checks.
+ * DESIGN LAW: a celebration and a memory, never a tally, never "AI", never
+ * clinical. Shown only when a kept word actually carried a note.
+ */
+export function latestKeptNoteLabelCopy() {
+  return 'Last word you kept, in your own words';
+}
+
 /** The standing promise at the foot of the page — the design LAW, in plain words. */
 export function mePageFootnoteCopy() {
   return 'FocusBro is an ally, not a boss. When a check-in lands and it didn’t happen, ' +
@@ -388,6 +402,7 @@ export function meCopySurface() {
     momentumSelfSummaryCopy({ total: 0, days: 14 }),
     momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
     momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
+    latestKeptNoteLabelCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
   ];
@@ -507,6 +522,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   <div class="card hidden" id="momentumCard">
     <h2>${momentumSelfHeadingCopy()}</h2>
     <div id="momentum"></div>
+    <p class="latest-note hidden" id="latestNote"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -731,10 +747,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // The warm one-line "momentum read": the person's OWN words from the most recent
+  // word they kept-with-a-note, read back beneath the sparkline. Frame comes from
+  // the design-LAW-scanned label; the note itself is their own text (escaped, in
+  // quotes). Rides inside the momentum card, so it only ever shows once there is
+  // real momentum — and only when a kept word actually carried a note. No note yet
+  // → the line stays hidden (never a blank or a scold).
+  var LATEST_NOTE_LABEL = ${JSON.stringify(latestKeptNoteLabelCopy())};
+  function renderLatestNote(ln) {
+    var host = el('latestNote');
+    if (!host) return;
+    var note = ln && typeof ln.note === 'string' ? ln.note.trim() : '';
+    if (!note) { host.classList.add('hidden'); host.textContent = ''; return; }
+    host.innerHTML = '<span class="latest-note-label">' + esc(LATEST_NOTE_LABEL) + '</span> “' + esc(note) + '”';
+    host.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(function (data) { renderKept(data); renderMomentum(data && data.momentum); })
+      .then(function (data) { renderKept(data); renderMomentum(data && data.momentum); renderLatestNote(data && data.latest_note); })
       .catch(function () {});
   }
 

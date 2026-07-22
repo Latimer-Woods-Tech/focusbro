@@ -113,6 +113,9 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .spark-bar.zero { background: var(--border); }
   .momentum-summary { color: var(--text-muted); font-size: 13px; margin: 4px 0 2px; }
   .momentum-peak { color: var(--primary-light); font-size: 13px; font-weight: 600; margin: 2px 0 0; }
+  /* the person's own words, read back beneath the sparkline — a warm memory, never a tally */
+  .latest-note { color: var(--text); font-size: 14px; font-style: italic; margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .latest-note-label { color: var(--text-dim); font-style: normal; font-size: 12px; display: block; margin-bottom: 2px; }
   /* weekly report */
   .headline { font-size: 18px; font-weight: 600; margin: 0 0 6px; color: var(--text); }
   .showed-up { color: var(--primary-light); font-size: 13px; margin: 8px 0 0; }

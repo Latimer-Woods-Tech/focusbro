@@ -22,6 +22,7 @@ import {
   keptNotePromptCopy,
   keptLogHeadingCopy,
   keptLogEmptyCopy,
+  latestKeptNoteLabelCopy,
   mePageFootnoteCopy,
   firstRunHeadingCopy,
   firstRunBodyCopy,
@@ -228,6 +229,14 @@ describe('renderMePage', () => {
     expect(html).toContain('.spark-bar');              // the scaled bar styles
     expect(html).toContain('spark-bar zero');          // a quiet day is a grey baseline bar, not a gap
     expect(html).toContain('role="img"');              // the sparkline is a labelled image
+  });
+
+  it('renders the "last word you kept, in your own words" momentum read (own voice, read back)', () => {
+    expect(html).toContain('id="latestNote"');            // the one-line read host, inside the momentum card
+    expect(html).toContain(latestKeptNoteLabelCopy());     // the design-LAW-scanned framing label
+    expect(html).toContain('function renderLatestNote');   // the client-side renderer
+    expect(html).toContain('data.latest_note');            // fed from the kept endpoint response
+    expect(html).toContain('.latest-note');                // the quoted-note style
   });
 
   it('wires the optional own-voice kept-note affordance beside the instant keep', () => {
