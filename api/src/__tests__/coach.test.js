@@ -32,6 +32,7 @@ import {
   COACH_REACH_OUT_QUIET_DAYS,
   backAfterReachCopy,
   clientMilestoneCopy,
+  clientSharesReflectionsCopy,
   HOMECOMING_DIGEST_WINDOW_DAYS,
   homecomingDigestIntroCopy,
   homecomingDigestSummaryCopy,
@@ -183,6 +184,7 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientMilestoneCopy({ streak: { current_streak: 14 } }),
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
     clientMilestoneCopy({ streak: { current_streak: 100 } }),
+    clientSharesReflectionsCopy({ shares: true }),
     homecomingDigestIntroCopy(),
     homecomingDigestSummaryCopy({ count: 0 }),
     homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
@@ -348,6 +350,52 @@ describe('clientMilestoneCopy — the coach twin of the person-side milestone ba
     expect(m.length > 0).toBe(true);
     expect(m).not.toBe(backAfterReachCopy({ back: true }));
     expect(m).not.toBe(reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }));
+  });
+});
+
+// ── "SHARES THEIR REFLECTIONS" INDICATOR — a client's own opt-in, at a glance ─
+describe('clientSharesReflectionsCopy — celebrates a client opening up, never a withholding', () => {
+  it('is silent unless the caller passes an explicit shares: true', () => {
+    // The roster query owns the decision (it reads the consent flag); the copy
+    // trusts nothing but a literal true, so a not-shared client is never surfaced.
+    expect(clientSharesReflectionsCopy({ shares: false })).toBe('');
+    expect(clientSharesReflectionsCopy({ shares: 1 })).toBe('');
+    expect(clientSharesReflectionsCopy({ shares: 'yes' })).toBe('');
+    expect(clientSharesReflectionsCopy({ shares: null })).toBe('');
+    expect(clientSharesReflectionsCopy({})).toBe('');
+    expect(clientSharesReflectionsCopy()).toBe('');
+  });
+
+  it('surfaces a warm cue when a client has chosen to share their words', () => {
+    const s = clientSharesReflectionsCopy({ shares: true });
+    expect(s.trim().length).toBeGreaterThan(0);
+    // Names the client's openness and points the coach to where the words live —
+    // a celebration of their choice, an invitation to receive it.
+    expect(s.toLowerCase()).toMatch(/their own words|sharing/);
+    expect(s.toLowerCase()).toMatch(/note/);
+  });
+
+  it('never quotes the words, tallies, or frames a not-shared client as holding back', () => {
+    const s = clientSharesReflectionsCopy({ shares: true });
+    // The cue is about the CHOICE to open up — never the content, never a count,
+    // never a judgement about what a quiet client is (not) doing.
+    for (const pat of [
+      /\bshould\b/i, /\bfinally\b/i, /\bholding back\b/i, /\bwithhold/i, /\bstill\b/i,
+      /\brefus/i, /\bwon['’]?t\b/i, /\bmiss(es|ed|ing)?\b/i, /\bfail(ed|ure|ing|s)?\b/i,
+      /\d/, // no count — the openness is qualitative, never a scoreboard
+    ]) {
+      expect(pat.test(s), `shares-reflections cue smuggles a tally/withholding frame: "${s}" matched ${pat}`).toBe(false);
+    }
+  });
+
+  it('is independent of the milestone / reach-out / back cues — its own good news', () => {
+    // A client's choice to share is orthogonal to the return-loop and milestone
+    // states; the copy carries no coupling to any of them.
+    const s = clientSharesReflectionsCopy({ shares: true });
+    expect(s.length > 0).toBe(true);
+    expect(s).not.toBe(clientMilestoneCopy({ streak: { current_streak: 7 } }));
+    expect(s).not.toBe(backAfterReachCopy({ back: true }));
+    expect(s).not.toBe(reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }));
   });
 });
 
