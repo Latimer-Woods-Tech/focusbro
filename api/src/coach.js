@@ -281,6 +281,40 @@ export function clientMilestoneCopy({ streak } = {}) {
   return `🎯 ${cur} kept words in a row — a milestone just landed. A great moment to send a word.`;
 }
 
+// ── "SHARES THEIR REFLECTIONS" INDICATOR (client-controlled, opt-in) ─────────
+// R-267 lets a client choose to share their OWN WORDS — the free-text they leave
+// on a kept word — with their coach (default OFF; the client toggles it from
+// /me/, `coach_note_consent`). Once shared, those words already reach the coach
+// inside the between-session note (buildClientNote, gated on getNoteSharingOptIn).
+// But whether a client has opened their words is otherwise invisible on the
+// roster — a coach can only infer it by opening each client's note and noticing
+// words are (or aren't) there. This surfaces the client's OWN choice at a glance:
+// a warm, momentum-framed cue on the roster card when a client has chosen to let
+// the coach hear their voice, so the coach knows to look for it and can honor
+// the openness. It reads only the consent flag the roster query already resolves
+// — never the words themselves.
+//
+// DESIGN LAW, by construction: this reflects a client's affirmative, reversible
+// choice to open up — never a demand, a tally, or a judgement. It says nothing
+// when a client has NOT shared (silence is the neutral default, never framed as
+// "they're holding back"); it never quotes or scans the words (they own their
+// words); it celebrates the openness and names no count and no gap.
+
+/**
+ * The warm roster cue for an active client who has opted in to sharing their own
+ * words (their kept-word notes) with the coach. Returns '' unless `shares` is
+ * exactly true, so a card carries it ONLY for a client who chose to open up —
+ * never for one who has not (that is the neutral default, never surfaced as a
+ * withholding). Purely names the client's openness and invites the coach to
+ * receive it; no count, no gap, no judgement.
+ * @param {object} p { shares } — true iff the client opted in (getNoteSharingOptIn)
+ * @returns {string} the cue, or '' when the client has not opted in
+ */
+export function clientSharesReflectionsCopy({ shares } = {}) {
+  if (shares !== true) return '';
+  return '💬 They’re sharing their own words with you — you’ll find them in this week’s note.';
+}
+
 // ── COACH-VISIBLE WEEKLY SNAPSHOT (the coach-proof report, operator side) ────
 // A person can generate a /me/report and copy/paste or mail it to their coach.
 // This surfaces the SAME seven-day kept-word summary natively on the coach's
@@ -874,6 +908,35 @@ export function registerCoachRoutes(router, ctx) {
           entry.back_line = (!quietSet.has(entry.client_id) && backSet.has(entry.client_id))
             ? backAfterReachCopy({ back: true })
             : '';
+        }
+
+        // "Shares their reflections" indicator: which active clients have opted
+        // in to sharing their OWN WORDS with the coach (R-267 consent; default
+        // OFF). ONE grouped query over the active set (no N+1), reading only the
+        // client-controlled consent flag — never the words themselves. Non-fatal
+        // by construction: an at-a-glance indicator must never take down the
+        // roster, so any failure (or a missing consent table) just yields no cue.
+        // DESIGN LAW: this reflects a client's affirmative, reversible choice to
+        // open up; a client who has not shared is simply absent here — a clean
+        // card, never flagged as withholding.
+        let sharesSet = new Set();
+        try {
+          const shareRows = await env.DB.prepare(
+            `SELECT user_id AS client_id
+               FROM coach_note_consent
+              WHERE user_id IN (${placeholders})
+                AND shared = 1`
+          ).bind(...activeIds).all();
+          for (const r of (shareRows && shareRows.results) || []) sharesSet.add(r.client_id);
+        } catch (err) {
+          console.warn('[coach] shares-reflections query failed:', err && err.message);
+          sharesSet = new Set();
+        }
+        for (const entry of roster) {
+          if (entry.status !== 'active') continue;
+          const shares = sharesSet.has(entry.client_id);
+          entry.shares_reflections = shares;
+          entry.shares_reflections_line = clientSharesReflectionsCopy({ shares });
         }
 
         // Weekly homecoming digest: the batched, between-session twin of the
