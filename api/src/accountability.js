@@ -2528,13 +2528,28 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (auth.error) return auth.error;
 
       const rows = await env.DB.prepare(
-        `SELECT k.responded_at AS kept_at, c.title AS title
+        `SELECT k.responded_at AS kept_at, c.title AS title, k.note AS note
            FROM commitment_checkins k
            JOIN commitments c ON c.id = k.commitment_id
           WHERE k.user_id = ? AND k.status = 'kept'
           ORDER BY k.responded_at DESC
           LIMIT 50`
       ).bind(auth.userId).all();
+      const keptList = (rows && rows.results) || [];
+
+      // The warm one-line "momentum read" for /me/ (Phase A): the most recent word
+      // the person kept WITH a note, read back to them in their OWN words. The rows
+      // are DESC by kept-at, so the first one carrying a non-empty note is the
+      // latest — a returning person is greeted by their last win in their own
+      // voice, not a bare tick. DESIGN LAW: own-voice celebration and a memory,
+      // never a tally; and (like every row in this query) status='kept' ONLY, so a
+      // set-down or missed word can never reach it. Null when no kept word carried
+      // a note yet — the client simply shows nothing, never an empty scold.
+      let latestNote = null;
+      for (const r of keptList) {
+        const n = typeof r.note === 'string' ? r.note.trim() : '';
+        if (n) { latestNote = { note: n, title: r.title, kept_at: r.kept_at }; break; }
+      }
 
       const streak = await loadStreak(env, auth.userId);
       const total = Number(streak.total_kept) || 0;
@@ -2570,7 +2585,8 @@ export function registerAccountabilityRoutes(router, ctx) {
       });
 
       return jsonResponse({
-        kept: (rows && rows.results) || [],
+        kept: keptList,
+        latest_note: latestNote,
         total_kept: total,
         momentum,
         message: keptLogCopy({ total }),

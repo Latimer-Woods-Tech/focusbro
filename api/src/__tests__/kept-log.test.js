@@ -120,6 +120,55 @@ describe('GET /api/accountability/kept — the record of words you kept', () => 
   });
 });
 
+// ── latest_note: your last win, read back in your OWN words ──
+// The warm one-line "momentum read" on /me/. The endpoint scans the kept rows
+// (DESC by kept-at) for the most recent one that carried a note and returns it,
+// so a returning person is greeted by their last win in their own voice. DESIGN
+// LAW: it can only ever surface a status='kept' word (the query is kept-only),
+// so a set-down or missed word can never reach it.
+describe('GET /api/accountability/kept — latest_note (your own words, read back)', () => {
+  it('returns the note from the MOST RECENT kept word that carried one', async () => {
+    const kept = [
+      { kept_at: '2026-07-09T14:00:00Z', title: 'start the taxes', note: 'done, finally filed 🎉' },
+      { kept_at: '2026-07-08T09:00:00Z', title: 'call the dentist', note: 'booked for Friday' },
+    ];
+    const db = makeDB({ kept, streak: { total_kept: 2 } });
+    const res = await buildRouter(db)('GET', '/api/accountability/kept');
+    const body = await res.json();
+    expect(body.latest_note).toEqual({ note: 'done, finally filed 🎉', title: 'start the taxes', kept_at: '2026-07-09T14:00:00Z' });
+  });
+
+  it('skips the latest kept word when it had no note and reads back the last one that did', async () => {
+    const kept = [
+      { kept_at: '2026-07-09T14:00:00Z', title: 'start the taxes', note: '   ' }, // a bare tick — no words
+      { kept_at: '2026-07-08T09:00:00Z', title: 'call the dentist', note: 'booked for Friday' },
+    ];
+    const db = makeDB({ kept, streak: { total_kept: 2 } });
+    const body = await (await buildRouter(db)('GET', '/api/accountability/kept')).json();
+    expect(body.latest_note).toEqual({ note: 'booked for Friday', title: 'call the dentist', kept_at: '2026-07-08T09:00:00Z' });
+  });
+
+  it('is null when no kept word carried a note yet — the client shows nothing, never a blank scold', async () => {
+    const kept = [
+      { kept_at: '2026-07-09T14:00:00Z', title: 'start the taxes' }, // note absent
+      { kept_at: '2026-07-08T09:00:00Z', title: 'call the dentist', note: '' },
+    ];
+    const db = makeDB({ kept, streak: { total_kept: 2 } });
+    const body = await (await buildRouter(db)('GET', '/api/accountability/kept')).json();
+    expect(body.latest_note).toBeNull();
+  });
+
+  it('is null on an empty record, and the kept query reads the note column (kept-only, never a miss)', async () => {
+    const db = makeDB({ kept: [], streak: null });
+    const body = await (await buildRouter(db)('GET', '/api/accountability/kept')).json();
+    expect(body.latest_note).toBeNull();
+    const joinQuery = db.queries.find((q) => /FROM commitment_checkins/.test(q) && /JOIN commitments/.test(q));
+    expect(/k\.note/.test(joinQuery), 'kept-log query selects the note').toBe(true);
+    expect(/status = 'kept'/.test(joinQuery)).toBe(true);
+    expect(/missed/i.test(joinQuery)).toBe(false);
+  });
+});
+
 // ── the design LAW on the kept-log copy ──────────────────────
 describe('kept-log copy — a positive record, never a scold', () => {
   const SHAME = [
