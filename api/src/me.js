@@ -233,6 +233,27 @@ export function checkinActionLabels() {
   return { kept: 'I did it', missed: 'Not yet', reschedule: 'Move it' };
 }
 
+/**
+ * The optional sibling of "I did it": keep the word AND leave a word about it,
+ * so the person's kept-word history reads back in their OWN voice — parity with
+ * the SMS "done, finally filed the taxes 🎉" path (a text reply's real words
+ * already become the kept-note). The plain "I did it" stays the instant one-tap
+ * keep; this only invites a person who wants to mark the moment to add one.
+ */
+export function keptWithNoteActionLabel() {
+  return 'I did it, and…';
+}
+
+/**
+ * The optional prompt shown when a person chooses to leave a word alongside a
+ * kept word. Purely a celebration of what they just did and a note for their own
+ * history — never required, never a scold, never a tally. Empty is fine (the word
+ * is kept either way); backing out keeps nothing and leaves the fast tap free.
+ */
+export function keptNotePromptCopy() {
+  return 'Love it — you did it. Want to add a word about how it went? (Optional, just for your own history.)';
+}
+
 /** The quiet "I'm setting this word down" action — a blameless exit, not a miss. */
 export function releaseActionLabel() {
   return 'Set it down';
@@ -343,6 +364,8 @@ export function meCopySurface() {
     milestoneCopy({ streak: { current_streak: 3 } }),
     milestoneCopy({ streak: { current_streak: 100 } }),
     labels.kept, labels.missed, labels.reschedule,
+    keptWithNoteActionLabel(),
+    keptNotePromptCopy(),
     releaseActionLabel(),
     snoozeActionLabel(),
     pauseActionLabel(),
@@ -377,6 +400,8 @@ export function meCopySurface() {
  */
 export function renderMePage() {
   const A = checkinActionLabels();
+  const KEPT_NOTE = keptWithNoteActionLabel();
+  const KEPT_NOTE_PROMPT = keptNotePromptCopy();
   const RELEASE = releaseActionLabel();
   const SNOOZE = snoozeActionLabel();
   const PAUSE = pauseActionLabel();
@@ -753,6 +778,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         var isRecur = (c.recurrence === 'daily' || c.recurrence === 'weekdays');
         html += '<div class="actions">'
           + '<button class="small" data-act="kept" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.kept)}) + '</button>'
+          + '<button class="small secondary" data-act="kept-note" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(KEPT_NOTE)}) + '</button>'
           + '<button class="small secondary" data-act="snooze" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(SNOOZE)}) + '</button>'
           + '<button class="small secondary" data-act="missed" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.missed)}) + '</button>'
           + '<button class="small secondary" data-act="reschedule" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(A.reschedule)}) + '</button>'
@@ -1217,6 +1243,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var id = btn.getAttribute('data-id');
     var act = btn.getAttribute('data-act');
     if (act === 'kept') { resolve(id, 'kept'); return; }
+    if (act === 'kept-note') {
+      // Keep the word AND carry the person's own words into its kept-note, so the
+      // per-word history reads back in their voice — parity with the SMS "done,
+      // finally filed the taxes 🎉" path. The plain "I did it" stays the instant
+      // keep; this is the opt-in "mark the moment" sibling. A cancelled prompt
+      // (null) backs out entirely and leaves the fast tap free; a submitted value
+      // — even empty — keeps the word, with the trimmed words as the note when
+      // present. The server stores body.note the same way it stores an SMS reply's
+      // words, and the streak is never read or written here (a keep is a keep).
+      var word = prompt(${JSON.stringify(KEPT_NOTE_PROMPT)});
+      if (word === null) return;
+      var trimmed = word.trim();
+      resolve(id, 'kept', trimmed ? { note: trimmed } : undefined);
+      return;
+    }
     if (act === 'snooze') { snooze(id); return; }
     if (act === 'pause') { pause(id); return; }
     if (act === 'resume') { resume(id); return; }
