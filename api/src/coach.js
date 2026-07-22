@@ -57,6 +57,28 @@ export function looksLikeEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+/**
+ * Whether a client has opted in to letting a coach hear their OWN WORDS — the
+ * free-text they leave on a kept word. Accepting a coach shares kept-word
+ * momentum (aggregate counts) by construction; a client's verbatim note is a
+ * further, separate consent, gated by this flag. Default OFF: a missing row, a
+ * `shared` of 0, or any read error all mean "do not share the words", so the
+ * client's free-text can never leak to a coach by accident.
+ * @param {object} env  Worker env (env.DB)
+ * @param {string} userId  the client's user id
+ * @returns {Promise<boolean>}
+ */
+export async function getNoteSharingOptIn(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT shared FROM coach_note_consent WHERE user_id = ?`
+    ).bind(userId).first();
+    return !!(row && Number(row.shared) === 1);
+  } catch (err) {
+    return false;
+  }
+}
+
 // ── ROSTER COPY ENGINE ───────────────────────────────────────
 // Every string a coach reads about a client is warm and momentum-framed.
 // We celebrate kept words; we never surface a failure tally. On a fresh or
@@ -357,6 +379,19 @@ export function clientNotePeakDayCopy({ count, whenPhrase } = {}) {
 }
 
 /**
+ * The framing label for the client's OWN WORDS inside the between-session note —
+ * the coach reflecting a win back to the client in the client's own voice. This
+ * label is the ONLY part scanned by the copy-law battery; the client's note
+ * itself is rendered verbatim beside it and is never scanned (they own their
+ * words, however they chose to phrase them). Kept-word framed and celebratory by
+ * construction: it can only ever introduce a word the client KEPT, never a miss.
+ * @returns {string}
+ */
+export function clientNoteOwnWordsLabelCopy() {
+  return 'In your own words, from a word you kept this week';
+}
+
+/**
  * Build the plain-text between-session note a coach can copy and send a client.
  * Second person, no markup — ready to paste into a text or email. Assembled
  * purely from a buildWeeklyReport() result (report.js), so its counts can never
@@ -384,6 +419,19 @@ export function buildClientNote(weekly, { label = '', peakDayName = '' } = {}) {
   lines.push(`Hi${name ? ' ' + name : ''} — a quick note between our sessions.`);
   lines.push('');
   lines.push(clientNoteKeptCopy({ keptThisWeek: kept }));
+  // The client's OWN WORDS, read back to them: the most recent word they kept
+  // WITH a note, in their own voice. Present ONLY when the client opted in to
+  // sharing their words with a coach (the route resolves the note behind
+  // getNoteSharingOptIn and passes it into buildWeeklyReport as `latestNote`,
+  // so `kept_note` is null here without consent) — a strictly additive line.
+  // DESIGN LAW: buildWeeklyReport derives kept_note from a KEPT-only scan, so
+  // this can only ever quote a word the client kept; the words are rendered
+  // verbatim, framed by the copy-law-scanned label, never tallied or judged.
+  const keptNote = (w.kept_note && typeof w.kept_note === 'object') ? w.kept_note : null;
+  const ownWords = keptNote && typeof keptNote.note === 'string' ? keptNote.note.trim() : '';
+  if (ownWords) {
+    lines.push(`${clientNoteOwnWordsLabelCopy()}: “${ownWords}”`);
+  }
   // The week's SHAPE, not just its count: the same kept-per-day sparkline the
   // person sees on /me/report, dropped into the note as plain text so a coach's
   // between-session message carries the momentum picture, not a bare number.
@@ -975,6 +1023,28 @@ export function registerCoachRoutes(router, ctx) {
       ).bind(clientId, EVENTS.CHECKIN_DELIVERED, windowCutoffISO).all();
       const deliveredTimestamps = ((deliveredRows && deliveredRows.results) || []).map((r) => r.created_at);
 
+      // The client's OWN WORDS ride the between-session note ONLY when the client
+      // has opted in to sharing them (default OFF — getNoteSharingOptIn). The
+      // coach link shares kept-word MOMENTUM by construction; the client's
+      // free-text is a further, separate consent. Without opt-in this stays null
+      // and the note is unchanged. The scan is KEPT-only and DESC, so `latestNote`
+      // is the most recent word the client kept WITH a note — never a miss.
+      let latestNote = null;
+      if (await getNoteSharingOptIn(env, clientId)) {
+        const noteRows = await env.DB.prepare(
+          `SELECT k.responded_at AS kept_at, c.title AS title, k.note AS note
+             FROM commitment_checkins k
+             JOIN commitments c ON c.id = k.commitment_id
+            WHERE k.user_id = ? AND k.status = 'kept'
+            ORDER BY k.responded_at DESC
+            LIMIT 50`
+        ).bind(clientId).all();
+        for (const r of (noteRows && noteRows.results) || []) {
+          const n = typeof r.note === 'string' ? r.note.trim() : '';
+          if (n) { latestNote = { note: n, title: r.title, kept_at: r.kept_at }; break; }
+        }
+      }
+
       // Built from the SAME pure buildWeeklyReport the person's report uses, so a
       // coach's "this week" count can never drift from what the client sees. We
       // consume only the kept-word counts + window and re-voice them for the coach
@@ -989,6 +1059,7 @@ export function registerCoachRoutes(router, ctx) {
           title: c.title, recurrence: c.recurrence, local_time: c.local_time,
           timezone: c.timezone, next_checkin: c.next_checkin,
         })),
+        latestNote,
         timezone: momentumTz,
         nowISO,
       });
@@ -1102,4 +1173,42 @@ export function registerCoachRoutes(router, ctx) {
       return jsonResponse({ error: 'Could not update that invitation.' }, 500);
     }
   }
+
+  // ── CLIENT side: read whether my own words may ride a coach note ──
+  // Client-scoped: a person controls the sharing of THEIR free-text, and only
+  // ever reads/writes their own row. Default OFF when no row exists yet.
+  router.get('/api/coach/note-consent', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const shared = await getNoteSharingOptIn(env, auth.userId);
+      return jsonResponse({ shared }, 200, 'short');
+    } catch (err) {
+      console.error('[coach] note-consent get error:', err && err.message);
+      return jsonResponse({ error: 'Could not load that setting.' }, 500);
+    }
+  });
+
+  // ── CLIENT side: turn own-words sharing on or off (own row only) ──
+  router.post('/api/coach/note-consent', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      if (!body || typeof body.shared !== 'boolean') {
+        return jsonResponse({ error: 'shared must be true or false.' }, 400);
+      }
+      const shared = body.shared ? 1 : 0;
+      await env.DB.prepare(
+        `INSERT INTO coach_note_consent (user_id, shared, updated_at)
+              VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET shared = excluded.shared, updated_at = CURRENT_TIMESTAMP`
+      ).bind(auth.userId, shared).run();
+      return jsonResponse({ ok: true, shared: body.shared }, 200);
+    } catch (err) {
+      console.error('[coach] note-consent set error:', err && err.message);
+      return jsonResponse({ error: 'Could not save that just now — try again.' }, 500);
+    }
+  });
 }

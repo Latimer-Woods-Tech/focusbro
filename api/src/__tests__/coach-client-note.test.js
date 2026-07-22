@@ -20,6 +20,8 @@ import {
   registerCoachRoutes,
   clientNoteKeptCopy,
   clientNotePeakDayCopy,
+  clientNoteOwnWordsLabelCopy,
+  getNoteSharingOptIn,
   buildClientNote,
 } from '../coach.js';
 import { buildWeeklyReport } from '../report.js';
@@ -70,9 +72,58 @@ describe('clientNotePeakDayCopy — a warm anchor for the shape', () => {
   });
 });
 
+// ── consent gate: the client's own words reach a coach only on opt-in ──
+describe('getNoteSharingOptIn — default OFF, privacy-first', () => {
+  const envWith = (row) => ({ DB: { prepare: () => ({ bind: () => ({ first: async () => row }) }) } });
+
+  it('is false when no row exists yet (never shared by default)', async () => {
+    expect(await getNoteSharingOptIn(envWith(null), 'u1')).toBe(false);
+  });
+  it('is false when the row explicitly says shared = 0', async () => {
+    expect(await getNoteSharingOptIn(envWith({ shared: 0 }), 'u1')).toBe(false);
+  });
+  it('is true only when the row says shared = 1', async () => {
+    expect(await getNoteSharingOptIn(envWith({ shared: 1 }), 'u1')).toBe(true);
+  });
+  it('fails closed to false on a read error (words never leak on a glitch)', async () => {
+    const env = { DB: { prepare: () => { throw new Error('db down'); } } };
+    expect(await getNoteSharingOptIn(env, 'u1')).toBe(false);
+  });
+});
+
+describe('clientNoteOwnWordsLabelCopy — the framing for the client\'s own words', () => {
+  it('is a non-empty, celebratory, kept-word-framed label', () => {
+    const s = clientNoteOwnWordsLabelCopy();
+    expect(typeof s).toBe('string');
+    expect(s.length).toBeGreaterThan(0);
+    expect(s.toLowerCase()).toContain('kept');
+    expect(banned.test(s), `banned word in label: ${s}`).toBe(false);
+  });
+});
+
 // ── pure builder: the full plain-text note ──
 describe('buildClientNote — the copy-pasteable between-session note', () => {
   const future = (hrs) => new Date(Date.now() + hrs * 3600 * 1000).toISOString();
+
+  it('reads the client\'s own words back only when the weekly carries a kept_note', () => {
+    const withNote = buildClientNote(
+      { kept_this_week: 2, kept_note: { label: 'ignored — coach note uses its own', note: 'finally filed the taxes 🎉' } },
+      { label: 'Sam' }
+    );
+    expect(withNote).toContain(clientNoteOwnWordsLabelCopy());
+    expect(withNote).toContain('“finally filed the taxes 🎉”');
+    // the label frames it; the words ride verbatim right after the kept-count line
+    const kept = withNote.indexOf('You kept 2 words');
+    const own = withNote.indexOf(clientNoteOwnWordsLabelCopy());
+    expect(own).toBeGreaterThan(kept);
+  });
+
+  it('omits the own-words line entirely with no kept_note (the no-consent path)', () => {
+    const note = buildClientNote({ kept_this_week: 2 }, { label: 'Sam' });
+    expect(note).not.toContain(clientNoteOwnWordsLabelCopy());
+    const empty = buildClientNote({ kept_this_week: 2, kept_note: { note: '   ' } }, { label: 'Sam' });
+    expect(empty).not.toContain(clientNoteOwnWordsLabelCopy());
+  });
 
   it('greets by the client label and carries the kept-word line', () => {
     const weekly = { kept_this_week: 3 };

@@ -121,6 +121,27 @@ export function escalationCeilingVoiceSoonCopy() {
   return 'A gentle call is on the way — soon you’ll be able to add it as the last rung, only if you want it.';
 }
 
+/** Heading over the coach own-words sharing control — the person's own words, their call. */
+export function noteSharingHeadingCopy() {
+  return 'Let a coach hear your words';
+}
+
+/**
+ * The promise under the heading. Names exactly what turning this on does and
+ * what stays private, and that it is off until the person chooses it — so the
+ * control reads as a gift of consent, never a default give-away. Anti-shame by
+ * construction: it only ever talks about words you KEEP.
+ * @returns {string}
+ */
+export function noteSharingIntroCopy() {
+  return 'If you work with a coach through FocusBro, they already see your kept-word momentum. Turn this on and the note they can send you may also carry your own words from a word you kept — the little wins you jot down. It’s off unless you turn it on, and you can turn it back off any time.';
+}
+
+/** The checkbox label — a plain, present-tense statement of the choice. */
+export function noteSharingToggleLabelCopy() {
+  return 'Share my own words from a kept word with my coach';
+}
+
 /**
  * First-run welcome heading. Shown ONLY to a signed-in person with zero words
  * given — the activation moment the whole product turns on. An invitation, in
@@ -363,6 +384,9 @@ export function meCopySurface() {
     escalationCeilingIntroCopy(),
     ...escalationCeilingOptions().flatMap((o) => [o.label, o.desc]),
     escalationCeilingVoiceSoonCopy(),
+    noteSharingHeadingCopy(),
+    noteSharingIntroCopy(),
+    noteSharingToggleLabelCopy(),
     firstRunHeadingCopy(),
     firstRunBodyCopy(),
     firstRunExamplesLabel(),
@@ -541,6 +565,16 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <p class="muted" id="ceilingDesc"></p>
     <p class="muted">${escalationCeilingVoiceSoonCopy()}</p>
     <p class="ok hidden" id="ceilingMsg"></p>
+  </div>
+
+  <div class="card" id="noteSharingCard">
+    <h2>${noteSharingHeadingCopy()}</h2>
+    <p class="muted">${noteSharingIntroCopy()}</p>
+    <label style="display:flex; gap:8px; align-items:flex-start;">
+      <input id="noteSharing" type="checkbox" style="width:auto; margin-top:3px;" />
+      <span>${noteSharingToggleLabelCopy()}</span>
+    </label>
+    <p class="ok hidden" id="noteSharingMsg"></p>
   </div>
 
   <div class="card" id="consentCard">
@@ -976,7 +1010,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); }
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 
@@ -1017,6 +1051,42 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           show(m);
         })
         .catch(function () { var m = el('ceilingMsg'); m.textContent = 'Could not save that just now — try again.'; m.className = 'err'; show(m); });
+    });
+  }
+
+  // ── Coach own-words sharing: the person decides whether the note a coach can
+  // send them may carry their own words from a kept word. Off unless they turn
+  // it on; saved the instant they toggle it. A consent gift, never a default.
+  function loadNoteSharing() {
+    var box = el('noteSharing');
+    if (!box) return;
+    fetch('/api/coach/note-consent', { headers: authHeaders() })
+      .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
+      .then(function (data) { box.checked = !!(data && data.shared); })
+      .catch(function () {});
+  }
+  var noteSharingBox = el('noteSharing');
+  if (noteSharingBox) {
+    noteSharingBox.addEventListener('change', function () {
+      hide(el('noteSharingMsg'));
+      fetch('/api/coach/note-consent', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ shared: noteSharingBox.checked })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          var m = el('noteSharingMsg');
+          if (!res.ok) { noteSharingBox.checked = !noteSharingBox.checked; }
+          m.textContent = res.ok
+            ? (noteSharingBox.checked ? 'On — your coach can hear your words now. Change it any time.' : 'Off — your words stay with you.')
+            : (res.b.error || 'Could not save that just now — try again.');
+          m.className = res.ok ? 'ok' : 'err';
+          show(m);
+        })
+        .catch(function () {
+          noteSharingBox.checked = !noteSharingBox.checked;
+          var m = el('noteSharingMsg'); m.textContent = 'Could not save that just now — try again.'; m.className = 'err'; show(m);
+        });
     });
   }
 

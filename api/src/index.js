@@ -356,6 +356,19 @@ async function initializeDatabase(env) {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status)`,
       `CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status)`,
+      // ── COACH NOTE-SHARING CONSENT (Contender #10, Phase A · own-voice / coach) ──
+      // Accepting a coach shares kept-word MOMENTUM (aggregate counts) — that is
+      // all the invite promises. A client's own free-text kept-word notes are a
+      // FURTHER, separate consent: this row gates whether the between-session note
+      // a coach copies may carry the client's own words. Default 0 = OFF; the
+      // client's verbatim words never reach a coach until they turn this on, and
+      // they can turn it back off any time.
+      `CREATE TABLE IF NOT EXISTS coach_note_consent (
+        user_id TEXT PRIMARY KEY,
+        shared INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
       // ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
       // Delivery-side consent state; a text/voice check-in cannot send without a
       // 'granted' row. Quiet hours (recipient-local) hold a due check-in; STOP revokes.
