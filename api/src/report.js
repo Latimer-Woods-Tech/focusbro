@@ -155,6 +155,22 @@ export function reportPeakDayCopy({ count, whenPhrase } = {}) {
   return `Your strongest day so far: ${when} — ${n} words kept. 🔥`;
 }
 
+/**
+ * Warm framing label for the report's "own-voice" line — the shareable/coach-proof
+ * twin of the /me/ momentum read (R-265). The most recent word the person kept
+ * WITH a note, read back in their OWN words, so the artifact a person hands their
+ * coach carries their voice — not only a count and a sparkline. This is the frame
+ * ONLY; the person's note text is rendered (escaped, in quotes) beside it by the
+ * page and appended verbatim in the shared text, so THEIR words are never scanned
+ * — this label carries all the tone the copy-law gate checks.
+ * DESIGN LAW: a celebration and a memory, never a tally, never "AI", never
+ * clinical. Present only when a kept word actually carried a note.
+ * @returns {string}
+ */
+export function reportKeptNoteLabelCopy() {
+  return 'The last word you kept, in your own words';
+}
+
 // ── REPORT BUILDER ───────────────────────────────────────────
 
 /**
@@ -174,7 +190,7 @@ export function reportPeakDayCopy({ count, whenPhrase } = {}) {
  * @param {string} [p.nowISO]          "today" anchor (defaults to now)
  * @returns {object} the structured report
  */
-export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], rhythms = [], timezone, nowISO } = {}) {
+export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], rhythms = [], latestNote = null, timezone, nowISO } = {}) {
   const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
   const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
 
@@ -253,6 +269,18 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     // The warm "strongest day" anchor for the momentum shape ('' unless a genuine
     // 2+ standout). Rendered directly under the sparkline in the shared text.
     peak_day: peakDay,
+    // The person's own voice in the artifact: the most recent word they kept WITH
+    // a note, read back in their own words (parity with the /me/ momentum read,
+    // R-265). The route resolves it from status='kept' rows ONLY, so a set-down or
+    // missed word can never reach this line. `{ label, note }` when a real,
+    // non-empty note exists; null otherwise, so a person who has not left a note
+    // (or a quiet week) simply has no line — never a blank quote or a scold. The
+    // label is scanned by the copy-law gate; the note is the person's own text and
+    // is rendered escaped/verbatim, never scanned.
+    kept_note: (function () {
+      const n = latestNote && typeof latestNote.note === 'string' ? latestNote.note.trim() : '';
+      return n ? { label: reportKeptNoteLabelCopy(), note: n } : null;
+    })(),
     rhythms_intro: rhythmsIntroCopy(activeCount),
     rhythms: rhythmRows,
     next_step: nextStepCopy({ keptThisWeek, activeCount, current }),
@@ -295,6 +323,14 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
     // only for a genuine standout (reportPeakDayCopy gates it), so a flat or
     // quiet window carries the sparkline alone — never a named low day.
     if (report.peak_day) lines.push(report.peak_day);
+  }
+  // The person's own voice, riding just below the momentum shape (same place the
+  // /me/ card reads it back). Present only when a kept word actually carried a
+  // note — otherwise the artifact carries the sparkline alone, never an empty
+  // quote. Label is the scanned frame; the note is the person's verbatim words.
+  if (report.kept_note && report.kept_note.note) {
+    lines.push('');
+    lines.push(`${report.kept_note.label}: “${report.kept_note.note}”`);
   }
   const rhythms = Array.isArray(report.rhythms) ? report.rhythms : [];
   lines.push('');
@@ -365,6 +401,26 @@ export function registerReportRoutes(router, ctx) {
       ).bind(auth.userId, windowCutoffISO).all();
       const keptTimestamps = ((keptRows && keptRows.results) || []).map((r) => r.responded_at);
 
+      // The most recent word the person kept WITH a note — read back into the
+      // report in their OWN words (parity with the /me/ momentum read, R-265). A
+      // separate small DESC scan (status='kept' ONLY, like /api/accountability/kept)
+      // so the momentum query above keeps its shape and a set-down/missed word can
+      // never reach this line. The first row carrying a non-empty trimmed note is
+      // the latest; null when no kept word has carried a note yet.
+      const notedRows = await env.DB.prepare(
+        `SELECT k.responded_at AS kept_at, c.title AS title, k.note AS note
+           FROM commitment_checkins k
+           JOIN commitments c ON c.id = k.commitment_id
+          WHERE k.user_id = ? AND k.status = 'kept'
+          ORDER BY k.responded_at DESC
+          LIMIT 50`
+      ).bind(auth.userId).all();
+      let latestNote = null;
+      for (const r of (notedRows && notedRows.results) || []) {
+        const n = typeof r.note === 'string' ? r.note.trim() : '';
+        if (n) { latestNote = { note: n, title: r.title, kept_at: r.kept_at }; break; }
+      }
+
       // The ally's showings-up: first-party 'checkin_delivered' events for THIS
       // user (the moment the bro rang). Same wide raw window as kept instants;
       // buildWeeklyReport buckets to the trailing 7 local days. A support signal,
@@ -409,7 +465,7 @@ export function registerReportRoutes(router, ctx) {
         next_checkin: nextByCommitment[c.id] || null,
       }));
 
-      const report = buildWeeklyReport({ streak, keptTimestamps, deliveredTimestamps, rhythms, timezone, nowISO });
+      const report = buildWeeklyReport({ streak, keptTimestamps, deliveredTimestamps, rhythms, latestNote, timezone, nowISO });
       const text = renderReportText(report);
 
       return jsonResponse({ report, text }, 200, 'nocache');
@@ -448,6 +504,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     </div>
     <div class="spark" id="spark" aria-hidden="true"></div>
     <p class="momentum-summary" id="momentum-summary"></p>
+    <p class="latest-note hidden" id="kept-note"></p>
     <p class="showed-up" id="showed-up"></p>
     <p class="streakmilestone hidden" id="milestone"></p>
   </div>
@@ -515,6 +572,27 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
         spark.appendChild(bar);
       }
       el('momentum-summary').textContent = mo.summary || '';
+
+      // The person's own voice, read back just below the momentum shape — parity
+      // with the /me/ momentum read. Frame from the copy-law-scanned label; the
+      // note is the person's own words, set via textContent so it is inert. Hidden
+      // entirely when no kept word has carried a note — a clean artifact, never an
+      // empty quote or a scold.
+      var kn = rep.kept_note;
+      var knEl = el('kept-note');
+      var knNote = kn && typeof kn.note === 'string' ? kn.note.trim() : '';
+      if (knNote) {
+        knEl.textContent = '';
+        var knLabel = document.createElement('span');
+        knLabel.className = 'latest-note-label';
+        knLabel.textContent = (kn && kn.label) || '';
+        knEl.appendChild(knLabel);
+        knEl.appendChild(document.createTextNode('“' + knNote + '”'));
+        knEl.classList.remove('hidden');
+      } else {
+        knEl.textContent = '';
+        knEl.classList.add('hidden');
+      }
 
       // Mutual-accountability line: the bro kept its word too. Hidden entirely
       // when there's nothing yet — a quiet page, never a "0 times" negative.
