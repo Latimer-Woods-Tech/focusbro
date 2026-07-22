@@ -29,6 +29,8 @@ import {
   pauseConfirmCopy,
   resumeConfirmCopy,
   streakSummaryCopy,
+  keptNoteFromReply,
+  KEPT_NOTE_FALLBACK,
 } from '../accountability.js';
 
 describe('validateCommitmentInput', () => {
@@ -395,5 +397,47 @@ describe('module constants', () => {
     expect(CHANNELS).toEqual(['push', 'text']); // voice is Phase B
     expect(PERSONAS).toEqual(['ally', 'hype']);
     expect(OUTCOMES).toEqual(['kept', 'missed', 'reschedule']);
+  });
+});
+
+describe('keptNoteFromReply — a kept word reads back in the person’s own voice', () => {
+  it('keeps the person’s own words when their "done" carried them', () => {
+    expect(keptNoteFromReply('done, finally filed the taxes 🎉'))
+      .toBe('done, finally filed the taxes 🎉');
+    expect(keptNoteFromReply('yesss knocked it out')).toBe('yesss knocked it out');
+  });
+
+  it('collapses whitespace and trims, so the history line is clean', () => {
+    expect(keptNoteFromReply('  done   and   dusted  ')).toBe('done and dusted');
+    expect(keptNoteFromReply('did it\n\nfeeling good')).toBe('did it feeling good');
+  });
+
+  it('keeps a bare worded acknowledgment verbatim — it is still their voice', () => {
+    // "done" / "yes" are literally what they said; truer than a robotic label.
+    expect(keptNoteFromReply('done')).toBe('done');
+    expect(keptNoteFromReply('yep')).toBe('yep');
+  });
+
+  it('falls back to the neutral note when the reply has no words of its own', () => {
+    // Emoji- or punctuation-only would only read redundantly beside the ✓.
+    expect(keptNoteFromReply('👍')).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply('✅✅')).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply('!!!')).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply('   ')).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply('')).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply(null)).toBe(KEPT_NOTE_FALLBACK);
+    expect(keptNoteFromReply(undefined)).toBe(KEPT_NOTE_FALLBACK);
+  });
+
+  it('caps an overlong reply so a stored note stays bounded', () => {
+    const long = 'done '.repeat(1000); // ~5000 chars pre-cap
+    const note = keptNoteFromReply(long);
+    expect(note.length).toBeLessThanOrEqual(2000);
+    expect(note.startsWith('done')).toBe(true);
+  });
+
+  it('never emits a scold — this is a KEPT reply by construction', () => {
+    const note = keptNoteFromReply('done — proud of me for once');
+    expect(note).not.toMatch(/fail|behind|missed|should have/i);
   });
 });

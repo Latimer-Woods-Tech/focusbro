@@ -1298,6 +1298,34 @@ export function isProgressReply(text) {
   return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t);
 }
 
+// The neutral provenance note kept when a "done" reply carried no words of its
+// own — an emoji- or punctuation-only "👍" that would only read redundantly
+// beside the ✓ in the kept-word history.
+export const KEPT_NOTE_FALLBACK = 'via SMS reply';
+
+/**
+ * The note to store on a KEPT check-in resolved over SMS, so the kept-word
+ * history reads back in the person's OWN voice. A "done" reply often carries
+ * real words — "done, finally filed the taxes 🎉", "yesss knocked it out" — and
+ * those words are the truest, warmest record of the moment they showed up; keep
+ * THEM verbatim (whitespace-collapsed, trimmed, capped) instead of a robotic
+ * system label. Only a reply with no letters or digits (emoji- or
+ * punctuation-only) has no color worth surfacing, so it falls back to the
+ * neutral `KEPT_NOTE_FALLBACK`. The reply already classified as KEPT upstream,
+ * so this is never a scold and never reads or writes the streak — it only
+ * decides what the person sees written under their own kept word.
+ * @param {string} text  the raw inbound SMS body
+ * @returns {string}  the note to store on the kept check-in
+ */
+export function keptNoteFromReply(text) {
+  const raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  if (!raw) return KEPT_NOTE_FALLBACK;
+  // Needs at least one letter or digit to be "their words"; an emoji-only reply
+  // renders redundantly beside the history tick, so keep the neutral note.
+  if (!/[\p{L}\p{N}]/u.test(raw)) return KEPT_NOTE_FALLBACK;
+  return raw.slice(0, MAX_DETAILS);
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
