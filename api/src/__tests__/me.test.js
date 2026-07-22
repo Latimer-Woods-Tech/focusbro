@@ -18,6 +18,8 @@ import {
   emptyCommitmentsCopy,
   streakHeadingCopy,
   checkinActionLabels,
+  keptWithNoteActionLabel,
+  keptNotePromptCopy,
   keptLogHeadingCopy,
   keptLogEmptyCopy,
   mePageFootnoteCopy,
@@ -226,6 +228,48 @@ describe('renderMePage', () => {
     expect(html).toContain('.spark-bar');              // the scaled bar styles
     expect(html).toContain('spark-bar zero');          // a quiet day is a grey baseline bar, not a gap
     expect(html).toContain('role="img"');              // the sparkline is a labelled image
+  });
+
+  it('wires the optional own-voice kept-note affordance beside the instant keep', () => {
+    // The plain instant keep is still there and still sends no note.
+    expect(html).toContain("data-act=\"kept\"");
+    expect(html).toContain("resolve(id, 'kept'); return;");
+    // The opt-in sibling: its button, its label, its prompt, and the handler that
+    // carries the trimmed words into the SAME resolve as a note (parity with SMS).
+    expect(html).toContain("data-act=\"kept-note\"");
+    expect(html).toContain(keptWithNoteActionLabel());
+    expect(html).toContain(keptNotePromptCopy());
+    expect(html).toContain("act === 'kept-note'");
+    expect(html).toContain("resolve(id, 'kept', trimmed ? { note: trimmed } : undefined)");
+    // Backing out of the optional prompt keeps nothing (leaves the fast tap free).
+    expect(html).toContain('if (word === null) return;');
+  });
+});
+
+describe('the optional own-voice kept-note copy is warm and design-LAW clean', () => {
+  it('both strings are non-empty and framed as optional, never required', () => {
+    expect(keptWithNoteActionLabel().trim().length).toBeGreaterThan(0);
+    const prompt = keptNotePromptCopy();
+    expect(prompt.trim().length).toBeGreaterThan(0);
+    expect(prompt.toLowerCase()).toContain('optional'); // never a demand
+  });
+
+  it('carries no shame, no clinical claim, and no "AI" branding', () => {
+    for (const s of [keptWithNoteActionLabel(), keptNotePromptCopy()]) {
+      for (const pat of SHAME_PATTERNS) {
+        expect(pat.test(s), `shaming copy: "${s}" matched ${pat}`).toBe(false);
+      }
+      for (const pat of CLINICAL_PATTERNS) {
+        expect(pat.test(s), `clinical claim: "${s}" matched ${pat}`).toBe(false);
+      }
+      expect(AI_WORD.test(s), `"AI" leaked into copy: "${s}"`).toBe(false);
+    }
+  });
+
+  it('is included in the design-LAW copy surface so the gate always scans it', () => {
+    const surface = meCopySurface();
+    expect(surface).toContain(keptWithNoteActionLabel());
+    expect(surface).toContain(keptNotePromptCopy());
   });
 });
 
