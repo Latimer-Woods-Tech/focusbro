@@ -1957,6 +1957,9 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
   .between-note .note-copy { padding: 6px 12px; font-size: 14px; }
   .between-note .note-share { padding: 6px 12px; font-size: 14px; }
   .between-note .note-status { margin-left: 8px; }
+  .digest-voice { margin: 10px 0 0; padding: 8px 12px; border-left: 3px solid var(--border); background: var(--bg-card-hover); border-radius: 0 8px 8px 0; }
+  .digest-voice .digest-voice-who { display: block; font-weight: 600; font-size: 13px; }
+  .digest-voice .digest-voice-words { display: block; font-size: 14px; line-height: 1.5; word-break: break-word; }
 </style>
 
 <div id="signin" class="card hidden">
@@ -2014,9 +2017,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     var host = el('digest');
     if (!host) { return; }
     if (!dg || !dg.summary) { host.innerHTML = ''; return; }
+    // A returning client's OWN WORDS, carried into the digest ONLY when that
+    // client chose to share them (R-267 consent; the server sets own_words_line
+    // only once the opt-in is on). Strictly additive: a returner without shared
+    // words simply has no voice line — never an empty quote, never framed as
+    // withholding. The words are escaped and read back verbatim (they own them).
+    var voices = '';
+    var clients = (dg && dg.clients) || [];
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i];
+      if (c && c.own_words_line) {
+        voices += '<blockquote class="digest-voice">'
+          + '<span class="digest-voice-who">' + esc(c.label || 'Someone you support') + '</span>'
+          + '<span class="digest-voice-words">' + esc(c.own_words_line) + '</span>'
+          + '</blockquote>';
+      }
+    }
     host.innerHTML = '<div class="card digest">'
       + '<strong>' + esc(dg.intro || 'Homecomings this week') + '</strong>'
       + '<p class="digest-summary">' + esc(dg.summary) + '</p>'
+      + voices
       + '</div>';
   }
 

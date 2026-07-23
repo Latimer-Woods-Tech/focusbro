@@ -36,6 +36,7 @@ import {
   HOMECOMING_DIGEST_WINDOW_DAYS,
   homecomingDigestIntroCopy,
   homecomingDigestSummaryCopy,
+  homecomingOwnWordsLabelCopy,
   buildHomecomingDigest,
 } from '../coach.js';
 import { describeCadence } from '../accountability.js';
@@ -185,6 +186,7 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
     clientMilestoneCopy({ streak: { current_streak: 100 } }),
     clientSharesReflectionsCopy({ shares: true }),
+    homecomingOwnWordsLabelCopy(),
     homecomingDigestIntroCopy(),
     homecomingDigestSummaryCopy({ count: 0 }),
     homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
@@ -473,6 +475,57 @@ describe('buildHomecomingDigest — the assembled coach-facing digest', () => {
   it('ignores rows with no client id', () => {
     const d = buildHomecomingDigest({ rows: [{ label: 'x', at: '2026-07-14T09:00:00Z' }, { client_id: '', label: 'y' }] });
     expect(d.count).toBe(0);
+  });
+
+  it('carries an opted-in returner’s OWN WORDS behind the warm label', () => {
+    const d = buildHomecomingDigest({
+      rows: [{ client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' }],
+      notesById: { u1: '  finally opened the taxes folder  ' },
+    });
+    const c = d.clients[0];
+    expect(c.own_words).toBe('finally opened the taxes folder'); // trimmed, verbatim
+    expect(c.own_words_line).toBe(`${homecomingOwnWordsLabelCopy()}: “finally opened the taxes folder”`);
+  });
+
+  it('accepts a { note } shape as well as a bare string', () => {
+    const d = buildHomecomingDigest({
+      rows: [{ client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' }],
+      notesById: { u1: { note: 'took the first small step' } },
+    });
+    expect(d.clients[0].own_words).toBe('took the first small step');
+  });
+
+  it('is strictly additive — a returner with no shared note is unchanged (no empty quote)', () => {
+    const d = buildHomecomingDigest({
+      rows: [
+        { client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' },
+        { client_id: 'u2', label: 'Ari', at: '2026-07-14T09:00:00Z' },
+      ],
+      notesById: { u1: 'kept my word today' }, // only u1 opted in / has a note
+    });
+    const byId = Object.fromEntries(d.clients.map((c) => [c.client_id, c]));
+    expect(byId.u1.own_words).toBe('kept my word today');
+    expect('own_words' in byId.u2).toBe(false); // absent, never an empty string
+    expect('own_words_line' in byId.u2).toBe(false);
+  });
+
+  it('renders the client’s words VERBATIM — never scanned or softened (they own their words)', () => {
+    // A client may phrase their own kept-word note however they like; the digest
+    // reads it back unchanged. The copy law scans only the label, never this.
+    const raw = 'I missed lunch but I still kept my word';
+    const d = buildHomecomingDigest({
+      rows: [{ client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' }],
+      notesById: { u1: raw },
+    });
+    expect(d.clients[0].own_words).toBe(raw);
+  });
+
+  it('ignores a blank/whitespace note (no line, no crash)', () => {
+    const d = buildHomecomingDigest({
+      rows: [{ client_id: 'u1', label: 'Sam', at: '2026-07-15T09:00:00Z' }],
+      notesById: { u1: '   ' },
+    });
+    expect('own_words' in d.clients[0]).toBe(false);
   });
 });
 
