@@ -573,16 +573,39 @@ export function homecomingDigestSummaryCopy({ count, names = [] } = {}) {
 }
 
 /**
+ * The warm, third-person label under which a returning client's OWN WORDS ride
+ * into the homecoming digest — the coach twin of clientNoteOwnWordsLabelCopy().
+ * This label is the ONLY part scanned by the copy-law battery; the client's note
+ * itself is rendered verbatim beside it and is never scanned (they own their
+ * words, however they chose to phrase them). Celebration by construction: it can
+ * only ever introduce a word the client KEPT, never a miss.
+ * @returns {string}
+ */
+export function homecomingOwnWordsLabelCopy() {
+  return 'In their own words, from a word they kept';
+}
+
+/**
  * Assemble the coach-facing weekly homecoming digest from raw marker rows. Each
  * row is one person's most-recent homecoming inside the window:
  * { client_id, label, at }. De-duplicates by person (a person is counted once,
  * however many times they returned this week), newest first. Celebration-only by
  * construction — the assembled shape holds only who came back, never who didn't.
- * @param {object} p { rows, days }
+ *
+ * When `notesById` carries a returning client's OWN WORDS (their most recent
+ * kept-word note, resolved by the route ONLY behind that client's opt-in —
+ * R-267 consent, default OFF), that client's entry additionally gets `own_words`
+ * (the verbatim note) and `own_words_line` (the note behind the warm label). A
+ * client with no shared note is unchanged — the voice is strictly additive, and
+ * a returner without it is never framed as holding back. The note is rendered
+ * verbatim and never scanned by the copy law (the client owns their words).
+ * @param {object} p { rows, days, notesById } — notesById maps client_id → the
+ *   verbatim note string (or `{ note }`) for opted-in returners only.
  * @returns {object} { window_days, count, clients, intro, summary }
  */
-export function buildHomecomingDigest({ rows = [], days = HOMECOMING_DIGEST_WINDOW_DAYS } = {}) {
+export function buildHomecomingDigest({ rows = [], days = HOMECOMING_DIGEST_WINDOW_DAYS, notesById = {} } = {}) {
   const span = Number(days) || HOMECOMING_DIGEST_WINDOW_DAYS;
+  const notes = (notesById && typeof notesById === 'object') ? notesById : {};
   const seen = new Map();
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!r || !r.client_id) continue;
@@ -592,7 +615,16 @@ export function buildHomecomingDigest({ rows = [], days = HOMECOMING_DIGEST_WIND
       seen.set(r.client_id, { client_id: r.client_id, label: homecomingClientName(r.label), at });
     }
   }
-  const clients = Array.from(seen.values()).sort((a, b) => (b.at > a.at ? 1 : b.at < a.at ? -1 : 0));
+  const clients = Array.from(seen.values())
+    .sort((a, b) => (b.at > a.at ? 1 : b.at < a.at ? -1 : 0))
+    .map((c) => {
+      const raw = notes[c.client_id];
+      const words = typeof raw === 'string'
+        ? raw.trim()
+        : (raw && typeof raw.note === 'string' ? raw.note.trim() : '');
+      if (!words) return c;
+      return { ...c, own_words: words, own_words_line: `${homecomingOwnWordsLabelCopy()}: “${words}”` };
+    });
   const count = clients.length;
   return {
     window_days: span,
@@ -968,7 +1000,45 @@ export function registerCoachRoutes(router, ctx) {
             label: labelById.get(r.client_id) || '',
             at: r.at,
           }));
-          homecomingDigest = buildHomecomingDigest({ rows: homeInput });
+
+          // Carry each returning client's OWN WORDS into the digest — but ONLY
+          // for a client who has opted in to sharing them (R-267 consent, default
+          // OFF). We reuse the `sharesSet` the roster already resolved above, so
+          // there is no re-query and the gate FAILS CLOSED by construction: a
+          // returner absent from `sharesSet` never has their words looked up.
+          // ONE grouped query over just the opted-in returners (no N+1), newest
+          // kept-with-a-note per person inside the SAME trailing week the digest
+          // spans, so a coach's between-session prep carries this week's voice.
+          // Non-fatal: any failure just yields the digest without words. DESIGN
+          // LAW: KEPT-only + non-empty note → the line can only ever be a word
+          // the client kept, rendered verbatim (never scanned — they own it),
+          // and it is strictly additive (no consent / no note → simply absent).
+          let notesById = {};
+          const shareHomeIds = homeInput.map((r) => r.client_id).filter((id) => sharesSet.has(id));
+          if (shareHomeIds.length) {
+            try {
+              const notePh = shareHomeIds.map(() => '?').join(', ');
+              const noteRows = await env.DB.prepare(
+                `SELECT k.user_id AS client_id, k.note AS note
+                   FROM commitment_checkins k
+                  WHERE k.user_id IN (${notePh})
+                    AND k.status = 'kept'
+                    AND k.note IS NOT NULL AND TRIM(k.note) <> ''
+                    AND substr(k.responded_at, 1, 10) >= ?
+                  ORDER BY k.responded_at DESC
+                  LIMIT 500`
+              ).bind(...shareHomeIds, weekCutoffDay).all();
+              for (const r of (noteRows && noteRows.results) || []) {
+                if (notesById[r.client_id]) continue; // first row per client is the newest
+                const n = typeof r.note === 'string' ? r.note.trim() : '';
+                if (n) notesById[r.client_id] = n;
+              }
+            } catch (err) {
+              console.warn('[coach] homecoming own-words query failed:', err && err.message);
+              notesById = {};
+            }
+          }
+          homecomingDigest = buildHomecomingDigest({ rows: homeInput, notesById });
         } catch (err) {
           console.warn('[coach] homecoming digest query failed:', err && err.message);
           homecomingDigest = buildHomecomingDigest({ rows: [] });
