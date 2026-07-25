@@ -21,7 +21,8 @@ import {
 function makeDB({
   counts = {}, active = 0, returning = 0, cohort = null,
   acquisitionVisits = [], acquisitionFunnel = [], acquisitionCohorts = [],
-  decisionCommitments = null, decisionResponse = null, decisionRecovery = null,
+  decisionCommitments = null, decisionResponse = null, decisionDelivery = [],
+  decisionRecovery = null,
   throwOnCohort = false, throwOnDecision = false, throwOnRun = false,
 } = {}) {
   const runs = [];
@@ -32,6 +33,7 @@ function makeDB({
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async all() {
+          if (/decision_delivery/.test(sql)) return { results: decisionDelivery };
           if (/acquisition_visits/.test(sql)) return { results: acquisitionVisits };
           if (/acquisition_funnel/.test(sql)) return { results: acquisitionFunnel };
           if (/acquisition_cohorts/.test(sql)) return { results: acquisitionCohorts };
@@ -231,6 +233,7 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.window.until).toBe('2026-07-13T00:00:00.000Z');
     expect(m.acquisition).toEqual([]);
     expect(m.decision.commitments.median_per_user).toBeNull();
+    expect(m.decision.delivery.rate).toBeNull();
   });
 
   it('returns null rates (never NaN, never a divide-by-zero) on an empty window', async () => {
@@ -280,6 +283,7 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     const m = await computeLoopMetrics({ DB: db }, {});
     expect(m.totals.commitments_created).toBe(2);
     expect(m.decision.commitments.median_per_user).toBeNull();
+    expect(m.decision.delivery.rate).toBeNull();
     expect(m.decision.response.rate).toBeNull();
   });
 });
@@ -289,6 +293,10 @@ describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
     const db = makeDB({
       decisionCommitments: { activated_users: 5, commitments: 17, median: 3 },
       decisionResponse: { recipients: 10, responded: 6 },
+      decisionDelivery: [
+        { channel: 'push', attempted: 6, delivered: 6 },
+        { channel: 'text', attempted: 4, delivered: 3 },
+      ],
       decisionRecovery: { rescheduled: 4, recovered: 2 },
     });
     const d = await computeDecisionMetrics({ DB: db }, {
@@ -297,6 +305,15 @@ describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
     });
     expect(d.commitments).toEqual({
       activated_users: 5, total: 17, median_per_user: 3,
+    });
+    expect(d.delivery).toEqual({
+      attempted: 10,
+      delivered: 9,
+      rate: 0.9,
+      by_channel: [
+        { channel: 'push', attempted: 6, delivered: 6, rate: 1 },
+        { channel: 'text', attempted: 4, delivered: 3, rate: 0.75 },
+      ],
     });
     expect(d.response).toEqual({ recipients: 10, responded: 6, rate: 0.6 });
     expect(d.reschedule_recovery).toEqual({
@@ -307,6 +324,8 @@ describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
   it('uses null rates and median when the cohort is empty', async () => {
     const d = await computeDecisionMetrics({ DB: makeDB() }, {});
     expect(d.commitments.median_per_user).toBeNull();
+    expect(d.delivery.rate).toBeNull();
+    expect(d.delivery.by_channel).toEqual([]);
     expect(d.response.rate).toBeNull();
     expect(d.reschedule_recovery.rate).toBeNull();
   });
@@ -316,8 +335,9 @@ describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
     const db = {
       prepare() {
         return {
-          bind(value) { bound.push(value); return this; },
+          bind(...values) { bound.push(...values); return this; },
           async first() { return null; },
+          async all() { return { results: [] }; },
         };
       },
     };
@@ -328,6 +348,8 @@ describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
     expect(bound).toEqual([
       '2026-07-24 18:00:00',
       '2026-07-24 18:00:00',
+      '2026-07-24 18:00:00',
+      '2026-07-25 18:00:00',
       '2026-07-24 18:00:00',
     ]);
   });

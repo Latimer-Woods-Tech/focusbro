@@ -399,8 +399,10 @@ export async function computeDecisionMetrics(env, opts = {}) {
   const sinceDays = clampSinceDays(opts.sinceDays);
   const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
   const sinceSQL = sqliteDateTime(new Date(now.getTime() - sinceDays * 86400000));
+  const untilSQL = sqliteDateTime(now);
   const empty = {
     commitments: { activated_users: 0, total: 0, median_per_user: null },
+    delivery: { attempted: 0, delivered: 0, rate: null, by_channel: [] },
     response: { recipients: 0, responded: 0, rate: null },
     reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
   };
@@ -450,6 +452,23 @@ export async function computeDecisionMetrics(env, opts = {}) {
        FROM delivered d`
   ).bind(sinceSQL).first();
 
+  // A delivery is eligible once its scheduled time has passed and the cron has
+  // actually attempted it. Quiet-hour holds remain correctly outside the
+  // denominator until attempted. A row that eventually delivered counts once,
+  // even if transport retries were needed.
+  const deliveryRows = await env.DB.prepare(
+    `/* decision_delivery */
+     SELECT CASE WHEN channel = 'text' THEN 'text' ELSE 'push' END AS channel,
+            COUNT(*) AS attempted,
+            COALESCE(SUM(delivered_at IS NOT NULL), 0) AS delivered
+       FROM commitment_checkins
+      WHERE datetime(scheduled_for) >= datetime(?)
+        AND datetime(scheduled_for) <= datetime(?)
+        AND (COALESCE(attempts, 0) > 0 OR delivered_at IS NOT NULL)
+      GROUP BY CASE WHEN channel = 'text' THEN 'text' ELSE 'push' END
+      ORDER BY channel`
+  ).bind(sinceSQL, untilSQL).all();
+
   const recovery = await env.DB.prepare(
     `/* decision_reschedule_recovery */
      WITH moved AS (
@@ -479,6 +498,18 @@ export async function computeDecisionMetrics(env, opts = {}) {
     : null;
   const recipients = Number(response && response.recipients) || 0;
   const responded = Number(response && response.responded) || 0;
+  const byChannel = ((deliveryRows && deliveryRows.results) || []).map((row) => {
+    const attempted = Number(row.attempted) || 0;
+    const delivered = Number(row.delivered) || 0;
+    return {
+      channel: row.channel === 'text' ? 'text' : 'push',
+      attempted,
+      delivered,
+      rate: attempted ? round2(delivered / attempted) : null,
+    };
+  });
+  const attempted = byChannel.reduce((sum, row) => sum + row.attempted, 0);
+  const delivered = byChannel.reduce((sum, row) => sum + row.delivered, 0);
   const rescheduled = Number(recovery && recovery.rescheduled) || 0;
   const recovered = Number(recovery && recovery.recovered) || 0;
   return {
@@ -486,6 +517,12 @@ export async function computeDecisionMetrics(env, opts = {}) {
       activated_users: activatedUsers,
       total,
       median_per_user: median,
+    },
+    delivery: {
+      attempted,
+      delivered,
+      rate: attempted ? round2(delivered / attempted) : null,
+      by_channel: byChannel,
     },
     response: {
       recipients,
@@ -543,6 +580,7 @@ export async function computeLoopMetrics(env, opts = {}) {
     },
     decision: {
       commitments: { activated_users: 0, total: 0, median_per_user: null },
+      delivery: { attempted: 0, delivered: 0, rate: null, by_channel: [] },
       response: { recipients: 0, responded: 0, rate: null },
       reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
     },

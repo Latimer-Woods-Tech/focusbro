@@ -1098,11 +1098,18 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           ' · D7 ' + metricRate(m.retention && m.retention.d7 && m.retention.d7.rate);
         var decision = m.decision || {};
         var depth = decision.commitments || {};
+        var delivery = decision.delivery || {};
         var response = decision.response || {};
         var recovery = decision.reschedule_recovery || {};
         var median = depth.median_per_user == null ? '—' : Number(depth.median_per_user);
+        var channelDelivery = (delivery.by_channel || []).map(function (row) {
+          return row.channel + ' ' + metricRate(row.rate);
+        }).join(', ');
         el('founderDecisionSummary').textContent =
-          'Phase 2 gate: median ' + median + ' words per activated person · ' +
+          'Learning gates: delivery ' + metricRate(delivery.rate) + ' (' +
+          Number(delivery.delivered || 0) + '/' + Number(delivery.attempted || 0) +
+          (channelDelivery ? '; ' + channelDelivery : '') + ') · median ' +
+          median + ' words per activated person · ' +
           metricRate(response.rate) + ' recipients responded (' +
           Number(response.responded || 0) + '/' + Number(response.recipients || 0) + ') · ' +
           metricRate(recovery.rate) + ' moved words recovered (' +
