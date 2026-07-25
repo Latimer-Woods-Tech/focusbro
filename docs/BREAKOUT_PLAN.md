@@ -123,7 +123,10 @@ any learning gate.
 | Founding-cohort creative kit | shipped | [#157](https://github.com/Latimer-Woods-Tech/focusbro/pull/157), [`DISTRIBUTION.md`](../DISTRIBUTION.md) |
 | “Help me start” over SMS | shipped | [#158](https://github.com/Latimer-Woods-Tech/focusbro/pull/158) |
 | One-tap next-word bridge | shipped | [#159](https://github.com/Latimer-Woods-Tech/focusbro/pull/159) |
-| Release and cron health | green | 725 automated tests, browser smoke test, live `/health` |
+| Truthful outcomes and Phase 2 decision metrics | shipped | [#161](https://github.com/Latimer-Woods-Tech/focusbro/pull/161), [#162](https://github.com/Latimer-Woods-Tech/focusbro/pull/162), [#163](https://github.com/Latimer-Woods-Tech/focusbro/pull/163) |
+| Fresh-D1 install and runtime-schema parity | shipped | [#164](https://github.com/Latimer-Woods-Tech/focusbro/pull/164) |
+| Creative- and challenge-level scorecard | shipped | [#165](https://github.com/Latimer-Woods-Tech/focusbro/pull/165) |
+| Release, dependency, and cron health | green | [#166](https://github.com/Latimer-Woods-Tech/focusbro/pull/166); 734 automated tests, coverage floors, browser smoke, zero npm audit findings, live `/health` |
 | Phase 1 learning gate | unproven | publish the founding-cohort links, then observe 100 qualified visits and 10 complete loops |
 | Phase 2 decision gate | unproven | recruit 50–100 people and allow D1/D7 cohorts to mature |
 | Phase 3 | held | starts only after the Phase 2 retention gate passes |
@@ -136,6 +139,11 @@ any learning gate.
   recruit the cohort, observe sessions, and conduct user interviews.
 - **Time-owned:** D1 and D7 cannot be ratified before one and seven full days
   have elapsed for a qualified cohort.
+
+The 2026-07-25 closeout audit found no remaining agent-owned Phase 1 or Phase 2
+deliverable. “Software complete” here means ready to run the learning plan—not
+that adoption or retention has been proven. Those claims remain deliberately
+open until the founder-owned work and elapsed cohorts produce the numbers above.
 
 The immediate operating move is not another feature. Generate the five links in
 [`DISTRIBUTION.md`](../DISTRIBUTION.md), publish the corresponding founder
