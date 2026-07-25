@@ -620,6 +620,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>Acquisition scorecard</h2>
     <p class="muted">Which messages create accountability that lasts—not just traffic.</p>
     <p id="founderMetricsSummary"></p>
+    <p id="founderDecisionSummary" class="muted"></p>
     <div style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; text-align:left;">
         <thead>
@@ -1095,6 +1096,17 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           metricRate(m.kept_word_rate) + ' kept · D1 ' +
           metricRate(m.retention && m.retention.d1 && m.retention.d1.rate) +
           ' · D7 ' + metricRate(m.retention && m.retention.d7 && m.retention.d7.rate);
+        var decision = m.decision || {};
+        var depth = decision.commitments || {};
+        var response = decision.response || {};
+        var recovery = decision.reschedule_recovery || {};
+        var median = depth.median_per_user == null ? '—' : Number(depth.median_per_user);
+        el('founderDecisionSummary').textContent =
+          'Phase 2 gate: median ' + median + ' words per activated person · ' +
+          metricRate(response.rate) + ' recipients responded (' +
+          Number(response.responded || 0) + '/' + Number(response.recipients || 0) + ') · ' +
+          metricRate(recovery.rate) + ' moved words recovered (' +
+          Number(recovery.recovered || 0) + '/' + Number(recovery.rescheduled || 0) + ').';
         var rows = (m.acquisition || []).map(function (a) {
           var label = a.attribution.source || 'direct';
           if (a.attribution.campaign) label += ' / ' + a.attribution.campaign;

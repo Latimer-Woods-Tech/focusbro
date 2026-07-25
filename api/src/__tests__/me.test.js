@@ -203,6 +203,15 @@ describe('renderMePage', () => {
     expect(html).toContain('focusbro_token');
   });
 
+  it('renders every named Phase 2 decision gate in the founder scorecard', () => {
+    expect(html).toContain('id="founderDecisionSummary"');
+    expect(html).toContain('median_per_user');
+    expect(html).toContain('decision.response');
+    expect(html).toContain('reschedule_recovery');
+    expect(html).toContain('recipients responded');
+    expect(html).toContain('moved words recovered');
+  });
+
   it('renders the curated copy into the page', () => {
     expect(html).toContain(giveWordHeadingCopy());
     expect(html).toContain(streakHeadingCopy());

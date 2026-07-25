@@ -115,7 +115,13 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     // The follow-up word keeps the person's zone, not a silent UTC.
     expect(ins.timezone).toBe('America/New_York');
     expect(ins.rescheduled_from).toBe('cm1');
-    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    const event = db.runs.find((x) => x.params.includes('commitment_reschedule'));
+    expect(event).toBeTruthy();
+    expect(JSON.parse(event.params[2])).toMatchObject({
+      commitment_id: 'cm1',
+      rescheduled_to: b.new_commitment.id,
+    });
+    expect(db.runs.some((x) => x.params.includes('checkin_responded'))).toBe(true);
   });
 
   it('understands the same warm forms the text channel does', async () => {

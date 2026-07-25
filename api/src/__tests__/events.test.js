@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics,
+  recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics, computeDecisionMetrics,
   recordAcquisitionVisit, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
 
@@ -21,7 +21,8 @@ import {
 function makeDB({
   counts = {}, active = 0, returning = 0, cohort = null,
   acquisitionVisits = [], acquisitionFunnel = [], acquisitionCohorts = [],
-  throwOnCohort = false, throwOnRun = false,
+  decisionCommitments = null, decisionResponse = null, decisionRecovery = null,
+  throwOnCohort = false, throwOnDecision = false, throwOnRun = false,
 } = {}) {
   const runs = [];
   const db = {
@@ -40,6 +41,12 @@ function makeDB({
           return { results: [] };
         },
         async first() {
+          if (/decision_commitments/.test(sql)) {
+            if (throwOnDecision) throw new Error('decision query failed');
+            return decisionCommitments;
+          }
+          if (/decision_response/.test(sql)) return decisionResponse;
+          if (/decision_reschedule_recovery/.test(sql)) return decisionRecovery;
           if (/WITH firsts AS/.test(sql)) {
             if (throwOnCohort) throw new Error('no such table: analytics_events');
             return cohort; // aggregate row {d1_eligible, d1_returned, d7_eligible, d7_returned, new_users_7d} or null
@@ -223,6 +230,7 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.window.since).toBe('2026-07-06T00:00:00.000Z');
     expect(m.window.until).toBe('2026-07-13T00:00:00.000Z');
     expect(m.acquisition).toEqual([]);
+    expect(m.decision.commitments.median_per_user).toBeNull();
   });
 
   it('returns null rates (never NaN, never a divide-by-zero) on an empty window', async () => {
@@ -262,6 +270,66 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.totals.commitments_kept).toBe(3);          // core metrics intact
     expect(m.retention.d1.rate).toBeNull();             // fell back to the empty cohort
     expect(m.retention.new_users_7d).toBe(0);
+  });
+
+  it('decision-metric failure is non-fatal — the founder endpoint still returns', async () => {
+    const db = makeDB({
+      counts: { [EVENTS.COMMITMENT_CREATED]: 2 },
+      throwOnDecision: true,
+    });
+    const m = await computeLoopMetrics({ DB: db }, {});
+    expect(m.totals.commitments_created).toBe(2);
+    expect(m.decision.commitments.median_per_user).toBeNull();
+    expect(m.decision.response.rate).toBeNull();
+  });
+});
+
+describe('computeDecisionMetrics — the ratified Phase 2 gate', () => {
+  it('reports commitment depth, recipient response, and next-attempt recovery', async () => {
+    const db = makeDB({
+      decisionCommitments: { activated_users: 5, commitments: 17, median: 3 },
+      decisionResponse: { recipients: 10, responded: 6 },
+      decisionRecovery: { rescheduled: 4, recovered: 2 },
+    });
+    const d = await computeDecisionMetrics({ DB: db }, {
+      sinceDays: 30,
+      nowISO: '2026-07-25T18:00:00.000Z',
+    });
+    expect(d.commitments).toEqual({
+      activated_users: 5, total: 17, median_per_user: 3,
+    });
+    expect(d.response).toEqual({ recipients: 10, responded: 6, rate: 0.6 });
+    expect(d.reschedule_recovery).toEqual({
+      rescheduled: 4, recovered: 2, rate: 0.5,
+    });
+  });
+
+  it('uses null rates and median when the cohort is empty', async () => {
+    const d = await computeDecisionMetrics({ DB: makeDB() }, {});
+    expect(d.commitments.median_per_user).toBeNull();
+    expect(d.response.rate).toBeNull();
+    expect(d.reschedule_recovery.rate).toBeNull();
+  });
+
+  it('binds SQLite-shaped timestamps so same-day rows are not excluded', async () => {
+    const bound = [];
+    const db = {
+      prepare() {
+        return {
+          bind(value) { bound.push(value); return this; },
+          async first() { return null; },
+        };
+      },
+    };
+    await computeDecisionMetrics({ DB: db }, {
+      sinceDays: 1,
+      nowISO: '2026-07-25T18:00:00.000Z',
+    });
+    expect(bound).toEqual([
+      '2026-07-24 18:00:00',
+      '2026-07-24 18:00:00',
+      '2026-07-24 18:00:00',
+    ]);
   });
 });
 

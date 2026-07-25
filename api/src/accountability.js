@@ -2185,9 +2185,17 @@ export function registerAccountabilityRoutes(router, ctx) {
             commitment_id: id,
             is_recurring: isRecurring,
             channel: commitment.channel || null,
+            ...(outcome === 'reschedule' && response.new_commitment
+              ? { rescheduled_to: response.new_commitment.id }
+              : {}),
           },
         });
       }
+      await recordEvent(env, {
+        userId: auth.userId,
+        type: EVENTS.CHECKIN_RESPONDED,
+        data: { commitment_id: id, channel: commitment.channel || null },
+      });
 
       return jsonResponse(response, 200);
     } catch (err) {
@@ -2212,7 +2220,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       const id = request.params.id;
 
       const commitment = await env.DB.prepare(
-        `SELECT id, title, persona, status FROM commitments WHERE id = ? AND user_id = ?`
+        `SELECT id, title, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
@@ -2238,6 +2246,10 @@ export function registerAccountabilityRoutes(router, ctx) {
       await recordEvent(env, {
         userId: auth.userId, type: EVENTS.COMMITMENT_RELEASED,
         data: { commitment_id: id },
+      });
+      await recordEvent(env, {
+        userId: auth.userId, type: EVENTS.CHECKIN_RESPONDED,
+        data: { commitment_id: id, channel: commitment.channel || null },
       });
 
       return jsonResponse({
@@ -2309,6 +2321,12 @@ export function registerAccountabilityRoutes(router, ctx) {
            VALUES (?, ?, ?, ?, ?, 'pending')`
         ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
       }
+
+      await recordEvent(env, {
+        userId: auth.userId,
+        type: EVENTS.CHECKIN_RESPONDED,
+        data: { commitment_id: id, channel: commitment.channel || null },
+      });
 
       return jsonResponse({
         commitment_id: id,

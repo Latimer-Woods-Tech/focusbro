@@ -561,6 +561,15 @@ export function registerConsentRoutes(router, ctx) {
         persona: open.persona,
       };
 
+      // Any inbound message answering an open check-in is a response—even
+      // "on it", "help me start", or words we need to clarify. Record that fact
+      // once here instead of inferring engagement from a final outcome.
+      await recordEvent(env, {
+        userId: user.id,
+        type: EVENTS.CHECKIN_RESPONDED,
+        data: { commitment_id: open.commitment_id, channel: 'text' },
+      });
+
       // ── "Help me start": a tiny intervention, then a promised check-back ──
       // Bare HELP remains the carrier-mandated information response above. A
       // specific starting request keeps the word open, re-pends this check-in
@@ -643,6 +652,15 @@ export function registerConsentRoutes(router, ctx) {
               SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
             WHERE id = ? AND user_id = ?`
         ).bind(whenISO, open.checkin_id, user.id).run();
+        await recordEvent(env, {
+          userId: user.id,
+          type: EVENTS.COMMITMENT_RESCHEDULE,
+          data: {
+            commitment_id: open.commitment_id,
+            is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+            channel: 'text',
+          },
+        });
         // If they reported movement in the same breath as the new time ("made good
         // progress, tomorrow 9am"), meet it by name — parity with the snooze path,
         // which already acknowledges progress. Still a reschedule: streak untouched.
@@ -699,6 +717,15 @@ export function registerConsentRoutes(router, ctx) {
               SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
             WHERE id = ? AND user_id = ?`
         ).bind(directWhenISO, open.checkin_id, user.id).run();
+        await recordEvent(env, {
+          userId: user.id,
+          type: EVENTS.COMMITMENT_RESCHEDULE,
+          data: {
+            commitment_id: open.commitment_id,
+            is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+            channel: 'text',
+          },
+        });
         // Same as the awaiting-time branch: a time given with reported progress
         // ("chipping away, make it 3pm") is met by name. Still a reschedule.
         await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
