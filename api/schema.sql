@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
+  avatar_url TEXT,
+  phone TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_login DATETIME,
@@ -21,9 +25,12 @@ CREATE TABLE IF NOT EXISTS user_data_snapshots (
   user_id TEXT NOT NULL,
   snapshot_data TEXT NOT NULL,
   snapshot_size INTEGER,
+  size_bytes INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_user ON user_data_snapshots(user_id);
 
 -- Create index for fast user lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -33,6 +40,7 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL,
   device_id TEXT,
+  action TEXT,
   synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   data_size INTEGER,
   status TEXT DEFAULT 'success',
@@ -42,11 +50,25 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_sync_logs_timestamp ON sync_logs(synced_at);
 
+-- ── API KEYS ──
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  user_id TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+
 -- ── AUDIT LOG (security & compliance) ──
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT,
   action TEXT NOT NULL,
+  details TEXT,
   ip_address TEXT,
   user_agent TEXT,
   status TEXT DEFAULT 'success',
@@ -56,6 +78,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
 
 -- ── SESSIONS TABLE (for multi-device tracking) ──
 CREATE TABLE IF NOT EXISTS sessions (
@@ -89,6 +112,33 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_last_activity ON devices(last_activity);
 
+-- ── FOCUS ANALYTICS + STREAKS ──
+CREATE TABLE IF NOT EXISTS focus_events (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  user_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  tool TEXT,
+  duration_seconds INTEGER DEFAULT 0,
+  data TEXT DEFAULT '{}',
+  client_timestamp DATETIME NOT NULL,
+  server_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_streaks (
+  user_id TEXT PRIMARY KEY,
+  current_streak INTEGER DEFAULT 0,
+  longest_streak INTEGER DEFAULT 0,
+  last_active_date TEXT,
+  total_sessions INTEGER DEFAULT 0,
+  total_focus_seconds INTEGER DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_user_time ON focus_events(user_id, client_timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_type ON focus_events(user_id, event_type);
+
 -- ── ANALYTICS EVENTS TABLE (product metrics) ──
 CREATE TABLE IF NOT EXISTS analytics_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,12 +146,92 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   event_type TEXT NOT NULL,
   event_data TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  client_event_id TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_type ON analytics_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_analytics_timestamp ON analytics_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_type_time ON analytics_events(event_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_user_time ON analytics_events(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_client_event ON analytics_events(user_id, client_event_id)
+  WHERE client_event_id IS NOT NULL;
+
+-- ── DELIVERY + USER PREFERENCES ──
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  device_label TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS notification_prefs (
+  user_id TEXT PRIMARY KEY,
+  morning_motivation INTEGER DEFAULT 0,
+  morning_time TEXT DEFAULT '08:00',
+  break_reminders INTEGER DEFAULT 1,
+  medication_reminders INTEGER DEFAULT 1,
+  milestones INTEGER DEFAULT 1,
+  custom_schedule TEXT DEFAULT '{}',
+  timezone TEXT DEFAULT 'UTC',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS escalation_prefs (
+  user_id TEXT PRIMARY KEY,
+  ceiling TEXT DEFAULT 'text',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS focus_presence (
+  client_id TEXT PRIMARY KEY,
+  last_seen DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_prefs(user_id);
+CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen);
+
+-- ── INTEGRATIONS + CURRENT SUBSCRIPTIONS ──
+CREATE TABLE IF NOT EXISTS slack_integrations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  webhook_url TEXT,
+  access_token TEXT,
+  team_id TEXT,
+  channel_id TEXT,
+  post_sessions INTEGER DEFAULT 1,
+  update_presence INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT,
+  plan TEXT DEFAULT 'free',
+  status TEXT DEFAULT 'active',
+  current_period_end DATETIME,
+  trial_end DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id);
+CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id);
 
 -- ── STRIPE SUBSCRIPTIONS (billing integration) ──
 CREATE TABLE IF NOT EXISTS stripe_subscriptions (
@@ -162,6 +292,10 @@ CREATE TABLE IF NOT EXISTS commitment_checkins (
   status        TEXT DEFAULT 'pending',        -- pending | sent | kept | missed | reschedule
   responded_at  DATETIME,
   note          TEXT DEFAULT '',
+  delivered_at  DATETIME,
+  attempts      INTEGER DEFAULT 0,
+  last_error    TEXT,
+  escalated_at  DATETIME,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -182,6 +316,8 @@ CREATE INDEX IF NOT EXISTS idx_commitments_user ON commitments(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_commitments_checkin_at ON commitments(checkin_at);
 CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id);
 CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_checkins_escalation ON commitment_checkins(status, delivered_at);
 -- Kept-word log: every word a user KEPT, newest first (GET /api/accountability/kept). Momentum-only.
 CREATE INDEX IF NOT EXISTS idx_checkins_user_status ON commitment_checkins(user_id, status);
 
@@ -207,6 +343,14 @@ CREATE TABLE IF NOT EXISTS coach_clients (
 
 CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status);
+
+-- ── COACH NOTE-SHARING CONSENT ──
+CREATE TABLE IF NOT EXISTS coach_note_consent (
+  user_id TEXT PRIMARY KEY,
+  shared INTEGER DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 
 -- ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
 -- Delivery-side consent state for TCPA-scoped channels (text now; voice = Phase B).
