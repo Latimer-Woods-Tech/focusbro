@@ -49,12 +49,6 @@ window.apiRequest = async function(endpoint, options = {}) {
     }
   };
 
-  // Add authorization header if we have a token
-  const token = getStoredJSON('fbAuthToken');
-  if (token?.access_token) {
-    requestOptions.headers.Authorization = `Bearer ${token.access_token}`;
-  }
-
   // Add body for non-GET requests
   if (data && method !== 'GET') {
     requestOptions.body = JSON.stringify(data);
@@ -71,10 +65,10 @@ window.apiRequest = async function(endpoint, options = {}) {
       } else {
         // Handle specific error codes
         if (response.status === 401) {
-          // Token expired, try refresh
+          // Cookie session expired, try the short server-side refresh grace.
           const refreshResult = await refreshAuthToken();
           if (refreshResult.success) {
-            // Retry with new token
+            // Retry with the rotated HttpOnly cookie.
             attempts++;
             continue;
           }
@@ -136,22 +130,13 @@ async function processAPIQueue() {
 
 // Refresh authentication token
 async function refreshAuthToken() {
-  const token = getStoredJSON('fbAuthToken');
-  if (!token?.refresh_token) {
-    return { success: false, error: 'No refresh token available' };
-  }
-
   try {
-    const response = await fetch(`${window.appState.api.baseURL}/api/auth/refresh`, {
+    const response = await fetch(`${window.appState.api.baseURL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: token.refresh_token })
+      headers: { 'Content-Type': 'application/json' }
     });
 
-    const data = await response.json();
-
     if (response.ok) {
-      setStoredJSON('fbAuthToken', data);
       return { success: true };
     } else {
       // Refresh failed, user needs to re-authenticate

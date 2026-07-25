@@ -3048,18 +3048,15 @@ const POMO_LONG = 15 * 60;
 // RETENTION TELEMETRY (Contender #10, Phase A · L1 bridge, R-239 follow-up)
 // ══════════════════════════════════════
 // A completed focus session feeds the first-party retention spine — but ONLY
-// for signed-in users (an account/sync token from /me/ lives at 'focusbro_token'
-// in this same-origin localStorage). Anonymous users send NOTHING: their focus
+// for signed-in users (verified by the same-origin HttpOnly session cookie).
+// Anonymous users send NOTHING: their focus
 // data stays in the browser, exactly as the privacy copy promises. Best-effort,
 // batched, and offline-safe by a small localStorage queue; it can never block or
 // break the timer (every path is wrapped, the fetch has a .catch, a failed flush
 // simply leaves events queued for next time).
 const FB_TELEMETRY_QUEUE_KEY = 'fb_telemetry_queue';
 let fbTelemetryFlushing = false;
-
-function fbAuthToken() {
-  try { return localStorage.getItem('focusbro_token') || null; } catch (e) { return null; }
-}
+let fbAuthenticated = false;
 function fbEventId() {
   try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
   return 'e-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -3076,7 +3073,7 @@ function fbTelemetryWrite(queue) {
 // only) when signed out — honors "your core focus data stays in your browser".
 function recordSessionComplete(tool, durationSeconds) {
   try {
-    if (!fbAuthToken()) return; // signed-in only
+    if (!fbAuthenticated) return; // signed-in only
     const queue = fbTelemetryRead();
     queue.push({
       id: fbEventId(),
@@ -3132,15 +3129,14 @@ function offerWordBridge() {
 // Flush the queue to the ONE live authed ingest route. Only the accepted slice
 // is dropped from the queue, so a network failure retries later, not loses data.
 function fbFlushTelemetry() {
-  const token = fbAuthToken();
-  if (!token || fbTelemetryFlushing) return;
+  if (!fbAuthenticated || fbTelemetryFlushing) return;
   const queue = fbTelemetryRead();
   if (!queue.length) return;
   fbTelemetryFlushing = true;
   const batch = queue.slice(0, 25);
   fetch('/sync/events', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events: batch }),
   }).then(function (res) {
     fbTelemetryFlushing = false;
@@ -3154,8 +3150,14 @@ function fbFlushTelemetry() {
   });
 }
 
-// Drain anything left from a prior offline session on load.
-try { fbFlushTelemetry(); } catch (e) {}
+// Discover cookie-backed account state without exposing the credential to
+// JavaScript, then drain anything left from a prior offline session.
+fetch('/auth/session').then(function (response) {
+  fbAuthenticated = response.ok;
+  if (fbAuthenticated) fbFlushTelemetry();
+}).catch(function () {
+  fbAuthenticated = false;
+});
 
 let pomoState = { running: false, seconds: POMO_WORK, phase: 'work', session: 0, completed: 0 };
 let pomoInterval = null;
