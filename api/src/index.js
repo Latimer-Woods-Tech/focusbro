@@ -65,6 +65,17 @@ export function withJwtSecretFallback(env) {
   return { ...env, JWT_SECRET: env.JWT_SECRET_NEXT };
 }
 
+// Billing is intentionally unavailable until the retention gate earns the
+// Stage 5 rebuild. Fail closed: a missing, misspelled, or non-string binding
+// must never expose the dormant Stripe implementation.
+export function isBillingEnabled(env) {
+  return Boolean(env && env.BILLING_ENABLED === 'true');
+}
+
+function billingUnavailableResponse() {
+  return jsonResponse({ error: 'Not found' }, 404, 'nocache');
+}
+
 // ── DEBUG LOGGING ──
 const DEBUG = false; // Set to true only during development/debugging
 const dbLog = (msg, ...args) => {
@@ -1308,6 +1319,8 @@ router.get('/sync/history', async (request, env) => {
 
 // ── CREATE CHECKOUT SESSION ──
 router.post('/api/billing/create-checkout', async (request, env) => {
+  if (!isBillingEnabled(env)) return billingUnavailableResponse();
+
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -1380,6 +1393,8 @@ router.post('/api/billing/create-checkout', async (request, env) => {
 
 // ── BILLING PORTAL ──
 router.get('/api/billing/portal', async (request, env) => {
+  if (!isBillingEnabled(env)) return billingUnavailableResponse();
+
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -1446,6 +1461,8 @@ router.get('/api/billing/portal', async (request, env) => {
 
 // ── WEBHOOK HANDLER ──
 router.post('/api/billing/webhook', async (request, env) => {
+  if (!isBillingEnabled(env)) return billingUnavailableResponse();
+
   try {
     // Verify webhook signature
     const verification = await billingModule.verifyWebhookSignature(request, env);
@@ -1488,6 +1505,8 @@ router.post('/api/billing/webhook', async (request, env) => {
 
 // ── GET CURRENT SUBSCRIPTION ──
 router.get('/api/billing/tier', async (request, env) => {
+  if (!isBillingEnabled(env)) return billingUnavailableResponse();
+
   try {
     const token = getAuthToken(request);
     if (!token) {
