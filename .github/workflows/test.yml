@@ -15,7 +15,7 @@ jobs:
       with:
         fetch-depth: 0
     
-    - name: Use Node.js 18.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v4
       with:
         node-version: "24.x"
@@ -52,7 +52,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Use Node.js 18.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v4
       with:
         node-version: "24.x"
@@ -84,4 +84,3 @@ jobs:
         name: playwright-report
         path: api/playwright-report/
         retention-days: 7
-
