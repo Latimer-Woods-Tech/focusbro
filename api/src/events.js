@@ -225,6 +225,123 @@ export async function computeReturnCohorts(env, opts = {}) {
 }
 
 /**
+ * Attribute downstream outcomes and return cohorts to the first acquisition
+ * dimensions that created a word in the window. Internal aggregate only: no
+ * task, email, phone, or note data is returned.
+ */
+export async function computeAcquisitionMetrics(env, opts = {}) {
+  const sinceDays = clampSinceDays(opts.sinceDays);
+  const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
+  const sinceISO = new Date(now.getTime() - sinceDays * 86400000).toISOString();
+  const nowDay = now.toISOString().slice(0, 10);
+  if (!env || !env.DB) return [];
+
+  const dimensions = `
+    COALESCE(NULLIF(json_extract(event_data, '$.attribution.source'), ''), 'direct') AS source,
+    COALESCE(NULLIF(json_extract(event_data, '$.attribution.campaign'), ''), '') AS campaign,
+    COALESCE(NULLIF(json_extract(event_data, '$.attribution.content'), ''), '') AS content,
+    COALESCE(NULLIF(json_extract(event_data, '$.attribution.challenge'), ''), '') AS challenge`;
+
+  const funnel = await env.DB.prepare(
+    `/* acquisition_funnel */
+     WITH created AS (
+       SELECT user_id, json_extract(event_data, '$.commitment_id') AS commitment_id,
+              ${dimensions}
+         FROM analytics_events
+        WHERE event_type = 'commitment_created' AND created_at >= ?
+     ),
+     downstream AS (
+       SELECT json_extract(event_data, '$.commitment_id') AS commitment_id,
+              SUM(event_type = 'checkin_delivered') AS delivered,
+              SUM(event_type = 'commitment_kept') AS kept,
+              SUM(event_type = 'commitment_reschedule') AS rescheduled,
+              SUM(event_type = 'commitment_missed') AS missed
+         FROM analytics_events
+        WHERE created_at >= ?
+          AND event_type IN ('checkin_delivered','commitment_kept','commitment_reschedule','commitment_missed')
+        GROUP BY json_extract(event_data, '$.commitment_id')
+     )
+     SELECT source, campaign, content, challenge,
+            COUNT(*) AS commitments_created, COUNT(DISTINCT user_id) AS users,
+            COALESCE(SUM(d.delivered), 0) AS checkins_delivered,
+            COALESCE(SUM(d.kept), 0) AS kept,
+            COALESCE(SUM(d.rescheduled), 0) AS rescheduled,
+            COALESCE(SUM(d.missed), 0) AS missed
+       FROM created c LEFT JOIN downstream d ON d.commitment_id = c.commitment_id
+      GROUP BY source, campaign, content, challenge
+      ORDER BY commitments_created DESC, source, campaign, content, challenge`
+  ).bind(sinceISO, sinceISO).all();
+
+  const cohortRows = await env.DB.prepare(
+    `/* acquisition_cohorts */
+     WITH ranked AS (
+       SELECT user_id, substr(created_at, 1, 10) AS first_day, ${dimensions},
+              ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) AS rn
+         FROM analytics_events
+        WHERE event_type = 'commitment_created' AND created_at >= ?
+     ),
+     returns AS (
+       SELECT c.user_id, c.source, c.campaign, c.content, c.challenge, c.first_day,
+              MAX(substr(e.created_at,1,10) > c.first_day
+                  AND substr(e.created_at,1,10) <= date(c.first_day, '+1 day')) AS d1_returned,
+              MAX(substr(e.created_at,1,10) > c.first_day
+                  AND substr(e.created_at,1,10) <= date(c.first_day, '+7 day')) AS d7_returned
+         FROM (SELECT * FROM ranked WHERE rn = 1) c
+         LEFT JOIN analytics_events e ON e.user_id = c.user_id
+        GROUP BY c.user_id, c.source, c.campaign, c.content, c.challenge, c.first_day
+     )
+     SELECT source, campaign, content, challenge,
+            SUM(first_day <= date(?2, '-1 day')) AS d1_eligible,
+            SUM(first_day <= date(?2, '-1 day') AND d1_returned) AS d1_returned,
+            SUM(first_day <= date(?2, '-7 day')) AS d7_eligible,
+            SUM(first_day <= date(?2, '-7 day') AND d7_returned) AS d7_returned
+       FROM returns GROUP BY source, campaign, content, challenge`
+  ).bind(sinceISO, nowDay).all();
+
+  const keyOf = (r) => JSON.stringify([
+    r.source || 'direct', r.campaign || '', r.content || '', r.challenge || '',
+  ]);
+  const cohorts = new Map(
+    ((cohortRows && cohortRows.results) || []).map((r) => [keyOf(r), r]),
+  );
+
+  return ((funnel && funnel.results) || []).map((r) => {
+    const c = cohorts.get(keyOf(r)) || {};
+    const kept = Number(r.kept) || 0;
+    const rescheduled = Number(r.rescheduled) || 0;
+    const missed = Number(r.missed) || 0;
+    const resolved = kept + rescheduled + missed;
+    const d1Eligible = Number(c.d1_eligible) || 0;
+    const d1Returned = Number(c.d1_returned) || 0;
+    const d7Eligible = Number(c.d7_eligible) || 0;
+    const d7Returned = Number(c.d7_returned) || 0;
+    return {
+      attribution: {
+        source: r.source || 'direct',
+        campaign: r.campaign || '',
+        content: r.content || '',
+        challenge: r.challenge || '',
+      },
+      users: Number(r.users) || 0,
+      commitments_created: Number(r.commitments_created) || 0,
+      checkins_delivered: Number(r.checkins_delivered) || 0,
+      outcomes: { kept, rescheduled, missed, resolved },
+      kept_word_rate: resolved ? round2(kept / resolved) : null,
+      retention: {
+        d1: {
+          eligible: d1Eligible, returned: d1Returned,
+          rate: d1Eligible ? round2(d1Returned / d1Eligible) : null,
+        },
+        d7: {
+          eligible: d7Eligible, returned: d7Returned,
+          rate: d7Eligible ? round2(d7Returned / d7Eligible) : null,
+        },
+      },
+    };
+  });
+}
+
+/**
  * Compute the accountability loop's retention/health metrics over a window.
  * Reads only the first-party `analytics_events` rows this module writes.
  *
@@ -264,6 +381,7 @@ export async function computeLoopMetrics(env, opts = {}) {
       d7: { eligible: 0, returned: 0, rate: null },
       new_users_7d: 0,
     },
+    acquisition: [],
   };
 
   // Counts by type in the window.
@@ -321,6 +439,18 @@ export async function computeLoopMetrics(env, opts = {}) {
     console.warn('[events] computeReturnCohorts failed:', err && err.message);
   }
 
+  // Attribute the same loop outcomes to acquisition dimensions. Non-fatal for
+  // the same reason as the cohort view: observability cannot break observability.
+  let acquisition = empty.acquisition;
+  try {
+    acquisition = await computeAcquisitionMetrics(env, {
+      sinceDays,
+      nowISO: now.toISOString(),
+    });
+  } catch (err) {
+    console.warn('[events] computeAcquisitionMetrics failed:', err && err.message);
+  }
+
   return {
     ...empty,
     by_type,
@@ -331,6 +461,7 @@ export async function computeLoopMetrics(env, opts = {}) {
     active_users,
     returning_users,
     retention,
+    acquisition,
   };
 }
 
