@@ -158,6 +158,70 @@ async function checkRateLimit(request, env, endpoint) {
   }
 }
 
+async function loginRateLimitKeys(request, normalizedEmail) {
+  const clientIP = request.headers.get('CF-Connecting-IP')
+    || request.headers.get('X-Forwarded-For')
+    || 'unknown';
+  const accountHash = await hashSessionCredential(normalizedEmail);
+  const networkHash = await hashSessionCredential(clientIP.split(',')[0].trim() || 'unknown');
+  return [
+    `ratelimit:login:account:${accountHash}`,
+    `ratelimit:login:account-network:${accountHash}:${networkHash}`,
+  ];
+}
+
+async function failedLoginLimit(request, env, normalizedEmail) {
+  try {
+    const keys = await loginRateLimitKeys(request, normalizedEmail);
+    const counts = await Promise.all(keys.map(async (key) => (
+      Number.parseInt(await env.KV_CACHE.get(key), 10) || 0
+    )));
+    return {
+      limited: counts.some((count) => count >= config.auth.maxLoginAttempts),
+      keys,
+    };
+  } catch (error) {
+    console.warn('[AUTH] Failed-login limit unavailable:', error.message);
+    return { limited: false, keys: [] };
+  }
+}
+
+async function recordFailedLogin(env, keys) {
+  try {
+    await Promise.all(keys.map(async (key) => {
+      const count = Number.parseInt(await env.KV_CACHE.get(key), 10) || 0;
+      await env.KV_CACHE.put(key, String(count + 1), {
+        expirationTtl: config.auth.rateLimitWindowSeconds,
+      });
+    }));
+  } catch (error) {
+    console.warn('[AUTH] Failed-login recording unavailable:', error.message);
+  }
+}
+
+async function clearFailedLoginBudget(env, keys) {
+  if (typeof env.KV_CACHE?.delete !== 'function') return;
+  try {
+    await Promise.all(keys.map((key) => env.KV_CACHE.delete(key)));
+  } catch (error) {
+    console.warn('[AUTH] Failed-login reset unavailable:', error.message);
+  }
+}
+
+function failedLoginLimitedResponse() {
+  return new Response(JSON.stringify({
+    error: 'Too many failed login attempts. Please try again later.',
+  }), {
+    status: 429,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'Retry-After': String(config.auth.rateLimitWindowSeconds),
+    },
+  });
+}
+
 // ── DATABASE INITIALIZATION ──
 let dbInitialized = false;
 
@@ -1165,19 +1229,6 @@ router.post('/auth/register', async (request, env) => {
 // ── LOGIN ──
 router.post('/auth/login', async (request, env) => {
   try {
-    // ✅ Apply rate limiting
-    const rateLimitResult = await checkRateLimit(request, env, 'login');
-    if (rateLimitResult.limited) {
-      return new Response(JSON.stringify({ error: rateLimitResult.message }), {
-        status: 429, // Too Many Requests
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-          'Retry-After': rateLimitResult.retryAfter.toString()
-        }
-      });
-    }
-    
     // Parse JSON with error handling
     let body;
     try {
@@ -1199,11 +1250,20 @@ router.post('/auth/login', async (request, env) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    // Read, but do not spend, the failed-attempt budget. A correct password is
+    // always allowed to prove ownership and clears earlier failures; only an
+    // invalid credential increments either account-scoped counter.
+    const loginLimit = await failedLoginLimit(request, env, email);
     
     // Find user
     const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE email = ? AND is_active = 1').bind(email).first();
     
     if (!user) {
+      if (loginLimit.limited) {
+        return failedLoginLimitedResponse();
+      }
+      await recordFailedLogin(env, loginLimit.keys);
       // Generic error to prevent email enumeration attacks
       return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
         status: 401,
@@ -1214,11 +1274,17 @@ router.post('/auth/login', async (request, env) => {
     // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
+      if (loginLimit.limited) {
+        return failedLoginLimitedResponse();
+      }
+      await recordFailedLogin(env, loginLimit.keys);
       return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    await clearFailedLoginBudget(env, loginLimit.keys);
 
     // Upgrade legacy or stale-cost hashes before issuing a new session. The
     // compare-and-swap WHERE clause makes simultaneous logins safe.

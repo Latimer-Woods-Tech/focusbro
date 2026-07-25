@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import worker, {
   createSessionRecord,
   generateToken,
@@ -159,9 +159,11 @@ describe('session refresh', () => {
         return { success: true, meta: { changes: 1 } };
       }
     };
+    const put = vi.fn(async () => {});
+    const remove = vi.fn(async () => {});
     const env = {
       JWT_SECRET,
-      KV_CACHE: { get: async () => null, put: async () => {} },
+      KV_CACHE: { get: async () => String(config.auth.maxLoginAttempts), put, delete: remove },
       DB: { prepare: () => ({ ...statement }) }
     };
 
@@ -183,6 +185,53 @@ describe('session refresh', () => {
     expect(body.success).toBe(true);
     expect(body.token).toBeUndefined();
     expect(response.headers.get('Set-Cookie')).toContain('HttpOnly');
+    expect(put).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+
+  it('spends the login budget only on failed credentials', async () => {
+    const passwordHash = await hashPassword('correct password');
+    const counts = new Map();
+    const put = vi.fn(async (key, value) => counts.set(key, value));
+    const remove = vi.fn(async (key) => counts.delete(key));
+    const statement = {
+      bind() { return this; },
+      async first() { return { id: USER_ID, password_hash: passwordHash }; },
+      async all() { return { results: [] }; },
+      async run() { return { success: true, meta: { changes: 1 } }; },
+    };
+    const env = {
+      JWT_SECRET,
+      KV_CACHE: {
+        get: async (key) => counts.get(key) ?? null,
+        put,
+        delete: remove,
+      },
+      DB: { prepare: () => ({ ...statement }) },
+    };
+    const login = (password) => worker.fetch(
+      new Request('https://focusbro.net/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://focusbro.net',
+          'CF-Connecting-IP': '203.0.113.9',
+        },
+        body: JSON.stringify({ email: ' Person@Example.COM ', password }),
+      }),
+      env,
+      {},
+    );
+
+    expect((await login('wrong password')).status).toBe(401);
+    expect(put).toHaveBeenCalledTimes(2);
+    expect([...counts.keys()].every((key) => !key.includes('person@example.com'))).toBe(true);
+    const putsAfterFailure = put.mock.calls.length;
+
+    expect((await login('correct password')).status).toBe(200);
+    expect(put).toHaveBeenCalledTimes(putsAfterFailure);
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(counts.size).toBe(0);
   });
 
   it('stores only a one-way hash for a newly issued credential', async () => {
