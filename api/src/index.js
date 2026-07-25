@@ -1045,7 +1045,7 @@ async function verifyToken(token, jwtSecret, env = null) {
 // AUTHENTICATION ENDPOINTS
 // ════════════════════════════════════════════════════════════
 
-registerAccountRecoveryRoutes(router);
+registerAccountRecoveryRoutes(router, { hashPassword });
 
 // ── REGISTER ──
 router.post('/auth/register', async (request, env) => {

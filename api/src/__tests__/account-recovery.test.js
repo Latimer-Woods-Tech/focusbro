@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Router } from 'itty-router';
 import {
   allowRecoveryRequest,
+  confirmPasswordReset,
   createAuthActionToken,
   normalizeAccountEmail,
   recoveryConstants,
@@ -126,5 +127,68 @@ describe('account recovery foundation', () => {
     expect(unknown.status).toBe(202);
     expect(malformed.status).toBe(202);
     expect(await unknown.text()).toBe(await malformed.text());
+  });
+
+  it('consumes a reset link once, updates the password, and revokes every session', async () => {
+    const statements = [];
+    let available = true;
+    const env = {
+      DB: {
+        prepare(sql) {
+          const statement = preparedStatement(sql);
+          if (sql.includes('RETURNING user_id')) {
+            statement.first = vi.fn(async () => {
+              if (!available) return null;
+              available = false;
+              return { user_id: 'user-1' };
+            });
+          }
+          statements.push(statement);
+          return statement;
+        },
+        batch: vi.fn(async () => []),
+      },
+    };
+    const hashPassword = vi.fn(async () => 'pbkdf2-sha256$600000$salt$hash');
+    const token = 'A'.repeat(43);
+
+    await expect(confirmPasswordReset(env, token, 'new-password', hashPassword))
+      .resolves.toEqual({ ok: true, userId: 'user-1' });
+    await expect(confirmPasswordReset(env, token, 'new-password', hashPassword))
+      .resolves.toEqual({ ok: false, reason: 'invalid' });
+
+    expect(env.DB.batch).toHaveBeenCalledOnce();
+    const mutationSql = env.DB.batch.mock.calls[0][0].map((statement) => statement.sql);
+    expect(mutationSql.some((sql) => sql.includes('SET password_hash'))).toBe(true);
+    expect(mutationSql.some((sql) => sql.includes('SET is_active = 0'))).toBe(true);
+    expect(mutationSql.some((sql) => sql.includes("'password_reset'"))).toBe(true);
+    expect(statements.find((statement) => statement.sql.includes('RETURNING user_id')).sql)
+      .toContain("expires_at > datetime('now')");
+  });
+
+  it('rejects malformed credentials before hashing or touching D1', async () => {
+    const hashPassword = vi.fn();
+    const env = { DB: { prepare: vi.fn() } };
+
+    await expect(confirmPasswordReset(env, 'short', 'new-password', hashPassword))
+      .resolves.toEqual({ ok: false, reason: 'invalid' });
+    await expect(confirmPasswordReset(env, 'A'.repeat(43), 'short', hashPassword))
+      .resolves.toEqual({ ok: false, reason: 'invalid' });
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect(env.DB.prepare).not.toHaveBeenCalled();
+  });
+
+  it('serves a no-store reset page whose script immediately clears the fragment', async () => {
+    const router = Router();
+    registerAccountRecoveryRoutes(router, { hashPassword: vi.fn() });
+
+    const page = await router.fetch(new Request('https://focusbro.net/reset-password'), {});
+    const script = await router.fetch(new Request('https://focusbro.net/auth/reset-page.js'), {});
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get('Cache-Control')).toContain('no-store');
+    expect(await page.text()).toContain('src=\"/auth/reset-page.js\"');
+    expect(script.headers.get('Cache-Control')).toContain('no-store');
+    expect(await script.text()).toContain("history.replaceState(null, '', location.pathname)");
   });
 });
