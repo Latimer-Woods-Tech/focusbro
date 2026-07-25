@@ -1116,7 +1116,6 @@ router.post('/auth/register', async (request, env) => {
       success: true,
       user_id: userId,
       email,
-      token,
       session_id: sessionId
     }), {
       status: 201,
@@ -1210,7 +1209,6 @@ router.post('/auth/login', async (request, env) => {
       success: true,
       user_id: user.id,
       email,
-      token,
       session_id: sessionId
     }, 200, 'nocache'), sessionCookie(token));
   } catch (error) {
@@ -1297,7 +1295,6 @@ router.post('/auth/refresh', async (request, env) => {
 
     return responseWithCookie(jsonResponse({
       success: true,
-      token: newToken,
       user_id: session.user_id,
       session_id: session.session_id
     }, 200), sessionCookie(newToken));

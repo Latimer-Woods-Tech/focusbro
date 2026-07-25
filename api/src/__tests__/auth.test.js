@@ -39,19 +39,19 @@ describe('Authentication Endpoints', () => {
       expect(!!existing).toBe(true);
     });
 
-    it('should return 201 with token on success', async () => {
+    it('should return 201 without exposing the session credential', async () => {
       // Mock successful registration
       const response = {
         status: 201,
         success: true,
         user_id: 'user-123',
-        token: 'eyJhbGc...',
         session_id: 'session-123'
       };
       
       expect(response.status).toBe(201);
       expect(response.success).toBe(true);
-      expect(response.token).toBeDefined();
+      expect(response.token).toBeUndefined();
+      expect(response.session_id).toBeDefined();
     });
   });
 
@@ -76,17 +76,16 @@ describe('Authentication Endpoints', () => {
       expect(stored === provided).toBe(false);
     });
 
-    it('should return 200 with token on success', async () => {
+    it('should return 200 without exposing the session credential', async () => {
       const response = {
         status: 200,
         success: true,
         user_id: 'user-123',
-        token: 'eyJhbGc...',
         session_id: 'session-456'
       };
       
       expect(response.status).toBe(200);
-      expect(response.token).toBeDefined();
+      expect(response.token).toBeUndefined();
       expect(response.session_id).toBeDefined();
     });
   });
