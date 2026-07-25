@@ -21,6 +21,17 @@ function call(method, path, origin = 'https://focusbro.net') {
 }
 
 describe('Worker routing', () => {
+  it('makes accountability the public front door without hiding the toolkit', async () => {
+    const page = await call('GET', '/');
+    const html = await page.text();
+    expect(html).toContain('<title>FocusBro — The ADHD Check-In That Follows Up</title>');
+    expect(html).toContain('id="quickWordForm"');
+    expect(html).toContain('What are you avoiding?');
+    expect(html).toContain("destination.searchParams.set('task', task)");
+    expect(html).toContain("destination.searchParams.set('source'");
+    expect(html).toContain('id="pomoStartBtn"');
+  });
+
   it('serves /me/ and only redirects the unslashed /me', async () => {
     const page = await call('GET', '/me/');
     expect(page.status).toBe(200);

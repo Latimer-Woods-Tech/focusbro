@@ -961,12 +961,28 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     try { return (new URLSearchParams(location.search).get('task') || '').trim().slice(0, 200); }
     catch (e) { return ''; }
   })();
+  var PREFILL_WHEN = (function () {
+    try { return (new URLSearchParams(location.search).get('when') || '').trim().slice(0, 80); }
+    catch (e) { return ''; }
+  })();
+  var ATTRIBUTION = (function () {
+    var out = {};
+    try {
+      var q = new URLSearchParams(location.search);
+      ['source', 'campaign', 'content', 'challenge'].forEach(function (key) {
+        var value = (q.get(key) || '').trim().slice(0, 80);
+        if (value) out[key] = value;
+      });
+    } catch (e) {}
+    return out;
+  })();
   function applyPrefill() {
     if (!PREFILL_TASK) return;
     var t = el('title');
     if (t && !t.value) { t.value = PREFILL_TASK; }
-    show(el('carryNote'));
     var w = el('startAt');
+    if (w && PREFILL_WHEN && !w.value) { w.value = PREFILL_WHEN; }
+    show(el('carryNote'));
     if (w) { try { w.focus(); } catch (e) {} }
   }
 
@@ -1388,6 +1404,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     el('signinTitle').textContent = (mode === 'register') ? 'Create an account' : 'Sign in';
     el('signinSubmit').textContent = (mode === 'register') ? 'Create account' : 'Sign in';
     el('toggleMode').textContent = (mode === 'register') ? 'I already have an account' : 'Create an account';
+    el('password').setAttribute('autocomplete', (mode === 'register') ? 'new-password' : 'current-password');
     hide(el('signinErr'));
   });
 
@@ -1429,7 +1446,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         persona: el('persona').value,
         channel: el('channel').value,
         recurrence: repeat,
-        timezone: tz
+        timezone: tz,
+        attribution: ATTRIBUTION
       })
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
@@ -1444,7 +1462,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 
   el('signout').addEventListener('click', function (ev) { ev.preventDefault(); toSignin(); });
 
-  if (token()) { enterApp(); } else { toSignin(); }
+  if (token()) {
+    enterApp();
+  } else {
+    // Challenge/homepage traffic already gave us a word. Put new people directly
+    // on account creation; returning people can still switch to sign-in in one tap.
+    if (PREFILL_TASK) {
+      mode = 'register';
+      el('signinTitle').textContent = 'Create an account';
+      el('signinSubmit').textContent = 'Create account';
+      el('toggleMode').textContent = 'I already have an account';
+      el('password').setAttribute('autocomplete', 'new-password');
+    }
+    toSignin();
+  }
 })();
 </script>
 </body></html>`;

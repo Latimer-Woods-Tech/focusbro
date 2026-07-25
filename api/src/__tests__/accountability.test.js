@@ -17,6 +17,7 @@ import {
   nextOccurrenceISO,
   alignStartToRecurrence,
   localTimeFromISO,
+  sanitizeAttribution,
   validateCommitmentInput,
   computeStreakAfter,
   checkinPromptCopy,
@@ -32,6 +33,31 @@ import {
   keptNoteFromReply,
   KEPT_NOTE_FALLBACK,
 } from '../accountability.js';
+
+describe('sanitizeAttribution', () => {
+  it('keeps only the campaign dimensions used by the acquisition funnel', () => {
+    expect(sanitizeAttribution({
+      source: ' tiktok ',
+      campaign: 'founder-story-01',
+      content: 'hook-b',
+      challenge: 'open-the-document',
+      arbitrary: 'drop me',
+    })).toEqual({
+      source: 'tiktok',
+      campaign: 'founder-story-01',
+      content: 'hook-b',
+      challenge: 'open-the-document',
+    });
+  });
+
+  it('drops non-strings and caps values before they enter analytics', () => {
+    expect(sanitizeAttribution(null)).toEqual({});
+    expect(sanitizeAttribution([])).toEqual({});
+    expect(sanitizeAttribution({ source: 42, campaign: 'x'.repeat(100) })).toEqual({
+      campaign: 'x'.repeat(80),
+    });
+  });
+});
 
 describe('validateCommitmentInput', () => {
   const validBody = { title: 'Start the taxes', start_at: '2026-07-05T14:00:00Z' };
