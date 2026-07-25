@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import worker, {
   createSessionRecord,
   generateToken,
+  hashPassword,
   hashSessionCredential,
   verifySignedToken,
   verifyToken
@@ -140,6 +141,50 @@ function requestExchange(env, token) {
 }
 
 describe('session refresh', () => {
+  it('keeps a successful login credential out of the JSON body', async () => {
+    const passwordHash = await hashPassword('correct password');
+    const statement = {
+      bindings: [],
+      bind(...values) {
+        this.bindings = values;
+        return this;
+      },
+      async first() {
+        return { id: USER_ID, password_hash: passwordHash };
+      },
+      async all() {
+        return { results: [] };
+      },
+      async run() {
+        return { success: true, meta: { changes: 1 } };
+      }
+    };
+    const env = {
+      JWT_SECRET,
+      KV_CACHE: { get: async () => null, put: async () => {} },
+      DB: { prepare: () => ({ ...statement }) }
+    };
+
+    const response = await worker.fetch(
+      new Request('https://focusbro.net/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://focusbro.net' },
+        body: JSON.stringify({
+          email: 'person@example.com',
+          password: 'correct password'
+        })
+      }),
+      env,
+      {}
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.token).toBeUndefined();
+    expect(response.headers.get('Set-Cookie')).toContain('HttpOnly');
+  });
+
   it('stores only a one-way hash for a newly issued credential', async () => {
     const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
     let sql;
@@ -175,14 +220,18 @@ describe('session refresh', () => {
 
     const response = await requestRefresh(env, originalToken);
     const body = await response.json();
+    const rotatedToken = decodeURIComponent(
+      response.headers.get('Set-Cookie').match(/__Host-focusbro_session=([^;]+)/)[1]
+    );
 
     expect(response.status).toBe(200);
-    expect(body.token).not.toBe(originalToken);
+    expect(body.token).toBeUndefined();
+    expect(rotatedToken).not.toBe(originalToken);
     expect(body.session_id).toBe(SESSION_ID);
     expect(state.currentToken).toBeNull();
-    await expect(hashSessionCredential(body.token)).resolves.toBe(state.currentTokenHash);
+    await expect(hashSessionCredential(rotatedToken)).resolves.toBe(state.currentTokenHash);
     expect(state.rotations).toBe(1);
-    await expect(verifyToken(body.token, JWT_SECRET)).resolves.toMatchObject({
+    await expect(verifyToken(rotatedToken, JWT_SECRET)).resolves.toMatchObject({
       sub: USER_ID,
       sid: SESSION_ID
     });
