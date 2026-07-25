@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import worker, { generateToken } from '../index.js';
+import worker, { generateToken, isBillingEnabled } from '../index.js';
 
 function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [] } = {}) {
   const stmt = {
@@ -26,6 +26,44 @@ function call(method, path, origin = 'https://focusbro.net', options = {}) {
 }
 
 describe('Worker routing', () => {
+  it('keeps dormant billing unavailable unless explicitly enabled', async () => {
+    expect(isBillingEnabled()).toBe(false);
+    expect(isBillingEnabled({})).toBe(false);
+    expect(isBillingEnabled({ BILLING_ENABLED: true })).toBe(false);
+    expect(isBillingEnabled({ BILLING_ENABLED: 'false' })).toBe(false);
+    expect(isBillingEnabled({ BILLING_ENABLED: 'true' })).toBe(true);
+
+    const routes = [
+      ['POST', '/api/billing/create-checkout'],
+      ['GET', '/api/billing/portal'],
+      ['POST', '/api/billing/webhook'],
+      ['GET', '/api/billing/tier'],
+    ];
+    for (const [method, path] of routes) {
+      const response = await call(method, path);
+      expect(response.status, path).toBe(404);
+      expect(await response.json(), path).toEqual({ error: 'Not found' });
+    }
+  });
+
+  it('only reaches billing handlers behind the exact enable flag', async () => {
+    const env = { ...makeEnv(), BILLING_ENABLED: 'true' };
+    for (const [method, path] of [
+      ['POST', '/api/billing/create-checkout'],
+      ['GET', '/api/billing/portal'],
+      ['GET', '/api/billing/tier'],
+    ]) {
+      const response = await call(method, path, 'https://focusbro.net', { env });
+      expect(response.status, path).toBe(401);
+    }
+
+    const webhook = await call('POST', '/api/billing/webhook', 'https://focusbro.net', {
+      env,
+      body: '{}',
+    });
+    expect(webhook.status).toBe(401);
+  });
+
   it('makes accountability the public front door without hiding the toolkit', async () => {
     const page = await call('GET', '/');
     const html = await page.text();
