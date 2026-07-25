@@ -114,6 +114,20 @@ function requestLogout(env, token, all = false) {
   );
 }
 
+function requestWithCookie(env, path, token, origin = 'https://focusbro.net') {
+  return worker.fetch(
+    new Request(`https://focusbro.net${path}`, {
+      method: 'POST',
+      headers: {
+        Cookie: `__Host-focusbro_session=${encodeURIComponent(token)}`,
+        Origin: origin
+      }
+    }),
+    env,
+    {}
+  );
+}
+
 describe('session refresh', () => {
   it('stores only a one-way hash for a newly issued credential', async () => {
     const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
@@ -250,5 +264,48 @@ describe('session refresh', () => {
 
     expect((await requestLogout(env, null)).status).toBe(401);
     expect((await requestLogout(env, null, true)).status).toBe(401);
+  });
+
+  it('rotates an HttpOnly cookie credential with secure attributes', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env } = makeEnv(token);
+
+    const response = await requestWithCookie(env, '/auth/refresh', token);
+    const setCookie = response.headers.get('Set-Cookie');
+
+    expect(response.status).toBe(200);
+    expect(setCookie).toContain('__Host-focusbro_session=');
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('Secure');
+    expect(setCookie).toContain('SameSite=Lax');
+    expect(setCookie).toContain('Path=/');
+  });
+
+  it('rejects cross-site cookie mutations before session lookup', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env, state } = makeEnv(token);
+
+    const response = await requestWithCookie(
+      env,
+      '/auth/logout',
+      token,
+      'https://attacker.example'
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.sessionLookups).toBe(0);
+  });
+
+  it('clears the session cookie after cookie-authenticated logout', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env } = makeEnv(token);
+
+    const response = await requestWithCookie(env, '/auth/logout', token);
+    const setCookie = response.headers.get('Set-Cookie');
+
+    expect(response.status).toBe(200);
+    expect(setCookie).toContain('__Host-focusbro_session=;');
+    expect(setCookie).toContain('Max-Age=0');
+    expect(setCookie).toContain('HttpOnly');
   });
 });
