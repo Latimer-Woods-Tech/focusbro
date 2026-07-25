@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics,
-  outcomeEvent, clampSinceDays, EVENTS,
+  recordAcquisitionVisit, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
@@ -20,7 +20,7 @@ import {
 // table) so the non-fatal guarantee can be asserted.
 function makeDB({
   counts = {}, active = 0, returning = 0, cohort = null,
-  acquisitionFunnel = [], acquisitionCohorts = [],
+  acquisitionVisits = [], acquisitionFunnel = [], acquisitionCohorts = [],
   throwOnCohort = false, throwOnRun = false,
 } = {}) {
   const runs = [];
@@ -31,6 +31,7 @@ function makeDB({
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async all() {
+          if (/acquisition_visits/.test(sql)) return { results: acquisitionVisits };
           if (/acquisition_funnel/.test(sql)) return { results: acquisitionFunnel };
           if (/acquisition_cohorts/.test(sql)) return { results: acquisitionCohorts };
           if (/GROUP BY event_type/.test(sql)) {
@@ -174,6 +175,25 @@ describe('recordEvent — writes to analytics_events, non-fatal', () => {
   });
 });
 
+describe('recordAcquisitionVisit — anonymous campaign denominator', () => {
+  it('stores only sanitized attribution and defaults an empty source to direct', async () => {
+    const db = makeDB();
+    expect(await recordAcquisitionVisit({ DB: db }, {
+      source: ' tiktok ', campaign: 'launch', ignored: 'task text',
+    })).toBe(true);
+    expect(db.runs).toHaveLength(1);
+    expect(db.runs[0].params[0]).toBeNull();
+    expect(db.runs[0].params[1]).toBe(EVENTS.ACQUISITION_VISIT);
+    expect(JSON.parse(db.runs[0].params[2])).toEqual({
+      attribution: { source: 'tiktok', campaign: 'launch' },
+    });
+
+    expect(sanitizeAttribution({ source: 42, content: 'x'.repeat(100) })).toEqual({
+      content: 'x'.repeat(80),
+    });
+  });
+});
+
 describe('computeLoopMetrics — the retention/coach numbers', () => {
   it('computes totals, honest kept-word rate, and reschedule rate', async () => {
     // 8 kept, 2 reschedule, 2 missed → 12 resolved → kept 0.67, reschedule 0.17
@@ -251,6 +271,7 @@ describe('computeAcquisitionMetrics — channel quality, not vanity traffic', ()
       source: 'tiktok', campaign: 'cant-swipe', content: 'demo-03', challenge: 'start-now',
     };
     const db = makeDB({
+      acquisitionVisits: [{ ...dimensions, landing_visits: 20 }],
       acquisitionFunnel: [{
         ...dimensions, users: 8, commitments_created: 10, checkins_delivered: 9,
         kept: 5, rescheduled: 2, missed: 1,
@@ -264,8 +285,10 @@ describe('computeAcquisitionMetrics — channel quality, not vanity traffic', ()
     });
 
     expect(row.attribution).toEqual(dimensions);
+    expect(row.landing_visits).toBe(20);
     expect(row.users).toBe(8);
     expect(row.commitments_created).toBe(10);
+    expect(row.activation_rate).toBe(0.4);
     expect(row.checkins_delivered).toBe(9);
     expect(row.outcomes).toEqual({ kept: 5, rescheduled: 2, missed: 1, resolved: 8 });
     expect(row.kept_word_rate).toBe(0.63);
@@ -286,8 +309,24 @@ describe('computeAcquisitionMetrics — channel quality, not vanity traffic', ()
       source: 'direct', campaign: '', content: '', challenge: '',
     });
     expect(row.kept_word_rate).toBeNull();
+    expect(row.landing_visits).toBe(0);
+    expect(row.activation_rate).toBeNull();
     expect(row.retention.d1.rate).toBeNull();
     expect(row.retention.d7.rate).toBeNull();
+  });
+
+  it('keeps visit-only campaigns visible with zero commitments', async () => {
+    const db = makeDB({
+      acquisitionVisits: [{
+        source: 'youtube', campaign: 'founder-story', content: '', challenge: '',
+        landing_visits: 12,
+      }],
+    });
+    const [row] = await computeAcquisitionMetrics({ DB: db }, {});
+    expect(row.attribution.source).toBe('youtube');
+    expect(row.landing_visits).toBe(12);
+    expect(row.commitments_created).toBe(0);
+    expect(row.activation_rate).toBe(0);
   });
 
   it('returns an empty scorecard without a database', async () => {

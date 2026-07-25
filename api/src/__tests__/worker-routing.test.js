@@ -19,7 +19,7 @@ function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [] } = 
 
 function call(method, path, origin = 'https://focusbro.net', options = {}) {
   return worker.fetch(
-    new Request(origin + path, { method, headers: options.headers }),
+    new Request(origin + path, { method, headers: options.headers, body: options.body }),
     options.env || makeEnv(),
     {},
   );
@@ -34,7 +34,30 @@ describe('Worker routing', () => {
     expect(html).toContain('What are you avoiding?');
     expect(html).toContain("destination.searchParams.set('task', task)");
     expect(html).toContain("destination.searchParams.set('source'");
+    expect(html).toContain("fetch('/api/acquisition/visit'");
+    expect(html).toContain("sessionStorage.setItem(visitKey, '1')");
     expect(html).toContain('id="pomoStartBtn"');
+  });
+
+  it('accepts same-origin acquisition visits and rejects hostile origins', async () => {
+    const accepted = await call('POST', '/api/acquisition/visit', 'https://focusbro.net', {
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://focusbro.net',
+      },
+      body: JSON.stringify({ attribution: { source: 'tiktok', campaign: 'demo-01' } }),
+    });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({ ok: true });
+
+    const rejected = await call('POST', '/api/acquisition/visit', 'https://focusbro.net', {
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://hostile.example',
+      },
+      body: JSON.stringify({ attribution: { source: 'spam' } }),
+    });
+    expect(rejected.status).toBe(403);
   });
 
   it('serves /me/ and only redirects the unslashed /me', async () => {
@@ -143,6 +166,13 @@ describe('Worker routing', () => {
       expect(head.status, path).toBe(200);
       expect(await head.text(), path).toBe('');
     }
+  });
+
+  it('discloses privacy-minimal campaign measurement', async () => {
+    const privacy = await call('GET', '/privacy.html');
+    const html = await privacy.text();
+    expect(html).toContain('Aggregate campaign visit counts');
+    expect(html).toContain('not a visitor ID, fingerprint, task, email, or contact information');
   });
 
   it('redirects production HTTP requests to HTTPS', async () => {

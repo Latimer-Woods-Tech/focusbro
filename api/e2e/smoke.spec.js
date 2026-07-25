@@ -8,7 +8,15 @@ test.describe('FocusBro client smoke', () => {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
 
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const visitRequest = page.waitForRequest((request) =>
+      request.url().endsWith('/api/acquisition/visit'));
+    await page.goto('/?utm_source=tiktok&utm_campaign=landing-01&utm_content=demo-01',
+      { waitUntil: 'domcontentloaded' });
+    const visit = await visitRequest;
+    expect(visit.method()).toBe('POST');
+    expect(visit.postDataJSON()).toEqual({
+      attribution: { source: 'tiktok', campaign: 'landing-01', content: 'demo-01' },
+    });
 
     // Renders
     await expect(page).toHaveTitle(/FocusBro/);

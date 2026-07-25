@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_devices_last_activity ON devices(last_activity);
 -- ── ANALYTICS EVENTS TABLE (product metrics) ──
 CREATE TABLE IF NOT EXISTS analytics_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL,
+  user_id TEXT, -- nullable for privacy-minimal anonymous acquisition visits
   event_type TEXT NOT NULL,
   event_data TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

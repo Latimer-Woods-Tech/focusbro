@@ -5445,6 +5445,37 @@ function dismissOnboarding() {
 (function () {
   const form = document.getElementById('quickWordForm');
   if (!form) return;
+  const campaignValue = (params, key, fallback = '') =>
+    (params.get('utm_' + key) || params.get(key) || fallback).trim().slice(0, 80);
+  const incoming = new URLSearchParams(window.location.search);
+  const attribution = {
+    source: campaignValue(incoming, 'source', 'homepage')
+  };
+  for (const key of ['campaign', 'content', 'challenge']) {
+    const value = campaignValue(incoming, key);
+    if (value) attribution[key] = value;
+  }
+
+  // One anonymous count per tab session and acquisition tuple. No task text,
+  // account data, fingerprint, or persistent visitor identifier leaves the page.
+  try {
+    const visitKey = 'focusbro_visit:' + JSON.stringify(attribution);
+    if (!sessionStorage.getItem(visitKey)) {
+      fetch('/api/acquisition/visit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attribution }),
+        keepalive: true
+      }).then((response) => {
+        if (response.ok) sessionStorage.setItem(visitKey, '1');
+      }).catch((error) => {
+        console.warn('Acquisition visit tracking unavailable:', error && error.message);
+      });
+    }
+  } catch (error) {
+    console.warn('Acquisition visit tracking unavailable:', error && error.message);
+  }
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const task = document.getElementById('quickWordTask').value.trim();
@@ -5453,10 +5484,10 @@ function dismissOnboarding() {
     const destination = new URL('/me/', window.location.origin);
     destination.searchParams.set('task', task);
     destination.searchParams.set('when', when);
-    const incoming = new URLSearchParams(window.location.search);
-    destination.searchParams.set('source', incoming.get('utm_source') || incoming.get('source') || 'homepage');
+    const submitParams = new URLSearchParams(window.location.search);
+    destination.searchParams.set('source', campaignValue(submitParams, 'source', 'homepage'));
     for (const key of ['campaign', 'content', 'challenge']) {
-      const value = incoming.get('utm_' + key) || incoming.get(key);
+      const value = campaignValue(submitParams, key);
       if (value) destination.searchParams.set(key, value);
     }
     window.location.assign(destination.pathname + destination.search);
@@ -5505,7 +5536,7 @@ if (document.head) document.head.appendChild(confettiStyle);
     <div id="privacyContent" style="display:none;">
       <div class="onboarding-title">Privacy Policy</div>
       <div style="font-size:13px; line-height:1.8; color:var(--text); margin-top:16px;">
-        <p><strong>Last Updated: July 10, 2026</strong></p>
+        <p><strong>Last Updated: July 25, 2026</strong></p>
         
         <h3 style="margin-top:16px; font-weight:600; color:var(--primary);">Your Privacy Matters</h3>
         <p>FocusBro is browser-first. <strong>Your core focus data stays in your browser by default.</strong> We only receive personal data when you deliberately use a connected feature, such as account sync, accountability check-ins, payments, or support.</p>
@@ -5514,6 +5545,7 @@ if (document.head) document.head.appendChild(confettiStyle);
         <ul style="margin-left:20px; margin-top:8px;">
           <li><strong>Browser Storage:</strong> Tasks, meditation logs, energy tracking, stats, notes, and preferences are saved to your device's browser storage by default</li>
           <li><strong>Optional Account Features:</strong> If you create an account, use sync, or use accountability check-ins, we store the data needed to provide those features</li>
+          <li><strong>Campaign Measurement:</strong> Tagged links add to an aggregate visit count. We store the campaign labels, not a visitor ID, fingerprint, task, email, or contact information</li>
           <li><strong>Service Records:</strong> Payment processing, support requests, and basic security logs may be handled by our service providers</li>
         </ul>
         
