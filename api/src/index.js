@@ -13,6 +13,7 @@ import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
+import { registerAccountRecoveryRoutes } from './account-recovery.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit } from './events.js';
@@ -220,6 +221,18 @@ async function initializeDatabase(env) {
         revoked_at DATETIME,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       )`,
+      `CREATE TABLE IF NOT EXISTS auth_action_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        consumed_at DATETIME,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_auth_action_user_purpose
+         ON auth_action_tokens(user_id, purpose, created_at)`,
       `CREATE TABLE IF NOT EXISTS audit_logs (
         id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
         user_id TEXT,
@@ -1031,6 +1044,8 @@ async function verifyToken(token, jwtSecret, env = null) {
 // ════════════════════════════════════════════════════════════
 // AUTHENTICATION ENDPOINTS
 // ════════════════════════════════════════════════════════════
+
+registerAccountRecoveryRoutes(router);
 
 // ── REGISTER ──
 router.post('/auth/register', async (request, env) => {
