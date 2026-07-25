@@ -1652,13 +1652,34 @@ router.post('/api/internal/seed-dogfood', async (request, env) => {
 // first-party analytics_events spine into the founder/coach numbers: kept-word
 // rate, reschedule rate, active + returning users, counts by type, and
 // acquisition cohorts by source/campaign/content/challenge. Read-only.
-// Guarded by the same shared secret as the manual cron trigger; 404s when unset
-// so it can't be probed. `?since_days=N` (default 7, clamp 1..90).
-router.get('/api/internal/metrics', async (request, env) => {
-  if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
+// Guarded by either the cron secret or the signed-in founder account; 404s when
+// neither access path is configured. `?since_days=N` (default 7, clamp 1..90).
+export async function authorizeMetricsRequest(request, env) {
+  const cronConfigured = Boolean(env && env.CRON_TRIGGER_KEY);
   const key = request.headers.get('x-cron-key') || '';
-  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (cronConfigured && key === env.CRON_TRIGGER_KEY) {
+    return { configured: true, authorized: true };
+  }
+
+  const founderEmail = String((env && env.FOUNDER_EMAIL) || '').trim().toLowerCase();
+  if (!founderEmail) return { configured: cronConfigured, authorized: false };
+  const token = getAuthToken(request);
+  if (!token) return { configured: true, authorized: false };
+  const payload = await verifyToken(token, env.JWT_SECRET);
+  if (!payload || !payload.sub) return { configured: true, authorized: false };
+  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
+    .bind(payload.sub).first();
+  return {
+    configured: true,
+    authorized: Boolean(user && String(user.email).trim().toLowerCase() === founderEmail),
+  };
+}
+
+router.get('/api/internal/metrics', async (request, env) => {
   try {
+    const auth = await authorizeMetricsRequest(request, env);
+    if (!auth.configured) return jsonResponse({ error: 'Not found' }, 404);
+    if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
     const url = new URL(request.url);
     const sinceDays = clampSinceDays(url.searchParams.get('since_days'));
     const metrics = await computeLoopMetrics(env, { sinceDays });

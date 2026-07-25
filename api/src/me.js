@@ -607,6 +607,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <p class="err hidden" id="consentErr"></p>
   </div>
 
+  <div class="card hidden" id="founderMetrics">
+    <h2>Acquisition scorecard</h2>
+    <p class="muted">Which messages create accountability that lasts—not just traffic.</p>
+    <p id="founderMetricsSummary"></p>
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; text-align:left;">
+        <thead>
+          <tr>
+            <th>Source / campaign</th><th>Words</th><th>Delivered</th>
+            <th>Kept</th><th>D1</th><th>D7</th>
+          </tr>
+        </thead>
+        <tbody id="founderMetricsRows"></tbody>
+      </table>
+    </div>
+  </div>
+
   <p class="muted"><a href="#" id="signout">Sign out</a></p>
 </div>
 
@@ -1026,7 +1043,46 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); }
+  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); }
+
+  function metricRate(rate) {
+    return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
+  }
+
+  function loadFounderMetrics() {
+    fetch('/api/internal/metrics?since_days=30', { headers: authHeaders() })
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (body) {
+        if (!body || !body.metrics) return;
+        var m = body.metrics;
+        var summary = el('founderMetricsSummary');
+        summary.textContent =
+          (m.totals.commitments_created || 0) + ' words · ' +
+          (m.totals.checkins_delivered || 0) + ' check-ins · ' +
+          metricRate(m.kept_word_rate) + ' kept · D1 ' +
+          metricRate(m.retention && m.retention.d1 && m.retention.d1.rate) +
+          ' · D7 ' + metricRate(m.retention && m.retention.d7 && m.retention.d7.rate);
+        var rows = (m.acquisition || []).map(function (a) {
+          var label = a.attribution.source || 'direct';
+          if (a.attribution.campaign) label += ' / ' + a.attribution.campaign;
+          return '<tr>' +
+            '<td>' + esc(label) + '</td>' +
+            '<td>' + Number(a.commitments_created || 0) + '</td>' +
+            '<td>' + Number(a.checkins_delivered || 0) + '</td>' +
+            '<td>' + metricRate(a.kept_word_rate) + '</td>' +
+            '<td>' + metricRate(a.retention.d1.rate) + '</td>' +
+            '<td>' + metricRate(a.retention.d7.rate) + '</td>' +
+            '</tr>';
+        });
+        el('founderMetricsRows').innerHTML = rows.join('') ||
+          '<tr><td colspan="6" class="muted">No attributed words in this window yet.</td></tr>';
+        show(el('founderMetrics'));
+      })
+      .catch(function () {}); // Founder-only enhancement; never blocks the core loop.
+  }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
 
