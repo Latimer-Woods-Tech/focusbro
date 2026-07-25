@@ -10,14 +10,19 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  recordEvent, computeLoopMetrics, computeReturnCohorts, outcomeEvent, clampSinceDays, EVENTS,
+  recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics,
+  outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `counts` maps event_type → n for the GROUP BY query; `active`/`returning` are
 // the two aggregate scalars. `throwOnRun` simulates a broken INSERT (missing
 // table) so the non-fatal guarantee can be asserted.
-function makeDB({ counts = {}, active = 0, returning = 0, cohort = null, throwOnCohort = false, throwOnRun = false } = {}) {
+function makeDB({
+  counts = {}, active = 0, returning = 0, cohort = null,
+  acquisitionFunnel = [], acquisitionCohorts = [],
+  throwOnCohort = false, throwOnRun = false,
+} = {}) {
   const runs = [];
   const db = {
     runs,
@@ -26,6 +31,8 @@ function makeDB({ counts = {}, active = 0, returning = 0, cohort = null, throwOn
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async all() {
+          if (/acquisition_funnel/.test(sql)) return { results: acquisitionFunnel };
+          if (/acquisition_cohorts/.test(sql)) return { results: acquisitionCohorts };
           if (/GROUP BY event_type/.test(sql)) {
             return { results: Object.entries(counts).map(([event_type, n]) => ({ event_type, n })) };
           }
@@ -195,6 +202,7 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.window.days).toBe(7);
     expect(m.window.since).toBe('2026-07-06T00:00:00.000Z');
     expect(m.window.until).toBe('2026-07-13T00:00:00.000Z');
+    expect(m.acquisition).toEqual([]);
   });
 
   it('returns null rates (never NaN, never a divide-by-zero) on an empty window', async () => {
@@ -234,6 +242,56 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.totals.commitments_kept).toBe(3);          // core metrics intact
     expect(m.retention.d1.rate).toBeNull();             // fell back to the empty cohort
     expect(m.retention.new_users_7d).toBe(0);
+  });
+});
+
+describe('computeAcquisitionMetrics — channel quality, not vanity traffic', () => {
+  it('joins attributed commitments to delivery, outcomes, and D1/D7 return', async () => {
+    const dimensions = {
+      source: 'tiktok', campaign: 'cant-swipe', content: 'demo-03', challenge: 'start-now',
+    };
+    const db = makeDB({
+      acquisitionFunnel: [{
+        ...dimensions, users: 8, commitments_created: 10, checkins_delivered: 9,
+        kept: 5, rescheduled: 2, missed: 1,
+      }],
+      acquisitionCohorts: [{
+        ...dimensions, d1_eligible: 6, d1_returned: 4, d7_eligible: 3, d7_returned: 2,
+      }],
+    });
+    const [row] = await computeAcquisitionMetrics({ DB: db }, {
+      sinceDays: 7, nowISO: '2026-07-13T00:00:00.000Z',
+    });
+
+    expect(row.attribution).toEqual(dimensions);
+    expect(row.users).toBe(8);
+    expect(row.commitments_created).toBe(10);
+    expect(row.checkins_delivered).toBe(9);
+    expect(row.outcomes).toEqual({ kept: 5, rescheduled: 2, missed: 1, resolved: 8 });
+    expect(row.kept_word_rate).toBe(0.63);
+    expect(row.retention.d1).toEqual({ eligible: 6, returned: 4, rate: 0.67 });
+    expect(row.retention.d7).toEqual({ eligible: 3, returned: 2, rate: 0.67 });
+  });
+
+  it('uses direct attribution and null rates when no outcome or cohort is eligible', async () => {
+    const db = makeDB({
+      acquisitionFunnel: [{
+        source: null, campaign: null, content: null, challenge: null,
+        users: '1', commitments_created: '1', checkins_delivered: 0,
+        kept: 0, rescheduled: 0, missed: 0,
+      }],
+    });
+    const [row] = await computeAcquisitionMetrics({ DB: db }, {});
+    expect(row.attribution).toEqual({
+      source: 'direct', campaign: '', content: '', challenge: '',
+    });
+    expect(row.kept_word_rate).toBeNull();
+    expect(row.retention.d1.rate).toBeNull();
+    expect(row.retention.d7.rate).toBeNull();
+  });
+
+  it('returns an empty scorecard without a database', async () => {
+    expect(await computeAcquisitionMetrics(null, {})).toEqual([]);
   });
 });
 

@@ -1650,7 +1650,8 @@ router.post('/api/internal/seed-dogfood', async (request, env) => {
 // ── LOOP METRICS (retention/coach proof — Contender #10, R-235) ──
 // "Prove the accountability loop retains" (IMPROVEMENT_PLAN L1). Reads the
 // first-party analytics_events spine into the founder/coach numbers: kept-word
-// rate, reschedule rate, active + returning users, counts by type. Read-only.
+// rate, reschedule rate, active + returning users, counts by type, and
+// acquisition cohorts by source/campaign/content/challenge. Read-only.
 // Guarded by the same shared secret as the manual cron trigger; 404s when unset
 // so it can't be probed. `?since_days=N` (default 7, clamp 1..90).
 router.get('/api/internal/metrics', async (request, env) => {
