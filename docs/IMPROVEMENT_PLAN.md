@@ -97,6 +97,37 @@ preferred only if it supports this migration without a framework rewrite.
 | A5 | Add account recovery and email verification, preferably a one-time magic link. Rate-limit by normalized account plus network signal without locking an entire NAT population. | Expired/replayed links fail; recovery revokes old sessions; successful login does not consume the failed-attempt budget. |
 | A6 | After inline scripts are extracted in Stage 3, enforce CSP rather than report-only mode. | No CSP violations occur on critical journeys; a test inline script is blocked. |
 
+### Stage 1 execution record
+
+As of 2026-07-25, A1–A5 are implemented, tested, deployed, and verified at the
+production build SHA recorded below. A6 remains intentionally sequenced after
+Stage 3; enforcing the current report-only policy before extracting inline
+scripts would break the product.
+
+| Item | Delivery record | Production evidence |
+|---|---|---|
+| A1 | PR #176 | Versioned PBKDF2 new-write plus legacy dual-read/upgrade tests |
+| A2 | PR #177 | Strict refresh grace, active-session lookup, rotation, and replay rejection |
+| A3 | PRs #179–#180 | Hash-only credentials, logout, logout-all, and server revocation |
+| A4 | PRs #181–#184 | Secure cookie sessions, CSRF enforcement, one-time bearer exchange, and no credential-bearing auth JSON |
+| A5 | PRs #185–#188 | Hashed single-use action tokens, reset/session revocation, email verification, normalized account/network limits, and failed-login-only budgets |
+
+The A5 code gate is green at build
+`5b5fb7e05875ab627093dd489bb84424eea8c146`: 779 unit tests, the Playwright
+critical-journey smoke test, deployment canary, and live reset/verification
+probes pass. Real inbox delivery is the remaining **operational activation
+gate**, not hidden engineering debt:
+
+1. Provision `twilio/email` through Stripe Projects and verify the FocusBro
+   sender in SendGrid.
+2. Add `SENDGRID_API_KEY` and `AUTH_EMAIL_FROM` to the production Worker.
+3. Request reset and verification messages for a synthetic account; confirm
+   delivery, expiry, single-use replay rejection, password replacement, and
+   old-session revocation.
+4. Keep broad acquisition paused if delivery fails. The Worker deliberately
+   invalidates a token when the provider is missing or rejects the message, so
+   a generic 202 can never create a live-but-undelivered credential.
+
 ### Identity rollout
 
 1. Deploy password dual-read/new-write.
