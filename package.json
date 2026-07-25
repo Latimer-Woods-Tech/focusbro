@@ -8,6 +8,7 @@
     "predeploy": "node create-html-module.js",
     "deploy": "wrangler deploy --env production",
     "test": "cd api && npm test",
+    "growth:link": "node scripts/growth-link.mjs",
     "content:ledger": "node scripts/generate-content-ledger.mjs",
     "content:ledger:check": "node scripts/generate-content-ledger.mjs --check"
   },
