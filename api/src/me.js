@@ -625,7 +625,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <table style="width:100%; border-collapse:collapse; text-align:left;">
         <thead>
           <tr>
-            <th>Source / campaign</th><th>Visits</th><th>Words</th><th>Activation</th>
+            <th>Source / campaign / creative / challenge</th><th>Visits</th><th>Words</th><th>Activation</th>
             <th>Delivered</th><th>Kept</th><th>D1</th><th>D7</th>
           </tr>
         </thead>
@@ -1115,8 +1115,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           metricRate(recovery.rate) + ' moved words recovered (' +
           Number(recovery.recovered || 0) + '/' + Number(recovery.rescheduled || 0) + ').';
         var rows = (m.acquisition || []).map(function (a) {
-          var label = a.attribution.source || 'direct';
-          if (a.attribution.campaign) label += ' / ' + a.attribution.campaign;
+          var attribution = a.attribution || {};
+          var labelParts = [attribution.source || 'direct'];
+          if (attribution.campaign) labelParts.push(attribution.campaign);
+          if (attribution.content) labelParts.push('creative: ' + attribution.content);
+          if (attribution.challenge) labelParts.push('challenge: ' + attribution.challenge);
+          var label = labelParts.join(' / ');
           return '<tr>' +
             '<td>' + esc(label) + '</td>' +
             '<td>' + Number(a.landing_visits || 0) + '</td>' +
