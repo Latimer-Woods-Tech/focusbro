@@ -9,6 +9,10 @@ status: ratified
 **Ratified:** 2026-07-25 by founder direction. This is the product-growth plan
 of record; later amendments require explicit founder approval.
 
+Engineering sequence, acceptance tests, rollout rules, and rollback rules live
+in [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md). That document executes this
+strategy; it does not replace or waive the learning gates below.
+
 ## Thesis
 
 FocusBro owns a narrower and more valuable category than “ADHD productivity”:
