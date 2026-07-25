@@ -13,7 +13,11 @@ import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
-import { registerAccountRecoveryRoutes } from './account-recovery.js';
+import {
+  deliverEmailVerification,
+  normalizeAccountEmail,
+  registerAccountRecoveryRoutes
+} from './account-recovery.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit } from './events.js';
@@ -179,6 +183,7 @@ async function initializeDatabase(env) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_login DATETIME,
+        email_verified_at DATETIME,
         is_active INTEGER DEFAULT 1
       )`,
       `CREATE TABLE IF NOT EXISTS user_data_snapshots (
@@ -498,6 +503,7 @@ async function initializeDatabase(env) {
       `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
       `ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'`,
       `ALTER TABLE users ADD COLUMN last_login DATETIME`,
+      `ALTER TABLE users ADD COLUMN email_verified_at DATETIME`,
       `ALTER TABLE sessions ADD COLUMN is_active INTEGER DEFAULT 1`,
       `ALTER TABLE sessions ADD COLUMN device_id TEXT`,
       `ALTER TABLE sessions ADD COLUMN device_name TEXT`,
@@ -1045,7 +1051,7 @@ async function verifyToken(token, jwtSecret, env = null) {
 // AUTHENTICATION ENDPOINTS
 // ════════════════════════════════════════════════════════════
 
-registerAccountRecoveryRoutes(router, { hashPassword });
+registerAccountRecoveryRoutes(router, { hashPassword, authenticatedSession });
 
 // ── REGISTER ──
 router.post('/auth/register', async (request, env) => {
@@ -1074,7 +1080,8 @@ router.post('/auth/register', async (request, env) => {
       });
     }
     
-    const { email, password } = body;
+    const email = normalizeAccountEmail(body.email);
+    const { password } = body;
     
     // Validate input
     if (!email || !password) {
@@ -1126,11 +1133,21 @@ router.post('/auth/register', async (request, env) => {
       `INSERT INTO audit_logs (user_id, action, details, created_at)
        VALUES (?, 'register', 'success', datetime('now'))`
     ).bind(userId).run();
+
+    try {
+      const delivery = await deliverEmailVerification(env, userId, email);
+      if (!delivery.delivered) {
+        console.warn(`[AUTH] Registration verification email not delivered: ${delivery.reason}`);
+      }
+    } catch (deliveryError) {
+      console.error('[AUTH] Registration verification setup failed:', deliveryError.message);
+    }
     
     return responseWithCookie(new Response(JSON.stringify({
       success: true,
       user_id: userId,
       email,
+      email_verified: false,
       session_id: sessionId
     }), {
       status: 201,
@@ -1172,7 +1189,8 @@ router.post('/auth/login', async (request, env) => {
       });
     }
     
-    const { email, password } = body;
+    const email = normalizeAccountEmail(body.email);
+    const { password } = body;
     
     // Validate input
     if (!email || !password) {
@@ -1456,10 +1474,18 @@ router.get('/auth/session', async (request, env) => {
     if (!auth) {
       return jsonResponse({ authenticated: false }, 401);
     }
+    const user = await env.DB.prepare(
+      'SELECT email, email_verified_at FROM users WHERE id = ? AND is_active = 1'
+    ).bind(auth.payload.sub).first();
+    if (!user) {
+      return jsonResponse({ authenticated: false }, 401);
+    }
     return jsonResponse({
       authenticated: true,
       user_id: auth.payload.sub,
-      session_id: auth.session.session_id
+      session_id: auth.session.session_id,
+      email: user.email,
+      email_verified: Boolean(user.email_verified_at)
     }, 200);
   } catch (error) {
     console.error('[AUTH] Session status error:', error.message);

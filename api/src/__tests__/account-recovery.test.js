@@ -4,9 +4,11 @@ import {
   allowRecoveryRequest,
   confirmPasswordReset,
   createAuthActionToken,
+  deliverEmailVerification,
   normalizeAccountEmail,
   recoveryConstants,
   registerAccountRecoveryRoutes,
+  sendEmailVerificationEmail,
   sendPasswordResetEmail,
 } from '../account-recovery.js';
 
@@ -95,6 +97,34 @@ describe('account recovery foundation', () => {
     const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
     expect(payload.content[0].value).toContain('/reset-password#token=one-time-token');
     expect(payload.content[0].value).not.toContain('?token=');
+  });
+
+  it('sends verification links in fragments and invalidates undelivered links', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 202 }));
+    const sent = await sendEmailVerificationEmail({
+      SENDGRID_API_KEY: 'secret',
+      AUTH_EMAIL_FROM: 'help@focusbro.net',
+      API_ORIGIN: 'https://focusbro.net',
+    }, 'person@example.com', 'verification-token', fetchImpl);
+    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+
+    expect(sent).toEqual({ delivered: true });
+    expect(payload.content[0].value).toContain('/verify-email#token=verification-token');
+
+    const statements = [];
+    const env = {
+      DB: {
+        prepare(sql) {
+          const statement = preparedStatement(sql);
+          statements.push(statement);
+          return statement;
+        },
+        batch: vi.fn(async () => []),
+      },
+    };
+    const delivery = await deliverEmailVerification(env, 'user-1', 'person@example.com');
+    expect(delivery).toEqual({ delivered: false, reason: 'not_configured' });
+    expect(statements.some((statement) => statement.sql.includes('consumed_at'))).toBe(true);
   });
 
   it('returns the same generic response for unknown and malformed accounts', async () => {
@@ -190,5 +220,50 @@ describe('account recovery foundation', () => {
     expect(await page.text()).toContain('src=\"/auth/reset-page.js\"');
     expect(script.headers.get('Cache-Control')).toContain('no-store');
     expect(await script.text()).toContain("history.replaceState(null, '', location.pathname)");
+  });
+
+  it('consumes an email verification link once and exposes a scanner-safe page', async () => {
+    const router = Router();
+    registerAccountRecoveryRoutes(router, {
+      hashPassword: vi.fn(),
+      authenticatedSession: vi.fn(),
+    });
+    let available = true;
+    const env = {
+      DB: {
+        prepare(sql) {
+          const statement = preparedStatement(sql);
+          if (sql.includes('RETURNING user_id')) {
+            statement.first = vi.fn(async () => {
+              if (!available) return null;
+              available = false;
+              return { user_id: 'user-1' };
+            });
+          }
+          return statement;
+        },
+        batch: vi.fn(async () => []),
+      },
+    };
+    const token = 'V'.repeat(43);
+    const confirm = () => router.fetch(new Request(
+      'https://focusbro.net/auth/confirm-email-verification',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      },
+    ), env);
+
+    expect((await confirm()).status).toBe(200);
+    expect((await confirm()).status).toBe(400);
+    expect(env.DB.batch).toHaveBeenCalledOnce();
+    const page = await router.fetch(new Request('https://focusbro.net/verify-email'), env);
+    const script = await router.fetch(new Request('https://focusbro.net/auth/verify-page.js'), env);
+    expect(page.headers.get('Cache-Control')).toContain('no-store');
+    expect(await page.text()).toContain('Verify my email');
+    const scriptText = await script.text();
+    expect(scriptText).toContain("history.replaceState(null, '', location.pathname)");
+    expect(scriptText).toContain("button.addEventListener('click'");
   });
 });
