@@ -762,6 +762,7 @@ export {
   upgradePasswordHashIfNeeded,
   generateToken,
   verifyToken,
+  verifySignedToken,
   generateUUID
 };
 // Exported for the run-once guard test (R1). Not used by other modules — the
@@ -774,16 +775,26 @@ export { initializeDatabase };
  * Token format: header.payload.signature (all base64url encoded)
  * @param {string} userId - User ID for 'sub' claim
  * @param {string} jwtSecret - Secret key (min 32 chars recommended, min 256 bits)
+ * @param {string|null} sessionId - Server-side session bound to this credential
+ * @param {object} options - Test-only clock and lifetime overrides
  * @returns {Promise<string>} Signed JWT token
  */
-async function generateToken(userId, jwtSecret) {
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const now = Math.floor(Date.now() / 1000);
-  const payload = btoa(JSON.stringify({
+async function generateToken(userId, jwtSecret, sessionId = null, options = {}) {
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  const expiresIn = options.expiresIn ?? config.auth.tokenExpirationSeconds;
+  const header = encodeBase64Url(new TextEncoder().encode(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ));
+  const claims = {
     sub: userId,
     iat: now,
-    exp: now + config.auth.tokenExpirationSeconds,
-  }));
+    exp: now + expiresIn,
+  };
+  if (sessionId) {
+    claims.sid = sessionId;
+    claims.jti = options.jti || generateUUID();
+  }
+  const payload = encodeBase64Url(new TextEncoder().encode(JSON.stringify(claims)));
   
   // Create HMAC-SHA256 signature
   const headerPayload = `${header}.${payload}`;
@@ -802,46 +813,111 @@ async function generateToken(userId, jwtSecret) {
   return `${headerPayload}.${signatureBase64}`;
 }
 
+const REFRESH_GRACE_SECONDS = 5 * 60;
+const TOKEN_CLOCK_SKEW_SECONDS = 5 * 60;
+
+function decodeTokenJson(segment) {
+  if (typeof segment !== 'string' || !/^[A-Za-z0-9_-]+={0,2}$/.test(segment)) {
+    throw new Error('Invalid token encoding');
+  }
+  const unpadded = segment.replace(/=+$/, '');
+  return JSON.parse(new TextDecoder().decode(decodeBase64Url(unpadded)));
+}
+
+function hasValidTokenClaims(payload, now, graceSeconds) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+  if (typeof payload.sub !== 'string' || payload.sub.length < 1 || payload.sub.length > 128) {
+    return false;
+  }
+  if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp)) {
+    return false;
+  }
+  if (payload.exp <= payload.iat || payload.iat > now + TOKEN_CLOCK_SKEW_SECONDS) {
+    return false;
+  }
+  if (payload.exp - payload.iat > config.auth.tokenExpirationSeconds + TOKEN_CLOCK_SKEW_SECONDS) {
+    return false;
+  }
+  if (payload.exp <= now - graceSeconds) {
+    return false;
+  }
+
+  const hasSessionId = Object.hasOwn(payload, 'sid');
+  const hasTokenId = Object.hasOwn(payload, 'jti');
+  if (hasSessionId !== hasTokenId) {
+    return false;
+  }
+  if (hasSessionId && (
+    typeof payload.sid !== 'string' || payload.sid.length < 1 || payload.sid.length > 128
+    || typeof payload.jti !== 'string' || payload.jti.length < 1 || payload.jti.length > 128
+  )) {
+    return false;
+  }
+  return true;
+}
+
+async function verifySignedToken(token, jwtSecret, graceSeconds = 0) {
+  if (typeof token !== 'string' || typeof jwtSecret !== 'string') {
+    return null;
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  try {
+    const header = decodeTokenJson(parts[0]);
+    if (
+      !header || typeof header !== 'object' || Array.isArray(header)
+      || header.alg !== 'HS256' || header.typ !== 'JWT'
+    ) {
+      return null;
+    }
+
+    const signature = decodeBase64Url(parts[2]);
+    if (signature.length !== 32) {
+      return null;
+    }
+
+    const headerPayload = `${parts[0]}.${parts[1]}`;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(jwtSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const isValid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      signature,
+      encoder.encode(headerPayload)
+    );
+    if (!isValid) {
+      return null;
+    }
+
+    const payload = decodeTokenJson(parts[1]);
+    const now = Math.floor(Date.now() / 1000);
+    return hasValidTokenClaims(payload, now, graceSeconds) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Verify HMAC-SHA256 JWT token signature and expiration.
- * Rejects tokens with invalid signature or exp > current time.
+ * Rejects malformed claims, invalid signatures, and expired tokens.
  * @param {string} token - JWT token to verify (format: header.payload.signature)
  * @param {string} jwtSecret - Secret key (must match generation key)
  * @returns {Promise<object|null>} Decoded payload or null if invalid
  */
 async function verifyToken(token, jwtSecret) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    
-    // Re-create signature to verify
-    const headerPayload = `${parts[0]}.${parts[1]}`;
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(jwtSecret);
-    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    
-    // Convert base64url signature back to binary
-    const signaturePadded = parts[2] + '='.repeat((4 - parts[2].length % 4) % 4);
-    const signatureBinary = atob(signaturePadded.replace(/-/g, '+').replace(/_/g, '/'));
-    const signatureArray = new Uint8Array(signatureBinary.length);
-    for (let i = 0; i < signatureBinary.length; i++) {
-      signatureArray[i] = signatureBinary.charCodeAt(i);
-    }
-    
-    // Verify signature
-    const isValid = await crypto.subtle.verify('HMAC', key, signatureArray, encoder.encode(headerPayload));
-    if (!isValid) return null;
-    
-    // Check expiration
-    const payload = JSON.parse(atob(parts[1]));
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-    
-    return payload;
-  } catch (e) {
-    console.error('Token verification error:', e.message);
-    return null;
-  }
+  return verifySignedToken(token, jwtSecret);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -919,7 +995,7 @@ router.post('/auth/register', async (request, env) => {
     
     // Create session with proper JWT
     const sessionId = generateUUID();
-    const token = await generateToken(userId, env.JWT_SECRET);
+    const token = await generateToken(userId, env.JWT_SECRET, sessionId);
     
     await env.DB.prepare(
       `INSERT INTO sessions (id, user_id, token, created_at, expires_at)
@@ -1014,7 +1090,7 @@ router.post('/auth/login', async (request, env) => {
     
     // Create session with proper JWT
     const sessionId = generateUUID();
-    const token = await generateToken(user.id, env.JWT_SECRET);
+    const token = await generateToken(user.id, env.JWT_SECRET, sessionId);
     
     await env.DB.prepare(
       `INSERT INTO sessions (id, user_id, token, created_at, expires_at)
@@ -1057,86 +1133,66 @@ router.post('/auth/refresh', async (request, env) => {
     const token = getAuthToken(request);
     
     if (!token) {
-      return new Response(JSON.stringify({ error: 'No token provided' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return jsonResponse({ error: 'Invalid token' }, 401);
     }
-    
-    // Verify existing token (allows expired tokens within grace period)
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return new Response(JSON.stringify({ error: 'Invalid token format' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+
+    // Refresh accepts a correctly signed token for five minutes after expiry.
+    // Access-token verification remains strict everywhere else.
+    const payload = await verifySignedToken(token, env.JWT_SECRET, REFRESH_GRACE_SECONDS);
+    if (!payload) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
     }
-    
-    try {
-      // Verify signature even if expired
-      const headerPayload = `${parts[0]}.${parts[1]}`;
-      const encoder = new TextEncoder();
-      const keyData = encoder.encode(env.JWT_SECRET);
-      const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-      
-      const signaturePadded = parts[2] + '='.repeat((4 - parts[2].length % 4) % 4);
-      const signatureBinary = atob(signaturePadded.replace(/-/g, '+').replace(/_/g, '/'));
-      const signatureArray = new Uint8Array(signatureBinary.length);
-      for (let i = 0; i < signatureBinary.length; i++) {
-        signatureArray[i] = signatureBinary.charCodeAt(i);
-      }
-      
-      const isValid = await crypto.subtle.verify('HMAC', key, signatureArray, encoder.encode(headerPayload));
-      if (!isValid) {
-        return new Response(JSON.stringify({ error: 'Invalid token' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      // Extract payload
-      const payload = JSON.parse(atob(parts[1]));
-      const userId = payload.sub;
-      
-      // Verify user still exists and is active
-      const user = await env.DB.prepare('SELECT id, email FROM users WHERE id = ? AND is_active = 1').bind(userId).first();
-      if (!user) {
-        return new Response(JSON.stringify({ error: 'User not found or inactive' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      // Generate new token
-      const newToken = await generateToken(userId, env.JWT_SECRET);
-      
-      // Update session with new token
-      await env.DB.prepare(
-        `UPDATE sessions SET token = ?, last_activity = datetime('now')
-         WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
-      ).bind(newToken, userId).run();
-      
-      return new Response(JSON.stringify({
-        success: true,
-        token: newToken,
-        user_id: userId
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    } catch (tokenErr) {
-      console.error('[AUTH] Token refresh error:', tokenErr.message);
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+
+    // The presented bearer must be the exact credential for one active,
+    // unexpired (or grace-period) session belonging to an active user.
+    const session = await env.DB.prepare(
+      `SELECT s.id AS session_id, s.user_id
+       FROM sessions s
+       INNER JOIN users u ON u.id = s.user_id
+       WHERE s.token = ?
+         AND s.user_id = ?
+         AND s.is_active = 1
+         AND u.is_active = 1
+         AND s.expires_at >= datetime('now', '-5 minutes')
+       LIMIT 1`
+    ).bind(token, payload.sub).first();
+
+    if (!session || (payload.sid && payload.sid !== session.session_id)) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
     }
+
+    const newToken = await generateToken(
+      session.user_id,
+      env.JWT_SECRET,
+      session.session_id
+    );
+
+    // Rotate using compare-and-swap. A simultaneous replay can reach this
+    // statement, but only one request can replace the old credential.
+    const rotation = await env.DB.prepare(
+      `UPDATE sessions
+       SET token = ?,
+           last_activity = datetime('now'),
+           expires_at = datetime('now', '+30 days')
+       WHERE id = ?
+         AND user_id = ?
+         AND token = ?
+         AND is_active = 1`
+    ).bind(newToken, session.session_id, session.user_id, token).run();
+
+    if (!rotation.success || rotation.meta?.changes !== 1) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+
+    return jsonResponse({
+      success: true,
+      token: newToken,
+      user_id: session.user_id,
+      session_id: session.session_id
+    }, 200);
   } catch (error) {
     console.error('[AUTH] Refresh endpoint error:', error.message);
-    return new Response(JSON.stringify({ error: 'Refresh failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return jsonResponse({ error: 'Refresh failed' }, 500);
   }
 });
 
