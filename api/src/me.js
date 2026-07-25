@@ -202,6 +202,11 @@ export function reentryBodyCopy() {
     'next thing you’ll do, and I’ll be here to check in.';
 }
 
+/** One tap from a finished word or welcome-back door into the next-word composer. */
+export function nextWordActionLabel() {
+  return 'Give your next word';
+}
+
 /**
  * The nudged-back welcome heading — shown ONLY when a person arrives via the
  * return-nudge deep-link (`/me/?from=return`, W4 / L3, #40). It closes the
@@ -393,6 +398,7 @@ export function meCopySurface() {
     ...firstRunExamples(),
     reentryHeadingCopy(),
     reentryBodyCopy(),
+    nextWordActionLabel(),
     returnWelcomeHeadingCopy(),
     returnWelcomeBodyCopy(),
     emptyCommitmentsCopy(),
@@ -447,6 +453,7 @@ export function renderMePage() {
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
   const VIEW = detailActionLabel();
+  const NEXT_WORD = nextWordActionLabel();
   const NEXT_LABEL = listNextCheckinLabelCopy();
   const NEXT_WAITING = listNextCheckinWaitingCopy();
   return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}
@@ -484,11 +491,13 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   <div id="reentry" class="card firstrun hidden">
     <h2>${reentryHeadingCopy()}</h2>
     <p class="streakmsg">${reentryBodyCopy()}</p>
+    <div class="actions"><button type="button" data-next-word>${nextWordActionLabel()}</button></div>
   </div>
 
   <div id="returnWelcome" class="card firstrun hidden">
     <h2>${returnWelcomeHeadingCopy()}</h2>
     <p class="streakmsg">${returnWelcomeBodyCopy()}</p>
+    <div class="actions"><button type="button" data-next-word>${nextWordActionLabel()}</button></div>
   </div>
 
   <div class="card">
@@ -887,9 +896,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '</div>';
       } else {
-        // Kept / rescheduled / released — no live actions, but you can still look
-        // back at this word's momentum (its kept timeline). Never a miss list.
+        // A kept word opens the next loop in one tap. Moved / released words stay
+        // quiet; every finished word can still open its momentum-only detail.
         html += '<div class="actions">'
+          + (c.status === 'kept' ? '<button class="small" data-act="next-word" data-id="' + esc(c.id) + '">' + esc(NEXT_WORD) + '</button>' : '')
           + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '</div>';
       }
@@ -1002,6 +1012,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     show(el('carryNote'));
     if (w) { try { w.focus(); } catch (e) {} }
   }
+
+  // The next-word bridge never guesses a task, time, or channel and never
+  // auto-commits. One tap simply moves the person into the composer, preserving
+  // anything they have already typed.
+  function focusNextWord() {
+    hide(el('commitMsg')); hide(el('commitErr'));
+    var form = el('commitForm');
+    if (form) {
+      try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    }
+    var t = el('title');
+    if (t) { try { t.focus(); } catch (e) {} }
+  }
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('[data-next-word]') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    focusNextWord();
+  });
 
   // The return-nudge deep-link (#40, W4/L3): a person the bro reached out to has
   // tapped back in (?from=return). Read the marker once, up front, so it survives
@@ -1418,6 +1448,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     ev.preventDefault();
     var id = btn.getAttribute('data-id');
     var act = btn.getAttribute('data-act');
+    if (act === 'next-word') { focusNextWord(); return; }
     if (act === 'kept') { resolve(id, 'kept'); return; }
     if (act === 'kept-note') {
       // Keep the word AND carry the person's own words into its kept-note, so the

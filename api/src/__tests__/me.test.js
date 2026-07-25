@@ -30,6 +30,7 @@ import {
   firstRunExamples,
   reentryHeadingCopy,
   reentryBodyCopy,
+  nextWordActionLabel,
   returnWelcomeHeadingCopy,
   returnWelcomeBodyCopy,
   entryState,
@@ -212,6 +213,17 @@ describe('renderMePage', () => {
     const A = checkinActionLabels();
     expect(html).toContain(A.kept);
     expect(html).toContain(A.missed);
+  });
+
+  it('moves a finished or returning person into the next-word composer in one tap', () => {
+    expect(nextWordActionLabel()).toBe('Give your next word');
+    expect(html).toContain('data-next-word');
+    expect(html).toContain('data-act="next-word"');
+    expect(html).toContain("act === 'next-word'");
+    expect(html).toContain('function focusNextWord()');
+    expect(html).toContain("el('commitForm')");
+    expect(html).toContain("el('title')");
+    expect(html).not.toContain("act === 'next-word') { fetch");
   });
 
   it('wires the in-place edit affordance (button, inline form, and the edit route)', () => {
