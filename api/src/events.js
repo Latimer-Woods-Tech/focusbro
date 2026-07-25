@@ -29,6 +29,7 @@
 
 /** Canonical event-type names for the accountability loop. */
 export const EVENTS = Object.freeze({
+  ACQUISITION_VISIT: 'acquisition_visit',
   COMMITMENT_CREATED: 'commitment_created',
   COMMITMENT_KEPT: 'commitment_kept',
   COMMITMENT_RESCHEDULE: 'commitment_reschedule',
@@ -39,6 +40,28 @@ export const EVENTS = Object.freeze({
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
 });
+
+/** Keep acquisition context useful without accepting arbitrary analytics data. */
+export function sanitizeAttribution(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const key of ['source', 'campaign', 'content', 'challenge']) {
+    if (typeof value[key] !== 'string') continue;
+    const cleaned = value[key].trim().slice(0, 80);
+    if (cleaned) out[key] = cleaned;
+  }
+  return out;
+}
+
+/** Record a privacy-minimal landing visit: attribution only, no visitor ID. */
+export async function recordAcquisitionVisit(env, value) {
+  const attribution = sanitizeAttribution(value);
+  if (!attribution.source) attribution.source = 'direct';
+  return recordEvent(env, {
+    type: EVENTS.ACQUISITION_VISIT,
+    data: { attribution },
+  });
+}
 
 /** Map a check-in outcome to its event type (or null if it isn't one we log). */
 export function outcomeEvent(outcome) {
@@ -242,6 +265,14 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
     COALESCE(NULLIF(json_extract(event_data, '$.attribution.content'), ''), '') AS content,
     COALESCE(NULLIF(json_extract(event_data, '$.attribution.challenge'), ''), '') AS challenge`;
 
+  const visitRows = await env.DB.prepare(
+    `/* acquisition_visits */
+     SELECT ${dimensions}, COUNT(*) AS landing_visits
+       FROM analytics_events
+      WHERE event_type = 'acquisition_visit' AND created_at >= ?
+      GROUP BY source, campaign, content, challenge`
+  ).bind(sinceISO).all();
+
   const funnel = await env.DB.prepare(
     `/* acquisition_funnel */
      WITH created AS (
@@ -304,9 +335,22 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
   const cohorts = new Map(
     ((cohortRows && cohortRows.results) || []).map((r) => [keyOf(r), r]),
   );
+  const visits = new Map(
+    ((visitRows && visitRows.results) || []).map((r) => [keyOf(r), r]),
+  );
+  const funnelRows = (funnel && funnel.results) || [];
+  const rows = [...funnelRows];
+  const funnelKeys = new Set(funnelRows.map(keyOf));
+  for (const visit of (visitRows && visitRows.results) || []) {
+    if (!funnelKeys.has(keyOf(visit))) rows.push(visit);
+  }
 
-  return ((funnel && funnel.results) || []).map((r) => {
+  return rows.map((r) => {
     const c = cohorts.get(keyOf(r)) || {};
+    const visit = visits.get(keyOf(r)) || {};
+    const landingVisits = Number(visit.landing_visits) || 0;
+    const users = Number(r.users) || 0;
+    const commitmentsCreated = Number(r.commitments_created) || 0;
     const kept = Number(r.kept) || 0;
     const rescheduled = Number(r.rescheduled) || 0;
     const missed = Number(r.missed) || 0;
@@ -322,8 +366,10 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
         content: r.content || '',
         challenge: r.challenge || '',
       },
-      users: Number(r.users) || 0,
-      commitments_created: Number(r.commitments_created) || 0,
+      landing_visits: landingVisits,
+      users,
+      commitments_created: commitmentsCreated,
+      activation_rate: landingVisits ? round2(users / landingVisits) : null,
       checkins_delivered: Number(r.checkins_delivered) || 0,
       outcomes: { kept, rescheduled, missed, resolved },
       kept_word_rate: resolved ? round2(kept / resolved) : null,

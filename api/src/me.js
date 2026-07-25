@@ -615,8 +615,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <table style="width:100%; border-collapse:collapse; text-align:left;">
         <thead>
           <tr>
-            <th>Source / campaign</th><th>Words</th><th>Delivered</th>
-            <th>Kept</th><th>D1</th><th>D7</th>
+            <th>Source / campaign</th><th>Visits</th><th>Words</th><th>Activation</th>
+            <th>Delivered</th><th>Kept</th><th>D1</th><th>D7</th>
           </tr>
         </thead>
         <tbody id="founderMetricsRows"></tbody>
@@ -1070,7 +1070,9 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
           if (a.attribution.campaign) label += ' / ' + a.attribution.campaign;
           return '<tr>' +
             '<td>' + esc(label) + '</td>' +
+            '<td>' + Number(a.landing_visits || 0) + '</td>' +
             '<td>' + Number(a.commitments_created || 0) + '</td>' +
+            '<td>' + metricRate(a.activation_rate) + '</td>' +
             '<td>' + Number(a.checkins_delivered || 0) + '</td>' +
             '<td>' + metricRate(a.kept_word_rate) + '</td>' +
             '<td>' + metricRate(a.retention.d1.rate) + '</td>' +
@@ -1078,7 +1080,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
             '</tr>';
         });
         el('founderMetricsRows').innerHTML = rows.join('') ||
-          '<tr><td colspan="6" class="muted">No attributed words in this window yet.</td></tr>';
+          '<tr><td colspan="8" class="muted">No acquisition activity in this window yet.</td></tr>';
         show(el('founderMetrics'));
       })
       .catch(function () {}); // Founder-only enhancement; never blocks the core loop.

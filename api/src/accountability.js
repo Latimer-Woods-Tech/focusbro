@@ -21,7 +21,7 @@
 
 import { generateUUID } from './middleware.js';
 import { buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS } from './momentum.js';
-import { recordEvent, outcomeEvent, EVENTS } from './events.js';
+import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
@@ -32,17 +32,7 @@ export const PERSONAS = ['ally', 'hype'];
 /** Resolution outcomes for a check-in. */
 export const OUTCOMES = ['kept', 'missed', 'reschedule'];
 
-/** Keep acquisition context useful without accepting arbitrary analytics data. */
-export function sanitizeAttribution(value) {
-  const out = {};
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
-  for (const key of ['source', 'campaign', 'content', 'challenge']) {
-    if (typeof value[key] !== 'string') continue;
-    const cleaned = value[key].trim().slice(0, 80);
-    if (cleaned) out[key] = cleaned;
-  }
-  return out;
-}
+export { sanitizeAttribution };
 
 /**
  * Check-in cadence. `none` = a one-shot commitment (the original behavior);

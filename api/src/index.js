@@ -15,7 +15,7 @@ import { renderMePage } from './me.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
-import { computeLoopMetrics, clampSinceDays } from './events.js';
+import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -1558,6 +1558,31 @@ registerPushRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUU
 // person can copy or share with a coach. The reading PAGE is /me/report (below).
 registerReportRoutes(router, { getAuthToken, verifyToken, jsonResponse });
 
+// ── ACQUISITION DENOMINATOR ──
+// One aggregate-safe visit event per browser session. The payload is limited to
+// four short campaign dimensions: no visitor ID, task text, account, or contact
+// data. This supplies the missing landing→word denominator in the founder view.
+router.post('/api/acquisition/visit', async (request, env) => {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
+  }
+  const contentLength = Number(request.headers.get('content-length')) || 0;
+  if (contentLength > 2048) return jsonResponse({ error: 'Visit payload is too large' }, 413);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
+      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return jsonResponse({ error: 'Invalid visit payload' }, 400);
+  }
+  const recorded = await recordAcquisitionVisit(env, body.attribution);
+  return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
+});
+
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.
 // Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
@@ -1828,7 +1853,7 @@ router.get('/privacy.html', async () => {
 <body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
 <h1>Privacy Policy</h1>
-<p><strong>Last updated: July 10, 2026</strong></p>
+<p><strong>Last updated: July 25, 2026</strong></p>
 
 <p>FocusBro (focusbro.net) is a browser-first focus and wellness app operated by Latimer Woods Tech. This policy explains what data we handle, how cookies and third-party advertising work on the site, and the choices and rights you have.</p>
 
@@ -1839,6 +1864,7 @@ router.get('/privacy.html', async () => {
 <p>Some data reaches our servers only when you deliberately use a connected feature:</p>
 <ul>
 <li><strong>Account &amp; cloud sync</strong> (optional): if you create an account, we store an email address and the synced data you choose to back up, so your sessions are available across devices.</li>
+<li><strong>Campaign measurement</strong>: Aggregate campaign visit counts come from tagged links. We store the campaign labels, not a visitor ID, fingerprint, task, email, or contact information.</li>
 <li><strong>Payments</strong> (optional): paid plans are processed by Stripe. We do not store full card numbers; Stripe handles card data under its own privacy policy.</li>
 <li><strong>Basic request logs</strong>: like most websites, our servers may temporarily log IP address, browser type, and requested pages for security and reliability.</li>
 </ul>
