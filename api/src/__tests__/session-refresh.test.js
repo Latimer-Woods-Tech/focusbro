@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import worker, { generateToken, verifySignedToken, verifyToken } from '../index.js';
+import worker, {
+  createSessionRecord,
+  generateToken,
+  hashSessionCredential,
+  verifySignedToken,
+  verifyToken
+} from '../index.js';
 import config from '../config.js';
 
 const JWT_SECRET = 'refresh-test-secret-with-enough-entropy';
@@ -9,6 +15,7 @@ const SESSION_ID = 'session-123';
 function makeEnv(currentToken, options = {}) {
   const state = {
     currentToken,
+    currentTokenHash: null,
     sessionLookups: 0,
     rotations: 0
   };
@@ -27,12 +34,15 @@ function makeEnv(currentToken, options = {}) {
           async first() {
             if (sql.includes('FROM sessions s')) {
               state.sessionLookups += 1;
-              const [presentedToken, presentedUserId] = bindings;
+              const [presentedHash, presentedToken, presentedUserId] = bindings;
               if (
                 options.revoked
                 || options.inactiveUser
                 || options.expiredSession
-                || presentedToken !== state.currentToken
+                || (
+                  presentedToken !== state.currentToken
+                  && presentedHash !== state.currentTokenHash
+                )
                 || presentedUserId !== USER_ID
               ) {
                 return null;
@@ -45,18 +55,22 @@ function makeEnv(currentToken, options = {}) {
             return { results: [] };
           },
           async run() {
-            if (sql.includes('UPDATE sessions') && sql.includes('SET token = ?')) {
+            if (sql.includes('UPDATE sessions') && sql.includes("SET token = ''")) {
               state.rotations += 1;
-              const [newToken, sessionId, userId, previousToken] = bindings;
+              const [newTokenHash, sessionId, userId, previousHash, previousToken] = bindings;
               if (
                 options.rotationConflict
                 || sessionId !== SESSION_ID
                 || userId !== USER_ID
-                || previousToken !== state.currentToken
+                || (
+                  previousToken !== state.currentToken
+                  && previousHash !== state.currentTokenHash
+                )
               ) {
                 return { success: true, meta: { changes: 0 } };
               }
-              state.currentToken = newToken;
+              state.currentToken = null;
+              state.currentTokenHash = newTokenHash;
               return { success: true, meta: { changes: 1 } };
             }
             return { success: true, meta: { changes: 0 } };
@@ -82,6 +96,35 @@ function requestRefresh(env, token) {
 }
 
 describe('session refresh', () => {
+  it('stores only a one-way hash for a newly issued credential', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    let sql;
+    let bindings;
+    const env = {
+      DB: {
+        prepare(statementSql) {
+          sql = statementSql;
+          return {
+            bind(...values) {
+              bindings = values;
+              return { run: async () => ({ success: true }) };
+            }
+          };
+        }
+      }
+    };
+
+    await createSessionRecord(env, SESSION_ID, USER_ID, token);
+
+    expect(sql).toContain("VALUES (?, ?, '', ?");
+    expect(bindings).toEqual([
+      SESSION_ID,
+      USER_ID,
+      await hashSessionCredential(token)
+    ]);
+    expect(bindings).not.toContain(token);
+  });
+
   it('rotates the exact active session credential', async () => {
     const originalToken = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
     const { env, state } = makeEnv(originalToken);
@@ -92,7 +135,8 @@ describe('session refresh', () => {
     expect(response.status).toBe(200);
     expect(body.token).not.toBe(originalToken);
     expect(body.session_id).toBe(SESSION_ID);
-    expect(state.currentToken).toBe(body.token);
+    expect(state.currentToken).toBeNull();
+    await expect(hashSessionCredential(body.token)).resolves.toBe(state.currentTokenHash);
     expect(state.rotations).toBe(1);
     await expect(verifyToken(body.token, JWT_SECRET)).resolves.toMatchObject({
       sub: USER_ID,

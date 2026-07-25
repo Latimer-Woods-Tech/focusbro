@@ -87,15 +87,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   device_id TEXT,
   device_name TEXT,
   token TEXT NOT NULL,
+  token_hash TEXT,
   last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   expires_at DATETIME,
   is_active BOOLEAN DEFAULT 1,
+  revoked_at DATETIME,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash
+  ON sessions(token_hash) WHERE token_hash IS NOT NULL;
 
 -- ── DEVICES TABLE (multi-device sync) ──
 CREATE TABLE IF NOT EXISTS devices (

@@ -212,10 +212,12 @@ async function initializeDatabase(env) {
         device_id TEXT,
         device_name TEXT,
         token TEXT NOT NULL,
+        token_hash TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
         expires_at DATETIME,
         is_active INTEGER DEFAULT 1,
+        revoked_at DATETIME,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       )`,
       `CREATE TABLE IF NOT EXISTS audit_logs (
@@ -487,6 +489,10 @@ async function initializeDatabase(env) {
       `ALTER TABLE sessions ADD COLUMN device_id TEXT`,
       `ALTER TABLE sessions ADD COLUMN device_name TEXT`,
       `ALTER TABLE sessions ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP`,
+      `ALTER TABLE sessions ADD COLUMN token_hash TEXT`,
+      `ALTER TABLE sessions ADD COLUMN revoked_at DATETIME`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash
+         ON sessions(token_hash) WHERE token_hash IS NOT NULL`,
       // ── ACCOUNTABILITY delivery cron (Contender #10, Phase A · R-205) ──
       // New columns on the existing production commitment_checkins table so the
       // delivery cron can track send state without recreating the table.
@@ -754,6 +760,21 @@ async function upgradePasswordHashIfNeeded(env, userId, password, storedHash) {
   return true;
 }
 
+async function hashSessionCredential(token) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function createSessionRecord(env, sessionId, userId, token) {
+  const tokenHash = await hashSessionCredential(token);
+  await env.DB.prepare(
+    `INSERT INTO sessions (id, user_id, token, token_hash, created_at, expires_at)
+     VALUES (?, ?, '', ?, datetime('now'), datetime('now', '+30 days'))`
+  ).bind(sessionId, userId, tokenHash).run();
+}
+
 // ── EXPORT UTILITIES FOR OTHER MODULES ──
 export {
   hashPassword,
@@ -763,6 +784,8 @@ export {
   generateToken,
   verifyToken,
   verifySignedToken,
+  hashSessionCredential,
+  createSessionRecord,
   generateUUID
 };
 // Exported for the run-once guard test (R1). Not used by other modules — the
@@ -996,11 +1019,7 @@ router.post('/auth/register', async (request, env) => {
     // Create session with proper JWT
     const sessionId = generateUUID();
     const token = await generateToken(userId, env.JWT_SECRET, sessionId);
-    
-    await env.DB.prepare(
-      `INSERT INTO sessions (id, user_id, token, created_at, expires_at)
-       VALUES (?, ?, ?, datetime('now'), datetime('now', '+30 days'))`
-    ).bind(sessionId, userId, token).run();
+    await createSessionRecord(env, sessionId, userId, token);
     
     // Log audit
     await env.DB.prepare(
@@ -1091,11 +1110,7 @@ router.post('/auth/login', async (request, env) => {
     // Create session with proper JWT
     const sessionId = generateUUID();
     const token = await generateToken(user.id, env.JWT_SECRET, sessionId);
-    
-    await env.DB.prepare(
-      `INSERT INTO sessions (id, user_id, token, created_at, expires_at)
-       VALUES (?, ?, ?, datetime('now'), datetime('now', '+30 days'))`
-    ).bind(sessionId, user.id, token).run();
+    await createSessionRecord(env, sessionId, user.id, token);
     
     // Update last_login
     await env.DB.prepare('UPDATE users SET last_login = datetime("now"), updated_at = datetime("now") WHERE id = ?').bind(user.id).run();
@@ -1142,20 +1157,23 @@ router.post('/auth/refresh', async (request, env) => {
     if (!payload) {
       return jsonResponse({ error: 'Invalid token' }, 401);
     }
+    const tokenHash = await hashSessionCredential(token);
 
     // The presented bearer must be the exact credential for one active,
-    // unexpired (or grace-period) session belonging to an active user.
+    // unexpired (or grace-period) session belonging to an active user. The
+    // plaintext branch is temporary dual-read support for pre-A3 sessions.
     const session = await env.DB.prepare(
       `SELECT s.id AS session_id, s.user_id
        FROM sessions s
        INNER JOIN users u ON u.id = s.user_id
-       WHERE s.token = ?
+       WHERE (s.token_hash = ? OR (s.token_hash IS NULL AND s.token = ?))
          AND s.user_id = ?
          AND s.is_active = 1
+         AND s.revoked_at IS NULL
          AND u.is_active = 1
          AND s.expires_at >= datetime('now', '-5 minutes')
        LIMIT 1`
-    ).bind(token, payload.sub).first();
+    ).bind(tokenHash, token, payload.sub).first();
 
     if (!session || (payload.sid && payload.sid !== session.session_id)) {
       return jsonResponse({ error: 'Invalid token' }, 401);
@@ -1166,19 +1184,27 @@ router.post('/auth/refresh', async (request, env) => {
       env.JWT_SECRET,
       session.session_id
     );
+    const newTokenHash = await hashSessionCredential(newToken);
 
     // Rotate using compare-and-swap. A simultaneous replay can reach this
     // statement, but only one request can replace the old credential.
     const rotation = await env.DB.prepare(
       `UPDATE sessions
-       SET token = ?,
+       SET token = '',
+           token_hash = ?,
            last_activity = datetime('now'),
            expires_at = datetime('now', '+30 days')
        WHERE id = ?
          AND user_id = ?
-         AND token = ?
+         AND (token_hash = ? OR (token_hash IS NULL AND token = ?))
          AND is_active = 1`
-    ).bind(newToken, session.session_id, session.user_id, token).run();
+    ).bind(
+      newTokenHash,
+      session.session_id,
+      session.user_id,
+      tokenHash,
+      token
+    ).run();
 
     if (!rotation.success || rotation.meta?.changes !== 1) {
       return jsonResponse({ error: 'Invalid token' }, 401);
