@@ -133,7 +133,7 @@ jobs:
           deployed="$(printf '%s' "${health}" | jq -r '.build_sha // empty' 2>/dev/null || true)"
 
           if [ "${deployed}" = "${expected}" ] \
-            && printf '%s' "${homepage}" | grep -Fq "The check-in that follows up." \
+            && grep -Fq "The check-in that follows up." <<< "${homepage}" \
             && [ "${metrics_status}" = "401" ]; then
             echo "✅ Verified exact release ${expected}: health, accountability homepage, and auth boundary"
             exit 0
