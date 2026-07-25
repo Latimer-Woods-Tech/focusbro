@@ -459,25 +459,62 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
   return db;
 }
 
-const TELNYX_ENV = { TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550001111' };
+const TELNYX_ENV = {
+  TELNYX_API_KEY: 'k',
+  TELNYX_FROM_NUMBER: '+15550001111',
+  TELNYX_PUBLIC_KEY: 'test-public-key',
+};
 const openText = { checkin_id: 'ci1', commitment_id: 'cm1', recurrence: 'none', timezone: 'UTC', local_time: null, channel: 'text', persona: 'ally' };
 
-function buildRouter(db) {
+function buildRouter(db, verifyInboundSignature = async () => true) {
   const router = Router();
-  registerConsentRoutes(router, { getAuthToken: () => null, verifyToken: async () => null, jsonResponse, generateUUID });
+  registerConsentRoutes(router, {
+    getAuthToken: () => null,
+    verifyToken: async () => null,
+    jsonResponse,
+    generateUUID,
+    verifyInboundSignature,
+  });
   return router;
 }
 
 function inbound(text, from = '+15551234567') {
   return new Request('https://focusbro.net/api/webhooks/telnyx/inbound', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'telnyx-timestamp': '1785000000',
+      'telnyx-signature-ed25519': 'test-signature',
+    },
     body: JSON.stringify({ data: { payload: { from: { phone_number: from }, text } } }),
   });
 }
 
 describe('inbound webhook — a text check-in is a real two-way conversation', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('fails closed before processing when verification is unavailable or invalid', async () => {
+    const db = makeWebhookDB({ open: openText });
+    const verify = vi.fn(async () => true);
+    const missingConfig = await buildRouter(db, verify).handle(inbound('STOP'), { DB: db });
+    expect(missingConfig.status).toBe(503);
+    expect(verify).not.toHaveBeenCalled();
+    expect(db.runs).toEqual([]);
+
+    const unsigned = new Request('https://focusbro.net/api/webhooks/telnyx/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"data":{}}',
+    });
+    const missingSignature = await buildRouter(db, verify).handle(unsigned, { ...TELNYX_ENV, DB: db });
+    expect(missingSignature.status).toBe(401);
+    expect(verify).not.toHaveBeenCalled();
+    expect(db.runs).toEqual([]);
+
+    const invalid = await buildRouter(db, async () => false).handle(inbound('STOP'), { ...TELNYX_ENV, DB: db });
+    expect(invalid.status).toBe(401);
+    expect(db.runs).toEqual([]);
+  });
 
   it('"done" resolves the open check-in as KEPT and texts a warm confirmation', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
