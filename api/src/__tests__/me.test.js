@@ -215,6 +215,12 @@ describe('renderMePage', () => {
     expect(html).toContain('moved words recovered');
   });
 
+  it('makes creative and challenge attribution visible in the founder scorecard', () => {
+    expect(html).toContain('Source / campaign / creative / challenge');
+    expect(html).toContain("labelParts.push('creative: ' + attribution.content)");
+    expect(html).toContain("labelParts.push('challenge: ' + attribution.challenge)");
+  });
+
   it('renders the curated copy into the page', () => {
     expect(html).toContain(giveWordHeadingCopy());
     expect(html).toContain(streakHeadingCopy());
