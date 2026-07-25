@@ -785,6 +785,7 @@ export {
   verifyToken,
   verifySignedToken,
   hashSessionCredential,
+  findActiveSession,
   createSessionRecord,
   generateUUID
 };
@@ -939,8 +940,37 @@ async function verifySignedToken(token, jwtSecret, graceSeconds = 0) {
  * @param {string} jwtSecret - Secret key (must match generation key)
  * @returns {Promise<object|null>} Decoded payload or null if invalid
  */
-async function verifyToken(token, jwtSecret) {
-  return verifySignedToken(token, jwtSecret);
+async function findActiveSession(env, token, payload) {
+  const tokenHash = await hashSessionCredential(token);
+  const sessionId = payload.sid || null;
+  return env.DB.prepare(
+    `SELECT s.id AS session_id, s.user_id
+     FROM sessions s
+     INNER JOIN users u ON u.id = s.user_id
+     WHERE (s.token_hash = ? OR (s.token_hash IS NULL AND s.token = ?))
+       AND s.user_id = ?
+       AND (? IS NULL OR s.id = ?)
+       AND s.is_active = 1
+       AND s.revoked_at IS NULL
+       AND u.is_active = 1
+       AND s.expires_at > datetime('now')
+     LIMIT 1`
+  ).bind(tokenHash, token, payload.sub, sessionId, sessionId).first();
+}
+
+async function verifyToken(token, jwtSecret, env = null) {
+  const payload = await verifySignedToken(token, jwtSecret);
+  if (!payload || !env?.DB) {
+    return payload;
+  }
+
+  try {
+    const session = await findActiveSession(env, token, payload);
+    return session ? payload : null;
+  } catch (error) {
+    console.error('[AUTH] Session validation failed:', error.message);
+    return null;
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1222,6 +1252,73 @@ router.post('/auth/refresh', async (request, env) => {
   }
 });
 
+// ── SESSION REVOCATION ──
+async function authenticatedSession(request, env) {
+  const token = getAuthToken(request);
+  if (!token) {
+    return null;
+  }
+  const payload = await verifySignedToken(token, env.JWT_SECRET);
+  if (!payload) {
+    return null;
+  }
+  const session = await findActiveSession(env, token, payload);
+  return session ? { token, payload, session } : null;
+}
+
+router.post('/auth/logout', async (request, env) => {
+  try {
+    const auth = await authenticatedSession(request, env);
+    if (!auth) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+
+    const result = await env.DB.prepare(
+      `UPDATE sessions
+       SET is_active = 0,
+           revoked_at = datetime('now'),
+           token = '',
+           token_hash = NULL,
+           last_activity = datetime('now')
+       WHERE id = ? AND user_id = ? AND is_active = 1`
+    ).bind(auth.session.session_id, auth.payload.sub).run();
+
+    if (!result.success || result.meta?.changes !== 1) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+    return jsonResponse({ success: true }, 200);
+  } catch (error) {
+    console.error('[AUTH] Logout error:', error.message);
+    return jsonResponse({ error: 'Logout failed' }, 500);
+  }
+});
+
+router.post('/auth/logout-all', async (request, env) => {
+  try {
+    const auth = await authenticatedSession(request, env);
+    if (!auth) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+
+    const result = await env.DB.prepare(
+      `UPDATE sessions
+       SET is_active = 0,
+           revoked_at = datetime('now'),
+           token = '',
+           token_hash = NULL,
+           last_activity = datetime('now')
+       WHERE user_id = ? AND is_active = 1`
+    ).bind(auth.payload.sub).run();
+    if (!result.success || (result.meta?.changes ?? 0) < 1) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+    return jsonResponse({ success: true }, 200);
+  } catch (error) {
+    console.error('[AUTH] Logout-all error:', error.message);
+    return jsonResponse({ error: 'Logout failed' }, 500);
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 // DATA SYNC ENDPOINTS
 // ════════════════════════════════════════════════════════════
@@ -1246,7 +1343,7 @@ router.post('/sync/data', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1336,7 +1433,7 @@ router.get('/sync/data', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1435,7 +1532,7 @@ router.post('/sync/events', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1474,7 +1571,7 @@ router.post('/sync/devices', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1512,7 +1609,7 @@ router.get('/sync/devices', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1547,7 +1644,7 @@ router.get('/sync/history', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1590,7 +1687,7 @@ router.post('/api/billing/create-checkout', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1664,7 +1761,7 @@ router.get('/api/billing/portal', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1776,7 +1873,7 @@ router.get('/api/billing/tier', async (request, env) => {
       });
     }
     
-    const tokenPayload = await verifyToken(token, env.JWT_SECRET);
+    const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
     if (!tokenPayload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -1969,7 +2066,7 @@ export async function authorizeMetricsRequest(request, env) {
   if (!founderEmail) return { configured: cronConfigured, authorized: false };
   const token = getAuthToken(request);
   if (!token) return { configured: true, authorized: false };
-  const payload = await verifyToken(token, env.JWT_SECRET);
+  const payload = await verifyToken(token, env.JWT_SECRET, env);
   if (!payload || !payload.sub) return { configured: true, authorized: false };
   const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
     .bind(payload.sub).first();

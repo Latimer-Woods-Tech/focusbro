@@ -1700,7 +1700,7 @@ export function registerAccountabilityRoutes(router, ctx) {
   async function requireUser(request, env) {
     const token = getAuthToken(request);
     if (!token) return { error: jsonResponse({ error: 'Unauthorized' }, 401) };
-    const payload = await verifyToken(token, env.JWT_SECRET);
+    const payload = await verifyToken(token, env.JWT_SECRET, env);
     if (!payload) return { error: jsonResponse({ error: 'Invalid token' }, 401) };
     return { userId: payload.sub };
   }

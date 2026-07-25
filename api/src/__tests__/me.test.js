@@ -691,3 +691,13 @@ describe('in-app when-field copy stays in lock-step with parseWhenReply (R-263)'
     expect(html).not.toContain('in 30 min, tomorrow 9am, 3pm');
   });
 });
+
+describe('server-backed sign out', () => {
+  it('revokes the session before clearing the browser credential', () => {
+    const html = renderMePage();
+    expect(html).toContain("fetch('/auth/logout'");
+    expect(html).toContain("method: 'POST'");
+    expect(html).toContain("'Authorization': 'Bearer ' + currentToken");
+    expect(html).toContain('}).then(toSignin)');
+  });
+});
