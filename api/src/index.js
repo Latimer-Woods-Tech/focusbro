@@ -58,6 +58,37 @@ function responseWithoutBody(response) {
   });
 }
 
+const CONTENT_SECURITY_POLICY_REPORT_ONLY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "form-action 'self'",
+].join('; ');
+
+// One response boundary keeps pages, APIs, redirects, and fallbacks on the same
+// browser-security baseline. CSP is report-only until Stage 3 extracts the
+// legacy inline scripts/styles; the other policies are safe to enforce now.
+export function withSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()');
+  headers.set('Content-Security-Policy-Report-Only', CONTENT_SECURITY_POLICY_REPORT_ONLY);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // During the JWT migration, production may carry the old plain-text binding
 // (`JWT_SECRET`) while the new secret lands under `JWT_SECRET_NEXT`.
 export function withJwtSecretFallback(env) {
@@ -2734,7 +2765,7 @@ export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
-    if (httpsRedirect) return httpsRedirect;
+    if (httpsRedirect) return withSecurityHeaders(httpsRedirect);
 
     // Initialize database on first request
     await initializeDatabase(runtimeEnv);
@@ -2743,7 +2774,8 @@ export default {
     // Call the router's fetch method which handles request routing
     const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
     const response = await router.fetch(routeRequest, runtimeEnv);
-    return request.method === 'HEAD' ? responseWithoutBody(response) : response;
+    const finalResponse = request.method === 'HEAD' ? responseWithoutBody(response) : response;
+    return withSecurityHeaders(finalResponse);
   },
 
   // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──

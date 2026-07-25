@@ -26,6 +26,35 @@ function call(method, path, origin = 'https://focusbro.net', options = {}) {
 }
 
 describe('Worker routing', () => {
+  it('applies the enforced security baseline to every response class', async () => {
+    for (const [method, path, origin] of [
+      ['GET', '/', 'https://focusbro.net'],
+      ['GET', '/me/', 'https://focusbro.net'],
+      ['GET', '/health', 'https://focusbro.net'],
+      ['GET', '/not-a-route', 'https://focusbro.net'],
+      ['GET', '/', 'http://focusbro.net'],
+    ]) {
+      const response = await call(method, path, origin);
+      expect(response.headers.get('Strict-Transport-Security'), path).toBe(
+        'max-age=31536000; includeSubDomains',
+      );
+      expect(response.headers.get('X-Content-Type-Options'), path).toBe('nosniff');
+      expect(response.headers.get('X-Frame-Options'), path).toBe('DENY');
+      expect(response.headers.get('Referrer-Policy'), path).toBe('strict-origin-when-cross-origin');
+      expect(response.headers.get('Permissions-Policy'), path).toContain('camera=()');
+      const csp = response.headers.get('Content-Security-Policy-Report-Only');
+      expect(csp, path).toContain("default-src 'self'");
+      expect(csp, path).toContain("frame-ancestors 'none'");
+    }
+  });
+
+  it('uses an AA-contrast action color on the accountability CTA', async () => {
+    const html = await (await call('GET', '/')).text();
+    expect(html).toContain('.accountability-entry button');
+    expect(html).toContain('background: #0369a1');
+    expect(html).not.toContain('.accountability-entry button {\n    padding: 0 18px;\n    border: 0;\n    color: #fff;\n    background: var(--primary)');
+  });
+
   it('keeps dormant billing unavailable unless explicitly enabled', async () => {
     expect(isBillingEnabled()).toBe(false);
     expect(isBillingEnabled({})).toBe(false);
