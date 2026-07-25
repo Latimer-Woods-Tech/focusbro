@@ -21,12 +21,13 @@ export default defineConfig({
         'src/html.js',
         'src/html.js.bak.initGallery'
       ],
-      // Ratcheting floor: set just below current so regressions fail CI.
-      // Raise these as coverage improves. Current (post-exclude) baseline noted
-      // in the PR.
+      // Ratcheting floor: set just below the current Vitest 4/V8 result so
+      // regressions fail CI. Vitest 4's AST-aware V8 remapping counts branches
+      // differently from Vitest 1 (68.28% vs 82.47% on the same commit/tests);
+      // this is a reporting-baseline reset, not deleted coverage.
       thresholds: {
         statements: 62,
-        branches: 79,
+        branches: 68,
         functions: 65,
         lines: 62
       }
