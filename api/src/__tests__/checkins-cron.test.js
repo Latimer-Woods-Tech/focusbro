@@ -431,6 +431,7 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
     expect(body.to).toBe('+15550002222');
     expect(body.text).toContain('start the taxes'); // escalationCopy names the thing
     expect(body.text).toMatch(/DONE/); // reply hint keeps the two-way loop discoverable
+    expect(body.text).toMatch(/HELP ME START/);
     expect(escalationLatch(db, 'ci9')).toBeTruthy();
     const evt = db.runs.find((r) => /INSERT (OR IGNORE )?INTO analytics_events/.test(r.sql));
     expect(evt).toBeTruthy();

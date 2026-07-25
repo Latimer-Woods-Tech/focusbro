@@ -37,6 +37,7 @@ export const EVENTS = Object.freeze({
   COMMITMENT_RELEASED: 'commitment_released',
   CHECKIN_DELIVERED: 'checkin_delivered',
   CHECKIN_ESCALATED: 'checkin_escalated',
+  CHECKIN_START_HELP: 'checkin_start_help',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
 });

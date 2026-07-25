@@ -100,8 +100,8 @@ export async function deliverCheckin(env, row) {
   const channel = row.channel === 'text' ? 'text' : 'push';
 
   // Text has no action buttons, so the nudge itself invites the reply — that's
-  // what makes the two-way loop (DONE / LATER → "when do you want to try again?")
-  // discoverable over SMS. Push carries its own in-app actions, so it stays clean.
+  // what makes the two-way loop (DONE / LATER / HELP ME START) discoverable over
+  // SMS. Push carries its own in-app actions, so it stays clean.
   if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(row.persona)}`);
   return deliverPush(env, row, message);
 }
