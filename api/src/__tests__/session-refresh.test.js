@@ -128,6 +128,17 @@ function requestWithCookie(env, path, token, origin = 'https://focusbro.net') {
   );
 }
 
+function requestExchange(env, token) {
+  return worker.fetch(
+    new Request('https://focusbro.net/auth/exchange', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    }),
+    env,
+    {}
+  );
+}
+
 describe('session refresh', () => {
   it('stores only a one-way hash for a newly issued credential', async () => {
     const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
@@ -307,5 +318,41 @@ describe('session refresh', () => {
     expect(setCookie).toContain('__Host-focusbro_session=;');
     expect(setCookie).toContain('Max-Age=0');
     expect(setCookie).toContain('HttpOnly');
+  });
+
+  it('exchanges a legacy bearer once and invalidates the JavaScript-readable value', async () => {
+    const legacyToken = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env } = makeEnv(legacyToken);
+
+    const exchange = await requestExchange(env, legacyToken);
+    const body = await exchange.json();
+    const setCookie = exchange.headers.get('Set-Cookie');
+    const cookieToken = decodeURIComponent(
+      setCookie.match(/__Host-focusbro_session=([^;]+)/)[1]
+    );
+
+    expect(exchange.status).toBe(200);
+    expect(body).toEqual({ success: true, user_id: USER_ID });
+    expect(body.token).toBeUndefined();
+    expect(cookieToken).not.toBe(legacyToken);
+    await expect(verifyToken(legacyToken, JWT_SECRET, env)).resolves.toBeNull();
+    expect((await requestExchange(env, legacyToken)).status).toBe(401);
+
+    const session = await worker.fetch(
+      new Request('https://focusbro.net/auth/session', {
+        headers: { Cookie: `__Host-focusbro_session=${encodeURIComponent(cookieToken)}` }
+      }),
+      env,
+      {}
+    );
+    expect(session.status).toBe(200);
+    expect(await session.json()).toMatchObject({ authenticated: true, user_id: USER_ID });
+  });
+
+  it('does not allow a cookie credential to invoke the bearer exchange', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env } = makeEnv(token);
+
+    expect((await requestWithCookie(env, '/auth/exchange', token)).status).toBe(401);
   });
 });

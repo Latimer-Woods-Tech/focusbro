@@ -652,7 +652,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     });
   };
   var token = function () { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
-  var authHeaders = function () { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; };
+  var authHeaders = function () {
+    var headers = { 'Content-Type': 'application/json' };
+    var legacyToken = token();
+    if (legacyToken) headers.Authorization = 'Bearer ' + legacyToken;
+    return headers;
+  };
 
   // Turn a datetime-local value into an unambiguous ISO string (UTC Z).
   function toISO(localValue) {
@@ -1530,8 +1535,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
-        if (!res.ok || !res.b.token) { throw new Error(res.b.error || 'Sign in failed'); }
-        try { localStorage.setItem(TOKEN_KEY, res.b.token); } catch (e) {}
+        if (!res.ok) { throw new Error(res.b.error || 'Sign in failed'); }
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
         enterApp();
       })
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
@@ -1575,19 +1580,18 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   el('signout').addEventListener('click', function (ev) {
     ev.preventDefault();
     var currentToken = token();
-    if (!currentToken) { toSignin(); return; }
+    var headers = {};
+    if (currentToken) headers.Authorization = 'Bearer ' + currentToken;
     fetch('/auth/logout', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + currentToken }
+      headers: headers
     }).catch(function () {
       // Local sign-out must remain available during a network outage. The
       // server credential expires or can be revoked with logout-all later.
     }).then(toSignin);
   });
 
-  if (token()) {
-    enterApp();
-  } else {
+  function showSigninDoor() {
     // Challenge/homepage traffic already gave us a word. Put new people directly
     // on account creation; returning people can still switch to sign-in in one tap.
     if (PREFILL_TASK) {
@@ -1599,6 +1603,34 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     }
     toSignin();
   }
+
+  function restoreSession() {
+    var legacyToken = token();
+    if (legacyToken) {
+      fetch('/auth/exchange', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + legacyToken }
+      }).then(function (response) {
+        if (!response.ok) throw new Error('Legacy exchange rejected');
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        enterApp();
+      }).catch(function () {
+        // A rejected legacy token is no longer useful or safe to retain. The
+        // cookie check still recovers a session created in another tab.
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        fetch('/auth/session').then(function (response) {
+          if (response.ok) enterApp(); else showSigninDoor();
+        }).catch(showSigninDoor);
+      });
+      return;
+    }
+
+    fetch('/auth/session').then(function (response) {
+      if (response.ok) enterApp(); else showSigninDoor();
+    }).catch(showSigninDoor);
+  }
+
+  restoreSession();
 })();
 </script>
 </body></html>`;

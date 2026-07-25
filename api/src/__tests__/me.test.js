@@ -697,7 +697,16 @@ describe('server-backed sign out', () => {
     const html = renderMePage();
     expect(html).toContain("fetch('/auth/logout'");
     expect(html).toContain("method: 'POST'");
-    expect(html).toContain("'Authorization': 'Bearer ' + currentToken");
+    expect(html).toContain("headers.Authorization = 'Bearer ' + currentToken");
     expect(html).toContain('}).then(toSignin)');
+  });
+
+  it('exchanges legacy localStorage once and uses HttpOnly cookies thereafter', () => {
+    const html = renderMePage();
+    expect(html).toContain("fetch('/auth/exchange'");
+    expect(html).toContain("fetch('/auth/session')");
+    expect(html).toContain('localStorage.removeItem(TOKEN_KEY)');
+    expect(html).not.toContain('localStorage.setItem(TOKEN_KEY');
+    expect(html).toContain('if (legacyToken) headers.Authorization');
   });
 });
