@@ -1,9 +1,8 @@
 name: Docs Health
 
-# Self-contained docs-health for focusbro. Vendored from Factory's
-# scripts/docs/{health,check-generated-current}.mjs (node-builtin-only, no deps)
-# on 2026-07-18 because focusbro is PUBLIC and cannot call Factory's now-private
-# reusable `_docs-health.yml` (see Factory#2332). Advisory / non-blocking.
+# Self-contained and blocking. The former vendored health runner invoked scripts
+# that were never vendored, then every failure was ignored. This workflow runs
+# only checks this repository actually owns and fails when they find a defect.
 
 on:
   pull_request:
@@ -25,13 +24,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Docs health
-        continue-on-error: true
-        env:
-          DOCS_TARGET_ROOT: ${{ github.workspace }}
-        run: node scripts/docs/health.mjs
-      - name: Generated docs are current
-        continue-on-error: true
-        env:
-          DOCS_TARGET_ROOT: ${{ github.workspace }}
-        run: node scripts/docs/check-generated-current.mjs
+      - name: Active documentation links resolve
+        run: node scripts/docs/check-links.mjs

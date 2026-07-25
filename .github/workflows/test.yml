@@ -26,7 +26,6 @@ jobs:
     
     - name: Install root dependencies
       run: npm ci
-      continue-on-error: true
     
     - name: Install API dependencies
       run: cd api && npm ci
@@ -63,7 +62,6 @@ jobs:
 
     - name: Install root dependencies
       run: npm ci
-      continue-on-error: true
 
     - name: Install API dependencies
       run: cd api && npm ci
