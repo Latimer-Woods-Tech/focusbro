@@ -1,128 +1,338 @@
-# FocusBro Improvement Plan
-
-> **Sequencing update (2026-07-25):** [`BREAKOUT_PLAN.md`](./BREAKOUT_PLAN.md) is
-> the current product-growth plan and overrides sequencing in this older
-> implementation inventory. Use this document for technical detail only.
-
-> Generated 2026-07-11, after the foundation session (PRs #26–#30: security, delivery, timer-first UX, perf/a11y — all live-verified). This plan turns the post-session assessment into sequenced, acceptance-tested work.
-
-## North Star & binding constraint
-
-FocusBro is now a **solid foundation** — secure (JWT rotated), delivering (push channel live, HEAD/HTTPS/`/me/` fixed), calm-first (timer-first), and faster (fonts trimmed, entry page cached). The binding constraint is **no longer the tools**. It is:
-
-> **Prove the accountability loop retains, make it visible as coach-proof, then invest in voice.**
-
-Everything sequences off that. Technical debt is paid down opportunistically to keep the foundation clean, but it never precedes loop-proof work in priority.
-
-**Legend** — Autonomy: 🤖 autonomous · 🧑 needs founder decision · 🤝 coordinate with the agent active in the accountability core · ⛔ externally gated. Size: S (<½ day) · M (1–2 days) · L (multi-day).
-
+---
+last_updated: "2026-07-25"
+owner: focusbro
+status: ratified
 ---
 
-## Critical path (the one sequence that matters)
+# FocusBro Execution Plan
 
-```
-Phase 0  Clean the foundation (parallel, autonomous)  ──┐
-                                                         ├─► keeps everything else safe & fast
-Phase 1  INSTRUMENT the loop (retention + kept-word) ───┘
-                     │  (you can't prove or sell what you don't measure)
-                     ▼
-Phase 2  Coach-proof artifact: weekly report + export/share + return nudge + guide→tool
-                     │  (turns private stats into something a user/coach can SEE)
-                     ▼
-Phase 3  Activate the ADHD-coach operator channel  (gate: ≥5 real coach-visible reports)
-                     │
-                     ▼
-Phase 4  Voice moat (Phase B) — thin wire-up once @lwt/voice-agent publishes
+This is the engineering execution companion to
+[`BREAKOUT_PLAN.md`](./BREAKOUT_PLAN.md). The breakout plan owns product strategy
+and learning gates. This plan owns sequencing, acceptance tests, rollout safety,
+and the work required to run those experiments responsibly.
+
+## Outcome
+
+Move FocusBro from a strong prototype to a trustworthy founding-cohort product,
+then scale only what produces retained accountability.
+
+The order is:
+
+```text
+Contain avoidable risk
+        ↓
+Harden identity, delivery, and data
+        ↓
+Run the founding cohort
+        ↓
+Improve the measured bottleneck
+        ↓
+Earn referrals, voice, billing, and coaches
 ```
 
-Voice is last on the *value* path on purpose: it is expensive, engine-gated, and its entire justification ("a call retains where a swipe fails") is unmeasured until Phase 1 exists.
+No stage is completed by merging code alone. It is completed by its acceptance
+gate, including production verification where specified.
 
----
+## Operating constraints
 
-## Workstream 1 — Prove & sell the accountability loop (Tier 1, top value)
+- Keep every PR reviewable and independently deployable; target fewer than 300
+  changed lines and never exceed the repository's 500-line budget without an
+  explicit exception.
+- Use expand → migrate → contract for auth and schema changes.
+- Never combine an auth migration, database migration, and UI redesign in one PR.
+- Preserve legacy users through versioned, on-login migration paths.
+- Default risky dormant surfaces to unavailable, not partially configured.
+- Treat a webhook as accepted only after it is verified and durably recorded.
+- Roll out high-risk changes to founder accounts first.
+- Do not start broad distribution while the Trust Gate is red.
+- Do not answer weak retention by adding tools, voice, billing, or gamification.
 
-| ID | Item | Why | Acceptance / verification | Size | Autonomy |
-|----|------|-----|---------------------------|------|----------|
-| L1 | **Retention instrumentation** — first-party events (D1/D7 return, session start/complete, commitment created/kept/missed→reschedule, kept-word rate). Use `@latimer-woods-tech/analytics` (first-party + PostHog) rather than hand-rolling. | The voice thesis is unmeasured; the coach pitch needs numbers. | Events land in the analytics store; a query returns D1/D7 return + kept-word rate for the founder dogfood cohort. Verify by driving the flow and reading the events back. | M | 🤝 (touches the core the other agent works in) |
-| L2 | **Weekly report V0** — per-user weekly summary: blocks, interruptions captured, energy trend, sleep notes, kept-word streak, "next tiny adjustment." No shame, kept-word-only framing. | The **keystone**: turns local stats into coach-visible proof; activates the coach GTM. | `/me/` (or `/me/report`) renders a weekly report from real data; "Copy report" + "Share with coach" (mailto/download) work. First 5 reports generated from real users. | M | 🤝 |
-| L3 | **Return trigger via push** — a gentle, opt-in daily/weekly return nudge now that the push channel is live (P0 fixed it). No shame; ally tone. | Return triggers are weak; retention needs a habit bridge. | A scheduled push nudge is delivered to a real subscription and links back to the block/commitment. Verify end-to-end (subscribe → cron → received). | S–M | 🤝 |
-| L4 | **Guide → tool deep-links** — every guide ends with one action that opens the matching tool state (start 25-min block, open breathing/grounding, enable break reminder) via hash/query route. | Cheapest reader→user conversion; 17 guides currently link only to other guides. | Each guide's CTA opens the app in the intended state; add structured data + OG image. Verify by clicking through from a deployed guide. | M | 🤖 (guides + a small app URL handler; low collision) |
-| L5 | **Coach GTM activation** — once L2 yields ≥5 real coach-visible reports, wire the `docs/growth/templates/adhd-coaches.md` outreach to a live product surface (coach dashboard already skeletoned in `coach.js`). | The actual revenue: coaches keep the client, product automates the check-ins. | 5 coach-visible reports exist; first coach invited against the live consent-gated roster. | M | 🧑🤝 (founder sends; coordinate) |
+## Launch states
 
----
+| State | Allowed | Required condition |
+|---|---|---|
+| Red | Founder dogfood only | Current state until containment items C1–C4 are live |
+| Amber | Up to 25 observed founding users | Containment complete; core production canary green |
+| Cohort | Recruit 50–100 users | Trust Gate complete; delivery ≥95% in the observed group |
+| Growth | Scale winning organic creatives | Activation and retention gates in `BREAKOUT_PLAN.md` pass |
+| Revenue | Voice/billing experiments | Retention gate passes and billing is rebuilt |
 
-## Workstream 2 — Reliability & correctness (Tier 2)
+## Stage 0 — Contain risk
 
-| ID | Item | Why | Acceptance / verification | Size | Autonomy |
-|----|------|-----|---------------------------|------|----------|
-| R1 | **Fix `initializeDatabase()` hot path** — it runs **17 `CREATE TABLE IF NOT EXISTS` per request** (`index.js:2442`) and per cron tick (`:2458`). Guard it (run once via a KV/edge flag or an in-memory `let ready`), or move DDL to real migrations. | ~17 D1 round-trips on every page load / API call = latency + cost. | Cold request issues DDL once; subsequent requests skip it. Verify with a query-count/log check; `/health` + `/me/` still 200. | S | 🤖 |
-| R2 | **Verify the push channel end-to-end in prod** — drive `GET /vapid/public-key` → `POST /notifications/subscribe` (real browser subscription) → trigger `POST /api/internal/run-checkins` → confirm a push is actually received. | P0 mounted the routes + set VAPID but no real round-trip has been observed. | A real subscription receives a check-in push. Document the recipe in the runbook. | S | 🤖 |
-| R3 | **Browser/smoke tier in CI** — Playwright smoke: home renders, timer starts, `/me/` loads, ⌘K opens, no console errors. | No browser test exists → JS behavior changes ship unverified (hit this during perf). | CI runs a smoke job on PR; a deliberately broken handler fails it. | M | 🤖 |
-| R4 | **CI quality gates** — add `eslint` + a coverage floor to `test.yml` (neither runs today). Start at the current baseline, ratchet up. | Silent quality regression. | PR fails on lint error or coverage drop below floor. | S | 🤖 |
+Target: 1–3 days. These are small, reversible PRs and should land before
+recruiting beyond founder dogfood.
 
----
+| ID | PR-sized action | Acceptance test | Rollback |
+|---|---|---|---|
+| C1 | Production-gate checkout, portal, webhook, and tier billing routes. Return 404 while `BILLING_ENABLED` is absent. Do not delete the historical module yet. | All four production routes are unavailable; existing accountability routes and `/health` remain 200. | Revert the route gate only after the rebuilt billing acceptance suite passes. |
+| C2 | Remove `/debug-routes`, `/debug-api`, `/api/test`, and `/api/gallery/test` from production. Keep equivalent assertions in tests. | All four return 404 in production; `/health` still returns the public minimum. | Restore only behind an explicit non-production environment guard. |
+| C3 | Make Telnyx inbound verification fail closed. Missing public key, timestamp, signature, or invalid signature must never reach message processing. | Signed fixture succeeds; unsigned/invalid/missing-config fixtures fail; live unsigned probe is rejected. | Roll back only by disabling inbound SMS entirely, never by accepting unsigned input. |
+| C4 | Add immediate response headers: HSTS, `X-Content-Type-Options`, frame denial, strict referrer policy, and a minimal permissions policy. Start CSP in report-only mode because inline scripts currently prevent a strict policy. Fix the primary CTA contrast failure. | Headers are present on `/`, `/me/`, `/coach/`, and API responses; mobile accessibility remains ≥0.95 with no primary-CTA contrast failure. | Remove only the incompatible directive, not the complete header middleware. |
+| C5 | Make CI truthful: remove `continue-on-error` from dependency installation and real docs checks; either fix or delete a check that cannot pass. | A deliberately broken install/docs fixture makes CI red; normal main is green. | Revert the faulty check, not strict failure behavior. |
+| C6 | Replace the stale deploy title probe with a hard canary: retrying `curl --fail` for `/health`, expected build SHA, homepage accountability marker, and one expected unauthorized API response. | A stale build, 5xx, missing marker, or wrong auth status fails deployment. | Redeploy the last known good Worker; do not weaken the canary. |
 
-## Workstream 3 — Technical debt & platform alignment (Tier 3)
+### Containment gate
 
-| ID | Item | Why | Acceptance / verification | Size | Autonomy |
-|----|------|-----|---------------------------|------|----------|
-| D1 | **CI Lighthouse harness** — automate the mobile Lighthouse run (LHCI or scheduled) so perf work is measurable and regressions are caught. Enabler for D2. | Perf changes currently need manual local runs (noisy). | A CI job posts perf/a11y scores per PR (or nightly). | M | 🤖 |
-| D2 | **Deeper perf: split the inline-JS monolith** — lazy-load the 15 `public/components/views/*.js` modules; defer non-critical init (gallery, audio) to idle. Caps Lighthouse ~76 today (main-thread work). | The last real perf lever; the 212KB inline JS parses/executes upfront. | Lighthouse mobile ≥85 with the timer still working (verified via D1 harness + smoke). | L | 🤖 (after D1) |
-| D3 | **Consolidate to one worker + kill dead code** — remove `workers/src/*` (old `focusbro.dev` worker), the redundant `focusbro-api` worker (`api/wrangler.toml`, no routes), and the mostly-dead `extended-routes.js` (77KB; only the 2 push routes were needed). | Confusion + deploy surface + the drift class of bugs. | One worker serves everything; `/health` + all key routes still 200 post-deploy; dead trees deleted. | M | 🤖 |
-| D4 | **Schema single source of truth** — collapse `schema.sql` vs the inline `CREATE TABLE`s in `initializeDatabase()`. Pairs with R1. | Two definitions drift. | One canonical schema; init reads from it (or migrations). Tests pass. | S–M | 🤖 |
-| D5 | **Untrack vendored `node_modules`** (2924 files tracked on `main`) — dedicated PR; confirm `npm ci` in `deploy.yml` still produces a working bundle. | Repo bloat + the rebase-wipe hazard. | `node_modules` gitignored + removed from tracking; a clean deploy still verifies `focusbro.net` 200. | S | 🤖 |
-| D6 | **Adopt shared packages (deliberate migrations, one at a time)** — `@lwt/push` (replace `webpush.js`), `@lwt/telephony` (Telnyx SMS), later `@lwt/auth`/`@lwt/stripe`. Prereq: add `.npmrc` (`@latimer-woods-tech`→npm). | Dedup + shared hardening; also the voice-prep (`telephony`). | Each swap: adapter written, unit tests green, **push/SMS verified end-to-end in prod** before the next. Start with `@lwt/push` behind R2's verification. | L | 🤖 (careful; not urgent) |
-| D7 | **Doc hygiene** — prune ~40 stale pre-pivot audit docs (AUDIT_*, VALIDATION_ROADMAP, MASTER_DOCUMENTATION_PLAN); fix CLAUDE.md's "no build step" claim (there are 2 generators; wire `build-complete-html.js` into a script too). | The repo's own docs contradict reality. | Stale docs archived/removed; CLAUDE.md matches the real build (`build:html` + view-inline step). | S | 🤖 |
+Amber cohort access is allowed only when:
 
----
+- C1–C4 are live and verified;
+- deploy canary is hard-failing correctly;
+- production `/health` reports a fresh cron heartbeat;
+- root and API dependency audits have no high or critical findings;
+- no known secret is committed in the current tree.
 
-## Workstream 4 — UX / trust / a11y polish (Tier 4)
+## Stage 1 — Identity and session hardening
 
-| ID | Item | Why | Acceptance / verification | Size | Autonomy |
-|----|------|-----|---------------------------|------|----------|
-| U1 | **Contrast tokens** — `--text-muted #94a3b8` / `--text-dim #64748b` on dark cards are borderline WCAG AA. | Accessibility + readability for the ADHD audience. | New values pass AA (≥4.5:1 body / 3:1 large) on the card backgrounds; Lighthouse a11y stays 100. | S | 🧑 (brand color decision) |
-| U2 | **Cookie banner review** — still auto-shows on first load; ads are now guides-only. Decide if the core app needs consent UI (CF analytics beacon may still warrant it by jurisdiction) and minimize it. | First-load calm; the wingspan review flagged onboarding+cookie together (onboarding already fixed). | Decision recorded; if kept, it's minimal and non-blocking to the timer. | S | 🧑 |
-| U3 | **Legal/brand consistency sweep** — spot-check the remaining served pages + in-app legal modals for brand/date consistency (Terms already fixed in #27). | Trust hygiene. | Served privacy/about + in-app modals consistent (Latimer Woods Tech, current dates). | S | 🤖 |
-| U4 | **Note the JWT-in-history** — rotated value is neutralized but still in git history. Decide: leave (documented) vs history scrub (high-risk). No other real secrets found. | Security transparency. | Decision recorded in the runbook. | S | 🧑 |
+Target: 4–7 days across several PRs. Write a short ADR before choosing the final
+session shape. The practical default is Workers-native, versioned password
+hashing plus revocable server-side sessions; adopting the shared auth package is
+preferred only if it supports this migration without a framework rewrite.
 
----
+| ID | Sequence | Acceptance test |
+|---|---|---|
+| A1 | Add a versioned password format using Web Crypto PBKDF2 with a unique random salt and a cost calibrated to the Worker CPU budget. Continue verifying legacy 64-character SHA-256 hashes only for migration. After a successful legacy login, immediately replace the stored value. | New registrations never store a raw SHA-256 digest; legacy fixture logs in once and becomes versioned; wrong-password and timing-safe comparison tests pass. |
+| A2 | Close the refresh flaw immediately: enforce expiration and a short refresh grace window, require the exact active server session, reject malformed claims, and rotate the session credential. | Arbitrarily old, revoked, inactive-user, wrong-session, and replayed refresh tokens all return 401. |
+| A3 | Add server-side logout, logout-all, and session revocation. Store only a hash of the revocable credential. Add device/session timestamps without storing the full bearer token. | Logout invalidates the credential from another browser; database inspection finds no usable bearer token. |
+| A4 | Migrate browser auth from long-lived `localStorage` bearer tokens to `HttpOnly; Secure; SameSite=Lax` cookies. Use a short overlap window that accepts the legacy bearer token, exchanges it once, then removes it. | Auth works after reload; JavaScript cannot read the session; CSRF tests cover all state-changing routes; legacy user migration is seamless. |
+| A5 | Add account recovery and email verification, preferably a one-time magic link. Rate-limit by normalized account plus network signal without locking an entire NAT population. | Expired/replayed links fail; recovery revokes old sessions; successful login does not consume the failed-attempt budget. |
+| A6 | After inline scripts are extracted in Stage 3, enforce CSP rather than report-only mode. | No CSP violations occur on critical journeys; a test inline script is blocked. |
 
-## Workstream 5 — Voice moat (Phase B) ⛔ gated
+### Identity rollout
 
-| ID | Item | Why | Gate | Size | Autonomy |
-|----|------|-----|------|------|----------|
-| V1 | **Publish `@latimer-woods-tech/voice-agent`** (extraction from XPElevator Phase E). The sole gating dependency; auto-unblock already wired in Factory `docs/DEPENDENCIES.yml`; Bandwidth account already landed. | The moat is unbuildable without it; do NOT hand-roll telephony. | Factory-side effort. | L | ⛔ |
-| V2 | **Minimal Telnyx voice check-in** — place a warm persona (ally/hype) call at check-in time; wire as a `'voice'` channel in `checkins-cron.js:deliverCheckin`; lift the voice guards at `accountability.js:227` / `consent.js:357` behind a flag; enforce voice TCPA (schema already pre-provisions `channel='voice'`). | The differentiator. | After V1 + D6(`@lwt/telephony`): first live call to a consented number. | M | ⛔→🤖 |
+1. Deploy password dual-read/new-write.
+2. Verify founder and synthetic legacy accounts.
+3. Deploy revocable sessions while retaining bearer exchange.
+4. Move the UI to cookies.
+5. Observe auth errors for 48 hours.
+6. Remove legacy token issuance, then legacy token acceptance in a later PR.
 
----
+Never force-reset all cohort passwords merely to simplify the migration.
 
-## Phasing & sequencing
+## Stage 2 — Durable schema, webhooks, and sync
 
-**Phase 0 — Clean the foundation (bank now, autonomous, low collision).** Run these in parallel; they don't touch the accountability core the other agent works in: **R1** (DB hot path), **R2** (verify push e2e), **R4** (CI lint+coverage), **D5** (untrack node_modules), **D7** (doc hygiene), **U3** (legal sweep). Then **D3** (dead-code/one-worker) and **R3** (smoke CI) as slightly larger cleanups. Deliver as small, individually-verified PRs (the pattern that worked this session).
+Target: 5–8 days. This stage may overlap with the observed 25-user group after
+the containment gate, but must finish before the 50–100-person cohort.
 
-**Phase 1 — Instrument (L1).** Coordinate with the accountability-core agent on ownership. Nothing downstream is provable without it.
+### Database migrations
 
-**Phase 2 — Coach-proof (L2 → L3 → L4).** Weekly report is the keystone; return nudge and guide deep-links compound retention.
+| ID | Action | Acceptance test |
+|---|---|---|
+| D1 | Inventory the deployed schema and create immutable numbered D1 migrations. Establish one canonical definition for fresh databases and explicit rollback comments. | A blank local D1 reaches the expected schema using migrations only; production drift report is empty. |
+| D2 | Deploy the migration baseline while runtime initialization still exists as a compatibility guard. Record schema version in health/operator diagnostics. | Staging and production migration dry runs pass; existing data counts remain unchanged. |
+| D3 | Remove all `CREATE`, index, and `ALTER` work from fetch and scheduled handlers. Fail deployment on migration failure rather than serving a partial schema. | Cold `/health` performs no DDL; fetch and cron tests pass against migrated D1; p95 cold latency does not regress. |
+| D4 | Reconcile `subscriptions` and `stripe_subscriptions`. Keep neither active billing contract until Stage 5 selects the canonical schema. | Fresh schema has one documented future billing model; dormant routes remain unavailable. |
 
-**Phase 3 — Activate coach GTM (L5).** Gate: ≥5 real coach-visible reports.
+### Webhook durability
 
-**Phase 4 — Voice (V1 → V2).** Thin wire-up once the engine lands; D6's `@lwt/telephony` adoption is the prep.
+| ID | Action | Acceptance test |
+|---|---|---|
+| W1 | Add a webhook inbox keyed by provider event ID with received, processing, completed, and failed states. Verify signature before insertion; deduplicate before side effects. | Duplicate and reordered Telnyx fixtures cause one state transition and at most one reply. |
+| W2 | Process STOP synchronously after durable receipt; return 2xx only after durable acceptance. Return 4xx for invalid signatures and 5xx for retryable processing failures. | A transient D1/send failure is retried; STOP is never silently lost; failed rows are visible to operations. |
+| W3 | Add oldest-unprocessed age, failed-event count, and replay tooling. Add a queue only when D1 inbox throughput proves insufficient. | An intentionally failed fixture appears in health/metrics and can be safely replayed once. |
 
-**Cross-cutting enablers, do early:** **D1** (Lighthouse CI) unblocks **D2** (deep perf); **R3** (smoke) de-risks all JS changes; **`.npmrc`** unblocks **D6** and any shared-package use.
+### Sync boundaries
 
----
+| ID | Action | Acceptance test |
+|---|---|---|
+| S1 | Enforce content length before JSON parsing, reduce the 10 MB ceiling to a measured product limit, validate the snapshot schema, and reject unexpected structures. | Oversized and malformed bodies return 413/400 without D1 or KV writes. |
+| S2 | Add revision IDs and idempotency so retries do not create duplicate snapshots and stale clients cannot silently overwrite newer data. | Duplicate upload creates one revision; stale revision returns 409 with recovery metadata. |
+| S3 | Add per-user request/storage quotas and snapshot pruning. Define export, deletion, and retention behavior in privacy docs. | Quota and retention tests pass; deletion removes user snapshots from D1 and KV. |
 
-## Immediate quick-wins (this-session-able, autonomous)
+## Stage 3 — Risk-weighted quality and maintainability
 
-Ranked by value/effort:
-1. **R1 — `initializeDatabase` hot path** (S) — real latency/cost win, isolated, clearly correct.
-2. **R2 — verify push end-to-end** (S) — confirms the P0 fix actually delivers; documents the recipe.
-3. **R4 — CI lint + coverage floor** (S) — stops silent regressions.
-4. **D7 — doc hygiene** (S) — the repo currently lies about itself.
-5. **D5 — untrack node_modules** (S, dedicated PR) — removes the rebase hazard I hit.
+Target: 4–7 days, delivered incrementally.
 
-## Decisions owed by the founder
-- **U1** contrast colors (brand). · **U2** cookie banner necessity. · **U4** JWT-history scrub vs leave. · **L1/L2** coordination with the accountability-core agent (who owns loop instrumentation). · **V-timing**: when to prioritize the `voice-agent` extraction (it's the real unlock for the differentiator).
+### Tests and CI
 
-## Maps to existing tracking
-FocusBro GitHub #10 (Contender) already frames Phases A–D. This plan's **W1** = #10 Phase A completion (loop proof) + the coach channel; **W5** = #10 Phase B; **L5/coach white-label** = #10 Phase C; tiers/billing = #10 Phase D. Each row above should become a GitHub issue linked to #10.
+1. Add real-D1 integration coverage for fresh migrations and the auth lifecycle.
+2. Add signed Telnyx fixtures covering duplicates, STOP, retry, and replay.
+3. Keep billing gated; add Stripe fixtures only during the Stage 5 rebuild.
+4. Expand Playwright to:
+   - landing → registration/login → commitment;
+   - commitment → response → reschedule;
+   - logout/recovery;
+   - mobile keyboard and accessibility;
+   - push permission UX with delivery mocked at the boundary.
+5. Eliminate all lint warnings and enforce `--max-warnings 0`.
+6. Ratchet coverage by risk and module, not test count. Require at least 80% line
+   coverage for auth, consent/webhooks, commitments, and migrations before cohort
+   scale; do not chase generated HTML coverage.
+7. Add Lighthouse best-practices and SEO categories. Raise performance gradually
+   from the measured baseline; use the median of three mobile runs and fail on a
+   sustained regression rather than one noisy run.
+8. Update the Workers compatibility date in a dedicated PR with dry-run, tests,
+   staging verification, and production canary.
+
+### Code shape
+
+Keep one Worker initially, but divide ownership:
+
+```text
+worker entry
+├── response/security middleware
+├── auth routes and session service
+├── accountability routes
+├── consent and webhook routes
+├── sync routes
+├── operator/metrics routes
+└── static asset routing
+```
+
+Move the 234 KB homepage and static pages to Workers Assets. Split the acquisition
+shell, authenticated accountability app, and wellness toolkit into browser
+modules. Load toolkit code only when requested. Do not introduce React, Hono, or
+separate services merely to accomplish this.
+
+Acceptance:
+
+- the Worker entry is composition rather than business logic;
+- critical routes have one shared auth path and one response/header path;
+- root transfer and main-thread work improve without breaking deep links;
+- the acquisition page remains immediately usable on a low-end mobile profile.
+
+## Stage 4 — Run the learning plan
+
+This is operating work, not a software phase. Begin the observed group after the
+Containment Gate and the full cohort after the Trust Gate.
+
+### Trust Gate
+
+- versioned password migration and revocable sessions are live;
+- Telnyx fails closed and webhook replay is proven;
+- DDL is absent from runtime request/cron paths;
+- critical Playwright journeys are green;
+- deployment identifies and verifies the exact release;
+- delivery success is at least 95%;
+- no P0/P1 security issue from this plan remains open.
+
+### Founding-cohort protocol
+
+1. Publish the five founder demonstrations in `DISTRIBUTION.md`.
+2. Observe ten people without coaching the interface.
+3. Record friction categories, never private task content.
+4. Review the scorecard after every 20 qualified visits.
+5. Change one bottleneck per experiment.
+6. Recruit 50–100 only after delivery and activation clear their gates.
+7. Interview retained and quiet users after D1; repeat after D7.
+
+Add behavioral cohort dimensions before the full cohort:
+
+- challenge/task category;
+- time-to-start bucket;
+- check-in delay bucket;
+- push versus text;
+- ally versus hype;
+- recurring versus one-time;
+- first outcome;
+- creative and acquisition source.
+
+Do not store raw task text in analytics. Use a user-selected or derived coarse
+category with an explicit unknown value.
+
+### Decision tree
+
+| Signal | Response |
+|---|---|
+| Landing activation <10% after 20 qualified visits | Rewrite the hook/CTA; do not change the accountability mechanic yet. |
+| Activation 10–25% | Test promise clarity and reduce auth/consent friction. |
+| Activation >25%, delivery <95% | Stop promotion and fix delivery. |
+| Delivery ≥95%, response <50% | Test timing, channel, and response affordance. |
+| Response healthy, D1 <30% | Improve next-word bridge, recurring rhythm, and one-tap quiet-user feedback. |
+| D1 healthy, D7 <15% | Improve task sizing, weekly proof, and return cadence. |
+| D1/D7 pass | Unlock the smallest referral experiment. |
+
+For quiet-user learning, ask one optional one-tap question: task too large,
+wrong time, wrong channel, wrong tone, or reminders not wanted. One response is
+enough; do not create a survey funnel.
+
+## Stage 5 — Earned expansion
+
+These remain locked until the retention gate passes.
+
+### Referrals
+
+Ship one specific-word challenge link, activated-referral attribution, and a
+permissioned kept-word artifact. Pass only if:
+
+- at least 15% of activated users share or invite;
+- at least 20% of invitees create a commitment;
+- referred-user retention is no worse than creator-acquired retention;
+- five users explicitly permit outcome-story use.
+
+### Voice
+
+Test one fixed, consented, frequency-capped call intervention. Compare push,
+push→text, and push→text→call. Voice earns expansion only if its incremental
+retention or task-start lift justifies cost and annoyance.
+
+### Billing
+
+Rebuild rather than re-enable the dormant module:
+
+- use the approved Workers Stripe wrapper and Checkout Sessions;
+- use Customer Portal for subscription management;
+- include stable idempotency keys on mutations;
+- verify the raw webhook body once;
+- record event IDs before processing;
+- return retryable failures correctly;
+- use one canonical subscription schema;
+- cover duplicate and out-of-order events;
+- release behind `BILLING_ENABLED` to founder/test accounts first.
+
+Payments stay unavailable until a real test-mode subscription completes checkout,
+webhook entitlement, portal management, cancellation, retry, and reconciliation.
+
+### Coaches
+
+Pilot five ADHD coaches with three to ten consented clients each. Build only the
+weekly artifact, invitations, cadence ceiling, between-session note, and simple
+billing needed by that cohort.
+
+## Execution board
+
+Create one issue per row and maintain these fields:
+
+- ID and stage;
+- owner: agent, founder, or time/external;
+- dependency IDs;
+- risk: low, medium, high;
+- acceptance command/probe;
+- rollout cohort;
+- rollback action;
+- production evidence;
+- state: queued, active, deployed, verified, or blocked.
+
+Recommended first PR order:
+
+1. C1 billing gate.
+2. C2 production debug removal.
+3. C3 Telnyx fail-closed.
+4. C4 security headers and contrast.
+5. C5 strict CI.
+6. C6 release-aware deploy canary.
+7. A1 versioned password migration.
+8. A2 refresh/session validation.
+9. A3 revocation and logout.
+10. D1–D3 numbered migrations and runtime-DDL removal.
+11. W1–W3 webhook inbox, retry, and replay.
+12. A4 cookie migration.
+13. S1–S3 sync boundaries.
+14. Stage 3 critical journeys and modularization.
+
+High-risk PRs should not run concurrently against the same auth, schema, or
+Worker-entry files. Documentation, test fixtures, and independent UI corrections
+may run in parallel.
+
+## Definition of done
+
+An item is done only when:
+
+1. its acceptance tests pass locally and in CI;
+2. generated HTML is rebuilt when its source changes;
+3. migrations are dry-run before production application;
+4. the deployed branded-domain behavior is verified with `curl` or a real browser;
+5. monitoring shows no regression during the stated observation window;
+6. evidence is linked from the issue/PR;
+7. the execution board and relevant plan status are updated.
+
+“CI green,” “code complete,” and “deployed” are intermediate states, not done.
