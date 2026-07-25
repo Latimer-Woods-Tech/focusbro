@@ -115,6 +115,7 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     // The follow-up word keeps the person's zone, not a silent UTC.
     expect(ins.timezone).toBe('America/New_York');
     expect(ins.rescheduled_from).toBe('cm1');
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
   });
 
   it('understands the same warm forms the text channel does', async () => {
@@ -140,8 +141,10 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     const b = await res.json();
     // Shared voice — the exact copy the SMS "when?" reply uses.
     expect(b.error).toBe(smsWhenUnclearCopy({ persona: 'ally' }));
-    // No follow-up word was created from an unreadable time.
+    // No follow-up word was created from an unreadable time, and no existing
+    // check-in, commitment, streak, or analytics row changed either.
     expect(insertedCommitment(db.runs)).toBeNull();
+    expect(db.runs).toHaveLength(0);
   });
 
   // Two-way parity with SMS (PR #130): answering the in-app "Move it → when?"
@@ -198,5 +201,26 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     expect(res.status).toBe(200);
     const ins = insertedCommitment(db.runs);
     expect(Date.parse(ins.start_at)).toBe(Date.parse(iso));
+  });
+
+  it('records web kept and not-yet outcomes in the same analytics spine as SMS', async () => {
+    for (const [outcome, eventType] of [
+      ['kept', 'commitment_kept'],
+      ['missed', 'commitment_missed'],
+    ]) {
+      const db = makeDB({ commitment: oneShot });
+      const call = buildRouter(db);
+      const res = await call('POST', '/api/commitments/cm1/checkin', {
+        body: { outcome },
+      });
+      expect(res.status, outcome).toBe(200);
+      const event = db.runs.find((x) => x.params.includes(eventType));
+      expect(event, outcome).toBeTruthy();
+      expect(JSON.parse(event.params[2])).toMatchObject({
+        commitment_id: 'cm1',
+        is_recurring: false,
+        channel: 'push',
+      });
+    }
   });
 });

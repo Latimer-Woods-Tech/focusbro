@@ -2075,6 +2075,37 @@ export function registerAccountabilityRoutes(router, ctx) {
         }, 200);
       }
 
+      // Validate the new time BEFORE resolving anything. Previously the route
+      // stamped the check-in, moved the commitment, and changed the streak before
+      // discovering that a reschedule phrase was unreadable. A 400 must be a true
+      // no-op: the person's existing word remains open until we understand when.
+      let rescheduleValue = null;
+      if (outcome === 'reschedule') {
+        let newStartISO = typeof body.new_start_at === 'string' && body.new_start_at.trim()
+          ? body.new_start_at.trim()
+          : null;
+        if (!newStartISO && rescheduleWhenText) {
+          newStartISO = parseWhenReply(rescheduleWhenText, {
+            nowISO: new Date().toISOString(),
+            timezone: commitment.timezone,
+            defaultTime: commitment.local_time,
+          });
+          if (!newStartISO) {
+            return jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400);
+          }
+        }
+        const parsed = validateCommitmentInput({
+          title: commitment.title,
+          start_at: newStartISO,
+          checkin_at: body.new_checkin_at,
+          channel: commitment.channel,
+          persona,
+          timezone: commitment.timezone,
+        });
+        if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
+        rescheduleValue = parsed.value;
+      }
+
       // Record the resolution on the pending check-in (or the latest one).
       await env.DB.prepare(
         `UPDATE commitment_checkins
@@ -2115,37 +2146,8 @@ export function registerAccountabilityRoutes(router, ctx) {
         response.offer_reschedule = true;
       } else {
         // reschedule: create the follow-up commitment so the word carries forward.
-        // The "when" can arrive two ways, and BOTH go through the same time parser
-        // as the SMS reschedule (`parseWhenReply`) so the in-app "Move it" and a
-        // text reply read a person's words identically — one warm, DST-correct,
-        // never-past parser, never two that drift apart. Either an explicit ISO
-        // instant (`new_start_at`, e.g. from a picker) or a natural-language phrase
-        // (`when_text`, e.g. "in 30 min", "tomorrow 9am", "3pm").
-        let newStartISO = typeof body.new_start_at === 'string' && body.new_start_at.trim()
-          ? body.new_start_at.trim()
-          : null;
-        if (!newStartISO && typeof body.when_text === 'string' && body.when_text.trim()) {
-          newStartISO = parseWhenReply(body.when_text, {
-            nowISO: new Date().toISOString(),
-            timezone: commitment.timezone,
-            defaultTime: commitment.local_time,
-          });
-          // Couldn't read a concrete time — ask again warmly, in the shared voice.
-          // NEVER assume a time and (per the design LAW) never a miss.
-          if (!newStartISO) {
-            return jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400);
-          }
-        }
-        const parsed = validateCommitmentInput({
-          title: commitment.title,
-          start_at: newStartISO,
-          checkin_at: body.new_checkin_at,
-          channel: commitment.channel,
-          persona,
-          timezone: commitment.timezone,
-        });
-        if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
-        const v = parsed.value;
+        // The time was parsed and validated above, before any state changed.
+        const v = rescheduleValue;
         const newId = generateUUID();
         await env.DB.prepare(
           `INSERT INTO commitments
@@ -2168,6 +2170,23 @@ export function registerAccountabilityRoutes(router, ctx) {
           id: newId, title: v.title, start_at: v.startAt, checkin_at: v.checkinAt,
           channel: v.channel, persona: v.persona, status: 'active',
         };
+      }
+
+      // The web route historically skipped the analytics event that the SMS
+      // route records through applyCheckinOutcome(), undercounting browser users
+      // in the founder scorecard. Record the same canonical outcome only after
+      // the complete resolution succeeds; instrumentation remains non-fatal.
+      const evt = outcomeEvent(outcome);
+      if (evt) {
+        await recordEvent(env, {
+          userId: auth.userId,
+          type: evt,
+          data: {
+            commitment_id: id,
+            is_recurring: isRecurring,
+            channel: commitment.channel || null,
+          },
+        });
       }
 
       return jsonResponse(response, 200);
