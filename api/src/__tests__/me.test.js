@@ -206,9 +206,12 @@ describe('renderMePage', () => {
   it('renders every named Phase 2 decision gate in the founder scorecard', () => {
     expect(html).toContain('id="founderDecisionSummary"');
     expect(html).toContain('median_per_user');
+    expect(html).toContain('decision.delivery');
+    expect(html).toContain('by_channel');
     expect(html).toContain('decision.response');
     expect(html).toContain('reschedule_recovery');
     expect(html).toContain('recipients responded');
+    expect(html).toContain('Learning gates: delivery');
     expect(html).toContain('moved words recovered');
   });
 
