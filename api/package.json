@@ -19,6 +19,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260724.1",
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.48.0",
     "@vitest/coverage-v8": "^4.1.10",
@@ -30,9 +32,5 @@
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
-  },
-  "optionalDependencies": {
-    "@emnapi/core": "1.11.3",
-    "@emnapi/runtime": "1.11.3"
   }
 }
