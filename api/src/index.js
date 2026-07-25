@@ -2426,8 +2426,8 @@ router.get('/contact.html', async () => {
 
 // ── COACH DASHBOARD (skeleton, read-only — Contender #10, Phase A) ──
 // An operator-facing view of the clients a coach supports and each client's
-// kept-word momentum. Self-contained: signs in against /auth/login, stores the
-// token in localStorage ('focusbro_token'), and reads the /api/coach/* API.
+// kept-word momentum. Self-contained: signs in against /auth/login, uses the
+// HttpOnly session cookie, and reads the /api/coach/* API.
 // Authed surface → noindex, not in the sitemap. DESIGN LAW: momentum only, no
 // miss tally. Full white-label (config, wholesale billing) is Phase C.
 // ── CONSUMER ACCOUNTABILITY FRONT DOOR (/me/ — Contender #10, Phase A) ──
@@ -2444,7 +2444,7 @@ router.get('/me', async () => slashRedirect('/me/'));
 
 // ── WEEKLY REPORT PAGE (coach-proof artifact — Contender #10, Phase A · R-237) ──
 // A calm, standalone reading surface for the signed-in person's weekly report.
-// Loads /api/me/report with the localStorage Bearer token (same as /me/), and
+// Loads /api/me/report with the same HttpOnly session cookie as /me/, and
 // offers Copy report + Share with coach (native share sheet → mailto) + Download (.txt).
 router.get('/me/report', async () =>
   new Response(renderReportPage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }));
@@ -2514,7 +2514,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     });
   };
   var token = function () { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
-  var authHeaders = function () { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; };
+  var authHeaders = function () {
+    var headers = { 'Content-Type': 'application/json' };
+    var legacyToken = token();
+    if (legacyToken) headers.Authorization = 'Bearer ' + legacyToken;
+    return headers;
+  };
 
   // The weekly homecoming digest — the batched, between-session twin of the
   // per-client reach-out / back-and-moving cues. It celebrates who came HOME this
@@ -2785,8 +2790,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
-        if (!res.ok || !res.b.token) { throw new Error(res.b.error || 'Sign in failed'); }
-        try { localStorage.setItem(TOKEN_KEY, res.b.token); } catch (e) {}
+        if (!res.ok) { throw new Error(res.b.error || 'Sign in failed'); }
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
         loadRoster();
       })
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
@@ -2814,11 +2819,39 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
 
   el('signout').addEventListener('click', function (ev) {
     ev.preventDefault();
-    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-    show(el('signin')); hide(el('app'));
+    var legacyToken = token();
+    var headers = {};
+    if (legacyToken) headers.Authorization = 'Bearer ' + legacyToken;
+    fetch('/auth/logout', { method: 'POST', headers: headers }).catch(function () {
+      // Local sign-out remains available if the network is temporarily down.
+    }).then(function () {
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      show(el('signin')); hide(el('app'));
+    });
   });
 
-  if (token()) { loadRoster(); } else { show(el('signin')); }
+  function restoreCoachSession() {
+    var legacyToken = token();
+    if (legacyToken) {
+      fetch('/auth/exchange', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + legacyToken }
+      }).then(function (response) {
+        if (!response.ok) throw new Error('Legacy exchange rejected');
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        loadRoster();
+      }).catch(function () {
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        show(el('signin'));
+      });
+      return;
+    }
+    fetch('/auth/session').then(function (response) {
+      if (response.ok) loadRoster(); else show(el('signin'));
+    }).catch(function () { show(el('signin')); });
+  }
+
+  restoreCoachSession();
 })();
 </script>
 </body></html>`;

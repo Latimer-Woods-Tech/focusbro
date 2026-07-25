@@ -9,7 +9,7 @@
 //
 // Self-contained page (like /coach/): signs in against /auth/login (or creates
 // an account via /auth/register), stores the token in localStorage
-// ('focusbro_token'), and drives the existing /api/commitments +
+// (with one-time migration support for legacy 'focusbro_token'), and drives the existing /api/commitments +
 // /api/accountability/streak API. Authed surface → noindex, not in the sitemap.
 //
 // THE ONE DESIGN LAW (non-negotiable): never shame. A to-do app that shows past

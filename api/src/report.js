@@ -529,17 +529,13 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
 
 <script>
 (function () {
-  var token = null;
-  try { token = localStorage.getItem('focusbro_token'); } catch (e) { token = null; }
   var reportText = '';
 
   var el = function (id) { return document.getElementById(id); };
   function show(id) { el(id).classList.remove('hidden'); }
   function hide(id) { el(id).classList.add('hidden'); }
 
-  if (!token) { show('signin'); return; }
-
-  fetch('/api/me/report', { headers: { 'Authorization': 'Bearer ' + token } })
+  fetch('/api/me/report')
     .then(function (r) {
       if (r.status === 401) { show('signin'); throw new Error('signin'); }
       if (!r.ok) throw new Error('load');
