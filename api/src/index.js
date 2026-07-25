@@ -606,6 +606,61 @@ function jsonResponse(data, status = 200, cacheStrategy = 'nocache') {
   });
 }
 
+const SESSION_COOKIE_NAME = '__Host-focusbro_session';
+const SESSION_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
+
+function sessionCookie(token) {
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function expiredSessionCookie() {
+  return `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function responseWithCookie(response, cookie) {
+  const headers = new Headers(response.headers);
+  headers.append('Set-Cookie', cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+function cookieValue(request, name) {
+  const cookieHeader = request.headers.get('Cookie');
+  if (!cookieHeader) {
+    return null;
+  }
+  for (const part of cookieHeader.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== name) {
+      continue;
+    }
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function rejectCrossSiteCookieMutation(request) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    return null;
+  }
+  const authorization = request.headers.get('Authorization');
+  if (authorization?.startsWith('Bearer ') || !cookieValue(request, SESSION_COOKIE_NAME)) {
+    return null;
+  }
+  const origin = request.headers.get('Origin');
+  if (!origin || origin !== new URL(request.url).origin) {
+    return jsonResponse({ error: 'Cross-site request rejected' }, 403);
+  }
+  return null;
+}
+
 // ── UTILITY: Handle CORS ──
 router.options('*', (request) => new Response(null, { headers: getCorsHeaders(request) }));
 
@@ -1057,7 +1112,7 @@ router.post('/auth/register', async (request, env) => {
        VALUES (?, 'register', 'success', datetime('now'))`
     ).bind(userId).run();
     
-    return new Response(JSON.stringify({
+    return responseWithCookie(new Response(JSON.stringify({
       success: true,
       user_id: userId,
       email,
@@ -1066,7 +1121,7 @@ router.post('/auth/register', async (request, env) => {
     }), {
       status: 201,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    }), sessionCookie(token));
   } catch (error) {
     console.error('[AUTH] Registration error:', error.message);
     return new Response(JSON.stringify({ error: 'Registration failed' }), {
@@ -1151,13 +1206,13 @@ router.post('/auth/login', async (request, env) => {
        VALUES (?, 'login', 'success', datetime('now'))`
     ).bind(user.id).run();
     
-    return jsonResponse({
+    return responseWithCookie(jsonResponse({
       success: true,
       user_id: user.id,
       email,
       token,
       session_id: sessionId
-    }, 200, 'nocache');
+    }, 200, 'nocache'), sessionCookie(token));
   } catch (error) {
     console.error('[AUTH] Login error:', error.message);
     return new Response(JSON.stringify({ error: 'Login failed' }), {
@@ -1240,12 +1295,12 @@ router.post('/auth/refresh', async (request, env) => {
       return jsonResponse({ error: 'Invalid token' }, 401);
     }
 
-    return jsonResponse({
+    return responseWithCookie(jsonResponse({
       success: true,
       token: newToken,
       user_id: session.user_id,
       session_id: session.session_id
-    }, 200);
+    }, 200), sessionCookie(newToken));
   } catch (error) {
     console.error('[AUTH] Refresh endpoint error:', error.message);
     return jsonResponse({ error: 'Refresh failed' }, 500);
@@ -1270,7 +1325,10 @@ router.post('/auth/logout', async (request, env) => {
   try {
     const auth = await authenticatedSession(request, env);
     if (!auth) {
-      return jsonResponse({ error: 'Invalid token' }, 401);
+      return responseWithCookie(
+        jsonResponse({ error: 'Invalid token' }, 401),
+        expiredSessionCookie()
+      );
     }
 
     const result = await env.DB.prepare(
@@ -1284,9 +1342,12 @@ router.post('/auth/logout', async (request, env) => {
     ).bind(auth.session.session_id, auth.payload.sub).run();
 
     if (!result.success || result.meta?.changes !== 1) {
-      return jsonResponse({ error: 'Invalid token' }, 401);
+      return responseWithCookie(
+        jsonResponse({ error: 'Invalid token' }, 401),
+        expiredSessionCookie()
+      );
     }
-    return jsonResponse({ success: true }, 200);
+    return responseWithCookie(jsonResponse({ success: true }, 200), expiredSessionCookie());
   } catch (error) {
     console.error('[AUTH] Logout error:', error.message);
     return jsonResponse({ error: 'Logout failed' }, 500);
@@ -1297,7 +1358,10 @@ router.post('/auth/logout-all', async (request, env) => {
   try {
     const auth = await authenticatedSession(request, env);
     if (!auth) {
-      return jsonResponse({ error: 'Invalid token' }, 401);
+      return responseWithCookie(
+        jsonResponse({ error: 'Invalid token' }, 401),
+        expiredSessionCookie()
+      );
     }
 
     const result = await env.DB.prepare(
@@ -1310,9 +1374,12 @@ router.post('/auth/logout-all', async (request, env) => {
        WHERE user_id = ? AND is_active = 1`
     ).bind(auth.payload.sub).run();
     if (!result.success || (result.meta?.changes ?? 0) < 1) {
-      return jsonResponse({ error: 'Invalid token' }, 401);
+      return responseWithCookie(
+        jsonResponse({ error: 'Invalid token' }, 401),
+        expiredSessionCookie()
+      );
     }
-    return jsonResponse({ success: true }, 200);
+    return responseWithCookie(jsonResponse({ success: true }, 200), expiredSessionCookie());
   } catch (error) {
     console.error('[AUTH] Logout-all error:', error.message);
     return jsonResponse({ error: 'Logout failed' }, 500);
@@ -1326,10 +1393,10 @@ router.post('/auth/logout-all', async (request, env) => {
 // ── MIDDLEWARE: Verify Auth ──
 function getAuthToken(request) {
   const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
   }
-  return authHeader.slice(7);
+  return cookieValue(request, SESSION_COOKIE_NAME);
 }
 
 // ── SYNC USER DATA (Store/Update) ──
@@ -3093,6 +3160,9 @@ export default {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
     if (httpsRedirect) return withSecurityHeaders(httpsRedirect);
+
+    const csrfRejection = rejectCrossSiteCookieMutation(request);
+    if (csrfRejection) return withSecurityHeaders(csrfRejection);
 
     // Initialize database on first request
     await initializeDatabase(runtimeEnv);
