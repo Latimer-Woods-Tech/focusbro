@@ -559,6 +559,8 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     // re-pended directly at the chosen time — never parked awaiting_time, never ambiguous
     expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
     expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('checkin_responded'))).toBe(true);
     // streak is NEVER touched — a reschedule protects the chain by construction
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     // the warm read-back confirmation went out (not the "I didn't catch that" copy)
@@ -643,6 +645,7 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     // the check-in was re-pended (not resolved, streak never read/written)
     expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).toMatch(/check back/);
   });

@@ -36,6 +36,7 @@ export const EVENTS = Object.freeze({
   COMMITMENT_MISSED: 'commitment_missed',
   COMMITMENT_RELEASED: 'commitment_released',
   CHECKIN_DELIVERED: 'checkin_delivered',
+  CHECKIN_RESPONDED: 'checkin_responded',
   CHECKIN_ESCALATED: 'checkin_escalated',
   CHECKIN_START_HELP: 'checkin_start_help',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
@@ -257,6 +258,7 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
   const sinceDays = clampSinceDays(opts.sinceDays);
   const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
   const sinceISO = new Date(now.getTime() - sinceDays * 86400000).toISOString();
+  const sinceSQL = sqliteDateTime(sinceISO);
   const nowDay = now.toISOString().slice(0, 10);
   if (!env || !env.DB) return [];
 
@@ -272,7 +274,7 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
        FROM analytics_events
       WHERE event_type = 'acquisition_visit' AND created_at >= ?
       GROUP BY source, campaign, content, challenge`
-  ).bind(sinceISO).all();
+  ).bind(sinceSQL).all();
 
   const funnel = await env.DB.prepare(
     `/* acquisition_funnel */
@@ -302,7 +304,7 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
        FROM created c LEFT JOIN downstream d ON d.commitment_id = c.commitment_id
       GROUP BY source, campaign, content, challenge
       ORDER BY commitments_created DESC, source, campaign, content, challenge`
-  ).bind(sinceISO, sinceISO).all();
+  ).bind(sinceSQL, sinceSQL).all();
 
   const cohortRows = await env.DB.prepare(
     `/* acquisition_cohorts */
@@ -328,7 +330,7 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
             SUM(first_day <= date(?2, '-7 day')) AS d7_eligible,
             SUM(first_day <= date(?2, '-7 day') AND d7_returned) AS d7_returned
        FROM returns GROUP BY source, campaign, content, challenge`
-  ).bind(sinceISO, nowDay).all();
+  ).bind(sinceSQL, nowDay).all();
 
   const keyOf = (r) => JSON.stringify([
     r.source || 'direct', r.campaign || '', r.content || '', r.challenge || '',
@@ -389,6 +391,116 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
 }
 
 /**
+ * The exact Phase 2 decision-gate measures. These are deliberately separate
+ * from vanity totals: depth per activated person, whether recipients answer,
+ * and whether a moved word is kept on its next attempt.
+ */
+export async function computeDecisionMetrics(env, opts = {}) {
+  const sinceDays = clampSinceDays(opts.sinceDays);
+  const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
+  const sinceSQL = sqliteDateTime(new Date(now.getTime() - sinceDays * 86400000));
+  const empty = {
+    commitments: { activated_users: 0, total: 0, median_per_user: null },
+    response: { recipients: 0, responded: 0, rate: null },
+    reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
+  };
+  if (!env || !env.DB) return empty;
+
+  const commitments = await env.DB.prepare(
+    `/* decision_commitments */
+     WITH firsts AS (
+       SELECT user_id, MIN(created_at) AS first_word_at
+         FROM analytics_events
+        WHERE event_type = 'commitment_created' AND user_id IS NOT NULL
+        GROUP BY user_id
+     ),
+     per_user AS (
+       SELECT f.user_id, COUNT(*) AS n
+         FROM firsts f
+         JOIN analytics_events e ON e.user_id = f.user_id
+          AND e.event_type = 'commitment_created'
+        WHERE f.first_word_at >= ?
+        GROUP BY f.user_id
+     ),
+     ranked AS (
+       SELECT n, ROW_NUMBER() OVER (ORDER BY n) AS rn, COUNT(*) OVER () AS total
+         FROM per_user
+     )
+     SELECT COUNT(*) AS activated_users, COALESCE(SUM(n), 0) AS commitments,
+            AVG(CASE WHEN rn IN ((total + 1) / 2, (total + 2) / 2) THEN n END) AS median
+       FROM ranked`
+  ).bind(sinceSQL).first();
+
+  const response = await env.DB.prepare(
+    `/* decision_response */
+     WITH delivered AS (
+       SELECT user_id, MIN(created_at) AS first_delivered
+         FROM analytics_events
+        WHERE event_type = 'checkin_delivered' AND created_at >= ?
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+     )
+     SELECT COUNT(*) AS recipients,
+            COALESCE(SUM(EXISTS(
+              SELECT 1 FROM analytics_events e
+               WHERE e.user_id = d.user_id
+                 AND e.event_type = 'checkin_responded'
+                 AND e.created_at >= d.first_delivered
+            )), 0) AS responded
+       FROM delivered d`
+  ).bind(sinceSQL).first();
+
+  const recovery = await env.DB.prepare(
+    `/* decision_reschedule_recovery */
+     WITH moved AS (
+       SELECT user_id, created_at,
+              COALESCE(
+                NULLIF(json_extract(event_data, '$.rescheduled_to'), ''),
+                json_extract(event_data, '$.commitment_id')
+              ) AS target_id
+         FROM analytics_events
+        WHERE event_type = 'commitment_reschedule' AND created_at >= ?
+          AND user_id IS NOT NULL
+     )
+     SELECT COUNT(*) AS rescheduled,
+            COALESCE(SUM(EXISTS(
+              SELECT 1 FROM analytics_events k
+               WHERE k.user_id = m.user_id AND k.event_type = 'commitment_kept'
+                 AND k.created_at >= m.created_at
+                 AND json_extract(k.event_data, '$.commitment_id') = m.target_id
+            )), 0) AS recovered
+       FROM moved m`
+  ).bind(sinceSQL).first();
+
+  const activatedUsers = Number(commitments && commitments.activated_users) || 0;
+  const total = Number(commitments && commitments.commitments) || 0;
+  const median = commitments && commitments.median != null
+    ? Number(commitments.median)
+    : null;
+  const recipients = Number(response && response.recipients) || 0;
+  const responded = Number(response && response.responded) || 0;
+  const rescheduled = Number(recovery && recovery.rescheduled) || 0;
+  const recovered = Number(recovery && recovery.recovered) || 0;
+  return {
+    commitments: {
+      activated_users: activatedUsers,
+      total,
+      median_per_user: median,
+    },
+    response: {
+      recipients,
+      responded,
+      rate: recipients ? round2(responded / recipients) : null,
+    },
+    reschedule_recovery: {
+      rescheduled,
+      recovered,
+      rate: rescheduled ? round2(recovered / rescheduled) : null,
+    },
+  };
+}
+
+/**
  * Compute the accountability loop's retention/health metrics over a window.
  * Reads only the first-party `analytics_events` rows this module writes.
  *
@@ -409,6 +521,7 @@ export async function computeLoopMetrics(env, opts = {}) {
   const sinceDays = clampSinceDays(opts.sinceDays);
   const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
   const sinceISO = new Date(now.getTime() - sinceDays * 24 * 60 * 60 * 1000).toISOString();
+  const sinceSQL = sqliteDateTime(sinceISO);
 
   const empty = {
     window: { since: sinceISO, until: now.toISOString(), days: sinceDays },
@@ -428,6 +541,11 @@ export async function computeLoopMetrics(env, opts = {}) {
       d7: { eligible: 0, returned: 0, rate: null },
       new_users_7d: 0,
     },
+    decision: {
+      commitments: { activated_users: 0, total: 0, median_per_user: null },
+      response: { recipients: 0, responded: 0, rate: null },
+      reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
+    },
     acquisition: [],
   };
 
@@ -437,7 +555,7 @@ export async function computeLoopMetrics(env, opts = {}) {
        FROM analytics_events
       WHERE created_at >= ?
       GROUP BY event_type`
-  ).bind(sinceISO).all();
+  ).bind(sinceSQL).all();
 
   const by_type = {};
   for (const r of (byTypeRows && byTypeRows.results) || []) {
@@ -462,7 +580,7 @@ export async function computeLoopMetrics(env, opts = {}) {
     `SELECT COUNT(DISTINCT user_id) AS n
        FROM analytics_events
       WHERE created_at >= ? AND user_id IS NOT NULL`
-  ).bind(sinceISO).first();
+  ).bind(sinceSQL).first();
   const active_users = (activeRow && Number(activeRow.n)) || 0;
 
   // Returning users: seen on ≥2 distinct UTC days in the window.
@@ -474,7 +592,7 @@ export async function computeLoopMetrics(env, opts = {}) {
         GROUP BY user_id
        HAVING COUNT(DISTINCT substr(created_at, 1, 10)) >= 2
      )`
-  ).bind(sinceISO).first();
+  ).bind(sinceSQL).first();
   const returning_users = (returningRow && Number(returningRow.n)) || 0;
 
   // D1/D7 return-cohort retention (whole-history, not window-bounded). Non-fatal:
@@ -498,6 +616,16 @@ export async function computeLoopMetrics(env, opts = {}) {
     console.warn('[events] computeAcquisitionMetrics failed:', err && err.message);
   }
 
+  let decision = empty.decision;
+  try {
+    decision = await computeDecisionMetrics(env, {
+      sinceDays,
+      nowISO: now.toISOString(),
+    });
+  } catch (err) {
+    console.warn('[events] computeDecisionMetrics failed:', err && err.message);
+  }
+
   return {
     ...empty,
     by_type,
@@ -508,8 +636,15 @@ export async function computeLoopMetrics(env, opts = {}) {
     active_users,
     returning_users,
     retention,
+    decision,
     acquisition,
   };
+}
+
+/** Match SQLite CURRENT_TIMESTAMP (`YYYY-MM-DD HH:MM:SS`) for lexical ranges. */
+function sqliteDateTime(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /** Round to 2 decimals without floating-point surprises. */
