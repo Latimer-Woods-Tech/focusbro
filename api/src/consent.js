@@ -344,10 +344,17 @@ export async function sendSms(env, to, text) {
 /**
  * Register the consent API on an itty-router instance.
  * @param {object} router  itty-router instance
- * @param {object} ctx  { getAuthToken, verifyToken, jsonResponse, generateUUID }
+ * @param {object} ctx  Route dependencies. `verifyInboundSignature` is injectable
+ * for route tests; production always uses `verifyTelnyxSignature`.
  */
 export function registerConsentRoutes(router, ctx) {
-  const { getAuthToken, verifyToken, jsonResponse, generateUUID } = ctx;
+  const {
+    getAuthToken,
+    verifyToken,
+    jsonResponse,
+    generateUUID,
+    verifyInboundSignature = verifyTelnyxSignature,
+  } = ctx;
 
   async function requireUser(request, env) {
     const token = getAuthToken(request);
@@ -479,19 +486,22 @@ export function registerConsentRoutes(router, ctx) {
   });
 
   // ── INBOUND SMS webhook (STOP / START / HELP over the carrier) ──
-  // TCPA one-word opt-out honored instantly + durably. Fail-safe: this route
-  // only ever toggles a person's own contact state by their number — it never
-  // leaks data or sends. Signature is verified when TELNYX_PUBLIC_KEY is set.
+  // TCPA one-word opt-out honored instantly + durably. Fail closed before any
+  // lookup or state transition: an unsigned request can never reach a person's
+  // contact state, even when production verification configuration is missing.
   router.post('/api/webhooks/telnyx/inbound', async (request, env) => {
     try {
       const raw = await request.text();
 
-      if (env.TELNYX_PUBLIC_KEY) {
-        const ts = request.headers.get('telnyx-timestamp') || '';
-        const sig = request.headers.get('telnyx-signature-ed25519') || '';
-        const ok = await verifyTelnyxSignature(env.TELNYX_PUBLIC_KEY, raw, ts, sig);
-        if (!ok) return jsonResponse({ error: 'bad signature' }, 401);
+      if (!env || !env.TELNYX_PUBLIC_KEY) {
+        console.error('[consent] inbound webhook verification is not configured');
+        return jsonResponse({ error: 'webhook unavailable' }, 503);
       }
+      const ts = request.headers.get('telnyx-timestamp') || '';
+      const sig = request.headers.get('telnyx-signature-ed25519') || '';
+      if (!ts || !sig) return jsonResponse({ error: 'bad signature' }, 401);
+      const ok = await verifyInboundSignature(env.TELNYX_PUBLIC_KEY, raw, ts, sig);
+      if (!ok) return jsonResponse({ error: 'bad signature' }, 401);
 
       let evt;
       try { evt = JSON.parse(raw); } catch { evt = null; }

@@ -13,7 +13,28 @@ import {
   normalizeHour, localHour, isWithinQuietHours,
   isStopKeyword, isStartKeyword, isHelpKeyword,
   normalizePhone, evaluateContactGate, consentCopySurface,
+  verifyTelnyxSignature,
 } from '../consent.js';
+
+function bytesToB64(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+
+describe('Telnyx signature verification', () => {
+  it('accepts the signed raw body and rejects altered or incomplete input', async () => {
+    const keys = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
+    const publicKey = bytesToB64(await crypto.subtle.exportKey('raw', keys.publicKey));
+    const timestamp = '1785000000';
+    const raw = '{"data":{"id":"evt-1"}}';
+    const signed = new TextEncoder().encode(`${timestamp}|${raw}`);
+    const signature = bytesToB64(await crypto.subtle.sign('Ed25519', keys.privateKey, signed));
+
+    await expect(verifyTelnyxSignature(publicKey, raw, timestamp, signature)).resolves.toBe(true);
+    await expect(verifyTelnyxSignature(publicKey, raw + ' ', timestamp, signature)).resolves.toBe(false);
+    await expect(verifyTelnyxSignature(publicKey, raw, '', signature)).resolves.toBe(false);
+    await expect(verifyTelnyxSignature('', raw, timestamp, signature)).resolves.toBe(false);
+  });
+});
 
 describe('consent disclosure language', () => {
   it('names the action, STOP, and rates — and is versioned', () => {
