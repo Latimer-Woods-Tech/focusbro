@@ -21,9 +21,9 @@
     "wrangler": "^3.37.0",
     "@cloudflare/workers-types": "^4.20240604.0",
     "eslint": "^8.50.0",
-    "vitest": "^1.0.0",
-    "@vitest/ui": "^1.0.0",
-    "@vitest/coverage-v8": "^1.0.0",
+    "vitest": "^4.1.10",
+    "@vitest/ui": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.10",
     "@playwright/test": "^1.48.0"
   },
   "engines": {
