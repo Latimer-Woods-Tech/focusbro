@@ -604,23 +604,166 @@ function jsonResponse(data, status = 200, cacheStrategy = 'nocache') {
 router.options('*', (request) => new Response(null, { headers: getCorsHeaders(request) }));
 
 // ── UTILITY: Secure Password Hashing (Web Crypto API) ──
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
+const PASSWORD_HASH_SCHEME = 'pbkdf2-sha256';
+const PASSWORD_HASH_ITERATIONS = 600000;
+const PASSWORD_HASH_BYTES = 32;
+const PASSWORD_SALT_BYTES = 16;
+const LEGACY_PASSWORD_HASH_PATTERN = /^[a-f0-9]{64}$/i;
+
+function encodeBase64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
 }
 
-// ── UTILITY: Verify Password ──
-async function verifyPassword(password, hash) {
-  const passwordHash = await hashPassword(password);
-  return passwordHash === hash;
+function decodeBase64Url(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error('Invalid base64url value');
+  }
+
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+    .padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+}
+
+function constantTimeEqual(left, right) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
+async function derivePasswordHash(password, salt, iterations) {
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      hash: 'SHA-256',
+      salt,
+      iterations
+    },
+    passwordKey,
+    PASSWORD_HASH_BYTES * 8
+  );
+  return new Uint8Array(derivedBits);
+}
+
+function parsePasswordHash(storedHash) {
+  if (typeof storedHash !== 'string') {
+    return null;
+  }
+
+  const parts = storedHash.split('$');
+  if (parts.length !== 4 || parts[0] !== PASSWORD_HASH_SCHEME) {
+    return null;
+  }
+
+  const iterations = Number(parts[1]);
+  if (!Number.isSafeInteger(iterations) || iterations < 100000 || iterations > 1000000) {
+    return null;
+  }
+
+  try {
+    const salt = decodeBase64Url(parts[2]);
+    const expectedHash = decodeBase64Url(parts[3]);
+    if (salt.length !== PASSWORD_SALT_BYTES || expectedHash.length !== PASSWORD_HASH_BYTES) {
+      return null;
+    }
+    return { iterations, salt, expectedHash };
+  } catch {
+    return null;
+  }
+}
+
+async function hashLegacyPassword(password) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
+  return new Uint8Array(digest);
+}
+
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(PASSWORD_SALT_BYTES));
+  const derivedHash = await derivePasswordHash(password, salt, PASSWORD_HASH_ITERATIONS);
+  return [
+    PASSWORD_HASH_SCHEME,
+    PASSWORD_HASH_ITERATIONS,
+    encodeBase64Url(salt),
+    encodeBase64Url(derivedHash)
+  ].join('$');
+}
+
+// Legacy unsalted SHA-256 hashes remain readable only so existing users can
+// migrate without a forced reset. New hashes are salted and versioned.
+async function verifyPassword(password, storedHash) {
+  if (typeof storedHash !== 'string') {
+    return false;
+  }
+
+  if (LEGACY_PASSWORD_HASH_PATTERN.test(storedHash)) {
+    const actualHash = await hashLegacyPassword(password);
+    const expectedHash = Uint8Array.from(
+      storedHash.match(/.{2}/g),
+      byte => Number.parseInt(byte, 16)
+    );
+    return constantTimeEqual(actualHash, expectedHash);
+  }
+
+  const parsedHash = parsePasswordHash(storedHash);
+  if (!parsedHash) {
+    return false;
+  }
+
+  const actualHash = await derivePasswordHash(
+    password,
+    parsedHash.salt,
+    parsedHash.iterations
+  );
+  return constantTimeEqual(actualHash, parsedHash.expectedHash);
+}
+
+function passwordNeedsUpgrade(storedHash) {
+  if (typeof storedHash !== 'string' || LEGACY_PASSWORD_HASH_PATTERN.test(storedHash)) {
+    return true;
+  }
+  const parsedHash = parsePasswordHash(storedHash);
+  return !parsedHash || parsedHash.iterations !== PASSWORD_HASH_ITERATIONS;
+}
+
+async function upgradePasswordHashIfNeeded(env, userId, password, storedHash) {
+  if (!passwordNeedsUpgrade(storedHash)) {
+    return false;
+  }
+
+  const upgradedHash = await hashPassword(password);
+  await env.DB.prepare(
+    `UPDATE users
+     SET password_hash = ?, updated_at = datetime('now')
+     WHERE id = ? AND password_hash = ?`
+  ).bind(upgradedHash, userId, storedHash).run();
+  return true;
 }
 
 // ── EXPORT UTILITIES FOR OTHER MODULES ──
-export { hashPassword, verifyPassword, generateToken, verifyToken, generateUUID };
+export {
+  hashPassword,
+  verifyPassword,
+  passwordNeedsUpgrade,
+  upgradePasswordHashIfNeeded,
+  generateToken,
+  verifyToken,
+  generateUUID
+};
 // Exported for the run-once guard test (R1). Not used by other modules — the
 // fetch/scheduled handlers call it internally.
 export { initializeDatabase };
@@ -864,6 +1007,10 @@ router.post('/auth/login', async (request, env) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    // Upgrade legacy or stale-cost hashes before issuing a new session. The
+    // compare-and-swap WHERE clause makes simultaneous logins safe.
+    await upgradePasswordHashIfNeeded(env, user.id, password, user.password_hash);
     
     // Create session with proper JWT
     const sessionId = generateUUID();
