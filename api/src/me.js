@@ -1572,7 +1572,18 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () { var e = el('commitErr'); e.textContent = 'Could not save that commitment. Try again in a moment.'; show(e); });
   });
 
-  el('signout').addEventListener('click', function (ev) { ev.preventDefault(); toSignin(); });
+  el('signout').addEventListener('click', function (ev) {
+    ev.preventDefault();
+    var currentToken = token();
+    if (!currentToken) { toSignin(); return; }
+    fetch('/auth/logout', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + currentToken }
+    }).catch(function () {
+      // Local sign-out must remain available during a network outage. The
+      // server credential expires or can be revoked with logout-all later.
+    }).then(toSignin);
+  });
 
   if (token()) {
     enterApp();

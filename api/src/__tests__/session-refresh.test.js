@@ -16,6 +16,7 @@ function makeEnv(currentToken, options = {}) {
   const state = {
     currentToken,
     currentTokenHash: null,
+    revoked: false,
     sessionLookups: 0,
     rotations: 0
   };
@@ -37,6 +38,7 @@ function makeEnv(currentToken, options = {}) {
               const [presentedHash, presentedToken, presentedUserId] = bindings;
               if (
                 options.revoked
+                || state.revoked
                 || options.inactiveUser
                 || options.expiredSession
                 || (
@@ -55,6 +57,12 @@ function makeEnv(currentToken, options = {}) {
             return { results: [] };
           },
           async run() {
+            if (sql.includes('UPDATE sessions') && sql.includes('SET is_active = 0')) {
+              state.revoked = true;
+              state.currentToken = null;
+              state.currentTokenHash = null;
+              return { success: true, meta: { changes: 1 } };
+            }
             if (sql.includes('UPDATE sessions') && sql.includes("SET token = ''")) {
               state.rotations += 1;
               const [newTokenHash, sessionId, userId, previousHash, previousToken] = bindings;
@@ -87,6 +95,17 @@ function makeEnv(currentToken, options = {}) {
 function requestRefresh(env, token) {
   return worker.fetch(
     new Request('https://focusbro.net/auth/refresh', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    }),
+    env,
+    {}
+  );
+}
+
+function requestLogout(env, token, all = false) {
+  return worker.fetch(
+    new Request(`https://focusbro.net/auth/logout${all ? '-all' : ''}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     }),
@@ -205,5 +224,31 @@ describe('session refresh', () => {
 
     expect((await requestRefresh(env, token)).status).toBe(401);
     expect(state.rotations).toBe(1);
+  });
+
+  it('revokes the current credential immediately on logout', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env, state } = makeEnv(token);
+
+    expect((await requestLogout(env, token)).status).toBe(200);
+    expect(state.revoked).toBe(true);
+    await expect(verifyToken(token, JWT_SECRET, env)).resolves.toBeNull();
+    expect((await requestRefresh(env, token)).status).toBe(401);
+  });
+
+  it('revokes every active user session through logout-all', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env, state } = makeEnv(token);
+
+    expect((await requestLogout(env, token, true)).status).toBe(200);
+    expect(state.revoked).toBe(true);
+    await expect(verifyToken(token, JWT_SECRET, env)).resolves.toBeNull();
+  });
+
+  it('does not treat logout as an unauthenticated success', async () => {
+    const { env } = makeEnv(null);
+
+    expect((await requestLogout(env, null)).status).toBe(401);
+    expect((await requestLogout(env, null, true)).status).toBe(401);
   });
 });
