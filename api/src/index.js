@@ -1781,6 +1781,7 @@ router.get('/health', async (request, env) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
+    build_sha: env.BUILD_SHA || 'development',
     cron
   }), {
     status: 200,

@@ -40,7 +40,7 @@ jobs:
         # green without deploying. See issue #6 (root cause of Phase 1 lie).
         set -o pipefail
         echo "🚀 Deploying frontend worker..."
-        npx wrangler deploy --env production 2>&1 | tee frontend-deploy.log
+        npx wrangler deploy --env production --var "BUILD_SHA:${GITHUB_SHA}" --keep-vars 2>&1 | tee frontend-deploy.log
         FRONTEND_EXIT=${PIPESTATUS[0]}
         echo "📋 Frontend deployment log (wrangler exit ${FRONTEND_EXIT}):"
         cat frontend-deploy.log
@@ -90,7 +90,6 @@ jobs:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         CLOUDFLARE_API: ${{ secrets.CLOUDFLARE_API }}
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      continue-on-error: true
     
     - name: Check deployment secret
       if: failure()
@@ -119,14 +118,30 @@ jobs:
     
     - name: Verify deployment
       run: |
-        echo "⏳ Waiting for deployment and cache purge to propagate..."
-        sleep 10
-        
-        # Check if the updated title is present
-        if curl -s https://focusbro.net/ | grep -q "FocusBro — Your Productivity Co-Pilot"; then
-          echo "✅ Page updated successfully!"
-        else
-          echo "⚠️  Page may still be updating. Check manually: https://focusbro.net/"
-          echo "Current title:"
-          curl -s https://focusbro.net/ | grep -o "<title>.*</title>" || echo "Could not fetch title"
-        fi
+        set -euo pipefail
+        base="https://focusbro.net"
+        expected="${GITHUB_SHA}"
+
+        for attempt in $(seq 1 12); do
+          health="$(curl --fail --silent --show-error --max-time 10 \
+            "${base}/health?release=${expected}" || true)"
+          homepage="$(curl --fail --silent --show-error --max-time 10 \
+            "${base}/?release=${expected}" || true)"
+          metrics_status="$(curl --silent --show-error --max-time 10 \
+            --output /dev/null --write-out '%{http_code}' \
+            "${base}/api/internal/metrics?release=${expected}" || true)"
+          deployed="$(printf '%s' "${health}" | jq -r '.build_sha // empty' 2>/dev/null || true)"
+
+          if [ "${deployed}" = "${expected}" ] \
+            && printf '%s' "${homepage}" | grep -Fq "The check-in that follows up." \
+            && [ "${metrics_status}" = "401" ]; then
+            echo "✅ Verified exact release ${expected}: health, accountability homepage, and auth boundary"
+            exit 0
+          fi
+
+          echo "Attempt ${attempt}/12: build=${deployed:-missing}, metrics=${metrics_status:-missing}; retrying..."
+          sleep 5
+        done
+
+        echo "❌ Production did not converge to release ${expected}"
+        exit 1

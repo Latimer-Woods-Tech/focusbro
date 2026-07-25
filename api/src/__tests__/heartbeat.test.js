@@ -5,7 +5,7 @@ import worker from '../index.js';
 // successful pass; /health reads it back and reports staleness so an external
 // monitor can catch a silent outage (the crontab->crons bug ran dead ~5 weeks).
 // These tests drive that staleness math deterministically by injecting the tick.
-function makeEnv(lastTick) {
+function makeEnv(lastTick, buildSha) {
   const stmt = {
     bind() { return stmt; },
     first: async () => ({ count: 1 }),
@@ -14,6 +14,7 @@ function makeEnv(lastTick) {
   };
   return {
     JWT_SECRET: 'test-secret',
+    BUILD_SHA: buildSha,
     KV_CACHE: {
       get: async (k) => (k === 'cron:last_tick' ? lastTick : null),
       put: async () => {}
@@ -21,11 +22,18 @@ function makeEnv(lastTick) {
     DB: { prepare: () => stmt }
   };
 }
-function health(lastTick) {
-  return worker.fetch(new Request('https://focusbro.net/health'), makeEnv(lastTick), {});
+function health(lastTick, buildSha) {
+  return worker.fetch(new Request('https://focusbro.net/health'), makeEnv(lastTick, buildSha), {});
 }
 
 describe('delivery-loop heartbeat (/health cron block)', () => {
+  it('identifies the exact deployed build and has an explicit local fallback', async () => {
+    const deployed = await (await health(null, 'abc123')).json();
+    expect(deployed.build_sha).toBe('abc123');
+    const local = await (await health(null)).json();
+    expect(local.build_sha).toBe('development');
+  });
+
   it('stays 200 for worker liveness whatever the cron state', async () => {
     const res = await health(null);
     expect(res.status).toBe(200);
