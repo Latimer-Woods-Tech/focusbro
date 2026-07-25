@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| total_docs | 47 |
+| total_docs | 48 |
 | canonical | 1 |
-| active | 10 |
+| active | 11 |
 | stale | 0 |
 | archive | 34 |
 | generated | 2 |
@@ -23,13 +23,14 @@
 |---|---|---|---|---|---|
 | [README.md](../README.md) | canonical | owner-reviewed | focusbro | unknown | focusbro# Deployment trigger |
 
-## Active Docs (10)
+## Active Docs (11)
 
 | Path | Status | Fidelity | Owner | Last Updated | Title |
 |---|---|---|---|---|---|
 | [ARCHITECTURE_PLAN.md](../ARCHITECTURE_PLAN.md) | active | unverified | focusbro | unknown | FocusBro — Architecture Plan & Deployment Backlog |
 | [CLAUDE.md](../CLAUDE.md) | active | unverified | focusbro | unknown | FocusBro — Standing Orders |
 | [docs/adr/0001-adsense-publisher-content-strategy.md](adr/0001-adsense-publisher-content-strategy.md) | active | unverified | focusbro | 2026-07-04 | ADR-0001: Win AdSense via a genuine content layer, not checklist cosmetics |
+| [docs/adr/0002-revocable-worker-sessions.md](adr/0002-revocable-worker-sessions.md) | active | unverified | focusbro | 2026-07-25 | ADR-0002: Use hashed, revocable Worker-native sessions |
 | [docs/ARCHITECTURE.md](ARCHITECTURE.md) | active | unverified | focusbro | 2026-07-04 | FocusBro — Architecture |
 | [docs/AUDIO_SETUP.md](AUDIO_SETUP.md) | active | unverified | focusbro | unknown | 🎵 FocusBro Audio Generation Setup |
 | [docs/IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) | active | unverified | focusbro | unknown | FocusBro Improvement Plan |
@@ -83,4 +84,3 @@
 | [docs/archive/SECURITY_GUIDE.md](archive/SECURITY_GUIDE.md) | archive | historical | focusbro | unknown | FocusBro API Security Guide |
 | [docs/archive/STRIPE_INTEGRATION.md](archive/STRIPE_INTEGRATION.md) | archive | historical | focusbro | unknown | Stripe Billing Integration (Task 3/7) |
 | [docs/archive/VALIDATION_ROADMAP.md](archive/VALIDATION_ROADMAP.md) | archive | historical | focusbro | unknown | FocusBro Validation & Improvement Roadmap |
-
