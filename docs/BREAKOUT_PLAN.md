@@ -110,6 +110,39 @@ Every guide and video should resolve to an interactive challenge such as:
 - get ready to leave;
 - clean for ten minutes.
 
+## Execution status
+
+**As of 2026-07-25:** the agent-executable foundation for Phases 1 and 2 is
+shipped and production-verified. This status records delivery; it does not waive
+any learning gate.
+
+| Area | State | Evidence or next proof |
+|---|---|---|
+| Accountability-first entry and attribution | shipped | [#144](https://github.com/Latimer-Woods-Tech/focusbro/pull/144), [#156](https://github.com/Latimer-Woods-Tech/focusbro/pull/156) |
+| Founder scorecard and acquisition cohorts | shipped | [#145](https://github.com/Latimer-Woods-Tech/focusbro/pull/145), [#146](https://github.com/Latimer-Woods-Tech/focusbro/pull/146) |
+| Founding-cohort creative kit | shipped | [#157](https://github.com/Latimer-Woods-Tech/focusbro/pull/157), [`DISTRIBUTION.md`](../DISTRIBUTION.md) |
+| “Help me start” over SMS | shipped | [#158](https://github.com/Latimer-Woods-Tech/focusbro/pull/158) |
+| One-tap next-word bridge | shipped | [#159](https://github.com/Latimer-Woods-Tech/focusbro/pull/159) |
+| Release and cron health | green | 725 automated tests, browser smoke test, live `/health` |
+| Phase 1 learning gate | unproven | publish the founding-cohort links, then observe 100 qualified visits and 10 complete loops |
+| Phase 2 decision gate | unproven | recruit 50–100 people and allow D1/D7 cohorts to mature |
+| Phase 3 | held | starts only after the Phase 2 retention gate passes |
+
+### Gate ownership
+
+- **Agent-owned:** product changes, privacy-safe instrumentation, scorecard,
+  tagged links, test coverage, deployment, and production health.
+- **Founder-owned:** record and publish five honest demonstrations per week,
+  recruit the cohort, observe sessions, and conduct user interviews.
+- **Time-owned:** D1 and D7 cannot be ratified before one and seven full days
+  have elapsed for a qualified cohort.
+
+The immediate operating move is not another feature. Generate the five links in
+[`DISTRIBUTION.md`](../DISTRIBUTION.md), publish the corresponding founder
+demonstrations, recruit the first ten observed users, and read the signed-in
+founder scorecard after each batch. Do not begin Phase 3 because the software is
+ready; begin it only because the retained cohort says the loop is ready.
+
 ## 90-day sequence
 
 ### Phase 1 — Truth and activation (days 1–14)
