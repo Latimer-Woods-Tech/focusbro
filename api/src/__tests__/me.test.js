@@ -178,6 +178,15 @@ describe('your own kept-word momentum copy — first person, momentum-only', () 
 describe('renderMePage', () => {
   const html = renderMePage();
 
+  it('carries task, timing, and bounded acquisition context through sign-in', () => {
+    expect(html).toContain("get('task')");
+    expect(html).toContain("get('when')");
+    expect(html).toContain("['source', 'campaign', 'content', 'challenge']");
+    expect(html).toContain('attribution: ATTRIBUTION');
+    expect(html).toContain("if (PREFILL_TASK)");
+    expect(html).toContain("mode = 'register'");
+  });
+
   it('is a self-contained, noindex HTML document', () => {
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('name="robots" content="noindex, nofollow"');

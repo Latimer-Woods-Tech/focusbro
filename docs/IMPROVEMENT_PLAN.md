@@ -1,5 +1,9 @@
 # FocusBro Improvement Plan
 
+> **Sequencing update (2026-07-25):** [`BREAKOUT_PLAN.md`](./BREAKOUT_PLAN.md) is
+> the current product-growth plan and overrides sequencing in this older
+> implementation inventory. Use this document for technical detail only.
+
 > Generated 2026-07-11, after the foundation session (PRs #26–#30: security, delivery, timer-first UX, perf/a11y — all live-verified). This plan turns the post-session assessment into sequenced, acceptance-tested work.
 
 ## North Star & binding constraint

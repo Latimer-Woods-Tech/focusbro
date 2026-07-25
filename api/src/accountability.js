@@ -32,6 +32,18 @@ export const PERSONAS = ['ally', 'hype'];
 /** Resolution outcomes for a check-in. */
 export const OUTCOMES = ['kept', 'missed', 'reschedule'];
 
+/** Keep acquisition context useful without accepting arbitrary analytics data. */
+export function sanitizeAttribution(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const key of ['source', 'campaign', 'content', 'challenge']) {
+    if (typeof value[key] !== 'string') continue;
+    const cleaned = value[key].trim().slice(0, 80);
+    if (cleaned) out[key] = cleaned;
+  }
+  return out;
+}
+
 /**
  * Check-in cadence. `none` = a one-shot commitment (the original behavior);
  * `daily`/`weekdays` = "the bro who calls you every day at the same time" — the
@@ -1789,7 +1801,12 @@ export function registerAccountabilityRoutes(router, ctx) {
       // Instrument "a word given" (non-fatal; IMPROVEMENT_PLAN L1).
       await recordEvent(env, {
         userId: auth.userId, type: EVENTS.COMMITMENT_CREATED,
-        data: { commitment_id: id, recurrence: v.recurrence, channel: v.channel },
+        data: {
+          commitment_id: id,
+          recurrence: v.recurrence,
+          channel: v.channel,
+          attribution: sanitizeAttribution(body.attribution),
+        },
       });
 
       return jsonResponse({
