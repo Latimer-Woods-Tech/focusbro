@@ -879,13 +879,14 @@ export function checkinPromptCopy({ title, persona } = {}) {
 /**
  * The one-line reply hint appended to a TEXT check-in (only). Text has no action
  * buttons, so the nudge itself makes the two-way loop discoverable: DONE keeps
- * the word; LATER opens the "when do you want to try again?" conversation. Never
- * a scold — LATER is offered as warmly as DONE.
+ * the word; LATER opens the "when do you want to try again?" conversation; and
+ * HELP ME START turns a stuck moment into one tiny first move. Never a scold —
+ * every route is offered warmly.
  */
 export function checkinReplyHint(persona) {
   return pickPersona(persona) === 'hype'
-    ? 'Reply DONE when it’s handled — or LATER and I’ll ask when you want to try again. 💪'
-    : 'Reply DONE when it’s done — or LATER, and I’ll ask when you want to try again.';
+    ? 'Reply DONE, LATER to pick when to try again, or HELP ME START for one tiny first move. 💪'
+    : 'Reply DONE, LATER to pick when to try again, or HELP ME START for one tiny first move.';
 }
 
 /**
@@ -1267,6 +1268,12 @@ function normalizeReplyText(text) {
     .trim();
 }
 
+/** A direct request for a tiny starting intervention, never the CTIA bare HELP. */
+export function isStartHelpReply(text) {
+  const t = normalizeReplyText(text);
+  return /^(help me start|help me get started|get me started|i need help starting|can you help me start|i can'?t start|i'?m stuck|stuck|where do i start)$/.test(t);
+}
+
 // Partial-progress phrasing, shared between the classifier and the progress
 // reader. PARTIAL_DONE catches the qualified-"done" spellings that must be
 // intercepted BEFORE KEPT; PARTIAL is everything else, read AFTER KEPT so a real
@@ -1423,6 +1430,16 @@ export function smsAmbiguousReplyCopy({ persona } = {}) {
     return 'Gotcha! Text DONE if you got it, or LATER to grab a new time — I’m here for you either way. 💪';
   }
   return 'I’m here for you. Reply DONE if you did it, or LATER to pick a new time — no rush, no pressure.';
+}
+
+export const START_HELP_MIN = 2;
+
+/** A two-minute micro-start intervention, followed by a promised check-back. */
+export function smsStartHelpCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'I’ve got you. Open the thing and do only the first tiny move — two minutes, that’s it. I’ll check back in two. Text STARTED when you’re moving, or LATER for a new time. 💪';
+  }
+  return 'I’m with you. Open the thing and do only the first tiny move — two minutes, nothing more. I’ll check back in two. Text STARTED when you’re moving, or LATER for a new time.';
 }
 
 /**

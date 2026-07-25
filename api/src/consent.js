@@ -35,19 +35,23 @@
 
 import {
   detectCheckinReply,
+  isStartHelpReply,
   isProgressReply,
   keptNoteFromReply,
   applyCheckinOutcome,
   parseWhenReply,
   smsKeptReplyCopy,
   smsAmbiguousReplyCopy,
+  smsStartHelpCopy,
   smsAskWhenCopy,
   smsRescheduledCopy,
   smsWhenUnclearCopy,
   snoozeConfirmCopy,
   SNOOZE_DEFAULT_MIN,
+  START_HELP_MIN,
   pickPersona,
 } from './accountability.js';
+import { recordEvent, EVENTS } from './events.js';
 
 /** Channels that are TCPA-scoped outbound contact. Push is app UX, not a call/text. */
 export const CONSENT_CHANNELS = ['text', 'voice'];
@@ -556,6 +560,30 @@ export function registerConsentRoutes(router, ctx) {
         channel: open.channel,
         persona: open.persona,
       };
+
+      // ── "Help me start": a tiny intervention, then a promised check-back ──
+      // Bare HELP remains the carrier-mandated information response above. A
+      // specific starting request keeps the word open, re-pends this check-in
+      // for two minutes, and gives one tiny move right here over text.
+      if (isStartHelpReply(text)) {
+        const checkBackAt = new Date(Date.now() + START_HELP_MIN * 60000).toISOString();
+        await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = 'pending', scheduled_for = ?, attempts = 0,
+                  last_error = NULL, responded_at = NULL
+            WHERE id = ? AND user_id = ?`
+        ).bind(checkBackAt, open.checkin_id, user.id).run();
+        await recordEvent(env, {
+          userId: user.id,
+          type: EVENTS.CHECKIN_START_HELP,
+          data: { commitment_id: open.commitment_id },
+        });
+        await sendSms(env, phone, smsStartHelpCopy({ persona }));
+        return jsonResponse({
+          ok: true, action: 'start_help', scheduled_for: checkBackAt,
+        }, 200);
+      }
+
       const resolveKept = async () => {
         const result = await applyCheckinOutcome(env, {
           userId: user.id,

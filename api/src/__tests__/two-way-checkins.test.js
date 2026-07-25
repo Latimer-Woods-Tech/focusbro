@@ -19,6 +19,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
+  isStartHelpReply,
   isProgressReply,
   applyCheckinOutcome,
   parseWhenReply,
@@ -26,11 +27,13 @@ import {
   smsKeptReplyCopy,
   smsRescheduleReplyCopy,
   smsAmbiguousReplyCopy,
+  smsStartHelpCopy,
   smsAskWhenCopy,
   smsRescheduledCopy,
   smsWhenUnclearCopy,
   snoozeConfirmCopy,
   rescheduleConfirmCopy,
+  START_HELP_MIN,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -167,6 +170,18 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
   });
 });
 
+describe('isStartHelpReply — asks for a tiny starting intervention', () => {
+  it('reads explicit start-help language without stealing carrier HELP', () => {
+    for (const text of [
+      'help me start', 'Help me get started', 'get me started',
+      "I can't start", "I'm stuck", 'where do I start',
+    ]) expect(isStartHelpReply(text), text).toBe(true);
+    for (const text of ['HELP', 'info', 'not started', 'started', 'later']) {
+      expect(isStartHelpReply(text), text).toBe(false);
+    }
+  });
+});
+
 // ── isProgressReply ──────────────────────────────────────────
 // Both a bare "on it" and a "halfway there" classify as SNOOZE (the third
 // answer), but only the second REPORTS movement. isProgressReply is what lets
@@ -300,6 +315,7 @@ describe('copy law — SMS reply strings never shame, never "AI", never clinical
     for (const streak of [0, 1, 2, 30]) samples.push(smsKeptReplyCopy({ persona, streak }));
     samples.push(smsRescheduleReplyCopy({ persona }));
     samples.push(smsAmbiguousReplyCopy({ persona }));
+    samples.push(smsStartHelpCopy({ persona }));
   }
 
   it('are all non-empty strings', () => {
@@ -491,6 +507,39 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).toMatch(/when do you want to try again/);
     expect(sent.text.toLowerCase()).not.toMatch(/in the app/);
+  });
+
+  it('"help me start" gives one tiny move and checks back in two minutes', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('help me start'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+
+    expect(body.action).toBe('start_help');
+    expect(new Date(body.scheduled_for).getTime()).toBeGreaterThanOrEqual(
+      before + START_HELP_MIN * 60000,
+    );
+    const update = db.runs.find((x) =>
+      /SET status = 'pending', scheduled_for/.test(x.sql) && x.params.includes('ci1'));
+    expect(update).toBeTruthy();
+    expect(db.runs.some((x) => x.params.includes('checkin_start_help'))).toBe(true);
+    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/first tiny move|two minutes/);
+    expect(sent.text).toMatch(/STARTED/);
+  });
+
+  it('bare HELP remains the carrier information response', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('HELP'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('help');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toMatch(/STOP/);
   });
 
   // ── Answering the FRESH nudge directly with a time (R-264) ──
