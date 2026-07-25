@@ -5,25 +5,6 @@
 
 import { describe, it, expect } from 'vitest';
 
-// Mock Cloudflare Workers environment
-const mockEnv = {
-  DB: {
-    prepare: (sql) => ({
-      bind: (...args) => ({
-        first: async () => null,
-        all: async () => [],
-        run: async () => ({ success: true })
-      })
-    })
-  },
-  KV_CACHE: {
-    get: async () => null,
-    put: async () => null
-  },
-  JWT_SECRET: 'test-secret-key',
-  DEBUG: true
-};
-
 describe('Authentication Endpoints', () => {
   describe('POST /auth/register', () => {
     it('should reject missing email', async () => {
