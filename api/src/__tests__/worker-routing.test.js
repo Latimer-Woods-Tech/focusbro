@@ -64,6 +64,14 @@ describe('Worker routing', () => {
     expect(webhook.status).toBe(401);
   });
 
+  it('does not expose legacy debug and test handlers', async () => {
+    for (const path of ['/debug-routes', '/debug-api', '/api/test', '/api/gallery/test']) {
+      const response = await call('GET', path);
+      expect(response.status, path).toBe(404);
+      expect(await response.json(), path).toEqual({ error: 'Not found' });
+    }
+  });
+
   it('makes accountability the public front door without hiding the toolkit', async () => {
     const page = await call('GET', '/');
     const html = await page.text();

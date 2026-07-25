@@ -1757,68 +1757,6 @@ router.get('/health', async (request, env) => {
   });
 });
 
-// ── DEBUG API PASSTHROUGH ROUTE ──
-router.get('/api/test', async (request, env) => {
-  return new Response(JSON.stringify({
-    message: 'Direct /api test route works!',
-    pathname: new URL(request.url).pathname
-  }), {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
-});
-
-// ── TEST GALLERY ROUTE (hardcoded) ──
-router.get('/api/gallery/test', async (request, env) => {
-  return new Response(JSON.stringify({
-    success: true,
-    data: {
-      images: [{
-        url: 'data:image/svg+xml,<svg></svg>',
-        alt: 'Test image',
-        title: 'Test Gallery'
-      }],
-      category: 'test',
-      count: 1
-    },
-    message: 'Hardcoded gallery test endpoint'
-  }), {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
-});
-
-// ── DEBUG ROUTES ENDPOINT ──
-router.get('/debug-routes', async (request, env) => {
-  // List routes registered in the router
-  const routesList = (router.routes || []).map(r => ({
-    method: r.method || 'all',
-    path: r.path || r.pathname || 'unknown'
-  }));
-  
-  return new Response(JSON.stringify({
-    message: 'Registered routes',
-    routeCount: routesList.length,
-    routes: routesList.slice(0, 20), // First 20 routes
-    timestamp: new Date().toISOString()
-  }), {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
-});
-
-// ── API TEST ROUTE (for debugging) ──
-router.get('/debug-api', async (request, env) => {
-  return new Response(JSON.stringify({
-    message: 'Debug endpoint',
-    // extended-routes.js (never-mounted legacy monolith) removed in #44
-    extendedRouter: 'removed'
-  }), {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
-});
-
 // ── ICON-192.PNG ──
 router.get('/icon-192.png', async (request, env) => {
   // Serve SVG icon as PNG (browsers handle content-type appropriately)
