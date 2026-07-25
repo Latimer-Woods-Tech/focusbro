@@ -1,23 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import worker from '../index.js';
+import worker, { generateToken } from '../index.js';
 
-function makeEnv() {
+function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [] } = {}) {
   const stmt = {
     bind() { return stmt; },
-    first: async () => ({ count: 1 }),
-    all: async () => ({ results: [] }),
+    first: async () => userEmail ? { email: userEmail } : { count: 1 },
+    all: async () => ({ results: metricsRows }),
     run: async () => ({ success: true })
   };
 
   return {
     JWT_SECRET: 'test-secret',
+    FOUNDER_EMAIL: founderEmail,
     KV_CACHE: { get: async () => null, put: async () => {} },
     DB: { prepare: () => stmt }
   };
 }
 
-function call(method, path, origin = 'https://focusbro.net') {
-  return worker.fetch(new Request(origin + path, { method }), makeEnv(), {});
+function call(method, path, origin = 'https://focusbro.net', options = {}) {
+  return worker.fetch(
+    new Request(origin + path, { method, headers: options.headers }),
+    options.env || makeEnv(),
+    {},
+  );
 }
 
 describe('Worker routing', () => {
@@ -36,11 +41,37 @@ describe('Worker routing', () => {
     const page = await call('GET', '/me/');
     expect(page.status).toBe(200);
     expect(page.headers.get('Location')).toBeNull();
-    expect(await page.text()).toContain('<title>Your word');
+    const html = await page.text();
+    expect(html).toContain('<title>Your word');
+    expect(html).toContain('id="founderMetrics"');
+    expect(html).toContain("fetch('/api/internal/metrics?since_days=30'");
 
     const redirect = await call('GET', '/me');
     expect(redirect.status).toBe(301);
     expect(redirect.headers.get('Location')).toBe('/me/');
+  });
+
+  it('shows the acquisition scorecard only to the authenticated founder', async () => {
+    const env = makeEnv({ founderEmail: 'founder@example.com' });
+    const token = await generateToken('founder-user', env.JWT_SECRET);
+    const founder = await call('GET', '/api/internal/metrics?since_days=30',
+      'https://focusbro.net', {
+        env,
+        headers: { Authorization: 'Bearer ' + token },
+      });
+    expect(founder.status).toBe(200);
+    expect((await founder.json()).metrics).toHaveProperty('acquisition');
+
+    const outsiderEnv = makeEnv({
+      founderEmail: 'founder@example.com',
+      userEmail: 'someone-else@example.com',
+    });
+    const outsider = await call('GET', '/api/internal/metrics?since_days=30',
+      'https://focusbro.net', {
+        env: outsiderEnv,
+        headers: { Authorization: 'Bearer ' + token },
+      });
+    expect(outsider.status).toBe(401);
   });
 
   it('serves /coach/ and only redirects the unslashed /coach', async () => {
