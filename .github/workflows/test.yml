@@ -18,7 +18,7 @@ jobs:
     - name: Use Node.js 18.x
       uses: actions/setup-node@v4
       with:
-        node-version: "18.x"
+        node-version: "24.x"
         cache: "npm"
         cache-dependency-path: |
           package-lock.json
@@ -55,7 +55,7 @@ jobs:
     - name: Use Node.js 18.x
       uses: actions/setup-node@v4
       with:
-        node-version: "18.x"
+        node-version: "24.x"
         cache: "npm"
         cache-dependency-path: |
           package-lock.json
@@ -84,5 +84,4 @@ jobs:
         name: playwright-report
         path: api/playwright-report/
         retention-days: 7
-
 
