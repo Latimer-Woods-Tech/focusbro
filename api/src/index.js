@@ -1386,15 +1386,92 @@ router.post('/auth/logout-all', async (request, env) => {
   }
 });
 
+// One-time bridge from a JavaScript-readable legacy bearer to a rotated
+// HttpOnly cookie. Cookie credentials cannot call this endpoint.
+router.post('/auth/exchange', async (request, env) => {
+  try {
+    const token = getBearerToken(request);
+    if (!token) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+    const payload = await verifySignedToken(token, env.JWT_SECRET);
+    if (!payload) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+    const session = await findActiveSession(env, token, payload);
+    if (!session) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+
+    const oldTokenHash = await hashSessionCredential(token);
+    const newToken = await generateToken(session.user_id, env.JWT_SECRET, session.session_id);
+    const newTokenHash = await hashSessionCredential(newToken);
+    const rotation = await env.DB.prepare(
+      `UPDATE sessions
+       SET token = '',
+           token_hash = ?,
+           last_activity = datetime('now'),
+           expires_at = datetime('now', '+30 days')
+       WHERE id = ?
+         AND user_id = ?
+         AND (token_hash = ? OR (token_hash IS NULL AND token = ?))
+         AND is_active = 1
+         AND revoked_at IS NULL`
+    ).bind(
+      newTokenHash,
+      session.session_id,
+      session.user_id,
+      oldTokenHash,
+      token
+    ).run();
+    if (!rotation.success || rotation.meta?.changes !== 1) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+
+    return responseWithCookie(
+      jsonResponse({ success: true, user_id: session.user_id }, 200),
+      sessionCookie(newToken)
+    );
+  } catch (error) {
+    console.error('[AUTH] Bearer exchange error:', error.message);
+    return jsonResponse({ error: 'Exchange failed' }, 500);
+  }
+});
+
+router.get('/auth/session', async (request, env) => {
+  try {
+    const auth = await authenticatedSession(request, env);
+    if (!auth) {
+      return jsonResponse({ authenticated: false }, 401);
+    }
+    return jsonResponse({
+      authenticated: true,
+      user_id: auth.payload.sub,
+      session_id: auth.session.session_id
+    }, 200);
+  } catch (error) {
+    console.error('[AUTH] Session status error:', error.message);
+    return jsonResponse({ authenticated: false }, 401);
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 // DATA SYNC ENDPOINTS
 // ════════════════════════════════════════════════════════════
 
 // ── MIDDLEWARE: Verify Auth ──
-function getAuthToken(request) {
+function getBearerToken(request) {
   const authHeader = request.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.slice(7);
+  }
+  return null;
+}
+
+function getAuthToken(request) {
+  const bearerToken = getBearerToken(request);
+  if (bearerToken) {
+    return bearerToken;
   }
   return cookieValue(request, SESSION_COOKIE_NAME);
 }
