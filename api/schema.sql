@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_login DATETIME,
+  email_verified_at DATETIME,
   subscription_tier TEXT DEFAULT 'free',
   is_active BOOLEAN DEFAULT 1
 );
