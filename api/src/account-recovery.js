@@ -3,6 +3,7 @@ const RESET_TTL_SECONDS = 15 * 60;
 const ACCOUNT_REQUEST_LIMIT = 5;
 const ACCOUNT_NETWORK_REQUEST_LIMIT = 3;
 const RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
+const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function encodeBase64Url(bytes) {
   return btoa(String.fromCharCode(...bytes))
@@ -132,7 +133,130 @@ function genericRecoveryResponse() {
   });
 }
 
-export function registerAccountRecoveryRoutes(router) {
+function resetPage() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Reset your password · FocusBro</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#0a0e27;color:#e2e8f0}
+    main{max-width:440px;margin:10vh auto;padding:32px;border:1px solid #3d4f8a;border-radius:16px;background:#141d3f}
+    h1{margin-top:0}p{color:#b6c3d4;line-height:1.5}label{display:block;margin:18px 0 6px;font-weight:700}
+    input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;font:inherit}
+    input{border:1px solid #6476a8;background:#0f1428;color:#fff}button{margin-top:20px;border:0;background:#38bdf8;color:#07111f;font-weight:800;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}#status{min-height:24px;margin-top:16px}.error{color:#fca5a5}.success{color:#86efac}
+    a{color:#7dd3fc}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Choose a new password</h1>
+    <p>Your reset link works once and expires after 15 minutes. Resetting signs out every existing FocusBro session.</p>
+    <form id="reset-form">
+      <label for="password">New password</label>
+      <input id="password" name="password" type="password" minlength="8" maxlength="1024" autocomplete="new-password" required>
+      <label for="confirmation">Confirm new password</label>
+      <input id="confirmation" name="confirmation" type="password" minlength="8" maxlength="1024" autocomplete="new-password" required>
+      <button type="submit">Reset password</button>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p><a href="/">Back to FocusBro</a></p>
+  </main>
+  <script src="/auth/reset-page.js" defer></script>
+</body>
+</html>`;
+}
+
+const RESET_PAGE_SCRIPT = `(() => {
+  const form = document.getElementById('reset-form');
+  const status = document.getElementById('status');
+  const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  history.replaceState(null, '', location.pathname);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+    form.hidden = true;
+    status.className = 'error';
+    status.textContent = 'This reset link is invalid or has expired. Request a new one.';
+    return;
+  }
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const password = document.getElementById('password').value;
+    const confirmation = document.getElementById('confirmation').value;
+    if (password !== confirmation) {
+      status.className = 'error';
+      status.textContent = 'Those passwords do not match.';
+      return;
+    }
+    const button = form.querySelector('button');
+    button.disabled = true;
+    status.className = '';
+    status.textContent = 'Resetting…';
+    try {
+      const response = await fetch('/auth/confirm-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Password reset failed');
+      form.hidden = true;
+      status.className = 'success';
+      status.textContent = 'Password reset. You can sign in with your new password.';
+    } catch (error) {
+      status.className = 'error';
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+})();`;
+
+export async function confirmPasswordReset(env, token, newPassword, hashPassword) {
+  if (!RESET_TOKEN_PATTERN.test(token || '')
+    || typeof newPassword !== 'string'
+    || newPassword.length < 8
+    || newPassword.length > 1024) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  // Do the expensive hash before the compare-and-swap. Once consumed, a link
+  // can never be replayed, even if two confirmation requests arrive together.
+  const passwordHash = await hashPassword(newPassword);
+  const tokenHash = await sha256Hex(token);
+  const consumed = await env.DB.prepare(
+    `UPDATE auth_action_tokens
+     SET consumed_at = datetime('now')
+     WHERE token_hash = ?
+       AND purpose = ?
+       AND consumed_at IS NULL
+       AND expires_at > datetime('now')
+       AND user_id IN (SELECT id FROM users WHERE is_active = 1)
+     RETURNING user_id`,
+  ).bind(tokenHash, RESET_PURPOSE).first();
+  if (!consumed?.user_id) return { ok: false, reason: 'invalid' };
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users
+       SET password_hash = ?, updated_at = datetime('now')
+       WHERE id = ? AND is_active = 1`,
+    ).bind(passwordHash, consumed.user_id),
+    env.DB.prepare(
+      `UPDATE sessions
+       SET is_active = 0, revoked_at = datetime('now'), token = '', token_hash = NULL
+       WHERE user_id = ? AND is_active = 1`,
+    ).bind(consumed.user_id),
+    env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, action, details, created_at)
+       VALUES (?, 'password_reset', 'all_sessions_revoked', datetime('now'))`,
+    ).bind(consumed.user_id),
+  ]);
+  return { ok: true, userId: consumed.user_id };
+}
+
+export function registerAccountRecoveryRoutes(router, dependencies = {}) {
   router.post('/auth/request-password-reset', async (request, env) => {
     let body;
     try {
@@ -166,6 +290,63 @@ export function registerAccountRecoveryRoutes(router) {
     }
 
     return genericRecoveryResponse();
+  });
+
+  router.get('/reset-password', () => new Response(resetPage(), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, must-revalidate, max-age=0',
+    },
+  }));
+
+  router.get('/auth/reset-page.js', () => new Response(RESET_PAGE_SCRIPT, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/javascript; charset=utf-8',
+      'Cache-Control': 'no-store, must-revalidate, max-age=0',
+    },
+  }));
+
+  router.post('/auth/confirm-password-reset', async (request, env) => {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid or expired reset link' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+    }
+
+    try {
+      const result = await confirmPasswordReset(
+        env,
+        body?.token,
+        body?.password,
+        dependencies.hashPassword,
+      );
+      if (!result.ok) {
+        return new Response(JSON.stringify({ error: 'Invalid or expired reset link' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        });
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          'Set-Cookie': '__Host-focusbro_session=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax',
+        },
+      });
+    } catch (error) {
+      console.error('[AUTH] Password reset confirmation failed:', error.message);
+      return new Response(JSON.stringify({ error: 'Password reset failed. Request a new link.' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+    }
   });
 }
 
