@@ -24,7 +24,6 @@
   },
   "homepage": "https://github.com/adrper79-dot/focusbro#readme",
   "devDependencies": {
-    "@cloudflare/wrangler": "^1.21.0",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.114.0"
   }
 }
