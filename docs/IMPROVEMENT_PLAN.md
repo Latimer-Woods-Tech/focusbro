@@ -129,7 +129,16 @@ The final synthetic production journey proved:
 4. the new password logs in without a bearer token in JSON;
 5. a deliberately expired reset row returns 400; and
 6. the disposable user, sessions, tokens, cookies, and temporary credentials
-   are removed after the test.
+are removed after the test.
+
+### Managed compatibility debt
+
+The legacy password and bearer-session readers remain intentionally enabled for
+existing-user migration, not as a new authentication path. A read-only
+production D1 inspection on 2026-07-26 found one legacy session credential and
+one legacy SHA-256 password hash. Do not remove either compatibility branch
+until both counts are zero; doing so now would strand a real user. Recheck the
+counts before every auth-retirement proposal and record the result with its PR.
 
 ### Identity rollout
 
