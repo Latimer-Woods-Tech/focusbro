@@ -31,7 +31,7 @@ import {
 } from './middleware.js';
 
 const router = Router();
-const D1_SCHEMA_VERSION = '0005_sync_revisions';
+const D1_SCHEMA_VERSION = '0006_sync_device_log_schema';
 
 function slashRedirect(path) {
   return new Response(null, { status: 301, headers: { Location: path } });
