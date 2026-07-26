@@ -1054,6 +1054,36 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('buy dinnerware', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads "mid-morning" (10:30) and "mid-afternoon" (15:30) as anchors that compose with every branch', () => {
+    // "I'll get to it mid-afternoon" fills the two working-day spans still unread
+    // between the existing anchors; left unread they fell to the warm re-ask
+    // (null) — the same quiet "he didn't get me" the eod / first-thing / lunch /
+    // dinner anchors closed. NOW is Monday 2026-07-06 15:00 UTC, so 10:30 has
+    // passed (→ tomorrow) while 15:30 is still ahead (→ today).
+    expect(parseWhenReply('mid-morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T10:30:00.000Z');
+    expect(parseWhenReply('mid morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T10:30:00.000Z');
+    expect(parseWhenReply('midmorning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T10:30:00.000Z');
+    expect(parseWhenReply('mid-afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('mid afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    // Composes with the tomorrow / day-after / weekday branches via the SAME
+    // shared part-of-day anchor — no branch-by-branch plumbing.
+    expect(parseWhenReply('tomorrow mid-afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:30:00.000Z');
+    expect(parseWhenReply('day after tomorrow mid-morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T10:30:00.000Z');
+    expect(parseWhenReply('saturday mid-afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T15:30:00.000Z');
+    // Distinct from — and never swallowed by — the bare parents: "morning" still
+    // reads 09:00 and "afternoon" 14:00, the "mid-" compound its own half-hour.
+    expect(parseWhenReply('morning', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    expect(parseWhenReply('afternoon', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    // DST-correct in the recipient zone: 10:30 local in America/New_York (EDT,
+    // UTC-4) → 14:30Z; 15:30 → 19:30Z. Anchored at 04:00 EDT so both land today.
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('mid-morning', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T14:30:00.000Z');
+    expect(parseWhenReply('mid-afternoon', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T19:30:00.000Z');
+    // No false positive: "mid" only anchors when it's the "mid-morning" /
+    // "mid-afternoon" compound, so "midterm" (no time in it) stays the warm re-ask.
+    expect(parseWhenReply('midterm prep', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
     // Bare weekday = soonest future occurrence at the usual/default time.
     expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
