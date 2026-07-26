@@ -88,76 +88,79 @@ export async function createAuthActionToken(env, userId, purpose, ttlSeconds) {
   return token;
 }
 
-function emailPayload(from, to, resetUrl) {
+function sendGridPayload(from, to, subject, text) {
   return {
     personalizations: [{ to: [{ email: to }] }],
     from: { email: from, name: 'FocusBro' },
-    subject: 'Reset your FocusBro password',
-    content: [
-      {
-        type: 'text/plain',
-        value: `Use this link within 15 minutes to reset your FocusBro password:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`,
-      },
-    ],
+    subject,
+    content: [{ type: 'text/plain', value: text }],
   };
 }
 
-function verificationEmailPayload(from, to, verificationUrl) {
-  return {
-    personalizations: [{ to: [{ email: to }] }],
-    from: { email: from, name: 'FocusBro' },
-    subject: 'Verify your FocusBro email',
-    content: [
-      {
-        type: 'text/plain',
-        value: `Use this link within 24 hours to verify your FocusBro email:\n\n${verificationUrl}\n\nIf you did not create this account, you can ignore this email.`,
+async function sendTransactionalEmail(env, to, subject, text, fetchImpl) {
+  if (!env.AUTH_EMAIL_FROM) {
+    return { delivered: false, reason: 'not_configured' };
+  }
+
+  if (env.SENDGRID_API_KEY) {
+    const response = await fetchImpl('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json',
       },
-    ],
-  };
+      body: JSON.stringify(sendGridPayload(env.AUTH_EMAIL_FROM, to, subject, text)),
+    });
+    return response.ok
+      ? { delivered: true, provider: 'sendgrid' }
+      : { delivered: false, reason: `sendgrid_${response.status}` };
+  }
+
+  if (env.RESEND_API_KEY) {
+    const from = env.AUTH_EMAIL_FROM.includes('<')
+      ? env.AUTH_EMAIL_FROM
+      : `FocusBro <${env.AUTH_EMAIL_FROM}>`;
+    const response = await fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'FocusBro-Worker/1.0',
+      },
+      body: JSON.stringify({ from, to: [to], subject, text }),
+    });
+    return response.ok
+      ? { delivered: true, provider: 'resend' }
+      : { delivered: false, reason: `resend_${response.status}` };
+  }
+
+  return { delivered: false, reason: 'not_configured' };
 }
 
 export async function sendPasswordResetEmail(env, email, token, fetchImpl = fetch) {
-  if (!env.SENDGRID_API_KEY || !env.AUTH_EMAIL_FROM) {
-    return { delivered: false, reason: 'not_configured' };
-  }
-
   const origin = (env.API_ORIGIN || 'https://focusbro.net').replace(/\/+$/, '');
   const resetUrl = `${origin}/reset-password#token=${encodeURIComponent(token)}`;
-  const response = await fetchImpl('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.SENDGRID_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(emailPayload(env.AUTH_EMAIL_FROM, email, resetUrl)),
-  });
-  return response.ok
-    ? { delivered: true }
-    : { delivered: false, reason: `provider_${response.status}` };
+  const text = `Use this link within 15 minutes to reset your FocusBro password:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`;
+  return sendTransactionalEmail(
+    env,
+    email,
+    'Reset your FocusBro password',
+    text,
+    fetchImpl,
+  );
 }
 
 export async function sendEmailVerificationEmail(env, email, token, fetchImpl = fetch) {
-  if (!env.SENDGRID_API_KEY || !env.AUTH_EMAIL_FROM) {
-    return { delivered: false, reason: 'not_configured' };
-  }
-
   const origin = (env.API_ORIGIN || 'https://focusbro.net').replace(/\/+$/, '');
   const verificationUrl = `${origin}/verify-email#token=${encodeURIComponent(token)}`;
-  const response = await fetchImpl('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.SENDGRID_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(verificationEmailPayload(
-      env.AUTH_EMAIL_FROM,
-      email,
-      verificationUrl,
-    )),
-  });
-  return response.ok
-    ? { delivered: true }
-    : { delivered: false, reason: `provider_${response.status}` };
+  const text = `Use this link within 24 hours to verify your FocusBro email:\n\n${verificationUrl}\n\nIf you did not create this account, you can ignore this email.`;
+  return sendTransactionalEmail(
+    env,
+    email,
+    'Verify your FocusBro email',
+    text,
+    fetchImpl,
+  );
 }
 
 async function invalidateActionToken(env, token) {

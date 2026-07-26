@@ -32,7 +32,7 @@ routes = [
 ]
 d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db" }]
 kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
-vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com" }
+vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com" }
 triggers = { crons = ["* * * * *"] }
 
 [env.development]
