@@ -2359,6 +2359,40 @@ router.get('/api/internal/metrics', async (request, env) => {
   }
 });
 
+// Founder/cron-only replay. The raw body and its original verified Telnyx
+// signature never leave the Worker; replay simply re-enters the same inbound
+// route, which atomically claims only a failed inbox row before side effects.
+router.post('/api/internal/webhooks/telnyx/:eventId/replay', async (request, env) => {
+  try {
+    const auth = await authorizeMetricsRequest(request, env);
+    if (!auth.configured) return jsonResponse({ error: 'Not found' }, 404);
+    if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const eventId = String(request.params.eventId || '');
+    if (!eventId) return jsonResponse({ error: 'Event ID required' }, 400);
+    const row = await env.DB.prepare(
+      `SELECT raw_payload, signature_ed25519, signed_timestamp
+         FROM webhook_inbox
+        WHERE provider = 'telnyx' AND event_id = ? AND status = 'failed'`
+    ).bind(eventId).first();
+    if (!row || !row.raw_payload || !row.signature_ed25519 || !row.signed_timestamp) {
+      return jsonResponse({ error: 'Failed replayable event not found' }, 404);
+    }
+    const replay = new Request('https://focusbro.net/api/webhooks/telnyx/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'telnyx-timestamp': row.signed_timestamp,
+        'telnyx-signature-ed25519': row.signature_ed25519,
+      },
+      body: row.raw_payload,
+    });
+    return router.fetch(replay, env);
+  } catch (err) {
+    console.error('[webhook-replay] failed:', err && err.message);
+    return jsonResponse({ error: 'Webhook replay failed' }, 500);
+  }
+});
+
 // Liveness + delivery-loop SLO. `status:ok`/200 means the Worker is up (this is
 // the canonical health probe). The `cron` block is the observability the
 // crontab→crons outage lacked, and it now carries TWO independent signals:

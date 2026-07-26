@@ -518,10 +518,11 @@ export function registerConsentRoutes(router, ctx) {
       // before any consent, check-in, analytics, or SMS side effect; a duplicate
       // gets a successful acknowledgement and cannot process twice.
       const receipt = await env.DB.prepare(
-        `INSERT INTO webhook_inbox (provider, event_id, event_type, occurred_at, raw_payload)
-         VALUES ('telnyx', ?, ?, ?, ?)
+        `INSERT INTO webhook_inbox
+           (provider, event_id, event_type, occurred_at, raw_payload, signature_ed25519, signed_timestamp)
+         VALUES ('telnyx', ?, ?, ?, ?, ?, ?)
          ON CONFLICT(provider, event_id) DO NOTHING`
-      ).bind(eventId, eventType, event.occurred_at || null, raw).run();
+      ).bind(eventId, eventType, event.occurred_at || null, raw, sig, ts).run();
       if (!(receipt && receipt.meta && receipt.meta.changes)) {
         // A provider retry may be the recovery path for an event we explicitly
         // recorded as failed. Claim only that terminal failure state; completed
