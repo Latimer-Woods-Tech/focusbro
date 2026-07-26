@@ -86,7 +86,7 @@ describe('account recovery foundation', () => {
       API_ORIGIN: 'https://focusbro.net/',
     }, 'person@example.com', 'one-time-token', fetchImpl);
 
-    expect(result).toEqual({ delivered: true });
+    expect(result).toEqual({ delivered: true, provider: 'sendgrid' });
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://api.sendgrid.com/v3/mail/send',
       expect.objectContaining({
@@ -108,7 +108,7 @@ describe('account recovery foundation', () => {
     }, 'person@example.com', 'verification-token', fetchImpl);
     const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
 
-    expect(sent).toEqual({ delivered: true });
+    expect(sent).toEqual({ delivered: true, provider: 'sendgrid' });
     expect(payload.content[0].value).toContain('/verify-email#token=verification-token');
 
     const statements = [];
@@ -125,6 +125,34 @@ describe('account recovery foundation', () => {
     const delivery = await deliverEmailVerification(env, 'user-1', 'person@example.com');
     expect(delivery).toEqual({ delivered: false, reason: 'not_configured' });
     expect(statements.some((statement) => statement.sql.includes('consumed_at'))).toBe(true);
+  });
+
+  it('uses the existing Resend credential when SendGrid is not configured', async () => {
+    const fetchImpl = vi.fn(async () => new Response(
+      JSON.stringify({ id: 'email-1' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    const result = await sendPasswordResetEmail({
+      RESEND_API_KEY: 'resend-secret',
+      AUTH_EMAIL_FROM: 'support@latwoodtech.com',
+      API_ORIGIN: 'https://focusbro.net',
+    }, 'person@example.com', 'one-time-token', fetchImpl);
+
+    expect(result).toEqual({ delivered: true, provider: 'resend' });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer resend-secret',
+          'User-Agent': 'FocusBro-Worker/1.0',
+        }),
+      }),
+    );
+    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(payload.from).toBe('FocusBro <support@latwoodtech.com>');
+    expect(payload.to).toEqual(['person@example.com']);
+    expect(payload.text).toContain('/reset-password#token=one-time-token');
   });
 
   it('returns the same generic response for unknown and malformed accounts', async () => {
