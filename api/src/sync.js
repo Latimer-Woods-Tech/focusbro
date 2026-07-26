@@ -10,6 +10,9 @@ import { recordEvent } from './events.js';
 // Keep a sync snapshot comfortably below browser storage limits and small enough
 // to validate at the edge without turning an upload into an expensive request.
 export const MAX_SYNC_PAYLOAD_BYTES = 1024 * 1024;
+export const MAX_SYNC_REQUESTS_PER_HOUR = 60;
+export const MAX_SYNC_STORAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_SYNC_SNAPSHOTS = 30;
 const MAX_SYNC_DEPTH = 10;
 const MAX_SYNC_NODES = 10_000;
 const MAX_SYNC_ROOT_KEYS = 256;
@@ -136,6 +139,35 @@ export async function findIdempotentSync(env, userId, idempotencyKey) {
      WHERE user_id = ? AND idempotency_key = ?
      LIMIT 1`
   ).bind(userId, idempotencyKey).first();
+}
+
+/** Consume one bounded sync upload slot after a request has passed validation. */
+export async function consumeSyncUploadQuota(env, userId) {
+  const key = `sync:upload:${userId}`;
+  const current = Number(await env.KV_CACHE.get(key) || 0);
+  if (current >= MAX_SYNC_REQUESTS_PER_HOUR) return { allowed: false };
+  await env.KV_CACHE.put(key, String(current + 1), { expirationTtl: 60 * 60 });
+  return { allowed: true, remaining: MAX_SYNC_REQUESTS_PER_HOUR - current - 1 };
+}
+
+/** Return current snapshot storage usage for a user. */
+export async function getSyncStorageUsage(env, userId) {
+  return env.DB.prepare(
+    'SELECT COALESCE(SUM(size_bytes), 0) AS bytes FROM user_data_snapshots WHERE user_id = ?'
+  ).bind(userId).first();
+}
+
+/** Retain recent recovery points while preventing unbounded snapshot growth. */
+export async function pruneSyncSnapshots(env, userId) {
+  return env.DB.prepare(
+    `DELETE FROM user_data_snapshots
+     WHERE user_id = ? AND id NOT IN (
+       SELECT id FROM user_data_snapshots
+       WHERE user_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?
+     )`
+  ).bind(userId, userId, MAX_SYNC_SNAPSHOTS).run();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -631,6 +663,9 @@ export default {
   parseSyncPayload,
   getLatestSyncRevision,
   findIdempotentSync,
+  consumeSyncUploadQuota,
+  getSyncStorageUsage,
+  pruneSyncSnapshots,
   checkSyncAccess,
   validateSyncTier,
   resolveConflict,

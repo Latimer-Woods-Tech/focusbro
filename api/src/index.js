@@ -1683,6 +1683,20 @@ router.post('/sync/data', async (request, env) => {
       }, 409, 'short');
     }
 
+    const uploadQuota = await syncModule.consumeSyncUploadQuota(env, userId);
+    if (!uploadQuota.allowed) {
+      return jsonResponse({ error: 'Sync upload limit reached. Try again in an hour.' }, 429, 'short');
+    }
+
+    const storageUsage = await syncModule.getSyncStorageUsage(env, userId);
+    const usedBytes = Number(storageUsage?.bytes || 0);
+    if (usedBytes + dataSize > syncModule.MAX_SYNC_STORAGE_BYTES) {
+      return jsonResponse({
+        error: 'Sync storage limit reached. Delete old synced data before uploading more.',
+        limit_bytes: syncModule.MAX_SYNC_STORAGE_BYTES,
+      }, 413, 'short');
+    }
+
     const revisionId = generateUUID();
     
     try {
@@ -1712,6 +1726,8 @@ router.post('/sync/data', async (request, env) => {
           recovery: 'Fetch the latest snapshot, merge your local changes, then retry with current_revision.',
         }, 409, 'short');
       }
+
+      await syncModule.pruneSyncSnapshots(env, userId);
       
       // Record sync in logs
       await syncModule.recordSync(env, userId, deviceId, 'data_upload', 'success', dataSize);
@@ -1740,6 +1756,23 @@ router.post('/sync/data', async (request, env) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
+});
+
+// ── DELETE SYNCED DATA (privacy self-service) ──
+router.post('/privacy/delete', async (request, env) => {
+  const token = getAuthToken(request);
+  if (!token) return jsonResponse({ error: 'Unauthorized' }, 401, 'short');
+  const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
+  if (!tokenPayload) return jsonResponse({ error: 'Invalid token' }, 401, 'short');
+
+  const userId = tokenPayload.sub;
+  await Promise.all([
+    env.KV_CACHE.delete(`user:${userId}:latest`),
+    env.KV_CACHE.delete(`sync:upload:${userId}`),
+  ]);
+  await env.DB.prepare('DELETE FROM user_data_snapshots WHERE user_id = ?').bind(userId).run();
+  await syncModule.recordSync(env, userId, 'web', 'data_delete', 'success', 0);
+  return jsonResponse({ success: true, message: 'Synced data deleted' }, 200, 'short');
 });
 
 // ── FETCH USER DATA (Retrieve) ──
