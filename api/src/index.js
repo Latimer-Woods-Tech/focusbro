@@ -2328,6 +2328,21 @@ export async function authorizeMetricsRequest(request, env) {
   };
 }
 
+export async function getWebhookInboxMetrics(env) {
+  const row = await env.DB.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+       SUM(CASE WHEN status IN ('received', 'processing') THEN 1 ELSE 0 END) AS unprocessed_count,
+       MIN(CASE WHEN status IN ('received', 'processing') THEN received_at END) AS oldest_unprocessed_at
+     FROM webhook_inbox`
+  ).first();
+  return {
+    failed_count: Number((row && row.failed_count) || 0),
+    unprocessed_count: Number((row && row.unprocessed_count) || 0),
+    oldest_unprocessed_at: (row && row.oldest_unprocessed_at) || null,
+  };
+}
+
 router.get('/api/internal/metrics', async (request, env) => {
   try {
     const auth = await authorizeMetricsRequest(request, env);
@@ -2336,7 +2351,8 @@ router.get('/api/internal/metrics', async (request, env) => {
     const url = new URL(request.url);
     const sinceDays = clampSinceDays(url.searchParams.get('since_days'));
     const metrics = await computeLoopMetrics(env, { sinceDays });
-    return jsonResponse({ ok: true, metrics }, 200);
+    const webhook_inbox = await getWebhookInboxMetrics(env);
+    return jsonResponse({ ok: true, metrics, webhook_inbox }, 200);
   } catch (err) {
     console.error('[metrics] failed:', err && err.message);
     return jsonResponse({ error: 'Metrics query failed' }, 500);

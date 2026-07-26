@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import worker, { generateToken, isBillingEnabled } from '../index.js';
 
-function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [] } = {}) {
+function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [], webhookInbox = {} } = {}) {
   const stmt = {
     bind() { return stmt; },
-    first: async () => userEmail ? { email: userEmail } : { count: 1 },
+    first: async () => ({ email: userEmail, ...webhookInbox }),
     all: async () => ({ results: metricsRows }),
     run: async () => ({ success: true })
   };
@@ -162,7 +162,21 @@ describe('Worker routing', () => {
         headers: { Authorization: 'Bearer ' + token },
       });
     expect(founder.status).toBe(200);
-    expect((await founder.json()).metrics).toHaveProperty('acquisition');
+    const body = await founder.json();
+    expect(body.metrics).toHaveProperty('acquisition');
+    expect(body.webhook_inbox).toEqual({ failed_count: 0, unprocessed_count: 0, oldest_unprocessed_at: null });
+
+    const inboxEnv = makeEnv({
+      founderEmail: 'founder@example.com',
+      webhookInbox: { failed_count: 2, unprocessed_count: 1, oldest_unprocessed_at: '2026-07-26T10:00:00.000Z' },
+    });
+    const inboxMetrics = await call('GET', '/api/internal/metrics', 'https://focusbro.net', {
+      env: inboxEnv,
+      headers: { Authorization: 'Bearer ' + await generateToken('founder-user', inboxEnv.JWT_SECRET) },
+    });
+    expect((await inboxMetrics.json()).webhook_inbox).toEqual({
+      failed_count: 2, unprocessed_count: 1, oldest_unprocessed_at: '2026-07-26T10:00:00.000Z',
+    });
 
     const outsiderEnv = makeEnv({
       founderEmail: 'founder@example.com',
