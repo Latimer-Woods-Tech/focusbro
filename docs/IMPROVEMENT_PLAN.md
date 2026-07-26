@@ -106,27 +106,30 @@ scripts would break the product.
 
 | Item | Delivery record | Production evidence |
 |---|---|---|
-| A1 | PR #176 | Versioned PBKDF2 new-write plus legacy dual-read/upgrade tests |
+| A1 | PRs #176 and #191 | Versioned PBKDF2 new-write, legacy dual-read/upgrade, and a live Worker-runtime cost canary |
 | A2 | PR #177 | Strict refresh grace, active-session lookup, rotation, and replay rejection |
 | A3 | PRs #179–#180 | Hash-only credentials, logout, logout-all, and server revocation |
 | A4 | PRs #181–#184 | Secure cookie sessions, CSRF enforcement, one-time bearer exchange, and no credential-bearing auth JSON |
-| A5 | PRs #185–#188 | Hashed single-use action tokens, reset/session revocation, email verification, normalized account/network limits, and failed-login-only budgets |
+| A5 | PRs #185–#190 | Hashed single-use action tokens, reset/session revocation, email verification, normalized account/network limits, failed-login-only budgets, and Resend delivery |
 
-The A5 code gate is green at build
-`5b5fb7e05875ab627093dd489bb84424eea8c146`: 779 unit tests, the Playwright
-critical-journey smoke test, deployment canary, and live reset/verification
-probes pass. Real inbox delivery is the remaining **operational activation
-gate**, not hidden engineering debt:
+The Stage 1 gate is green at build
+`5efeea66c0792ee025805b93fba4328b3ecf09a9`: 780 unit tests, the Playwright
+critical-journey smoke test, deployment canary, and live auth probes pass.
+Transactional email uses the GCP-managed `RESEND_API_KEY` with the verified
+`support@latwoodtech.com` sender.
 
-1. Provision `twilio/email` through Stripe Projects and verify the FocusBro
-   sender in SendGrid.
-2. Add `SENDGRID_API_KEY` and `AUTH_EMAIL_FROM` to the production Worker.
-3. Request reset and verification messages for a synthetic account; confirm
-   delivery, expiry, single-use replay rejection, password replacement, and
-   old-session revocation.
-4. Keep broad acquisition paused if delivery fails. The Worker deliberately
-   invalidates a token when the provider is missing or rejects the message, so
-   a generic 202 can never create a live-but-undelivered credential.
+The final synthetic production journey proved:
+
+1. registration creates a 100,000-iteration PBKDF2 hash that the Workers
+   runtime can execute;
+2. the verification message reaches a real Gmail inbox, confirmation succeeds,
+   session state becomes verified, and replay returns 400;
+3. the reset message reaches the inbox, confirmation changes the password and
+   revokes the pre-reset cookie, while replay returns 400;
+4. the new password logs in without a bearer token in JSON;
+5. a deliberately expired reset row returns 400; and
+6. the disposable user, sessions, tokens, cookies, and temporary credentials
+   are removed after the test.
 
 ### Identity rollout
 
