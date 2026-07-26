@@ -749,7 +749,10 @@ router.options('*', (request) => new Response(null, { headers: getCorsHeaders(re
 
 // ── UTILITY: Secure Password Hashing (Web Crypto API) ──
 const PASSWORD_HASH_SCHEME = 'pbkdf2-sha256';
-const PASSWORD_HASH_ITERATIONS = 600000;
+// Cloudflare Workers' Web Crypto runtime rejects PBKDF2 counts above 100,000.
+// Keep this at the runtime ceiling: a stronger value that cannot execute is
+// equivalent to locking every account out.
+const PASSWORD_HASH_ITERATIONS = 100000;
 const PASSWORD_HASH_BYTES = 32;
 const PASSWORD_SALT_BYTES = 16;
 const LEGACY_PASSWORD_HASH_PATTERN = /^[a-f0-9]{64}$/i;

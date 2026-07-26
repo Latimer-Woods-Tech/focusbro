@@ -21,7 +21,7 @@ describe('password hashing', () => {
     const firstHash = await hashPassword('correct horse battery staple');
     const secondHash = await hashPassword('correct horse battery staple');
 
-    expect(firstHash).toMatch(/^pbkdf2-sha256\$600000\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/);
+    expect(firstHash).toMatch(/^pbkdf2-sha256\$100000\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/);
     expect(secondHash).not.toBe(firstHash);
     expect(passwordNeedsUpgrade(firstHash)).toBe(false);
   });
@@ -72,7 +72,7 @@ describe('password hashing', () => {
     ).resolves.toBe(true);
 
     expect(capturedSql).toContain('WHERE id = ? AND password_hash = ?');
-    expect(capturedBindings[0]).toMatch(/^pbkdf2-sha256\$600000\$/);
+    expect(capturedBindings[0]).toMatch(/^pbkdf2-sha256\$100000\$/);
     expect(capturedBindings.slice(1)).toEqual(['user-123', legacyHash]);
     await expect(verifyPassword('legacy password', capturedBindings[0])).resolves.toBe(true);
   });
