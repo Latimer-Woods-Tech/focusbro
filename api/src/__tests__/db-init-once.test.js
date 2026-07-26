@@ -24,6 +24,6 @@ describe('migrated D1 runtime boundary', () => {
   it('serves a cold health request without touching D1 and reports the schema version', async () => {
     const response = await worker.fetch(new Request('https://focusbro.net/health'), makeEnv(), {});
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ schema_version: '0005_sync_revisions' });
+    await expect(response.json()).resolves.toMatchObject({ schema_version: '0006_sync_device_log_schema' });
   });
 });

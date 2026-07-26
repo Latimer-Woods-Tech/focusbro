@@ -4,7 +4,9 @@ import {
   MAX_SYNC_REQUESTS_PER_HOUR,
   consumeSyncUploadQuota,
   deduplicateSessions,
+  deactivateDevice,
   findIdempotentSync,
+  getDataHistory,
   getLatestSyncRevision,
   getLastSyncTimestamp,
   getSyncStorageUsage,
@@ -14,6 +16,10 @@ import {
   optimizePayload,
   parseSyncPayload,
   pruneSyncSnapshots,
+  processSyncQueue,
+  recordSync,
+  registerDevice,
+  restoreFromSnapshot,
   resolveConflict,
   validateSyncSnapshot,
   validateSyncTier,
@@ -130,5 +136,53 @@ describe('sync snapshot validation', () => {
     await expect(getUserDevices({ DB: noRows }, 'u1')).resolves.toEqual([]);
     const known = fakeDb({ first: async () => ({ synced_at: '2026-07-01T00:00:00Z' }) });
     await expect(getLastSyncTimestamp({ DB: known }, 'u1')).resolves.toBe(Date.parse('2026-07-01T00:00:00Z'));
+  });
+
+  it('records sync audit rows and keeps device registration scoped to the user', async () => {
+    const db = fakeDb();
+    await expect(recordSync({ DB: db }, 'u1', 'phone', 'data_upload', 'success', 42)).resolves.toBe(true);
+    await expect(registerDevice({ DB: db }, 'u1', { id: 'phone', name: 'My Phone' })).resolves.toMatchObject({
+      device_id: 'phone', device_name: 'My Phone',
+    });
+    expect(db.calls.filter(call => call.sql.includes('INSERT INTO sync_logs'))[0].values)
+      .toEqual(['u1', 'phone', 'data_upload', 'success', 42]);
+    expect(db.calls.some(call => call.sql.includes('INSERT INTO audit_logs'))).toBe(true);
+    expect(db.calls.find(call => call.sql.includes('INSERT INTO devices')).values)
+      .toEqual(['u1', 'phone', 'My Phone']);
+  });
+
+  it('returns safe failures for unavailable sync lifecycle writes', async () => {
+    const unavailable = { DB: { prepare: () => { throw new Error('D1 unavailable'); } } };
+    await expect(recordSync(unavailable, 'u1', 'web', 'data_upload', 'success')).resolves.toBe(false);
+    await expect(deactivateDevice(unavailable, 'u1', 'phone')).resolves.toBe(false);
+    await expect(getDataHistory(unavailable, 'u1')).resolves.toEqual([]);
+  });
+
+  it('deactivates devices and returns bounded data history', async () => {
+    const db = fakeDb({ all: async () => ({ results: [{ id: 'snapshot-1', revision_id: 'rev-1' }] }) });
+    await expect(deactivateDevice({ DB: db }, 'u1', 'phone')).resolves.toBe(true);
+    await expect(getDataHistory({ DB: db }, 'u1', 5)).resolves.toEqual([{ id: 'snapshot-1', revision_id: 'rev-1' }]);
+    expect(db.calls.find(call => call.sql.includes('UPDATE devices')).values).toEqual(['u1', 'phone']);
+    expect(db.calls.find(call => call.sql.includes('LIMIT ?')).values).toEqual(['u1', 5]);
+  });
+
+  it('restores snapshots and merges offline queue state into a new revision', async () => {
+    const restoreDb = fakeDb({ first: async () => ({ snapshot_data: JSON.stringify({ theme: 'dark' }) }) });
+    const restored = await restoreFromSnapshot({ DB: restoreDb }, 'u1', 'snapshot-1');
+    expect(restored).toMatchObject({ success: true, data: { theme: 'dark', restored_from: 'snapshot-1' } });
+    expect(restoreDb.calls.some(call => call.sql.includes('INSERT INTO user_data_snapshots'))).toBe(true);
+
+    const queueDb = fakeDb({ first: async () => ({ snapshot_data: JSON.stringify({ theme: { value: 'dark', lastModified: 2 } }) }) });
+    const queued = await processSyncQueue({ DB: queueDb }, 'u1', { theme: { value: 'light', lastModified: 3 } });
+    expect(queued).toEqual({ success: true, data: { theme: { value: 'light', lastModified: 3 } } });
+    expect(queueDb.calls.find(call => call.sql.includes('INSERT INTO sync_logs')).values)
+      .toContain('offline_queue_process');
+  });
+
+  it('reports missing or invalid snapshots and offline queue persistence failures', async () => {
+    const missing = fakeDb({ first: async () => null });
+    await expect(restoreFromSnapshot({ DB: missing }, 'u1', 'missing')).resolves.toEqual({ error: 'Snapshot not found' });
+    const unavailable = { DB: { prepare: () => { throw new Error('D1 unavailable'); } } };
+    await expect(processSyncQueue(unavailable, 'u1', {})).resolves.toMatchObject({ error: 'Failed to process offline queue' });
   });
 });
