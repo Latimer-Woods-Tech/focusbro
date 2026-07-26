@@ -26,10 +26,10 @@ export default defineConfig({
       // differently from Vitest 1 (68.28% vs 82.47% on the same commit/tests);
       // this is a reporting-baseline reset, not deleted coverage.
       thresholds: {
-        statements: 62,
-        branches: 68,
-        functions: 65,
-        lines: 62
+        statements: 69,
+        branches: 70,
+        functions: 78,
+        lines: 70
       }
     }
   }
