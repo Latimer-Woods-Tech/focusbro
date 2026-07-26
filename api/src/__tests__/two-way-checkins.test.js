@@ -923,6 +923,33 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('cobweb duty', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads "first thing" / "first thing tomorrow" as a 09:00 anchor that composes with every branch', () => {
+    // "I'll do it first thing" is one of the most idiomatic ways an ADHD brain
+    // defers a task to the next fresh start; left unread it fell to the warm
+    // re-ask (null) — the same quiet "he didn't get me" the eod anchor closed.
+    // 09:00 = the start of the working day (the same hour as "morning", which
+    // "first thing in the morning" literally names, so the two never disagree).
+    // NOW is Monday 2026-07-06 15:00 UTC, so 09:00 today is already past → it
+    // rolls to the SAME anchor tomorrow (never-past), mirroring every part of day.
+    expect(parseWhenReply('first thing', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // Early in the day it lands TODAY at 09:00, not a null.
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('first thing', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T09:00:00.000Z');
+    // "first thing in the morning" names the same hour by two matching tokens.
+    expect(parseWhenReply('first thing in the morning', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T09:00:00.000Z');
+    // Composes with the tomorrow / day-after / weekday branches via the SAME
+    // shared part-of-day anchor — no branch-by-branch plumbing.
+    expect(parseWhenReply('first thing tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    expect(parseWhenReply('day after tomorrow first thing', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
+    expect(parseWhenReply('saturday first thing', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // DST-correct in the recipient zone: 09:00 local in America/New_York (EDT,
+    // UTC-4) → 13:00Z.
+    expect(parseWhenReply('first thing', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T13:00:00.000Z');
+    // No false positive: the phrase matches only on word boundaries, so "first
+    // things first" (no time in it) stays the warm re-ask, never a wrong 09:00.
+    expect(parseWhenReply('first things first', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
     // Bare weekday = soonest future occurrence at the usual/default time.
     expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');

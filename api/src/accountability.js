@@ -236,7 +236,8 @@ function clockTo24(m) {
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
  * (soonest future); "tonight", "this afternoon", "this morning", "in the
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
- * (17:00, the close of the working day) (a bare part of day today,
+ * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
+ * (09:00, the start of the working day) (a bare part of day today,
  * rolling to the same part of day tomorrow if it's already past);
  * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
@@ -346,7 +347,18 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // "morning"/"evening" already do — no branch-by-branch plumbing. Checked first
   // so the explicit phrase wins; it shares no words with the other parts of day,
   // so ordering only ever helps.
+  // "first thing" / "first thing tomorrow" / "first thing in the morning" — the
+  // start of the working day, a concrete 09:00 anchor. One of the most common,
+  // idiomatic ways an ADHD brain defers a task to the next fresh start ("I'll do
+  // it first thing"), and left unread it fell to the warm re-ask — the same quiet
+  // "he didn't get me" on the two-way text moat that "end of day" did. Modelled
+  // as a part-of-day (same 09:00 as "morning", which "first thing in the morning"
+  // literally names, so the two never contradict) so the ONE anchor composes with
+  // every branch (today, tomorrow, a named weekday, a date) with no branch-by-
+  // branch plumbing. Checked before the bare "morning" so the explicit phrase is
+  // read as such; they share the same hour, so ordering only ever helps.
   const partOfDay = /\b(eod|cob|end of (?:the )?day|close of business)\b/.test(t) ? [17, 0]
+    : /\bfirst thing\b/.test(t) ? [9, 0]
     : /\bmorning\b/.test(t) ? [9, 0]
     : /\bafternoon\b/.test(t) ? [14, 0]
     : /\b(evening|night)\b/.test(t) ? [19, 0]
