@@ -453,7 +453,6 @@ export function renderMePage() {
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
   const VIEW = detailActionLabel();
-  const NEXT_WORD = nextWordActionLabel();
   const NEXT_LABEL = listNextCheckinLabelCopy();
   const NEXT_WAITING = listNextCheckinWaitingCopy();
   return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}

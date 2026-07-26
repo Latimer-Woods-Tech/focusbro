@@ -4,7 +4,7 @@
  * Manages conflict resolution, tier validation, and sync state
  */
 
-import { errorResponse, successResponse, generateUUID } from './middleware.js';
+import { generateUUID } from './middleware.js';
 import { recordEvent } from './events.js';
 
 // Keep a sync snapshot comfortably below browser storage limits and small enough
@@ -278,7 +278,7 @@ export function mergeSessionData(localSessions, remoteSessions) {
  * Deep merge for settings/preferences
  * Preserves local preferences unless explicitly overwritten by newer remote values
  */
-export function mergeSettings(local = {}, remote = {}, remoteTimestamp = 0) {
+export function mergeSettings(local = {}, remote = {}) {
   const merged = { ...local };
 
   for (const [key, remoteValue] of Object.entries(remote)) {
@@ -323,7 +323,7 @@ export async function getLastSyncTimestamp(env, userId) {
 /**
  * Record a sync operation in logs
  */
-export async function recordSync(env, userId, deviceId, action, status, sizeBytes = 0, metadata = {}) {
+export async function recordSync(env, userId, deviceId, action, status, sizeBytes = 0) {
   try {
     await env.DB.prepare(
       `INSERT INTO sync_logs (user_id, device_id, action, status, synced_at, data_size)

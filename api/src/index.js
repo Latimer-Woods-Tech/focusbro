@@ -25,13 +25,8 @@ import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
 import {
-  verifyAuth,
-  validateEmail,
-  validatePassword,
   errorResponse,
   successResponse,
-  logEvent,
-  extractRequestContext,
   generateUUID
 } from './middleware.js';
 
@@ -617,7 +612,7 @@ async function initializeDatabase(env) {
     
     // Verify critical tables exist
     try {
-      const userTable = await env.DB.prepare('SELECT COUNT(*) as count FROM users LIMIT 1').first();
+      await env.DB.prepare('SELECT COUNT(*) as count FROM users LIMIT 1').first();
       dbLog('✅ Database schema verified - users table accessible');
     } catch (verifyError) {
       console.error('⚠️ Database schema verification failed (requests may fail):', verifyError.message);
@@ -1141,7 +1136,7 @@ router.post('/auth/register', async (request, env) => {
     let body;
     try {
       body = await request.json();
-    } catch (jsonErr) {
+    } catch {
       return new Response(JSON.stringify({ error: 'Invalid JSON in request body' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -1237,7 +1232,7 @@ router.post('/auth/login', async (request, env) => {
     let body;
     try {
       body = await request.json();
-    } catch (jsonErr) {
+    } catch {
       return new Response(JSON.stringify({ error: 'Invalid JSON in request body' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -2507,7 +2502,7 @@ router.post('/api/internal/webhooks/telnyx/:eventId/replay', async (request, env
 //     `fail_streak` surfaces that so a green /health can't hide a dead moat.
 // Both read the SAFE value when a signal is missing (stale / not-degraded).
 const CRON_STALE_SECONDS = 10 * 60;
-router.get('/health', async (request, env) => {
+router.get('/health', async (_request, env) => {
   const cron = await readCronHealth(env, { staleSeconds: CRON_STALE_SECONDS });
   return new Response(JSON.stringify({
     status: 'ok',
@@ -2523,7 +2518,7 @@ router.get('/health', async (request, env) => {
 });
 
 // ── ICON-192.PNG ──
-router.get('/icon-192.png', async (request, env) => {
+router.get('/icon-192.png', async (_request, _env) => {
   // Serve SVG icon as PNG (browsers handle content-type appropriately)
   const svgIcon = `<svg width="192" height="192" xmlns="http://www.w3.org/2000/svg">
     <rect width="192" height="192" fill="#6366f1" rx="24"/>
@@ -2537,7 +2532,7 @@ router.get('/icon-192.png', async (request, env) => {
 });
 
 // ── ICON-512.PNG ──
-router.get('/icon-512.png', async (request, env) => {
+router.get('/icon-512.png', async (_request, _env) => {
   // Serve larger SVG icon
   const svgIcon = `<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
     <rect width="512" height="512" fill="#6366f1" rx="64"/>
@@ -2551,7 +2546,7 @@ router.get('/icon-512.png', async (request, env) => {
 });
 
 // ── ROOT PAGE (Serve HTML) ──
-router.get('/', async (request, env) => {
+router.get('/', async (_request, _env) => {
   return new Response(htmlContent, {
     status: 200,
     // Edge-cacheable like /index.html so the 212KB entry page isn't re-fetched
@@ -3176,7 +3171,7 @@ ${guideUrls}
 });
 
 // ── FAVICON ──
-router.get('/favicon.ico', async (request, env) => {
+router.get('/favicon.ico', async (_request, _env) => {
   // Serve professional SVG favicon (monogram "FB")
   const svgFavicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect fill="#1e40af" width="64" height="64"/><text x="32" y="45" font-size="36" font-weight="700" font-family="Inter, sans-serif" fill="#ffffff" text-anchor="middle">FB</text></svg>`;
   return new Response(svgFavicon, {
@@ -3189,7 +3184,7 @@ router.get('/favicon.ico', async (request, env) => {
 });
 
 // ── MANIFEST.JSON (PWA Support) ──
-router.get('/manifest.json', async (request, env) => {
+router.get('/manifest.json', async (_request, _env) => {
   const manifest = {
     "name": "FocusBro - ADHD-Friendly Focus & Wellness",
     "short_name": "FocusBro",
@@ -3247,7 +3242,7 @@ router.get('/manifest.json', async (request, env) => {
 });
 
 // ── SERVICE WORKER ──
-router.get('/sw.js', async (request, env) => {
+router.get('/sw.js', async (_request, _env) => {
   // Service Worker from embedded HTML content
   const swCode = `/**
  * FocusBro Service Worker
@@ -3531,7 +3526,7 @@ router.all('*', () => new Response(JSON.stringify({ error: 'Not found' }), {
 // D1 schema changes are applied by Wrangler migrations in CI and deploy. Never
 // initialize or alter schema from a request or cron invocation.
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env, _ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
     if (httpsRedirect) return withSecurityHeaders(httpsRedirect);
@@ -3551,7 +3546,7 @@ export default {
   // Runs on the wrangler cron trigger. Finds pending check-ins whose time has
   // come and delivers the warm, anti-shame nudge (push/text). Fully guarded:
   // an error here never affects the fetch path or the timer product.
-  async scheduled(event, env, ctx) {
+  async scheduled(event, env, _ctx) {
     const nowISO = new Date().toISOString();
     try {
       const runtimeEnv = withJwtSecretFallback(env);

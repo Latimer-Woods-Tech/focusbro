@@ -74,7 +74,7 @@ export async function getNoteSharingOptIn(env, userId) {
       `SELECT shared FROM coach_note_consent WHERE user_id = ?`
     ).bind(userId).first();
     return !!(row && Number(row.shared) === 1);
-  } catch (err) {
+  } catch {
     return false;
   }
 }

@@ -75,7 +75,7 @@ export function reportHeadlineCopy({ keptThisWeek = 0, current = 0 } = {}) {
  * @param {object} p { keptThisWeek, activeCount, current }
  * @returns {string}
  */
-export function nextStepCopy({ keptThisWeek = 0, activeCount = 0, current = 0 } = {}) {
+export function nextStepCopy({ keptThisWeek = 0, activeCount = 0 } = {}) {
   const n = Number(keptThisWeek) || 0;
   const active = Number(activeCount) || 0;
   if (active === 0) {
