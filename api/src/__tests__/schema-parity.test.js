@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const runtimeSource = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 const bootstrapSchema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+const migrationBaseline = readFileSync(new URL('../../../migrations/0000_production_schema_baseline.sql', import.meta.url), 'utf8');
 
 function tableColumns(source) {
   const tables = new Map();
@@ -36,6 +37,13 @@ function indexNames(source) {
 }
 
 describe('fresh D1 bootstrap schema', () => {
+  it('defines one dormant future billing contract', () => {
+    for (const source of [bootstrapSchema, migrationBaseline]) {
+      expect(source).toMatch(/CREATE TABLE(?: IF NOT EXISTS)? subscriptions\b/);
+      expect(source).not.toMatch(/CREATE TABLE(?: IF NOT EXISTS)? stripe_subscriptions\b/);
+    }
+  });
+
   it('contains every table and column required by runtime initialization', () => {
     const runtimeTables = tableColumns(runtimeSource);
     const bootstrapTables = tableColumns(bootstrapSchema);
