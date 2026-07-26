@@ -36,6 +36,7 @@ import {
 } from './middleware.js';
 
 const router = Router();
+const D1_SCHEMA_VERSION = '0002_email_verification';
 
 function slashRedirect(path) {
   return new Response(null, { status: 301, headers: { Location: path } });
@@ -2359,6 +2360,7 @@ router.get('/health', async (request, env) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     build_sha: env.BUILD_SHA || 'development',
+    schema_version: D1_SCHEMA_VERSION,
     cron
   }), {
     status: 200,
@@ -3371,7 +3373,9 @@ router.all('*', () => new Response(JSON.stringify({ error: 'Not found' }), {
   headers: { ...corsHeaders, 'Content-Type': 'application/json' }
 }));
 
-// ── EXPORT WITH DATABASE INITIALIZATION ──
+// ── WORKER ENTRYPOINT ──
+// D1 schema changes are applied by Wrangler migrations in CI and deploy. Never
+// initialize or alter schema from a request or cron invocation.
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
@@ -3381,9 +3385,6 @@ export default {
     const csrfRejection = rejectCrossSiteCookieMutation(request);
     if (csrfRejection) return withSecurityHeaders(csrfRejection);
 
-    // Initialize database on first request
-    await initializeDatabase(runtimeEnv);
-    
     // ✅ BEST PRACTICE: Single unified router with all endpoints
     // Call the router's fetch method which handles request routing
     const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
@@ -3400,7 +3401,6 @@ export default {
     const nowISO = new Date().toISOString();
     try {
       const runtimeEnv = withJwtSecretFallback(env);
-      await initializeDatabase(runtimeEnv);
       // PRIMARY DUTY: deliver due check-ins. Its summary IS the SLO signal —
       // failed/retry counts feed the degraded detector below.
       const delivery = await runDueCheckins(runtimeEnv, { now: nowISO, limit: 100 });
