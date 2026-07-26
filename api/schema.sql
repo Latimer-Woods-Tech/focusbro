@@ -221,7 +221,7 @@ CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_prefs(user_id);
 CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen);
 
--- ── INTEGRATIONS + CURRENT SUBSCRIPTIONS ──
+-- ── INTEGRATIONS + FUTURE BILLING CONTRACT ──
 CREATE TABLE IF NOT EXISTS slack_integrations (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL UNIQUE,
@@ -253,25 +253,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id);
-
--- ── STRIPE SUBSCRIPTIONS (billing integration) ──
-CREATE TABLE IF NOT EXISTS stripe_subscriptions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL UNIQUE,
-  stripe_customer_id TEXT UNIQUE,
-  stripe_subscription_id TEXT UNIQUE,
-  stripe_product_id TEXT,
-  tier TEXT DEFAULT 'free',
-  status TEXT DEFAULT 'active',
-  current_period_start DATETIME,
-  current_period_end DATETIME,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_stripe_user ON stripe_subscriptions(user_id);
-CREATE INDEX IF NOT EXISTS idx_stripe_customer ON stripe_subscriptions(stripe_customer_id);
 
 -- ════════════════════════════════════════════════════════════
 -- ACCOUNTABILITY CORE  (Contender track — issue #10, Phase A)

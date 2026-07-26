@@ -172,8 +172,11 @@ As of 2026-07-26, D1–D3 are complete at production build
   `schema_version` to `/health`, and makes deploy apply reviewed D1 migrations
   before publishing the Worker. A cold health test proves no D1 access or DDL.
 
-D4 remains intentionally open: dormant billing stays gated until one future
-subscription model is selected and rebuilt with its own acceptance suite.
+D4 is complete: `subscriptions` is the single documented future billing
+contract in both the migration baseline and compatibility schema;
+`stripe_subscriptions` is no longer created for fresh databases. The legacy
+billing implementation remains gated behind an absent `BILLING_ENABLED` flag
+until Stage 5 rebuilds it against this contract with its own acceptance suite.
 
 ### Webhook durability
 
