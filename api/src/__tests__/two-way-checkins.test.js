@@ -428,7 +428,7 @@ function jsonResponse(data, status = 200) {
 
 // A fuller fake DB for the webhook: resolves the user, the open check-in, and
 // records run()s. `optedOut` controls whether a START re-grant "changes" a row.
-function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null } = {}) {
+function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null, duplicate = false } = {}) {
   const runs = [];
   const db = {
     runs,
@@ -446,6 +446,9 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
         async all() { return { results: [] }; },
         async run() {
           runs.push({ sql, params });
+          if (/INSERT INTO webhook_inbox/.test(sql)) {
+            return { success: true, meta: { changes: duplicate ? 0 : 1 } };
+          }
           // START re-grant only "changes" a row when the user was opted out.
           if (/UPDATE contact_consent[\s\S]*status = 'revoked'/.test(sql)) {
             return { success: true, meta: { changes: optedOut ? 1 : 0 } };
@@ -478,7 +481,7 @@ function buildRouter(db, verifyInboundSignature = async () => true) {
   return router;
 }
 
-function inbound(text, from = '+15551234567') {
+function inbound(text, from = '+15551234567', eventId = 'evt-1') {
   return new Request('https://focusbro.net/api/webhooks/telnyx/inbound', {
     method: 'POST',
     headers: {
@@ -486,7 +489,7 @@ function inbound(text, from = '+15551234567') {
       'telnyx-timestamp': '1785000000',
       'telnyx-signature-ed25519': 'test-signature',
     },
-    body: JSON.stringify({ data: { payload: { from: { phone_number: from }, text } } }),
+    body: JSON.stringify({ data: { id: eventId, event_type: 'message.received', payload: { from: { phone_number: from }, text } } }),
   });
 }
 
@@ -514,6 +517,17 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     const invalid = await buildRouter(db, async () => false).handle(inbound('STOP'), { ...TELNYX_ENV, DB: db });
     expect(invalid.status).toBe(401);
     expect(db.runs).toEqual([]);
+  });
+
+  it('durably accepts a signed event once and acknowledges a provider retry without side effects', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText, duplicate: true });
+    const response = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    expect(await response.json()).toEqual({ ok: true, duplicate: true });
+    expect(db.runs.some((x) => /INSERT INTO webhook_inbox/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('"done" resolves the open check-in as KEPT and texts a warm confirmation', async () => {

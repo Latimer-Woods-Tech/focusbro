@@ -505,7 +505,30 @@ export function registerConsentRoutes(router, ctx) {
 
       let evt;
       try { evt = JSON.parse(raw); } catch { evt = null; }
-      const payload = evt && evt.data && evt.data.payload;
+      const event = evt && evt.data;
+      const eventId = event && typeof event.id === 'string' ? event.id : '';
+      const eventType = event && typeof event.event_type === 'string' ? event.event_type : '';
+      if (!eventId || eventType !== 'message.received') {
+        return jsonResponse({ error: 'invalid event' }, 400);
+      }
+
+      // Telnyx may retry the same signed event. Persist its provider event ID
+      // before any consent, check-in, analytics, or SMS side effect; a duplicate
+      // gets a successful acknowledgement and cannot process twice.
+      const receipt = await env.DB.prepare(
+        `INSERT INTO webhook_inbox (provider, event_id, event_type, occurred_at, raw_payload)
+         VALUES ('telnyx', ?, ?, ?, ?)
+         ON CONFLICT(provider, event_id) DO NOTHING`
+      ).bind(eventId, eventType, event.occurred_at || null, raw).run();
+      if (!(receipt && receipt.meta && receipt.meta.changes)) {
+        return jsonResponse({ ok: true, duplicate: true }, 200);
+      }
+      await env.DB.prepare(
+        `UPDATE webhook_inbox SET status = 'processing', processing_started_at = CURRENT_TIMESTAMP
+          WHERE provider = 'telnyx' AND event_id = ?`
+      ).bind(eventId).run();
+
+      const payload = event.payload;
       const from = payload && payload.from && payload.from.phone_number;
       const text = payload && typeof payload.text === 'string' ? payload.text : '';
       const phone = normalizePhone(from);
