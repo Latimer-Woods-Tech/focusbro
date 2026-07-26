@@ -268,6 +268,8 @@ CREATE TABLE IF NOT EXISTS webhook_inbox (
   completed_at DATETIME,
   failed_at DATETIME,
   last_error TEXT,
+  signature_ed25519 TEXT,
+  signed_timestamp TEXT,
   PRIMARY KEY (provider, event_id)
 );
 
