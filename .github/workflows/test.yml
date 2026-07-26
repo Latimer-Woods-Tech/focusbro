@@ -46,7 +46,7 @@ jobs:
         npx wrangler d1 migrations apply focusbro-db --local --persist-to "$state_dir" --env production
         npx wrangler d1 migrations list focusbro-db --local --persist-to "$state_dir" --env production
         npx wrangler d1 execute focusbro-db --local --persist-to "$state_dir" --env production \
-          --command 'SELECT email_verified_at FROM users LIMIT 0; SELECT token_hash FROM auth_action_tokens LIMIT 0;'
+          --command 'SELECT email_verified_at FROM users LIMIT 0; SELECT token_hash FROM auth_action_tokens LIMIT 0; SELECT data_size FROM sync_logs LIMIT 0; SELECT device_id, is_active FROM devices LIMIT 0; SELECT revision_id, idempotency_key FROM user_data_snapshots LIMIT 0;'
     
     - name: Run API tests (with coverage floor)
       run: cd api && npm run test:coverage
