@@ -17,6 +17,7 @@ triggers = { crons = ["* * * * *"] }
 binding = "DB"
 database_name = "focusbro-db"
 database_id = "f6b1685b-a879-4d42-9c23-a30da614be01"
+migrations_dir = "migrations"
 
 # Cloudflare KV Store (for user data caching)
 [[kv_namespaces]]
@@ -30,7 +31,7 @@ routes = [
   { pattern = "focusbro.net/*", zone_name = "focusbro.net" },
   { pattern = "*.focusbro.net/*", zone_name = "focusbro.net" }
 ]
-d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db" }]
+d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db", migrations_dir = "migrations" }]
 kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
 vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com" }
 triggers = { crons = ["* * * * *"] }
