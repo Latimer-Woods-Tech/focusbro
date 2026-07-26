@@ -490,6 +490,7 @@ export function registerConsentRoutes(router, ctx) {
   // lookup or state transition: an unsigned request can never reach a person's
   // contact state, even when production verification configuration is missing.
   router.post('/api/webhooks/telnyx/inbound', async (request, env) => {
+    let inboxEventId = null;
     try {
       const raw = await request.text();
 
@@ -511,6 +512,7 @@ export function registerConsentRoutes(router, ctx) {
       if (!eventId || eventType !== 'message.received') {
         return jsonResponse({ error: 'invalid event' }, 400);
       }
+      inboxEventId = eventId;
 
       // Telnyx may retry the same signed event. Persist its provider event ID
       // before any consent, check-in, analytics, or SMS side effect; a duplicate
@@ -528,24 +530,32 @@ export function registerConsentRoutes(router, ctx) {
           WHERE provider = 'telnyx' AND event_id = ?`
       ).bind(eventId).run();
 
+      const finish = async (body, status = 200) => {
+        await env.DB.prepare(
+          `UPDATE webhook_inbox SET status = 'completed', completed_at = CURRENT_TIMESTAMP, last_error = NULL
+            WHERE provider = 'telnyx' AND event_id = ?`
+        ).bind(eventId).run();
+        return jsonResponse(body, status);
+      };
+
       const payload = event.payload;
       const from = payload && payload.from && payload.from.phone_number;
       const text = payload && typeof payload.text === 'string' ? payload.text : '';
       const phone = normalizePhone(from);
-      if (!phone) return jsonResponse({ ok: true, ignored: 'no_from' }, 200);
+      if (!phone) return finish({ ok: true, ignored: 'no_from' });
 
       const user = await env.DB.prepare(`SELECT id FROM users WHERE phone = ?`).bind(phone).first();
-      if (!user) return jsonResponse({ ok: true, ignored: 'unknown_number' }, 200);
+      if (!user) return finish({ ok: true, ignored: 'unknown_number' });
 
       // ── Compliance keywords first (STOP always wins; HELP is informational) ──
       if (isStopKeyword(text)) {
         await revokeConsent(env, { userId: user.id, channel: 'text', source: 'sms' });
         await sendSms(env, phone, optOutConfirmCopy());
-        return jsonResponse({ ok: true, action: 'opted_out' }, 200);
+        return finish({ ok: true, action: 'opted_out' });
       }
       if (isHelpKeyword(text)) {
         await sendSms(env, phone, helpReplyCopy());
-        return jsonResponse({ ok: true, action: 'help' }, 200);
+        return finish({ ok: true, action: 'help' });
       }
       // START/YES only means "resume" when the person is actually opted out.
       // Otherwise a bare "yes" is an answer to a check-in, not a re-subscribe.
@@ -557,7 +567,7 @@ export function registerConsentRoutes(router, ctx) {
         ).bind(user.id).run();
         if (res && res.meta && res.meta.changes) {
           await sendSms(env, phone, optInConfirmCopy());
-          return jsonResponse({ ok: true, action: 'opted_in' }, 200);
+          return finish({ ok: true, action: 'opted_in' });
         }
         // not opted out → fall through and treat as a check-in reply
       }
@@ -580,7 +590,7 @@ export function registerConsentRoutes(router, ctx) {
 
       if (!open) {
         // Nothing to answer — acknowledge silently (never text unprompted).
-        return jsonResponse({ ok: true, action: 'no_open_checkin' }, 200);
+        return finish({ ok: true, action: 'no_open_checkin' });
       }
 
       const persona = pickPersona(open.persona);
@@ -621,9 +631,9 @@ export function registerConsentRoutes(router, ctx) {
           data: { commitment_id: open.commitment_id },
         });
         await sendSms(env, phone, smsStartHelpCopy({ persona }));
-        return jsonResponse({
+        return finish({
           ok: true, action: 'start_help', scheduled_for: checkBackAt,
-        }, 200);
+        });
       }
 
       const resolveKept = async () => {
@@ -638,7 +648,7 @@ export function registerConsentRoutes(router, ctx) {
           commitment, outcome: 'kept', note: keptNoteFromReply(text),
         });
         await sendSms(env, phone, smsKeptReplyCopy({ persona, streak: result.streak.current_streak }));
-        return jsonResponse({ ok: true, action: 'checkin_kept' }, 200);
+        return finish({ ok: true, action: 'checkin_kept' });
       };
 
       // ── Mid-conversation: we already asked "when?", so read this as a time ──
@@ -668,14 +678,14 @@ export function registerConsentRoutes(router, ctx) {
               WHERE id = ? AND user_id = ?`
           ).bind(snoozedUntil, open.checkin_id, user.id).run();
           await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
-          return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
+          return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
         }
         const whenISO = parseWhenReply(text, {
           nowISO, timezone: open.timezone, defaultTime: open.local_time,
         });
         if (!whenISO) {
           await sendSms(env, phone, smsWhenUnclearCopy({ persona }));
-          return jsonResponse({ ok: true, action: 'reschedule_when_unclear' }, 200);
+          return finish({ ok: true, action: 'reschedule_when_unclear' });
         }
         // Re-pend this check-in at the chosen time. The streak is NEVER touched —
         // a reschedule protects the chain by construction. The next recurring
@@ -698,7 +708,7 @@ export function registerConsentRoutes(router, ctx) {
         // progress, tomorrow 9am"), meet it by name — parity with the snooze path,
         // which already acknowledges progress. Still a reschedule: streak untouched.
         await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
-        return jsonResponse({ ok: true, action: 'rescheduled', scheduled_for: whenISO }, 200);
+        return finish({ ok: true, action: 'rescheduled', scheduled_for: whenISO });
       }
 
       // ── Fresh reply to a delivered nudge ──
@@ -724,7 +734,7 @@ export function registerConsentRoutes(router, ctx) {
             WHERE id = ? AND user_id = ?`
         ).bind(snoozedUntil, open.checkin_id, user.id).run();
         await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
-        return jsonResponse({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil }, 200);
+        return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
       }
 
       // ── Answered directly with a new TIME? Reschedule in one step ──
@@ -762,14 +772,14 @@ export function registerConsentRoutes(router, ctx) {
         // Same as the awaiting-time branch: a time given with reported progress
         // ("chipping away, make it 3pm") is met by name. Still a reschedule.
         await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
-        return jsonResponse({ ok: true, action: 'rescheduled', scheduled_for: directWhenISO }, 200);
+        return finish({ ok: true, action: 'rescheduled', scheduled_for: directWhenISO });
       }
 
       if (reply === null) {
         // Not DONE, not LATER, and no concrete time — ask, warmly. NEVER assume a
         // miss from a message we didn't understand; leave the check-in open.
         await sendSms(env, phone, smsAmbiguousReplyCopy({ persona }));
-        return jsonResponse({ ok: true, action: 'checkin_unclear' }, 200);
+        return finish({ ok: true, action: 'checkin_unclear' });
       }
 
       // "later" / "not yet" with no time attached → don't punt to the app. Ask
@@ -781,11 +791,23 @@ export function registerConsentRoutes(router, ctx) {
           WHERE id = ? AND user_id = ? AND status = 'sent'`
       ).bind(open.checkin_id, user.id).run();
       await sendSms(env, phone, smsAskWhenCopy({ persona }));
-      return jsonResponse({ ok: true, action: 'reschedule_ask_when' }, 200);
+      return finish({ ok: true, action: 'reschedule_ask_when' });
     } catch (err) {
       console.error('[consent] inbound webhook error:', err && err.message);
-      // Webhooks must not retry-storm on our errors; acknowledge.
-      return jsonResponse({ ok: true, action: 'error' }, 200);
+      if (inboxEventId && env && env.DB) {
+        try {
+          await env.DB.prepare(
+            `UPDATE webhook_inbox
+                SET status = 'failed', failed_at = CURRENT_TIMESTAMP, last_error = ?
+              WHERE provider = 'telnyx' AND event_id = ?`
+          ).bind(String((err && err.message) || 'processing failed').slice(0, 500), inboxEventId).run();
+        } catch (recordError) {
+          console.error('[consent] webhook failure recording error:', recordError && recordError.message);
+        }
+      }
+      // A persisted processing failure is retryable by Telnyx; never hide it
+      // behind a 200 that would strand the event in the inbox.
+      return jsonResponse({ error: 'webhook processing failed' }, 500);
     }
   });
 

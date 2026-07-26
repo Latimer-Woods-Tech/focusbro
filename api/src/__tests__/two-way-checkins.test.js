@@ -428,7 +428,7 @@ function jsonResponse(data, status = 200) {
 
 // A fuller fake DB for the webhook: resolves the user, the open check-in, and
 // records run()s. `optedOut` controls whether a START re-grant "changes" a row.
-function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null, duplicate = false } = {}) {
+function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null, duplicate = false, failUserLookup = false } = {}) {
   const runs = [];
   const db = {
     runs,
@@ -437,7 +437,10 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async first() {
-          if (/FROM users WHERE phone/.test(sql)) return user;
+          if (/FROM users WHERE phone/.test(sql)) {
+            if (failUserLookup) throw new Error('transient D1 failure');
+            return user;
+          }
           if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) return open;
           if (/FROM accountability_streaks/.test(sql)) return streak;
           if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
@@ -538,11 +541,20 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     const body = await res.json();
     expect(body.action).toBe('checkin_kept');
     expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(true);
+    expect(db.runs.some((x) => /UPDATE webhook_inbox SET status = 'completed'/.test(x.sql))).toBe(true);
     // a confirmation SMS went out
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.to).toBe('+15551234567');
     expect(sent.text.toLowerCase()).toMatch(/did the thing|you did/);
+  });
+
+  it('marks a transient processing failure and returns 5xx for Telnyx retry', async () => {
+    const db = makeWebhookDB({ open: openText, failUserLookup: true });
+    const response = await buildRouter(db).handle(inbound('done', '+15551234567', 'evt-failed'), { ...TELNYX_ENV, DB: db });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'webhook processing failed' });
+    expect(db.runs.some((x) => /SET status = 'failed'/.test(x.sql) && x.params.includes('evt-failed'))).toBe(true);
   });
 
   it('"later" ASKS when — right over text, holding the check-in for the answer (never punts to the app)', async () => {
