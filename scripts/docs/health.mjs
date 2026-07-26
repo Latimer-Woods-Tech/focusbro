@@ -69,7 +69,18 @@ const FACTORY_CHECKS = [
   },
 ];
 
+const LOCAL_CHECKS = [
+  {
+    id: 'docs.links',
+    command: nodeScript('scripts/docs/check-links.mjs'),
+    blocking: true,
+  },
+];
+
 function checksForProfile(profile) {
+  // Product repositories vendor only their owned checks. Do not pretend the
+  // Factory catalog/registry toolchain is available when it is not.
+  if (!existsSync(join(TOOLS_ROOT, 'scripts', 'docs', 'catalog.mjs'))) return LOCAL_CHECKS;
   if (profile === 'factory') return [...CORE_CHECKS.slice(0, 6), ...FACTORY_CHECKS.slice(0, 2), CORE_CHECKS[6], FACTORY_CHECKS[2]];
   if (profile === 'docs-lite') return CORE_CHECKS.filter((check) => check.id !== 'docs.diagrams' && check.id !== 'docs.catalog-refresh');
   return CORE_CHECKS;
