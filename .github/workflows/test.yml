@@ -38,6 +38,15 @@ jobs:
 
     - name: Build HTML module
       run: node create-html-module.js
+
+    - name: Apply D1 migrations to an empty local database
+      run: |
+        set -euo pipefail
+        state_dir="$(mktemp -d)"
+        npx wrangler d1 migrations apply focusbro-db --local --persist-to "$state_dir" --env production
+        npx wrangler d1 migrations list focusbro-db --local --persist-to "$state_dir" --env production
+        npx wrangler d1 execute focusbro-db --local --persist-to "$state_dir" --env production \
+          --command 'SELECT email_verified_at FROM users LIMIT 0; SELECT token_hash FROM auth_action_tokens LIMIT 0;'
     
     - name: Run API tests (with coverage floor)
       run: cd api && npm run test:coverage
