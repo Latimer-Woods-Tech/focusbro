@@ -156,6 +156,25 @@ the containment gate, but must finish before the 50–100-person cohort.
 | D3 | Remove all `CREATE`, index, and `ALTER` work from fetch and scheduled handlers. Fail deployment on migration failure rather than serving a partial schema. | Cold `/health` performs no DDL; fetch and cron tests pass against migrated D1; p95 cold latency does not regress. |
 | D4 | Reconcile `subscriptions` and `stripe_subscriptions`. Keep neither active billing contract until Stage 5 selects the canonical schema. | Fresh schema has one documented future billing model; dormant routes remain unavailable. |
 
+### D1 migration execution record
+
+As of 2026-07-26, D1–D3 are complete at production build
+`b0281efaaf149ad70b21d8ee329fc47b133a1b62`.
+
+- PR #196 introduced the immutable `0000` production-compatible baseline,
+  configured Wrangler migration discovery, documented the operating workflow,
+  and made CI apply the complete migration chain to an empty local D1.
+- The existing production schema was inventoried before its empty migration
+  ledger was baselined. Its three exact applied filenames now match the
+  repository, no remote migrations remain pending, and the pre/post real-user
+  count was unchanged.
+- PR #197 removed runtime initialization from fetch and cron, adds the expected
+  `schema_version` to `/health`, and makes deploy apply reviewed D1 migrations
+  before publishing the Worker. A cold health test proves no D1 access or DDL.
+
+D4 remains intentionally open: dormant billing stays gated until one future
+subscription model is selected and rebuilt with its own acceptance suite.
+
 ### Webhook durability
 
 | ID | Action | Acceptance test |
