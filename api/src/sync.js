@@ -66,24 +66,76 @@ export function validateSyncSnapshot(snapshot) {
 /**
  * Accept the established sync envelope or a direct snapshot without ambiguity.
  */
-export function parseSyncPayload(body) {
+export function parseSyncPayload(body, headerIdempotencyKey = null) {
   if (!isPlainObject(body)) {
     return { ok: false, error: 'Request body must be an object' };
   }
 
   const keys = Object.keys(body);
-  const isEnvelope = Object.hasOwn(body, 'data') && keys.every(key => key === 'data' || key === 'device_id');
+  const isEnvelope = Object.hasOwn(body, 'data') && keys.every(key => (
+    key === 'data' || key === 'device_id' || key === 'base_revision' || key === 'idempotency_key'
+  ));
   const data = isEnvelope ? body.data : body;
   const deviceId = isEnvelope ? body.device_id : 'web';
+  const baseRevision = isEnvelope ? body.base_revision : undefined;
+  const bodyIdempotencyKey = isEnvelope ? body.idempotency_key : undefined;
 
   if (deviceId !== undefined && (typeof deviceId !== 'string' || deviceId.length > 128)) {
     return { ok: false, error: 'device_id must be a string up to 128 characters' };
   }
 
+  if (baseRevision !== undefined && baseRevision !== null && (
+    typeof baseRevision !== 'string' || baseRevision.length < 1 || baseRevision.length > 128
+  )) {
+    return { ok: false, error: 'base_revision must be a string up to 128 characters' };
+  }
+
+  if (bodyIdempotencyKey !== undefined && (typeof bodyIdempotencyKey !== 'string' || bodyIdempotencyKey.length < 1 || bodyIdempotencyKey.length > 128)) {
+    return { ok: false, error: 'idempotency_key must be a string up to 128 characters' };
+  }
+  if (headerIdempotencyKey !== null && (headerIdempotencyKey.length < 1 || headerIdempotencyKey.length > 128)) {
+    return { ok: false, error: 'Idempotency-Key must be 1 to 128 characters' };
+  }
+  if (bodyIdempotencyKey && headerIdempotencyKey && bodyIdempotencyKey !== headerIdempotencyKey) {
+    return { ok: false, error: 'Idempotency key does not match request header' };
+  }
+
   const validation = validateSyncSnapshot(data);
   return validation.ok
-    ? { ok: true, data, deviceId: deviceId || 'web' }
+    ? {
+      ok: true,
+      data,
+      deviceId: deviceId || 'web',
+      baseRevision: baseRevision ?? null,
+      idempotencyKey: headerIdempotencyKey || bodyIdempotencyKey || null,
+    }
     : validation;
+}
+
+/**
+ * Return the current revision for a user's latest snapshot.
+ */
+export async function getLatestSyncRevision(env, userId) {
+  return env.DB.prepare(
+    `SELECT id, revision_id
+     FROM user_data_snapshots
+     WHERE user_id = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`
+  ).bind(userId).first();
+}
+
+/**
+ * Return a completed upload when a client retries its idempotency key.
+ */
+export async function findIdempotentSync(env, userId, idempotencyKey) {
+  if (!idempotencyKey) return null;
+  return env.DB.prepare(
+    `SELECT id, revision_id, size_bytes, created_at
+     FROM user_data_snapshots
+     WHERE user_id = ? AND idempotency_key = ?
+     LIMIT 1`
+  ).bind(userId, idempotencyKey).first();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -338,7 +390,7 @@ export async function deactivateDevice(env, userId, deviceId) {
 export async function getDataHistory(env, userId, limit = 10) {
   try {
     const snapshots = await env.DB.prepare(
-      `SELECT id, snapshot_size, created_at 
+      `SELECT id, size_bytes, revision_id, created_at
        FROM user_data_snapshots 
        WHERE user_id = ? 
        ORDER BY created_at DESC 
@@ -378,9 +430,9 @@ export async function restoreFromSnapshot(env, userId, snapshotId) {
 
     const dataString = JSON.stringify(restoreData);
     await env.DB.prepare(
-      `INSERT INTO user_data_snapshots (user_id, snapshot_data, snapshot_size, created_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    ).bind(userId, dataString, dataString.length).run();
+      `INSERT INTO user_data_snapshots (user_id, snapshot_data, size_bytes, revision_id, created_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`
+    ).bind(userId, dataString, dataString.length, generateUUID()).run();
 
     await recordSync(env, userId, 'web', 'data_restore', 'success', dataString.length);
 
@@ -560,9 +612,9 @@ export async function processSyncQueue(env, userId, queuedEvents) {
     // Save merged state
     const mergedString = JSON.stringify(mergedData);
     await env.DB.prepare(
-      `INSERT INTO user_data_snapshots (user_id, snapshot_data, snapshot_size, created_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    ).bind(userId, mergedString, mergedString.length).run();
+      `INSERT INTO user_data_snapshots (user_id, snapshot_data, size_bytes, revision_id, created_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`
+    ).bind(userId, mergedString, mergedString.length, generateUUID()).run();
 
     await recordSync(env, userId, 'web', 'offline_queue_process', 'success', mergedString.length);
 
@@ -577,6 +629,8 @@ export default {
   MAX_SYNC_PAYLOAD_BYTES,
   validateSyncSnapshot,
   parseSyncPayload,
+  getLatestSyncRevision,
+  findIdempotentSync,
   checkSyncAccess,
   validateSyncTier,
   resolveConflict,
