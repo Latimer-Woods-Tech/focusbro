@@ -237,7 +237,8 @@ function clockTo24(m) {
  * (soonest future); "tonight", "this afternoon", "this morning", "in the
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
  * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
- * (09:00, the start of the working day) (a bare part of day today,
+ * (09:00, the start of the working day), "lunch"/"lunchtime"/"after lunch"
+ * (13:00, the midday break) (a bare part of day today,
  * rolling to the same part of day tomorrow if it's already past);
  * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
@@ -357,9 +358,19 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // every branch (today, tomorrow, a named weekday, a date) with no branch-by-
   // branch plumbing. Checked before the bare "morning" so the explicit phrase is
   // read as such; they share the same hour, so ordering only ever helps.
+  // "lunch" / "lunchtime" / "after lunch" — the midday break, a concrete 13:00
+  // anchor that sits distinctly between "noon" (12:00) and "afternoon" (14:00). A
+  // very common casual reschedule answer ("I'll get to it after lunch"), and left
+  // unread it fell to the warm re-ask — the same quiet "he didn't get me" on the
+  // two-way text moat that "end of day" and "first thing" did. Modelled as a
+  // part-of-day so the ONE anchor composes with every branch (today, tomorrow, a
+  // named weekday, a date) with no branch-by-branch plumbing. It shares no word
+  // with the other parts of day ("lunch" is not inside "afternoon"), so ordering
+  // only ever helps; `\blunch\b` never fires inside a longer word.
   const partOfDay = /\b(eod|cob|end of (?:the )?day|close of business)\b/.test(t) ? [17, 0]
     : /\bfirst thing\b/.test(t) ? [9, 0]
     : /\bmorning\b/.test(t) ? [9, 0]
+    : /\blunch(?:\s?time)?\b/.test(t) ? [13, 0]
     : /\bafternoon\b/.test(t) ? [14, 0]
     : /\b(evening|night)\b/.test(t) ? [19, 0]
     : null;
