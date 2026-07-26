@@ -48,9 +48,11 @@ Tiers: Free / Pro ($5/month or $49/year) / Enterprise ($15/user/month).
 | Surface | URL |
 |---------|-----|
 | Production | https://focusbro.net |
-| Worker health | `curl https://focusbro.adrper79.workers.dev/health` |
+| Production health | `curl https://focusbro.net/health` |
 
-A fix is done when `curl https://focusbro.adrper79.workers.dev/health` returns `200`.
+A fix is done when `curl https://focusbro.net/health` returns `200` and reports
+the expected `build_sha`. The branded route is the production canary; do not
+use the Worker hostname as a fallback verification surface.
 
 ## Deploy
 
