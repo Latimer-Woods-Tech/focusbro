@@ -254,6 +254,26 @@ CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id);
 
+-- ── WEBHOOK INBOX (durable provider idempotency) ──
+CREATE TABLE IF NOT EXISTS webhook_inbox (
+  provider TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  occurred_at DATETIME,
+  received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  status TEXT NOT NULL DEFAULT 'received'
+    CHECK (status IN ('received', 'processing', 'completed', 'failed')),
+  raw_payload TEXT NOT NULL,
+  processing_started_at DATETIME,
+  completed_at DATETIME,
+  failed_at DATETIME,
+  last_error TEXT,
+  PRIMARY KEY (provider, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_inbox_status_received
+  ON webhook_inbox(status, received_at);
+
 -- ════════════════════════════════════════════════════════════
 -- ACCOUNTABILITY CORE  (Contender track — issue #10, Phase A)
 -- "The bro who calls to make sure you did the thing."
