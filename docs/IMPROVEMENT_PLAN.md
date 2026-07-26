@@ -190,9 +190,9 @@ until Stage 5 rebuilds it against this contract with its own acceptance suite.
 
 | ID | Action | Acceptance test |
 |---|---|---|
-| S1 | Enforce content length before JSON parsing, reduce the 10 MB ceiling to a measured product limit, validate the snapshot schema, and reject unexpected structures. | Oversized and malformed bodies return 413/400 without D1 or KV writes. |
-| S2 | Add revision IDs and idempotency so retries do not create duplicate snapshots and stale clients cannot silently overwrite newer data. | Duplicate upload creates one revision; stale revision returns 409 with recovery metadata. |
-| S3 | Add per-user request/storage quotas and snapshot pruning. Define export, deletion, and retention behavior in privacy docs. | Quota and retention tests pass; deletion removes user snapshots from D1 and KV. |
+| S1 | ✅ Shipped: 1 MiB byte limit, pre-parse content-length gate, and structural snapshot validation. | Oversized and malformed bodies return 413/400 without D1 or KV writes. |
+| S2 | ✅ Shipped: revision IDs and per-user idempotency keys prevent duplicate retries; stale bases return a recoverable 409. | Duplicate upload creates one revision; stale revision returns 409 with recovery metadata. |
+| S3 | ✅ Shipped: 60 validated uploads/hour, 10 MiB/account cap, 30-snapshot retention, and synced-data deletion from D1 and KV. | Quota and retention tests pass; deletion removes user snapshots from D1 and KV. |
 
 ## Stage 3 — Risk-weighted quality and maintainability
 
