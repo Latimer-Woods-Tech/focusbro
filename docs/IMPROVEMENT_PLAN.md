@@ -1,5 +1,5 @@
 ---
-last_updated: "2026-07-25"
+last_updated: "2026-07-26"
 owner: focusbro
 status: ratified
 ---
@@ -178,6 +178,13 @@ contract in both the migration baseline and compatibility schema;
 billing implementation remains gated behind an absent `BILLING_ENABLED` flag
 until Stage 5 rebuilds it against this contract with its own acceptance suite.
 
+PR #216 completed the previously unrepresented sync persistence contract at
+production build `ae08411c4e8cdc71ed55ac07fe6131deb6b2e7eb`: migration `0006`
+adds `sync_logs.data_size` and the `devices` table used by the sync lifecycle.
+PR #217 makes the empty-D1 CI integration step query those fields, plus sync
+snapshot revisions, after every full migration chain. This prevents the
+runtime/migration drift that exposed the gap.
+
 ### Webhook durability
 
 | ID | Action | Acceptance test |
@@ -197,6 +204,26 @@ until Stage 5 rebuilds it against this contract with its own acceptance suite.
 ## Stage 3 — Risk-weighted quality and maintainability
 
 Target: 4–7 days, delivered incrementally.
+
+### Stage 3 execution record
+
+As of 2026-07-26, the highest-risk sync and browser contracts have additional
+coverage and are production-verified:
+
+- PR #216 added lifecycle tests for device registration/deactivation, sync
+  audit logging, restoration, and offline-queue merging. The API suite is at
+  812 tests, with `sync.js` at 89.69% line coverage.
+- PR #217 extends the fresh-D1 CI integration probe to the exact sync tables
+  and columns used by those lifecycle paths.
+- PR #218 expands the mobile Playwright suite from the acquisition handoff to
+  the first accountability journey: tagged founder challenge → account
+  creation → prefilled first word → attributed commitment request.
+
+The remaining Stage 3 work is deliberately still open: real auth-lifecycle D1
+integration, response/reschedule browser coverage, mobile keyboard and
+accessibility checks, push-boundary tests, Lighthouse regression protection,
+and the static-asset/module split. These should remain independently
+reviewable PRs rather than one broad refactor.
 
 ### Tests and CI
 
