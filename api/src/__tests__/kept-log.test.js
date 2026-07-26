@@ -42,9 +42,9 @@ function makeDB({ kept = [], streak = null } = {}) {
     queries,
     prepare(sql) {
       queries.push(sql);
-      let params = [];
+      let _params = [];
       const stmt = {
-        bind(...a) { params = a; return stmt; },
+        bind(...a) { _params = a; return stmt; },
         async first() {
           if (/FROM accountability_streaks/.test(sql)) return streak;
           return null;

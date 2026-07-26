@@ -108,7 +108,7 @@ export function registerRoomRoutes(router, ctx) {
       const now = new Date().toISOString();
       // Prune stale rows opportunistically so the table stays tiny without a cron.
       const pruneCutoff = new Date(Date.now() - PRUNE_AFTER_SEC * 1000).toISOString();
-      try { await env.DB.prepare(`DELETE FROM focus_presence WHERE last_seen < ?`).bind(pruneCutoff).run(); } catch (e) { /* best-effort */ }
+      try { await env.DB.prepare(`DELETE FROM focus_presence WHERE last_seen < ?`).bind(pruneCutoff).run(); } catch { /* best-effort */ }
       await env.DB.prepare(
         `INSERT INTO focus_presence (client_id, last_seen) VALUES (?, ?)
          ON CONFLICT(client_id) DO UPDATE SET last_seen = excluded.last_seen`

@@ -188,7 +188,7 @@ describe('consent-by-construction gate (TCPA)', () => {
 
   it('never gates push (app UX, not TCPA-scoped) even with no consent row', async () => {
     const db = makeDB({ due: [pushRow()], subs: [], consent: null });
-    const s = await runDueCheckins({ DB: db, ...VAPID_ENV }, { now: '2026-07-06T14:00:00.000Z' });
+    await runDueCheckins({ DB: db, ...VAPID_ENV }, { now: '2026-07-06T14:00:00.000Z' });
     // Reaches the push path (skips only for no_subscription, not for consent).
     expect(updateFor(db, 'ci1').params).toContain('no_subscription');
   });

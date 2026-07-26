@@ -3,13 +3,11 @@
  * Handles subscription management, checkout, and webhook processing
  */
 
-import { recordSync } from './sync.js';
 
 // ════════════════════════════════════════════════════════════
 // CONSTANTS
 // ════════════════════════════════════════════════════════════
 
-const STRIPE_API_VERSION = '2023-10-16';
 const STRIPE_WEBHOOK_SECRET_HEADER = 'stripe-signature';
 
 // Stripe product pricing (from environment variables)

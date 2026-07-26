@@ -90,7 +90,7 @@ export async function getEscalationCeiling(env, userId) {
     ).bind(userId).first();
     const c = row && row.ceiling;
     return CEILING_LEVELS.includes(c) ? c : DEFAULT_CEILING;
-  } catch (err) {
+  } catch {
     return DEFAULT_CEILING;
   }
 }

@@ -4,7 +4,7 @@
 // ════════════════════════════════════════════════════════════
 
 // ── JWT VERIFICATION MIDDLEWARE ──
-export async function verifyAuth(request, env) {
+export async function verifyAuth(request, _env) {
   const authHeader = request.headers.get('Authorization');
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -27,7 +27,7 @@ export async function verifyAuth(request, env) {
     try {
       const decodedPayload = atob(parts[1]);
       payload = JSON.parse(decodedPayload);
-    } catch (parseError) {
+    } catch {
       return { valid: false, error: 'Invalid token payload' };
     }
     
@@ -44,7 +44,7 @@ export async function verifyAuth(request, env) {
       issuedAt: payload.iat,
       expiresAt: payload.exp
     };
-  } catch (error) {
+  } catch {
     return {
       valid: false,
       error: 'Token verification failed'
@@ -176,13 +176,13 @@ export function calculateDataSize(data) {
 }
 
 // ── ENCRYPTION HELPERS (Basic - upgrade to libsodium in production) ──
-export async function encryptData(data, env) {
+export async function encryptData(data, _env) {
   // For now, just stringify and store as-is
   // In production, use proper encryption with keys from env
   return JSON.stringify(data);
 }
 
-export async function decryptData(encryptedData, env) {
+export async function decryptData(encryptedData, _env) {
   // For now, just parse JSON
   // In production, use proper decryption
   return JSON.parse(encryptedData);
