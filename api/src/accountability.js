@@ -238,7 +238,8 @@ function clockTo24(m) {
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
  * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
  * (09:00, the start of the working day), "lunch"/"lunchtime"/"after lunch"
- * (13:00, the midday break) (a bare part of day today,
+ * (13:00, the midday break), "dinner"/"dinnertime"/"after dinner"
+ * (18:00, the evening meal) (a bare part of day today,
  * rolling to the same part of day tomorrow if it's already past);
  * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
@@ -367,11 +368,22 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // named weekday, a date) with no branch-by-branch plumbing. It shares no word
   // with the other parts of day ("lunch" is not inside "afternoon"), so ordering
   // only ever helps; `\blunch\b` never fires inside a longer word.
+  // "dinner" / "dinnertime" / "after dinner" — the evening meal, a concrete 18:00
+  // anchor that fills the one remaining gap between "eod"/"cob" (17:00) and
+  // "evening" (19:00). "I'll get to it after dinner" is one of the most common
+  // casual ways someone reschedules a task into the evening, and left unread it
+  // fell to the warm re-ask — the same quiet "he didn't get me" on the two-way
+  // text moat that "end of day", "first thing" and "lunch" closed. Modelled as a
+  // part-of-day so the ONE anchor composes with every branch (today, tomorrow, a
+  // named weekday, a date) with no branch-by-branch plumbing. It shares no word
+  // with the other parts of day, so ordering only ever helps; `\bdinner\b` never
+  // fires inside a longer word (e.g. "dinnerware").
   const partOfDay = /\b(eod|cob|end of (?:the )?day|close of business)\b/.test(t) ? [17, 0]
     : /\bfirst thing\b/.test(t) ? [9, 0]
     : /\bmorning\b/.test(t) ? [9, 0]
     : /\blunch(?:\s?time)?\b/.test(t) ? [13, 0]
     : /\bafternoon\b/.test(t) ? [14, 0]
+    : /\bdinner(?:\s?time)?\b/.test(t) ? [18, 0]
     : /\b(evening|night)\b/.test(t) ? [19, 0]
     : null;
   const clock = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);

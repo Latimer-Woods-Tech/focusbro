@@ -1022,6 +1022,38 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('brunch spot', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads "dinner" / "dinnertime" / "after dinner" as an 18:00 anchor that composes with every branch', () => {
+    // "I'll get to it after dinner" is one of the most common casual ways someone
+    // reschedules a task into the evening; left unread it fell to the warm re-ask
+    // (null) — the same quiet "he didn't get me" the eod / first-thing / lunch
+    // anchors closed. 18:00 = the evening meal, filling the one remaining gap
+    // between "eod"/"cob" (17:00) and "evening" (19:00). NOW is Monday 2026-07-06
+    // 15:00 UTC, so 18:00 today is still ahead → it lands TODAY.
+    expect(parseWhenReply('dinner', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('dinnertime', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('dinner time', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('after dinner', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    // Once 18:00 has passed it rolls to the SAME anchor tomorrow (never-past).
+    const PAST_DINNER = '2026-07-06T19:00:00.000Z';
+    expect(parseWhenReply('dinner', { nowISO: PAST_DINNER, timezone: 'UTC' })).toBe('2026-07-07T18:00:00.000Z');
+    // Composes with the tomorrow / day-after / weekday branches via the SAME
+    // shared part-of-day anchor — no branch-by-branch plumbing.
+    expect(parseWhenReply('tomorrow after dinner', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T18:00:00.000Z');
+    expect(parseWhenReply('day after tomorrow dinner', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T18:00:00.000Z');
+    expect(parseWhenReply('saturday dinnertime', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T18:00:00.000Z');
+    // Distinct from its neighbours — "eod" still reads 17:00 and "evening" 19:00,
+    // and "dinner" is never read as (nor swallowed by) either.
+    expect(parseWhenReply('eod', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('evening', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T19:00:00.000Z');
+    // DST-correct in the recipient zone: 18:00 local in America/New_York (EDT,
+    // UTC-4) → 22:00Z.
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('dinner', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T22:00:00.000Z');
+    // No false positive: the token matches only on word boundaries, so "dinnerware"
+    // (a real word ending past "dinner") stays the warm re-ask, never a wrong 18:00.
+    expect(parseWhenReply('buy dinnerware', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
     // Bare weekday = soonest future occurrence at the usual/default time.
     expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
