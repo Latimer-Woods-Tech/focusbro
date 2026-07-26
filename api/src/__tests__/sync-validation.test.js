@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseSyncPayload, validateSyncSnapshot } from '../sync.js';
+import {
+  MAX_SYNC_REQUESTS_PER_HOUR,
+  consumeSyncUploadQuota,
+  parseSyncPayload,
+  validateSyncSnapshot,
+} from '../sync.js';
 
 describe('sync snapshot validation', () => {
   it('accepts a direct JSON snapshot and the supported envelope', () => {
@@ -31,5 +36,17 @@ describe('sync snapshot validation', () => {
     let nested = { value: true };
     for (let depth = 0; depth < 11; depth += 1) nested = { nested };
     expect(validateSyncSnapshot(nested)).toMatchObject({ ok: false });
+  });
+
+  it('bounds validated uploads per user without sharing quota between users', async () => {
+    const values = new Map();
+    const env = { KV_CACHE: {
+      get: async key => values.get(key) || null,
+      put: async (key, value) => values.set(key, value),
+    } };
+    values.set('sync:upload:user-a', String(MAX_SYNC_REQUESTS_PER_HOUR));
+
+    await expect(consumeSyncUploadQuota(env, 'user-a')).resolves.toEqual({ allowed: false });
+    await expect(consumeSyncUploadQuota(env, 'user-b')).resolves.toMatchObject({ allowed: true });
   });
 });

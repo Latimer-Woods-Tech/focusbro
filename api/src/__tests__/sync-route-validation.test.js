@@ -40,7 +40,7 @@ async function syncRequest(body, headers = {}) {
 }
 
 function makeRevisionEnv({ replay = null, currentRevision = null } = {}) {
-  const state = { dbWrites: 0, kvWrites: 0, statements: [] };
+  const state = { dbWrites: 0, kvWrites: 0, kvDeletes: [], statements: [] };
   const db = {
     prepare(sql) {
       state.statements.push(sql);
@@ -68,7 +68,11 @@ function makeRevisionEnv({ replay = null, currentRevision = null } = {}) {
     env: {
       JWT_SECRET,
       DB: db,
-      KV_CACHE: { get: async () => null, put: async () => { state.kvWrites += 1; } },
+      KV_CACHE: {
+        get: async () => null,
+        put: async () => { state.kvWrites += 1; },
+        delete: async key => { state.kvDeletes.push(key); },
+      },
     },
   };
 }
@@ -135,7 +139,19 @@ describe('sync route input boundary', () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).revision_id).toEqual(expect.any(String));
-    expect(state.kvWrites).toBe(1);
+    expect(state.kvWrites).toBe(2); // quota counter plus latest snapshot cache
     expect(state.statements.some(sql => /size_bytes, revision_id, idempotency_key/.test(sql))).toBe(true);
+  });
+
+  it('deletes both the cached and durable synced data on a privacy request', async () => {
+    const { env, state } = makeRevisionEnv();
+    const token = await generateToken('sync-user', JWT_SECRET);
+    const response = await worker.fetch(new Request('https://focusbro.net/privacy/delete', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    }), env, {});
+
+    expect(response.status).toBe(200);
+    expect(state.kvDeletes).toEqual(['user:sync-user:latest', 'sync:upload:sync-user']);
+    expect(state.statements.some(sql => /DELETE FROM user_data_snapshots/.test(sql))).toBe(true);
   });
 });
