@@ -53,4 +53,43 @@ test.describe('FocusBro client smoke', () => {
     // No uncaught client exceptions during the smoke.
     expect(pageErrors, `page errors:\n${pageErrors.join('\n')}`).toEqual([]);
   });
+
+  test('carries a founder challenge through account creation into a first word', async ({ page }) => {
+    const commitmentBodies = [];
+    await page.route('**/auth/register', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ user: { id: 'u1' } }) });
+    });
+    await page.route('**/api/**', async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (path === '/api/commitments' && request.method() === 'POST') {
+        commitmentBodies.push(request.postDataJSON());
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ message: "Got it — I'll check in." }) });
+        return;
+      }
+      if (path === '/api/commitments') {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ commitments: [] }) });
+        return;
+      }
+      await route.fulfill({ contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto('/me/?task=open%20the%20tax%20document&when=in%2010%20minutes&source=tiktok&campaign=founder-cohort-01');
+    await expect(page.getByRole('heading', { name: 'Create an account' })).toBeVisible();
+    await page.locator('#email').fill('founder@example.com');
+    await page.locator('#password').fill('safe-password-123');
+    await page.locator('#signinForm').getByRole('button', { name: 'Create account' }).click();
+
+    await expect(page.locator('#app')).toBeVisible();
+    await expect(page.locator('#title')).toHaveValue('open the tax document');
+    await expect(page.locator('#startAt')).toHaveValue('in 10 minutes');
+    await page.locator('#commitForm').getByRole('button', { name: 'Give my word' }).click();
+    await expect(page.locator('#commitMsg')).toContainText("Got it — I'll check in.");
+
+    expect(commitmentBodies).toEqual([expect.objectContaining({
+      title: 'open the tax document',
+      when_text: 'in 10 minutes',
+      attribution: { source: 'tiktok', campaign: 'founder-cohort-01' },
+    })]);
+  });
 });
