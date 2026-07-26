@@ -4,6 +4,7 @@
 // is expected to degrade gracefully — the smoke only asserts client behavior.
 import http from 'node:http';
 import htmlContent from '../src/html.js';
+import { renderMePage } from '../src/me.js';
 
 const port = Number(process.env.PORT) || 4173;
 
@@ -13,6 +14,9 @@ http
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(htmlContent);
+    } else if (path === '/me/' || path === '/me') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(renderMePage());
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('not found');
