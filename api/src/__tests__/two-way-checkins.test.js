@@ -892,6 +892,37 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('day after tomorrow 3pm', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-08T19:00:00.000Z');
   });
 
+  it('reads "end of day" / "eod" / "cob" as a 17:00 anchor that composes with every branch', () => {
+    // A concrete, unambiguous reschedule answer ("I'll get to the taxes end of
+    // day") that used to fall to the warm re-ask (null) — a quiet "he didn't get
+    // me" on the two-way text moat. 17:00 sits distinctly between afternoon
+    // (14:00) and evening (19:00). NOW is Monday 2026-07-06 15:00 UTC, so 17:00
+    // today is still ahead.
+    expect(parseWhenReply('end of day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('eod', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('cob', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('end of the day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('close of business', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // Early in the day it still lands TODAY at 17:00, not a null.
+    const MORNING = '2026-07-06T08:00:00.000Z';
+    expect(parseWhenReply('end of day', { nowISO: MORNING, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // Once 17:00 has passed it rolls to the SAME anchor tomorrow (never-past),
+    // mirroring the other parts of day — never a null.
+    const PAST_EOD = '2026-07-06T18:00:00.000Z';
+    expect(parseWhenReply('eod', { nowISO: PAST_EOD, timezone: 'UTC' })).toBe('2026-07-07T17:00:00.000Z');
+    // Composes with the tomorrow / day-after / weekday branches via the SAME
+    // shared part-of-day anchor — no branch-by-branch plumbing.
+    expect(parseWhenReply('tomorrow eod', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T17:00:00.000Z');
+    expect(parseWhenReply('day after tomorrow end of day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T17:00:00.000Z');
+    expect(parseWhenReply('saturday cob', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T17:00:00.000Z');
+    // DST-correct in the recipient zone: 17:00 local in America/New_York (EDT,
+    // UTC-4) → 21:00Z.
+    expect(parseWhenReply('end of day', { nowISO: MORNING, timezone: 'America/New_York' })).toBe('2026-07-06T21:00:00.000Z');
+    // No false positive: the tokens only match on word boundaries, so "cob"
+    // inside "cobweb" (and no other time) stays the warm re-ask, never a wrong 17:00.
+    expect(parseWhenReply('cobweb duty', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads a named weekday within the two-week horizon (NOW is Monday 2026-07-06)', () => {
     // Bare weekday = soonest future occurrence at the usual/default time.
     expect(parseWhenReply('tuesday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');

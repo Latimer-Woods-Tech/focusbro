@@ -235,7 +235,8 @@ function clockTo24(m) {
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
  * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
  * (soonest future); "tonight", "this afternoon", "this morning", "in the
- * morning", "in the afternoon", "in the evening" (a bare part of day today,
+ * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
+ * (17:00, the close of the working day) (a bare part of day today,
  * rolling to the same part of day tomorrow if it's already past);
  * "tomorrow", "tomorrow 9am", "tomorrow morning";
  * a named weekday within the next two weeks — "monday", "mon 3pm", "saturday
@@ -335,7 +336,18 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   const wantsDayAfterTomorrow = /\bday after (tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTomorrow = /\b(tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTonight = /\b(tonight|this evening)\b/.test(t);
-  const partOfDay = /\bmorning\b/.test(t) ? [9, 0]
+  // "end of day" / "eod" / "cob" — the conventional close of the working day, a
+  // concrete 17:00 anchor that sits distinctly between "afternoon" (14:00) and
+  // "evening" (19:00). A very common, unambiguous reschedule answer ("I'll get to
+  // the taxes end of day") that, left unread, fell to the warm re-ask — a quiet
+  // "he didn't get me" on the two-way text channel that is the moat while voice
+  // is gated. Modelled as a part-of-day so the ONE anchor composes with every
+  // branch (today, tomorrow, a named weekday, a calendar date) exactly the way
+  // "morning"/"evening" already do — no branch-by-branch plumbing. Checked first
+  // so the explicit phrase wins; it shares no words with the other parts of day,
+  // so ordering only ever helps.
+  const partOfDay = /\b(eod|cob|end of (?:the )?day|close of business)\b/.test(t) ? [17, 0]
+    : /\bmorning\b/.test(t) ? [9, 0]
     : /\bafternoon\b/.test(t) ? [14, 0]
     : /\b(evening|night)\b/.test(t) ? [19, 0]
     : null;
