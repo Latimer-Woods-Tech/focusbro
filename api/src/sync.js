@@ -7,6 +7,85 @@
 import { errorResponse, successResponse, generateUUID } from './middleware.js';
 import { recordEvent } from './events.js';
 
+// Keep a sync snapshot comfortably below browser storage limits and small enough
+// to validate at the edge without turning an upload into an expensive request.
+export const MAX_SYNC_PAYLOAD_BYTES = 1024 * 1024;
+const MAX_SYNC_DEPTH = 10;
+const MAX_SYNC_NODES = 10_000;
+const MAX_SYNC_ROOT_KEYS = 256;
+const MAX_SYNC_ARRAY_ITEMS = 2_000;
+const UNSAFE_SYNC_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Validate a JSON snapshot before it is persisted to D1 or KV.
+ */
+export function validateSyncSnapshot(snapshot) {
+  if (!isPlainObject(snapshot) || Object.keys(snapshot).length === 0) {
+    return { ok: false, error: 'Data must be a non-empty object' };
+  }
+
+  if (Object.keys(snapshot).length > MAX_SYNC_ROOT_KEYS) {
+    return { ok: false, error: 'Data has too many top-level fields' };
+  }
+
+  let nodes = 0;
+  const visit = (value, depth) => {
+    nodes += 1;
+    if (nodes > MAX_SYNC_NODES) return 'Data has too many values';
+    if (depth > MAX_SYNC_DEPTH) return 'Data is nested too deeply';
+    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return null;
+
+    if (Array.isArray(value)) {
+      if (value.length > MAX_SYNC_ARRAY_ITEMS) return 'Data contains an oversized list';
+      for (const item of value) {
+        const error = visit(item, depth + 1);
+        if (error) return error;
+      }
+      return null;
+    }
+
+    if (!isPlainObject(value)) return 'Data contains an unsupported value';
+    for (const [key, item] of Object.entries(value)) {
+      if (UNSAFE_SYNC_KEYS.has(key)) return 'Data contains an unsafe field name';
+      const error = visit(item, depth + 1);
+      if (error) return error;
+    }
+    return null;
+  };
+
+  const error = visit(snapshot, 0);
+  return error ? { ok: false, error } : { ok: true };
+}
+
+/**
+ * Accept the established sync envelope or a direct snapshot without ambiguity.
+ */
+export function parseSyncPayload(body) {
+  if (!isPlainObject(body)) {
+    return { ok: false, error: 'Request body must be an object' };
+  }
+
+  const keys = Object.keys(body);
+  const isEnvelope = Object.hasOwn(body, 'data') && keys.every(key => key === 'data' || key === 'device_id');
+  const data = isEnvelope ? body.data : body;
+  const deviceId = isEnvelope ? body.device_id : 'web';
+
+  if (deviceId !== undefined && (typeof deviceId !== 'string' || deviceId.length > 128)) {
+    return { ok: false, error: 'device_id must be a string up to 128 characters' };
+  }
+
+  const validation = validateSyncSnapshot(data);
+  return validation.ok
+    ? { ok: true, data, deviceId: deviceId || 'web' }
+    : validation;
+}
+
 // ════════════════════════════════════════════════════════════
 // SUBSCRIPTION TIER VALIDATION
 // ════════════════════════════════════════════════════════════
@@ -495,6 +574,9 @@ export async function processSyncQueue(env, userId, queuedEvents) {
 }
 
 export default {
+  MAX_SYNC_PAYLOAD_BYTES,
+  validateSyncSnapshot,
+  parseSyncPayload,
   checkSyncAccess,
   validateSyncTier,
   resolveConflict,
