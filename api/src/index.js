@@ -1611,25 +1611,46 @@ router.post('/sync/data', async (request, env) => {
       return tierCheckResult.response;
     }
     
-    const body = await request.json();
-    
-    // Accept data either as { data: {...} } or directly as {...}
-    const data = body.data || body;
-    
-    if (!data || Object.keys(data).length === 0) {
+    const declaredSize = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(declaredSize) && declaredSize > syncModule.MAX_SYNC_PAYLOAD_BYTES) {
+      return new Response(JSON.stringify({ error: 'Data too large (max 1MB)' }), {
+        status: 413,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const rawBody = await request.text();
+    const rawBodySize = new TextEncoder().encode(rawBody).byteLength;
+    if (rawBodySize > syncModule.MAX_SYNC_PAYLOAD_BYTES) {
+      return new Response(JSON.stringify({ error: 'Data too large (max 1MB)' }), {
+        status: 413,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return new Response(JSON.stringify({ error: 'Malformed JSON payload' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const parsedPayload = syncModule.parseSyncPayload(body);
+    if (!parsedPayload.ok) {
       return new Response(JSON.stringify({ error: 'Data required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
-    
+
+    const { data, deviceId } = parsedPayload;
     const dataString = JSON.stringify(data);
-    const dataSize = dataString.length;
-    
-    // Limit data size (avoid abuse - max 10MB per sync)
-    const MAX_SYNC_SIZE = 10 * 1024 * 1024;
-    if (dataSize > MAX_SYNC_SIZE) {
-      return new Response(JSON.stringify({ error: 'Data too large (max 10MB)' }), {
+    const dataSize = new TextEncoder().encode(dataString).byteLength;
+    if (dataSize > syncModule.MAX_SYNC_PAYLOAD_BYTES) {
+      return new Response(JSON.stringify({ error: 'Data too large (max 1MB)' }), {
         status: 413,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -1649,7 +1670,6 @@ router.post('/sync/data', async (request, env) => {
       ).bind(userId, dataString, dataSize).run();
       
       // Record sync in logs
-      const deviceId = body.device_id || 'web';
       await syncModule.recordSync(env, userId, deviceId, 'data_upload', 'success', dataSize);
       
       return jsonResponse({
@@ -1660,14 +1680,15 @@ router.post('/sync/data', async (request, env) => {
       }, 200, 'short');
     } catch (error) {
       console.error('[SYNC] Data upload error:', error.message);
-      await syncModule.recordSync(env, userId, body.device_id || 'web', 'data_upload', 'error', 0);
+      await syncModule.recordSync(env, userId, deviceId, 'data_upload', 'error', 0);
       return new Response(JSON.stringify({ error: 'Failed to sync data' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('[SYNC] Request error:', error.message);
+    return new Response(JSON.stringify({ error: 'Failed to process sync request' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
