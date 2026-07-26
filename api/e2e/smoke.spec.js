@@ -92,4 +92,35 @@ test.describe('FocusBro client smoke', () => {
       attribution: { source: 'tiktok', campaign: 'founder-cohort-01' },
     })]);
   });
+
+  test('turns an honest “not yet” into a warm reschedule instead of a dead end', async ({ page }) => {
+    const checkinBodies = [];
+    await page.route('**/auth/session', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: '{}' });
+    });
+    await page.route('**/api/**', async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (path === '/api/commitments' && request.method() === 'GET') {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ commitments: [{
+          id: 'commitment-1', title: 'open the tax document', status: 'active',
+          start_at: '2026-07-26T18:00:00.000Z', checkin_at: '2026-07-26T18:00:00.000Z', recurrence: 'none',
+        }] }) });
+        return;
+      }
+      if (path === '/api/commitments/commitment-1/checkin') {
+        checkinBodies.push(request.postDataJSON());
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ message: 'No problem — moved it.' }) });
+        return;
+      }
+      await route.fulfill({ contentType: 'application/json', body: '{}' });
+    });
+    page.on('dialog', (dialog) => dialog.accept('after dinner'));
+
+    await page.goto('/me/');
+    await expect(page.locator('#app')).toBeVisible();
+    await page.getByRole('button', { name: 'Not yet' }).click();
+    await expect(page.locator('[data-msg="commitment-1"]')).toContainText('No problem — moved it.');
+    expect(checkinBodies).toEqual([{ outcome: 'reschedule', when_text: 'after dinner' }]);
+  });
 });
