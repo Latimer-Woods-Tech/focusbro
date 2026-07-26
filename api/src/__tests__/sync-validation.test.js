@@ -11,6 +11,10 @@ describe('sync snapshot validation', () => {
       ok: true,
       deviceId: 'phone',
     });
+    expect(parseSyncPayload(
+      { data: { energyLogs: [] }, base_revision: 'rev-1', idempotency_key: 'retry-1' },
+      'retry-1',
+    )).toMatchObject({ ok: true, baseRevision: 'rev-1', idempotencyKey: 'retry-1' });
   });
 
   it('rejects malformed snapshot shapes before persistence', () => {
@@ -18,6 +22,7 @@ describe('sync snapshot validation', () => {
     expect(parseSyncPayload({ data: [] })).toMatchObject({ ok: false });
     expect(parseSyncPayload({ data: {}, device_id: 'phone' })).toMatchObject({ ok: false });
     expect(parseSyncPayload({ data: { sessionCount: 1 }, device_id: 4 })).toMatchObject({ ok: false });
+    expect(parseSyncPayload({ data: { sessionCount: 1 }, idempotency_key: 'body' }, 'header')).toMatchObject({ ok: false });
   });
 
   it('rejects unsafe keys and excessive nesting', () => {

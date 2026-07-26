@@ -36,7 +36,7 @@ import {
 } from './middleware.js';
 
 const router = Router();
-const D1_SCHEMA_VERSION = '0002_email_verification';
+const D1_SCHEMA_VERSION = '0005_sync_revisions';
 
 function slashRedirect(path) {
   return new Response(null, { status: 301, headers: { Location: path } });
@@ -1584,6 +1584,17 @@ function getAuthToken(request) {
   return cookieValue(request, SESSION_COOKIE_NAME);
 }
 
+function idempotentSyncResponse(snapshot) {
+  return jsonResponse({
+    success: true,
+    idempotent_replay: true,
+    synced_at: snapshot.created_at,
+    size_bytes: snapshot.size_bytes,
+    snapshot_id: snapshot.id,
+    revision_id: snapshot.revision_id,
+  }, 200, 'short');
+}
+
 // ── SYNC USER DATA (Store/Update) ──
 router.post('/sync/data', async (request, env) => {
   try {
@@ -1638,7 +1649,7 @@ router.post('/sync/data', async (request, env) => {
       });
     }
 
-    const parsedPayload = syncModule.parseSyncPayload(body);
+    const parsedPayload = syncModule.parseSyncPayload(body, request.headers.get('Idempotency-Key'));
     if (!parsedPayload.ok) {
       return new Response(JSON.stringify({ error: 'Data required' }), {
         status: 400,
@@ -1646,7 +1657,7 @@ router.post('/sync/data', async (request, env) => {
       });
     }
 
-    const { data, deviceId } = parsedPayload;
+    const { data, deviceId, baseRevision, idempotencyKey } = parsedPayload;
     const dataString = JSON.stringify(data);
     const dataSize = new TextEncoder().encode(dataString).byteLength;
     if (dataSize > syncModule.MAX_SYNC_PAYLOAD_BYTES) {
@@ -1655,6 +1666,24 @@ router.post('/sync/data', async (request, env) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    const idempotentSnapshot = await syncModule.findIdempotentSync(env, userId, idempotencyKey);
+    if (idempotentSnapshot) {
+      return idempotentSyncResponse(idempotentSnapshot);
+    }
+
+    const latestSnapshot = await syncModule.getLatestSyncRevision(env, userId);
+    const currentRevision = latestSnapshot?.revision_id || null;
+    if (baseRevision !== currentRevision) {
+      return jsonResponse({
+        error: 'Sync conflict',
+        code: 'stale_revision',
+        current_revision: currentRevision,
+        recovery: 'Fetch the latest snapshot, merge your local changes, then retry with current_revision.',
+      }, 409, 'short');
+    }
+
+    const revisionId = generateUUID();
     
     try {
       // Store in KV for fast access
@@ -1664,10 +1693,25 @@ router.post('/sync/data', async (request, env) => {
       });
       
       // Store in D1 for archival
-      const snapshotId = await env.DB.prepare(
-        `INSERT INTO user_data_snapshots (user_id, snapshot_data, snapshot_size, created_at)
-         VALUES (?, ?, ?, datetime('now'))`
-      ).bind(userId, dataString, dataSize).run();
+      const snapshotResult = await env.DB.prepare(
+        `INSERT INTO user_data_snapshots
+          (user_id, snapshot_data, size_bytes, revision_id, idempotency_key, created_at)
+         SELECT ?, ?, ?, ?, ?, datetime('now')
+         WHERE NOT EXISTS (
+           SELECT 1 FROM user_data_snapshots
+           WHERE user_id = ? AND revision_id IS NOT ?
+         )`
+      ).bind(userId, dataString, dataSize, revisionId, idempotencyKey, userId, baseRevision).run();
+
+      if (snapshotResult.meta?.changes === 0) {
+        const latest = await syncModule.getLatestSyncRevision(env, userId);
+        return jsonResponse({
+          error: 'Sync conflict',
+          code: 'stale_revision',
+          current_revision: latest?.revision_id || null,
+          recovery: 'Fetch the latest snapshot, merge your local changes, then retry with current_revision.',
+        }, 409, 'short');
+      }
       
       // Record sync in logs
       await syncModule.recordSync(env, userId, deviceId, 'data_upload', 'success', dataSize);
@@ -1676,10 +1720,13 @@ router.post('/sync/data', async (request, env) => {
         success: true,
         synced_at: new Date().toISOString(),
         size_bytes: dataSize,
-        snapshot_id: snapshotId
+        snapshot_id: snapshotResult.meta?.last_row_id || null,
+        revision_id: revisionId,
       }, 200, 'short');
     } catch (error) {
       console.error('[SYNC] Data upload error:', error.message);
+      const replay = await syncModule.findIdempotentSync(env, userId, idempotencyKey);
+      if (replay) return idempotentSyncResponse(replay);
       await syncModule.recordSync(env, userId, deviceId, 'data_upload', 'error', 0);
       return new Response(JSON.stringify({ error: 'Failed to sync data' }), {
         status: 500,
@@ -1728,11 +1775,13 @@ router.get('/sync/data', async (request, env) => {
     
     if (data) {
       try {
+        const latestSnapshot = await syncModule.getLatestSyncRevision(env, userId);
         await syncModule.recordSync(env, userId, 'web', 'data_download', 'success', data.length);
         return new Response(JSON.stringify({
           success: true,
           data: JSON.parse(data),
-          source: 'cache'
+          source: 'cache',
+          revision_id: latestSnapshot?.revision_id || null,
         }), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -1745,9 +1794,9 @@ router.get('/sync/data', async (request, env) => {
     
     // Fallback to D1 (slower but persistent)
     const snapshot = await env.DB.prepare(
-      `SELECT snapshot_data FROM user_data_snapshots 
+      `SELECT snapshot_data, revision_id FROM user_data_snapshots
        WHERE user_id = ? 
-       ORDER BY created_at DESC 
+       ORDER BY created_at DESC, id DESC
        LIMIT 1`
     ).bind(userId).first();
     
@@ -1766,9 +1815,10 @@ router.get('/sync/data', async (request, env) => {
       const parsedData = JSON.parse(snapshot.snapshot_data);
       await syncModule.recordSync(env, userId, 'web', 'data_download', 'success', snapshot.snapshot_data.length);
       return new Response(JSON.stringify({
-        success: true,
-        data: parsedData,
-        source: 'database'
+          success: true,
+          data: parsedData,
+          source: 'database',
+          revision_id: snapshot.revision_id || null,
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
