@@ -1308,7 +1308,13 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (msgHost) { msgHost.textContent = res.b.message || res.b.error || ''; msgHost.className = 'msg ' + (res.ok ? 'ok' : 'err'); }
-        if (res.ok) { loadStreak(); loadList(); loadKept(); }
+        if (res.ok) {
+          loadStreak(); loadKept();
+          // Keep the ally's confirmation on screen long enough to be read.
+          // Rendering the refreshed list immediately replaces the card and used
+          // to erase the successful “not yet” / reschedule acknowledgement.
+          window.setTimeout(loadList, 1200);
+        }
       })
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not record that just now — your word still counts. Try again.'; msgHost.className = 'msg err'; } });
   }
@@ -1499,7 +1505,14 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (act === 'view') { openDetail(id); return; }
     if (act === 'edit-save') { saveEdit(id); return; }
     if (act === 'edit-cancel') { closeEdit(id); return; }
-    if (act === 'missed') { resolve(id, 'missed'); return; }
+    if (act === 'missed') {
+      // “Not yet” is an opening, never a terminal failure state. Ask for the
+      // next workable moment and use the same warm reschedule path as “Move it.”
+      var notYetWhen = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
+      if (!notYetWhen || !notYetWhen.trim()) return;
+      resolve(id, 'reschedule', { when_text: notYetWhen.trim() });
+      return;
+    }
     if (act === 'release') {
       if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }
       return;
