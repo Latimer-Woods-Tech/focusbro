@@ -523,12 +523,24 @@ export function registerConsentRoutes(router, ctx) {
          ON CONFLICT(provider, event_id) DO NOTHING`
       ).bind(eventId, eventType, event.occurred_at || null, raw).run();
       if (!(receipt && receipt.meta && receipt.meta.changes)) {
-        return jsonResponse({ ok: true, duplicate: true }, 200);
+        // A provider retry may be the recovery path for an event we explicitly
+        // recorded as failed. Claim only that terminal failure state; completed
+        // and already-processing rows are immutable duplicate acknowledgements.
+        const reclaim = await env.DB.prepare(
+          `UPDATE webhook_inbox
+              SET status = 'processing', processing_started_at = CURRENT_TIMESTAMP,
+                  failed_at = NULL, last_error = NULL
+            WHERE provider = 'telnyx' AND event_id = ? AND status = 'failed'`
+        ).bind(eventId).run();
+        if (!(reclaim && reclaim.meta && reclaim.meta.changes)) {
+          return jsonResponse({ ok: true, duplicate: true }, 200);
+        }
+      } else {
+        await env.DB.prepare(
+          `UPDATE webhook_inbox SET status = 'processing', processing_started_at = CURRENT_TIMESTAMP
+            WHERE provider = 'telnyx' AND event_id = ?`
+        ).bind(eventId).run();
       }
-      await env.DB.prepare(
-        `UPDATE webhook_inbox SET status = 'processing', processing_started_at = CURRENT_TIMESTAMP
-          WHERE provider = 'telnyx' AND event_id = ?`
-      ).bind(eventId).run();
 
       const finish = async (body, status = 200) => {
         await env.DB.prepare(

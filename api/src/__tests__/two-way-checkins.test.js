@@ -428,7 +428,7 @@ function jsonResponse(data, status = 200) {
 
 // A fuller fake DB for the webhook: resolves the user, the open check-in, and
 // records run()s. `optedOut` controls whether a START re-grant "changes" a row.
-function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null, duplicate = false, failUserLookup = false } = {}) {
+function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, streak = null, duplicate = false, retryFailed = false, failUserLookup = false } = {}) {
   const runs = [];
   const db = {
     runs,
@@ -451,6 +451,9 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
           runs.push({ sql, params });
           if (/INSERT INTO webhook_inbox/.test(sql)) {
             return { success: true, meta: { changes: duplicate ? 0 : 1 } };
+          }
+          if (/event_id = \? AND status = 'failed'/.test(sql)) {
+            return { success: true, meta: { changes: retryFailed ? 1 : 0 } };
           }
           // START re-grant only "changes" a row when the user was opted out.
           if (/UPDATE contact_consent[\s\S]*status = 'revoked'/.test(sql)) {
@@ -531,6 +534,15 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO webhook_inbox/.test(x.sql))).toBe(true);
     expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reclaims a failed event when Telnyx retries it', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText, duplicate: true, retryFailed: true, streak: { current_streak: 1 } });
+    const response = await buildRouter(db).handle(inbound('done', '+15551234567', 'evt-retry'), { ...TELNYX_ENV, DB: db });
+    expect((await response.json()).action).toBe('checkin_kept');
+    expect(db.runs.some((x) => /status = 'failed'/.test(x.sql) && x.params.includes('evt-retry'))).toBe(true);
   });
 
   it('"done" resolves the open check-in as KEPT and texts a warm confirmation', async () => {
