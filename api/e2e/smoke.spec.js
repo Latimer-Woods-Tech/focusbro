@@ -123,4 +123,16 @@ test.describe('FocusBro client smoke', () => {
     await expect(page.locator('[data-msg="commitment-1"]')).toContainText('No problem — moved it.');
     expect(checkinBodies).toEqual([{ outcome: 'reschedule', when_text: 'after dinner' }]);
   });
+
+  test('renders a stored meeting name as text, never markup', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
+    await page.goto('/');
+    await page.locator('#meetingName').fill('<img src=x onerror="window.meetingXss=true">Study');
+    await page.locator('#meetingTime').fill('23:59');
+    await page.locator('button[onclick="setMeeting()"]').evaluate((button) => button.click());
+
+    await expect(page.locator('#meetingDisplay .meeting-name')).toHaveText('<img src=x onerror="window.meetingXss=true">Study');
+    await expect(page.locator('#meetingDisplay img')).toHaveCount(0);
+    expect(await page.evaluate(() => window.meetingXss)).toBeUndefined();
+  });
 });

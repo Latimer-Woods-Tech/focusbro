@@ -3380,7 +3380,7 @@ function renderMeeting() {
   const display = document.getElementById('meetingDisplay');
 
   if (diff <= 0) {
-    display.innerHTML = `<div class="meeting-name">${meetingData.name}</div><div class="meeting-countdown-time" style="color:var(--danger)">NOW!</div>`;
+    display.innerHTML = `<div class="meeting-name">${escapeHtml(meetingData.name)}</div><div class="meeting-countdown-time" style="color:var(--danger)">NOW!</div>`;
     clearInterval(meetingInterval);
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('FocusBro', { body: `${meetingData.name} is starting NOW!` });
@@ -3393,7 +3393,7 @@ function renderMeeting() {
   const s = Math.floor((diff % 60000) / 1000);
 
   display.innerHTML = `
-    <div class="meeting-name">${meetingData.name}</div>
+    <div class="meeting-name">${escapeHtml(meetingData.name)}</div>
     <div class="meeting-countdown-time">${h > 0 ? h + 'h ' : ''}${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s</div>
     <div class="meeting-countdown-label">until meeting</div>
   `;
