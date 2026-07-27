@@ -35,6 +35,7 @@
 
 import {
   detectCheckinReply,
+  parseSnoozeMinutes,
   isStartHelpReply,
   isProgressReply,
   keptNoteFromReply,
@@ -684,13 +685,16 @@ export function registerConsentRoutes(router, ctx) {
         // runs RESCHEDULE before SNOOZE, so it returns 'reschedule' and falls
         // through to the time parse below, which warmly re-asks for a time.
         if (awaitingReply === 'snooze') {
-          const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
+          // Check back WHEN they said ("gimme 20", "in an hour"), not at a fixed
+          // default; no named interval keeps the default. Clamped, streak-safe.
+          const minutes = parseSnoozeMinutes(text) ?? SNOOZE_DEFAULT_MIN;
+          const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
           await env.DB.prepare(
             `UPDATE commitment_checkins
                 SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
               WHERE id = ? AND user_id = ?`
           ).bind(snoozedUntil, open.checkin_id, user.id).run();
-          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
           return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
         }
         const whenISO = parseWhenReply(text, {
@@ -740,13 +744,16 @@ export function registerConsentRoutes(router, ctx) {
       // resolution and not a miss, by construction. On the next return they can
       // still say DONE or LATER. Runs before the direct-time/ambiguous fallbacks.
       if (reply === 'snooze') {
-        const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
+        // Honor a stated hold-length ("on it, give me 20", "still working, check
+        // back in an hour"); no named interval keeps the default. Clamped, streak-safe.
+        const minutes = parseSnoozeMinutes(text) ?? SNOOZE_DEFAULT_MIN;
+        const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
         await env.DB.prepare(
           `UPDATE commitment_checkins
               SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
             WHERE id = ? AND user_id = ?`
         ).bind(snoozedUntil, open.checkin_id, user.id).run();
-        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
+        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
         return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
       }
 
