@@ -1560,6 +1560,23 @@ export function detectCheckinReply(text) {
   // "…, tomorrow" always wins. A bare "in a bit/sec/moment" carries no number, so
   // it never collides with an "in 20 minutes" reschedule target.
   const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on|hang tight|sit tight|bear with me|brb|be right back|(?:one|just a|a) moment|just a (?:sec|second|min|minute|moment)|in a (?:bit|sec|second|min|minute|moment)|(?:a )?(?:little|bit|while) longer|(?:need|want|(?:a )?(?:little|bit)) more time|shortly|momentarily)\b/;
+  // Flow-state slang is the SAME third answer, said by the MOST engaged person:
+  // asked "you doing it?", the head-down ADHD user texts back "in the zone",
+  // "locked in", "grinding", "on a roll", "heads down", "in the weeds". None of
+  // these carry an "on it"/"still working" marker word, a number, or a
+  // done/later word, so they fell through to the cold "I couldn't read that time"
+  // / "reply DONE or LATER" on both SMS paths — the coldest reply to the single
+  // most engaged message on the live two-way moat. Read the whole family as the
+  // third answer (a snooze) and re-arm the nudge at the default interval (no
+  // length stated → R-270 keeps SNOOZE_DEFAULT_MIN). Deliberately excludes the
+  // disengaged look-alikes so a real miss/distraction can never be read as
+  // "check back": "zoned OUT" (spaced out) and "locked OUT" (done for the day)
+  // never match the `in`-anchored forms, and "cooking" is left out entirely
+  // because "cooking dinner" is a genuine distraction, not flow. Every form is
+  // `\b`-anchored and the `not` guard below keeps a negated "not in the zone"
+  // out — RESCHEDULE and KEPT still run first, so "later, in the zone elsewhere"
+  // stays a reschedule and "done, was in the zone" stays kept.
+  const FLOW = /\b(in the zone|zoned in|dialed in|locked in|heads? down|deep in (?:it|the weeds)|deep into it|in the weeds|on a roll|in the groove|beast mode|cranking(?: away| through)?|plugging away|grinding(?: away)?|in (?:the |a )?flow|flow state)\b/;
   // Partial progress is the SAME third answer, said the other way round. "halfway",
   // "made a start", "chipping away", "in progress" all mean *I'm mid-thing, check
   // back* — an engaged person, never done, never a miss. Most of these used to fall
@@ -1578,6 +1595,12 @@ export function detectCheckinReply(text) {
   if (KEPT.test(t)) return 'kept';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
+  // Flow-state slang ("in the zone", "locked in", "grinding", "on a roll") — the
+  // most engaged reply, the same third answer. RESCHEDULE / KEPT / progress /
+  // marker-word SNOOZE have all run first, so a completion or a "later"/"tomorrow"
+  // always wins; only a residual flow-state phrase reaches here. Streak-safe by
+  // construction — a snooze is not a resolution and not a miss.
+  if (FLOW.test(t) && !/\bnot\b/.test(t)) return 'snooze';
   // The third answer said as a bare length, no marker word: "give me 20", "an
   // hour", "30 more minutes", "half an hour". RESCHEDULE/KEPT/progress/marker-word
   // SNOOZE have all run first, so a completion or a "later"/"tomorrow" always wins;
