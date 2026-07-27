@@ -1548,7 +1548,18 @@ export function detectCheckinReply(text) {
   // run first, so "on it done" stays kept and any negation stays a reschedule. A
   // residual bare "not on it" is guarded out below (it falls through to the warm
   // ask, never a wrong snooze) rather than being read as "check back."
-  const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on)\b/;
+  // The "hold on / give me more time" family is the same third answer said as a
+  // plea for a little more room, not a resolution and not a "later": "a bit
+  // longer", "need more time", "hang tight", "bear with me", "brb", "one moment",
+  // "in a bit", "shortly". These are the actively-doing-it user asking the bro to
+  // swing back — yet without a marker word they fell through to the cold "I
+  // couldn't read that time" on both SMS paths. Each alternative is guarded so it
+  // can't steal a genuine reschedule: "no longer" (never anymore) can't match the
+  // qualifier-required `(?:little|bit|while) longer`, and "no more time" can't
+  // match the qualifier-required more-time form; RESCHEDULE still runs first, so a
+  // "…, tomorrow" always wins. A bare "in a bit/sec/moment" carries no number, so
+  // it never collides with an "in 20 minutes" reschedule target.
+  const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on|hang tight|sit tight|bear with me|brb|be right back|(?:one|just a|a) moment|just a (?:sec|second|min|minute|moment)|in a (?:bit|sec|second|min|minute|moment)|(?:a )?(?:little|bit|while) longer|(?:need|want|(?:a )?(?:little|bit)) more time|shortly|momentarily)\b/;
   // Partial progress is the SAME third answer, said the other way round. "halfway",
   // "made a start", "chipping away", "in progress" all mean *I'm mid-thing, check
   // back* — an engaged person, never done, never a miss. Most of these used to fall
