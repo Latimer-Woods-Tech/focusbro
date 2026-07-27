@@ -81,6 +81,39 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply("didn't finish")).toBe('reschedule');
   });
 
+  it('reads a grateful completion as KEPT — the warmest reply is never a not-done', () => {
+    // A real completion often arrives wrapped in a grateful/emotional negation:
+    // "did it, didn't think I could", "nailed it, couldn't have done it without
+    // you". The negator belongs to the gratitude, not the task — the person KEPT
+    // their word. RESCHEDULE's negation net (couldn't/didn't/can't) ran first and
+    // read the warmest, most engaged reply on the live moat as a "not-done",
+    // answering it with the cold "when do you want to try again?" AND silently
+    // denying the kept-word streak they just earned. These now classify as KEPT.
+    for (const t of ["did it, didn't think I could",
+                     "done, can't believe I finally finished",
+                     "nailed it, couldn't have done it without you",
+                     'finished, couldn’t be happier',
+                     "done! can't thank you enough",
+                     "crushed it, didn't expect that",
+                     "got it done, can't wait to tell you"]) {
+      expect(detectCheckinReply(t), t).toBe('kept');
+    }
+  });
+
+  it('keeps a real not-done a reschedule even beside a negation idiom (streak-safe by construction)', () => {
+    // The intercept is guarded three ways — clean (un-negated) completion +
+    // gratitude idiom + no reschedule-intent word — so a genuine miss can never
+    // be inflated into a kept word. A negated completion has no clean occurrence;
+    // a reply with no completion word never qualifies; an intent word vetoes.
+    expect(detectCheckinReply("not done, didn't think I'd have time")).toBe('reschedule'); // completion negated
+    expect(detectCheckinReply("didn't get it done, can't believe the day")).toBe('reschedule'); // completion negated
+    expect(detectCheckinReply("couldn't do it, didn't think I'd get time")).toBe('reschedule'); // no completion word
+    expect(detectCheckinReply("did it but couldn't finish part 2, tomorrow")).toBe('reschedule'); // intent word vetoes
+    // A plain completion with no negation idiom is unaffected — still KEPT.
+    expect(detectCheckinReply('did it')).toBe('kept');
+    expect(detectCheckinReply('nailed it 🎉')).toBe('kept');
+  });
+
   it('reads "I\'m on it" and the mid-task family as SNOOZE — the third answer', () => {
     // The in-app nudge always offered a snooze beside DONE / LATER; the SMS
     // channel understood only two answers, so an engaged person mid-task got the
@@ -413,6 +446,23 @@ describe('applyCheckinOutcome — resolves the check-in + moves the streak', () 
     expect(cUpd.params).toContain('kept');
     // streak persisted
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks/.test(x.sql))).toBe(true);
+  });
+
+  it('a grateful completion reply credits the kept-word streak end-to-end (never rescheduled)', async () => {
+    // The real-world impact of the classifier fix, proven through resolution: the
+    // reply "did it, didn't think I could" now classifies KEPT, so the streak
+    // moves up — where before it read as a reschedule and the earned word was
+    // silently denied.
+    const outcome = detectCheckinReply("did it, didn't think I could");
+    expect(outcome).toBe('kept');
+    const db = makeDB({ streak: { current_streak: 4, longest_streak: 4, total_kept: 4, last_kept_date: '2026-07-05' } });
+    const r = await applyCheckinOutcome({ DB: db }, {
+      userId: 'u1', checkin: { id: 'ci1', commitment_id: 'cm1' }, commitment: oneShot,
+      outcome, nowISO: '2026-07-06T14:00:00.000Z',
+    });
+    expect(r.streak.current_streak).toBe(5); // the word was kept, not denied
+    const upd = db.runs.find((x) => /UPDATE commitment_checkins/.test(x.sql));
+    expect(upd.params).toContain('kept');
   });
 
   it('RESCHEDULE protects the streak (never breaks the chain)', async () => {

@@ -1521,6 +1521,49 @@ export function isStatedHoldLength(text) {
   return parseSnoozeMinutes(text) != null;
 }
 
+// A genuine completion sometimes rides in on a grateful/emotional negation —
+// "did it, didn't think I could", "done, can't believe I finally finished",
+// "nailed it, couldn't have done it without you", "finished, couldn't be
+// happier". The negator belongs to the gratitude, not to the task: the person
+// unmistakably KEPT their word. But RESCHEDULE's negation net
+// (couldn't/didn't/can't/haven't) runs first inside `detectCheckinReply` and read
+// the warmest, most grateful reply on the live two-way moat as a *not-done* — the
+// coldest possible answer ("no problem, when do you want to try again?") AND a
+// silent denial of the kept-word streak the person just earned. These three nets
+// let `detectCheckinReply` intercept that exact case, and only that case, ahead
+// of RESCHEDULE.
+//
+// Safe by construction — it fires ONLY when a CLEAN (un-negated) completion word
+// co-occurs with a recognized positive-negation idiom AND there is no
+// reschedule-intent word:
+//  - a real "not done" / "not finished" / "didn't get it done" has its completion
+//    word directly negated → no clean occurrence → never matches;
+//  - a real "couldn't do it" / "haven't started" carries no completion word at all;
+//  - a genuine "…, tomorrow" / "later" / "push it" is vetoed by RESCHEDULE_INTENT.
+// So this only ever rescues a real win; it can never inflate the streak with a
+// miss. Never reads or writes the streak itself — it only routes the outcome.
+const GRATEFUL_COMPLETION_IDIOM = /\b(didn'?t think|didn'?t expect|don'?t think|can'?t believe|can'?t wait|can'?t thank|couldn'?t be (?:happier|more|prouder|better)|couldn'?t have (?:done|made|asked)|never (?:thought|imagined))\b/;
+const RESCHEDULE_INTENT = /\b(later|tomorrow|tonight|next week|reschedul|resched|snooze|skip|rain ?check|another time|next time|move it|push it|not yet|no can do)\b/;
+const CLEAN_COMPLETION = /\b(done|did it|did that|finished|completed?|nailed it|crushed it|handled it|knocked it out|got it done|all done)\b/g;
+const NEGATOR_BEFORE_COMPLETION = /\b(?:not|never|no|didn'?t|couldn'?t|can'?t|cannot|won'?t|haven'?t|wasn'?t|isn'?t|ain'?t|don'?t)\b[a-z'\s]{0,14}$/;
+/**
+ * True when a completion word appears at least once with NO negator immediately
+ * before it — i.e. the reply reports a real, un-negated completion. Used to keep
+ * "not done" / "didn't get it done" out of the grateful-completion intercept
+ * while still recognizing the clean "done" in "done, couldn't have done it
+ * without you". Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function hasCleanCompletion(t) {
+  CLEAN_COMPLETION.lastIndex = 0;
+  let m;
+  while ((m = CLEAN_COMPLETION.exec(t)) !== null) {
+    if (!NEGATOR_BEFORE_COMPLETION.test(t.slice(0, m.index))) return true;
+  }
+  return false;
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
@@ -1608,6 +1651,13 @@ export function detectCheckinReply(text) {
   // and a residual bare negation falls through to the warm ask, never a mislabel.
   // (PARTIAL_DONE / PARTIAL live at module scope now, shared with isProgressReply.)
 
+  // A clean completion wrapped in a grateful negation idiom ("did it, didn't
+  // think I could", "nailed it, couldn't have done it without you") is a KEPT
+  // word, not a reschedule — intercept it before RESCHEDULE's negation net can
+  // read the warmest reply on the moat as a not-done and deny the streak. Guarded
+  // three ways (clean completion + gratitude idiom + no reschedule-intent word) so
+  // a real "not done" / "couldn't do it" / "…tomorrow" can never reach here.
+  if (hasCleanCompletion(t) && GRATEFUL_COMPLETION_IDIOM.test(t) && !RESCHEDULE_INTENT.test(t)) return 'kept';
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (PARTIAL_DONE.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (KEPT.test(t)) return 'kept';
