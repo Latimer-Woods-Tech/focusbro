@@ -161,3 +161,37 @@ describe('detectCheckinReply — a bare stated length is the snooze, no marker w
     expect(detectCheckinReply('20')).toBeNull();
   });
 });
+
+// ── detectCheckinReply reads the "hold on / give me more time" family as snooze ─
+describe('detectCheckinReply — "hold on, more time" is the snooze third answer', () => {
+  it('classifies the warm "still on it, swing back" pleas as snooze', () => {
+    // Before: without an "on it"/"still working" marker word these fell through to
+    // null and the flow handed them to parseWhenReply, which couldn't read a time —
+    // so the most engaged, actively-doing-it reply met the cold "I couldn't read
+    // that time." Now they read as the warm "you got it, I'll swing back."
+    for (const t of [
+      'a bit longer', 'little longer', 'a while longer',
+      'need more time', 'a little more time', 'bit more time',
+      'hang tight', 'sit tight', 'bear with me',
+      'brb', 'be right back',
+      'one moment', 'just a moment', 'just a sec',
+      'in a bit', 'in a sec', 'in a moment',
+      'shortly', 'momentarily',
+    ]) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+    }
+  });
+
+  it('never steals a negation or a genuine reschedule', () => {
+    // "no longer" (never anymore) and "no more time" must not read as the
+    // qualifier-required longer/more-time snooze forms.
+    expect(detectCheckinReply('no longer doing this')).toBeNull();
+    // A reschedule word still wins even alongside "more time".
+    expect(detectCheckinReply('no more time today, tomorrow')).toBe('reschedule');
+    // A bare "in N minutes" is a target time, still routed as a reschedule — the
+    // number-free "in a bit" snooze forms never collide with it.
+    expect(detectCheckinReply('in 20 minutes')).toBeNull();
+    // completion still wins over any hold phrasing
+    expect(detectCheckinReply('done, no more time to chat')).toBe('kept');
+  });
+});
