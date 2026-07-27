@@ -34,6 +34,7 @@ import {
   snoozeConfirmCopy,
   rescheduleConfirmCopy,
   START_HELP_MIN,
+  SNOOZE_DEFAULT_MIN,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -686,6 +687,50 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
     expect(sent.text.toLowerCase()).not.toMatch(/reply done|did you|when do you want to try again/);
+  });
+
+  it('"on it, give me 45 min" SNOOZES for the length they named — not a fixed default', async () => {
+    // The engaged person who names their own interval is heard: the bro checks
+    // back in 45, not 15. Still a snooze — streak untouched, never a resolution.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('on it, give me 45 min'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended ~45 min out (well past the 15-min default), never a resolution/miss
+    expect(new Date(body.scheduled_for).getTime()).toBeGreaterThanOrEqual(before + 44 * 60000);
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // and the confirmation names the length THEY chose
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('45 minutes');
+  });
+
+  it('"on it, check back in an hour" while awaiting a time SNOOZES for the stated hour', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('actually on it, check back in an hour'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(new Date(body.scheduled_for).getTime()).toBeGreaterThanOrEqual(before + 59 * 60000);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('60 minutes');
+  });
+
+  it('regression: a snooze with no stated length ("on it!") still uses the default', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it!'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('snoozed');
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
   });
 
   it('regression: bare "later" (no time) STILL asks when — the direct path only fires on a real time', async () => {

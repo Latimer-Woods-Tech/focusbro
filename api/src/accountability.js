@@ -1399,6 +1399,72 @@ export function keptNoteFromReply(text) {
 }
 
 /**
+ * Read a stated hold-length out of an "I'm on it" reply, so the bro checks back
+ * WHEN the person said — not at a fixed default. The best-case user, mid-task,
+ * often names their own interval: "on it, give me 20", "still working — check
+ * back in an hour", "hang on, 30 more minutes". Honoring it is the difference
+ * between a friend who listens and one who nods and ignores you on the exact
+ * two-way channel the moat is built on.
+ *
+ * Returns whole minutes, always clamped to the snooze window
+ * ([SNOOZE_MIN_MIN, SNOOZE_MAX_MIN]) so a snooze can never quietly become a
+ * disappearance (too short) or a full reschedule (too long); returns `null`
+ * when no length was stated, so the caller keeps `SNOOZE_DEFAULT_MIN` exactly as
+ * before — this is UPGRADE-ONLY, never a shorter or wronger nudge than today.
+ *
+ * Only ever call this on a reply ALREADY classified as a snooze by
+ * `detectCheckinReply`: in that context a bare number is a hold-length
+ * ("give me 20"), never a clock time. An explicit clock ("at 3", "3 pm") is
+ * guarded out regardless, so even a mis-called reply falls back to the default,
+ * never a wrong minute count. NEVER reads or writes the streak — a snooze is not
+ * a resolution and not a miss, by construction.
+ *
+ * @param {string} text  the raw inbound reply
+ * @returns {number|null}  clamped minutes, or null when no length was stated
+ */
+export function parseSnoozeMinutes(text) {
+  const t = normalizeReplyText(text);
+  if (!t) return null;
+  // A clock time ("at 3", "3 pm", "noon o'clock") is a reschedule TARGET, never a
+  // hold length — never read it as minutes. (The caller only reaches here on a
+  // snooze, but guard anyway so a mis-classification can't turn into a wrong count.)
+  if (/\b(?:am|pm|noon|midnight)\b/.test(t) || /\bo'?clock\b/.test(t) || /\bat\s+\d/.test(t)) return null;
+
+  const WORDNUM = {
+    five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30,
+    forty: 40, fifty: 50, sixty: 60, ninety: 90,
+    an: 1, a: 1, one: 1, couple: 2, few: 3,
+  };
+  const toNum = (w) => (/^\d+$/.test(w) ? parseInt(w, 10) : (WORDNUM[w] ?? null));
+
+  // Fixed idioms first, so "half an hour" isn't misread as "an hour" (60).
+  if (/\bhalf\s?(?:an?\s+)?hour\b/.test(t)) return clampSnoozeMinutes(30);
+  if (/\b(?:an?\s+)?hour and a half\b/.test(t)) return clampSnoozeMinutes(90);
+  if (/\bquarter(?:\s+of\s+an)?\s+hour\b/.test(t)) return clampSnoozeMinutes(15);
+
+  // number + unit: "20 min", "an hour", "2 hrs", "forty five minutes", "45m",
+  // "20 more minutes" (an optional "more" between the count and the unit).
+  const NUMWORD = '\\d{1,3}|an|a|one|couple|few|five|ten|fifteen|twenty|thirty|forty|fifty|sixty|ninety';
+  const um = new RegExp(`\\b(${NUMWORD})(?:[\\s-]+(five))?(?:\\s+more)?\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b`).exec(t);
+  if (um) {
+    let n = toNum(um[1]);
+    if (n != null) {
+      if (um[2] === 'five') n += 5;                       // "forty five"
+      return clampSnoozeMinutes(/^h/.test(um[3]) ? n * 60 : n);
+    }
+  }
+
+  // bare number behind a snooze lead-in: "give me 20", "in 30", "another 15".
+  const bm = new RegExp('\\b(?:give me|gimme|need|another|in|make it|about|just|wait)\\s+(\\d{1,3}|five|ten|fifteen|twenty|thirty|forty|fifty|sixty|ninety)\\b').exec(t);
+  if (bm) {
+    const n = toNum(bm[1]);
+    if (n != null) return clampSnoozeMinutes(n);
+  }
+
+  return null; // no stated length → caller keeps SNOOZE_DEFAULT_MIN
+}
+
+/**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
  * @returns {'kept'|'reschedule'|'snooze'|null}  null = couldn't tell (ask, don't assume)
@@ -2107,7 +2173,9 @@ export function registerAccountabilityRoutes(router, ctx) {
         && !hasExplicitInstant
         && detectCheckinReply(rescheduleWhenText) === 'snooze'
       ) {
-        const minutes = SNOOZE_DEFAULT_MIN;
+        // Honor a stated hold-length ("gimme 20", "check back in an hour"); a
+        // snooze with no named interval keeps the default. Clamped, streak-safe.
+        const minutes = parseSnoozeMinutes(rescheduleWhenText) ?? SNOOZE_DEFAULT_MIN;
         const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
         // Mirror the /snooze endpoint exactly: re-arm the latest still-open
         // check-in (or open a fresh one), reset attempts, clear last_error /
