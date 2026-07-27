@@ -1429,6 +1429,11 @@ export function parseSnoozeMinutes(text) {
   // hold length — never read it as minutes. (The caller only reaches here on a
   // snooze, but guard anyway so a mis-classification can't turn into a wrong count.)
   if (/\b(?:am|pm|noon|midnight)\b/.test(t) || /\bo'?clock\b/.test(t) || /\bat\s+\d/.test(t)) return null;
+  // A multi-day horizon ("in 2 days", "next week", "tomorrow") is a reschedule,
+  // never a snooze hold — a snooze is bounded to minutes/hours by construction.
+  // Guard here so neither a mis-classified caller nor the `isStatedHoldLength`
+  // detector below ever reads "2 days" as a 2-minute (clamped-to-5) hold.
+  if (/\b(days?|weeks?|months?|years?|tomorrow|tonight)\b/.test(t)) return null;
 
   const WORDNUM = {
     five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30,
@@ -1462,6 +1467,40 @@ export function parseSnoozeMinutes(text) {
   }
 
   return null; // no stated length → caller keeps SNOOZE_DEFAULT_MIN
+}
+
+/**
+ * Is this reply a bare "check back in N" hold-length — a stated minutes/hours
+ * window with NO "on it" / "still working" marker word to give it away?
+ *
+ * The mid-task person often answers with the length alone: "give me 20",
+ * "an hour", "30 more minutes", "half an hour". Without a marker word,
+ * `detectCheckinReply` used to leave these unclassified, and the awaiting-"when?"
+ * and fresh-nudge paths then handed them to `parseWhenReply` — which read
+ * "give me 20" as 8 pm and "2 hours" as 2 am, or (for the un-clockable ones)
+ * fell to the cold "I couldn't read that time." Both are a quiet "he didn't get
+ * me" on the exact two-way text channel the moat is built on, from the best-case,
+ * actively-doing-it user. Recognizing the stated length as the third answer (a
+ * snooze) closes that gap.
+ *
+ * Deliberately conservative, so it never steals a genuine reschedule:
+ *  - an "in ..." reply names a TARGET time and stays owned by `parseWhenReply`
+ *    ("in 20 minutes" / "in an hour" remain reschedules, unchanged);
+ *  - a clock time and any multi-day horizon are guarded to `null` inside
+ *    `parseSnoozeMinutes`, so a length only ever reads as minutes/hours.
+ * Meant to be consulted only AFTER the RESCHEDULE / KEPT / progress / marker-word
+ * SNOOZE nets have each had their turn, so those always win.
+ *
+ * @param {string} text  the raw inbound reply
+ * @returns {boolean}
+ */
+export function isStatedHoldLength(text) {
+  const t = normalizeReplyText(text);
+  if (!t) return false;
+  // "in ..." names a target time (a reschedule), owned by parseWhenReply — never
+  // reclassify it as a hold here.
+  if (/^in\b/.test(t)) return false;
+  return parseSnoozeMinutes(text) != null;
 }
 
 /**
@@ -1528,6 +1567,14 @@ export function detectCheckinReply(text) {
   if (KEPT.test(t)) return 'kept';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
+  // The third answer said as a bare length, no marker word: "give me 20", "an
+  // hour", "30 more minutes", "half an hour". RESCHEDULE/KEPT/progress/marker-word
+  // SNOOZE have all run first, so a completion or a "later"/"tomorrow" always wins;
+  // only a residual stated minutes/hours hold reaches here. `isStatedHoldLength`
+  // excludes "in ..." targets and clock/multi-day answers, so this never steals a
+  // genuine reschedule. Streak-safe by construction — a snooze is not a resolution
+  // and not a miss.
+  if (isStatedHoldLength(raw)) return 'snooze';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';

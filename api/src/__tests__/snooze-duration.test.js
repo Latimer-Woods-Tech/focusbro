@@ -19,6 +19,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseSnoozeMinutes,
+  isStatedHoldLength,
+  detectCheckinReply,
   SNOOZE_DEFAULT_MIN,
   SNOOZE_MIN_MIN,
   SNOOZE_MAX_MIN,
@@ -91,5 +93,71 @@ describe('parseSnoozeMinutes — checks back WHEN they said', () => {
     expect(parseSnoozeMinutes('on it 100%')).toBeNull();
     // "min" must be a real word boundary — never inside another word
     expect(parseSnoozeMinutes('on it, 20 monkeys')).toBeNull();
+  });
+
+  it('never reads a multi-day horizon as a hold length — that is a reschedule', () => {
+    // "in 2 days" / "next week" / "give me a couple days" are the reschedule
+    // horizon, never a snooze. Guarded to null so a stray caller (or the
+    // hold-length detector) can never read "2 days" as a 2-minute (clamped-to-5)
+    // hold — a snooze is bounded to minutes/hours by construction.
+    for (const t of ['in 2 days', 'next week', 'give me a couple days',
+                     'give me 2 days', 'in 3 weeks', 'tomorrow', 'tonight']) {
+      expect(parseSnoozeMinutes(t), t).toBeNull();
+    }
+  });
+});
+
+// ── isStatedHoldLength — a bare "check back in N", no marker word ─────────────
+describe('isStatedHoldLength — the third answer said as a bare length', () => {
+  it('recognizes a stated minutes/hours hold with no "on it" marker word', () => {
+    for (const t of ['give me 20', 'gimme 30', 'give me 20 minutes', '30 more minutes',
+                     'an hour', '2 hours', 'half an hour', 'hour and a half',
+                     'give me a couple hours', 'another 15 minutes', 'forty five minutes']) {
+      expect(isStatedHoldLength(t), t).toBe(true);
+    }
+  });
+
+  it('leaves an "in ..." reply to parseWhenReply — that names a target time, not a hold', () => {
+    // "in 20 minutes" / "in an hour" are reschedule TARGETS the time parser owns;
+    // reclassifying them would silently change a tested reschedule into a snooze.
+    for (const t of ['in 20 minutes', 'in an hour', 'in 30 min', 'in 2 hours']) {
+      expect(isStatedHoldLength(t), t).toBe(false);
+    }
+  });
+
+  it('never fires on a clock time, a multi-day horizon, or a bare number', () => {
+    for (const t of ['at 3', '3pm', 'noon', 'tomorrow', 'monday', 'next week',
+                     'in 2 days', 'give me 2 days', '20', 'later', 'done', '']) {
+      expect(isStatedHoldLength(t), t).toBe(false);
+    }
+  });
+});
+
+// ── detectCheckinReply reads a bare hold-length as the SNOOZE third answer ────
+describe('detectCheckinReply — a bare stated length is the snooze, no marker word', () => {
+  it('classifies a bare minutes/hours hold as snooze', () => {
+    // Before: these had no "on it"/"still working" marker, so the classifier left
+    // them null and the flow handed them to parseWhenReply — which read "give me
+    // 20" as 8 pm and "2 hours" as 2 am, or fell to the cold "couldn't read that
+    // time." Now the stated length reads as the warm "you got it, I'll swing back."
+    for (const t of ['give me 20', 'gimme 30', 'give me 20 minutes', '30 more minutes',
+                     'an hour', '2 hours', 'half an hour', 'hour and a half',
+                     'give me a couple hours']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+    }
+  });
+
+  it('lets RESCHEDULE / KEPT / "in ..." win — never steals a genuine reschedule', () => {
+    expect(detectCheckinReply('later')).toBe('reschedule');
+    expect(detectCheckinReply('tomorrow')).toBe('reschedule');
+    expect(detectCheckinReply('not yet, give me a day')).toBe('reschedule'); // negation/day wins
+    expect(detectCheckinReply('done in an hour')).toBe('kept');              // completion wins
+    // "in 20 minutes" is a target time the flow still routes through parseWhenReply
+    // as a reschedule — the classifier does not pre-empt it as a snooze.
+    expect(detectCheckinReply('in 20 minutes')).toBeNull();
+    expect(detectCheckinReply('in an hour')).toBeNull();
+    // a bare clock time / bare number is still not a snooze
+    expect(detectCheckinReply('at 3')).toBeNull();
+    expect(detectCheckinReply('20')).toBeNull();
   });
 });

@@ -723,6 +723,65 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(sent.text).toContain('60 minutes');
   });
 
+  it('a bare "give me 20" (no marker word) SNOOZES for 20 — not misread as 8 pm', async () => {
+    // The best-case user answers with the length ALONE — no "on it"/"still
+    // working". Before this, the classifier left it null and the flow handed
+    // "give me 20" to the time parser, which read it as 20:00 (8 pm) and moved the
+    // whole commitment there — a quiet "he didn't get me" from the most engaged
+    // reply on the live moat. Now the stated length reads as the warm snooze.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('give me 20'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended ~20 min out — NOT hours away at a misread clock time
+    const at = new Date(body.scheduled_for).getTime();
+    expect(at).toBeGreaterThanOrEqual(before + 19 * 60000);
+    expect(at).toBeLessThan(before + 22 * 60000);
+    // a snooze is not a resolution and not a miss — streak/commitment untouched
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('20 minutes');
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|couldn't read/);
+  });
+
+  it('a bare "half an hour" while awaiting a time SNOOZES for 30 — never the cold re-ask', async () => {
+    // A stated length answering "when?", with no marker word, used to fail the
+    // time parse and get "I couldn't read that time." Now it reads as a 30-min hold.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('half an hour'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    const at = new Date(body.scheduled_for).getTime();
+    expect(at).toBeGreaterThanOrEqual(before + 29 * 60000);
+    expect(at).toBeLessThan(before + 32 * 60000);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('30 minutes');
+    expect(sent.text.toLowerCase()).not.toMatch(/try something like|couldn't read/);
+  });
+
+  it('regression: a bare "in 20 minutes" while awaiting is still a RESCHEDULE — the time parser keeps it', async () => {
+    // The new bare-length snooze must not steal an "in ..." target. "in 20
+    // minutes" names a time, so it stays a reschedule (commitment_reschedule
+    // recorded), exactly as before.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('in 20 minutes'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+  });
+
   it('regression: a snooze with no stated length ("on it!") still uses the default', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
