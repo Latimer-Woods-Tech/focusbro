@@ -804,6 +804,43 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(sent.text.toLowerCase()).not.toMatch(/couldn't read|try something like/);
   });
 
+  it('a bare "in the zone" on a fresh nudge SNOOZES — flow-state slang is heard, never the cold ask', async () => {
+    // The MOST engaged reply — the head-down user texting "in the zone" / "locked
+    // in" / "grinding" — carries no marker word, number, or done/later word, so it
+    // used to fall through to the cold "I didn't catch that, reply DONE or LATER"
+    // on the exact two-way channel that is the live moat. Now it reads as the warm
+    // snooze at the default interval.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('in the zone'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended (not resolved), never parked awaiting_time, streak/commitment untouched
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // no length stated → the default interval, warm copy
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|didn't catch|couldn't read/);
+  });
+
+  it('a bare "locked in" while awaiting a time SNOOZES — never the cold "couldn\'t read that time"', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('locked in'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).not.toMatch(/couldn't read|try something like/);
+  });
+
   it('regression: a bare "in 20 minutes" while awaiting is still a RESCHEDULE — the time parser keeps it', async () => {
     // The new bare-length snooze must not steal an "in ..." target. "in 20
     // minutes" names a time, so it stays a reschedule (commitment_reschedule

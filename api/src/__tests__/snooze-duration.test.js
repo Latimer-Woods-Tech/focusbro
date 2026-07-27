@@ -195,3 +195,42 @@ describe('detectCheckinReply — "hold on, more time" is the snooze third answer
     expect(detectCheckinReply('done, no more time to chat')).toBe('kept');
   });
 });
+
+// ── detectCheckinReply reads flow-state slang as the SNOOZE third answer ────────
+describe('detectCheckinReply — flow-state slang is the snooze third answer', () => {
+  it('classifies the most-engaged "head down, in the zone" replies as snooze', () => {
+    // Before: the head-down user texting "in the zone" / "locked in" / "grinding"
+    // carried no marker word, number, or done/later word, so it fell through to
+    // null and both SMS paths met the single most engaged reply with the coldest
+    // "I couldn't read that time" / "reply DONE or LATER." Now the whole family
+    // reads as the warm third answer (a snooze) and the nudge re-arms.
+    for (const t of [
+      'in the zone', 'zoned in', 'dialed in', 'locked in',
+      'heads down', 'head down',
+      'deep in it', 'deep into it', 'deep in the weeds', 'in the weeds',
+      'on a roll', 'in the groove', 'beast mode',
+      'cranking', 'cranking away', 'cranking through',
+      'plugging away', 'grinding', 'grinding away',
+      'in flow', 'in the flow', 'in a flow', 'flow state',
+    ]) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+    }
+  });
+
+  it('never reads the disengaged look-alikes or a negation as flow', () => {
+    // "zoned OUT" (spaced out) and "locked OUT" (done for the day) are the
+    // disengaged opposites — never a "check back."
+    expect(detectCheckinReply('zoned out')).toBeNull();
+    expect(detectCheckinReply('locked out for the day')).toBeNull();
+    // "cooking dinner" is a genuine distraction, not flow — left unclassified so
+    // it falls to the warm ask, never a wrong snooze.
+    expect(detectCheckinReply('cooking dinner')).toBeNull();
+    // a negated flow phrase is never a snooze
+    expect(detectCheckinReply('not in the zone')).toBeNull();
+    expect(detectCheckinReply('not locked in yet')).toBeNull();
+    // RESCHEDULE and KEPT still run first: a reschedule word or a completion wins
+    // even alongside flow slang.
+    expect(detectCheckinReply('later, in the zone on other stuff')).toBe('reschedule');
+    expect(detectCheckinReply('done, was in the zone')).toBe('kept');
+  });
+});
