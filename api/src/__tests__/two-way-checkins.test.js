@@ -234,6 +234,33 @@ describe('isProgressReply — did they actually move the needle, or just say "on
     }
     expect(isProgressReply('tomorrow 9am')).toBe(false);
   });
+
+  it('reads the active-EXERTION flow phrases as progress — the most engaged reply is moving the needle', () => {
+    // R-273 reads the whole flow family as a snooze; the exertion subset
+    // ("grinding", "cranking", "on a roll", "in the groove", "beast mode",
+    // "plugging away") also REPORTS movement, so the snooze confirm meets it with
+    // "love that you're moving." Each is still a snooze upstream AND reads as
+    // progress here — the exact pairing that flows the movement copy end-to-end.
+    for (const t of ['grinding', 'grinding away', 'cranking', 'cranking away', 'cranking through',
+                     'plugging away', 'on a roll', 'in the groove', 'beast mode']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+      expect(isProgressReply(t), t).toBe(true);
+    }
+  });
+
+  it('keeps the pure focus-STATE flow phrases generic-warm (a snooze, but not "moving")', () => {
+    // "in the zone" / "locked in" / "heads down" report a focused STATE, not
+    // reported movement — still a warm snooze upstream, but they keep the generic
+    // glad-you're-on-it copy, so isProgressReply stays false. A negated exertion
+    // phrase is never progress either.
+    for (const t of ['in the zone', 'zoned in', 'dialed in', 'locked in', 'heads down',
+                     'in the weeds', 'deep in it', 'in the flow', 'flow state']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+      expect(isProgressReply(t), t).toBe(false);
+    }
+    expect(isProgressReply('not grinding yet')).toBe(false);
+    expect(isProgressReply('no roll going')).toBe(false);
+  });
 });
 
 // ── snoozeConfirmCopy — meets reported progress by name, never a count ────────

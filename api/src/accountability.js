@@ -1349,12 +1349,30 @@ const PARTIAL = /\b(half\s?way|part\s?way|part of the way|mid\s?way|made a start
 // These read as progress for the confirmation copy; a bare "on it" / "hang on"
 // does not.
 const PROGRESS_MOVEMENT = /\b(working on it|still working|still on it|still at it|still going|almost there|nearly there|in the middle|middle of it)\b/;
+// The subset of the flow-state family (FLOW, in detectCheckinReply) that reports
+// active EXERTION — the person moving the needle right now, not merely a focused
+// state: "grinding", "cranking", "plugging away", "on a roll", "in the groove",
+// "beast mode". R-273 already reads the whole flow family as a snooze; this lets
+// the confirmation copy meet these movement phrases with "love that you're
+// moving" instead of the generic "you got it", the same way PROGRESS_MOVEMENT
+// does for the marker-word snooze family. Deliberately a strict subset of FLOW:
+// the pure focus-STATE phrases ("in the zone", "locked in", "dialed in", "heads
+// down", "in the weeds", "in the flow") report engagement but not reported
+// movement, so they keep the generic-warm snooze copy — same warmth, same
+// interval, just not the movement line. Every form is `\b`-anchored and matches
+// FLOW's exact spelling so the two never drift. Never touches the streak — a
+// snooze is not a resolution and not a miss.
+const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| through)?|plugging away|grinding(?: away)?)\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
  * to merely "on it" / "hold on"? Meant to be called only when the reply already
  * classified as a snooze; lets the confirmation copy meet real progress with
- * "love that you're moving" instead of the generic "you got it". A negation
+ * "love that you're moving" instead of the generic "you got it". The active
+ * flow-state exertion phrases ("grinding", "cranking", "on a roll", "in the
+ * groove", "beast mode", "plugging away") count too — the most engaged reply of
+ * all is unambiguously the person moving the needle — while the pure focus-STATE
+ * flow phrases ("in the zone", "locked in") stay generic-warm. A negation
  * ("no progress" / "not started") is never progress. Never reads or writes the
  * streak — this only tunes wording; a snooze is not a resolution, by construction.
  * @param {string} text  the raw SMS body
@@ -1367,7 +1385,7 @@ export function isProgressReply(text) {
   // contracted "haven't started" / "didn't" (a reschedule the classifier catches
   // upstream, but guarded here too so isProgressReply is safe to call on any text).
   if (/\b(no|not|never)\b/.test(t) || /n't\b/.test(t)) return false;
-  return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t);
+  return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t) || FLOW_MOVEMENT.test(t);
 }
 
 // The neutral provenance note kept when a "done" reply carried no words of its
