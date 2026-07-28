@@ -179,6 +179,13 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     expect(db.runs.some((x) => /accountability_streaks/i.test(x.sql))).toBe(false);
     // The open check-in was re-pended, not resolved.
     expect(db.runs.some((x) => /SET status = 'pending', scheduled_for = \?, attempts = 0/.test(x.sql))).toBe(true);
+    // ...and it is now COUNTED like every other snooze surface. This interception
+    // historically returned WITHOUT recording anything, silently undercounting
+    // browser engagement — the exact "web route skipped the analytics event" gap.
+    const snoozeEvt = db.runs.find((x) => x.params.includes('commitment_snooze'));
+    expect(snoozeEvt, 'the in-app "I\'m on it" now records a commitment_snooze').toBeTruthy();
+    expect(JSON.parse(snoozeEvt.params[2])).toMatchObject({ commitment_id: 'cm1', is_recurring: false });
+    expect(db.runs.some((x) => x.params.includes('checkin_responded'))).toBe(true);
   });
 
   // Two-way parity with SMS (R-275, consent.js resolveKept): answering the in-app

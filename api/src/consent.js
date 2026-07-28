@@ -694,6 +694,15 @@ export function registerConsentRoutes(router, ctx) {
                 SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
               WHERE id = ? AND user_id = ?`
           ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await recordEvent(env, {
+            userId: user.id,
+            type: EVENTS.COMMITMENT_SNOOZE,
+            data: {
+              commitment_id: open.commitment_id,
+              is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+              channel: 'text',
+            },
+          });
           await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
           return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
         }
@@ -753,6 +762,15 @@ export function registerConsentRoutes(router, ctx) {
               SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
             WHERE id = ? AND user_id = ?`
         ).bind(snoozedUntil, open.checkin_id, user.id).run();
+        await recordEvent(env, {
+          userId: user.id,
+          type: EVENTS.COMMITMENT_SNOOZE,
+          data: {
+            commitment_id: open.commitment_id,
+            is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+            channel: 'text',
+          },
+        });
         await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
         return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
       }

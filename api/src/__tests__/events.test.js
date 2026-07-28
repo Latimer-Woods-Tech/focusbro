@@ -236,6 +236,23 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.decision.delivery.rate).toBeNull();
   });
 
+  it('surfaces commitments_snoozed but keeps it OUT of resolved / the kept-word rate', async () => {
+    // The "I'm on it" third answer is an engagement signal, never a resolution
+    // and never a miss — it must be counted on its own and never move the rate.
+    // 3 kept + 1 reschedule = 4 resolved; the 5 snoozes are visible but separate.
+    const db = makeDB({
+      counts: {
+        [EVENTS.COMMITMENT_KEPT]: 3,
+        [EVENTS.COMMITMENT_RESCHEDULE]: 1,
+        [EVENTS.COMMITMENT_SNOOZE]: 5,
+      },
+    });
+    const m = await computeLoopMetrics({ DB: db }, {});
+    expect(m.totals.commitments_snoozed).toBe(5);
+    expect(m.resolved).toBe(4);                       // snoozes excluded
+    expect(m.kept_word_rate).toBeCloseTo(0.75, 2);    // 3/4, unaffected by the 5 snoozes
+  });
+
   it('returns null rates (never NaN, never a divide-by-zero) on an empty window', async () => {
     const db = makeDB({ counts: {}, active: 0, returning: 0 });
     const m = await computeLoopMetrics({ DB: db }, { sinceDays: 30 });

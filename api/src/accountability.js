@@ -2381,6 +2381,23 @@ export function registerAccountabilityRoutes(router, ctx) {
              VALUES (?, ?, ?, ?, ?, 'pending')`
           ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
         }
+        // Count the "I'm on it" like every other snooze surface. This in-app
+        // interception historically returned here WITHOUT recording anything —
+        // the exact "web route skipped the analytics event → undercounting
+        // browser users in the founder scorecard" gap noted below, on the snooze
+        // path. A snooze is a first-class engagement signal (never a resolution,
+        // never a miss): record it as COMMITMENT_SNOOZE and mark the check-in
+        // responded, parity with the /snooze endpoint and the SMS branches.
+        await recordEvent(env, {
+          userId: auth.userId,
+          type: EVENTS.COMMITMENT_SNOOZE,
+          data: { commitment_id: id, is_recurring: isRecurring, channel: commitment.channel || null },
+        });
+        await recordEvent(env, {
+          userId: auth.userId,
+          type: EVENTS.CHECKIN_RESPONDED,
+          data: { commitment_id: id, channel: commitment.channel || null },
+        });
         return jsonResponse({
           commitment_id: id,
           snoozed_until: snoozedUntil,
@@ -2612,7 +2629,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         : (whenText ? (parseSnoozeMinutes(whenText) ?? SNOOZE_DEFAULT_MIN) : SNOOZE_DEFAULT_MIN);
 
       const commitment = await env.DB.prepare(
-        `SELECT id, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
+        `SELECT id, persona, channel, status, recurrence FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
@@ -2653,6 +2670,17 @@ export function registerAccountabilityRoutes(router, ctx) {
         ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
       }
 
+      // A snooze is a first-class engagement signal (the "I'm on it" third
+      // answer) — counted on its own, never a resolution and never a miss.
+      await recordEvent(env, {
+        userId: auth.userId,
+        type: EVENTS.COMMITMENT_SNOOZE,
+        data: {
+          commitment_id: id,
+          is_recurring: pickRecurrence(commitment.recurrence) !== 'none',
+          channel: commitment.channel || null,
+        },
+      });
       await recordEvent(env, {
         userId: auth.userId,
         type: EVENTS.CHECKIN_RESPONDED,
