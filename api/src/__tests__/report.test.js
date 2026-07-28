@@ -132,6 +132,32 @@ describe('buildWeeklyReport — "the bro showed up" (delivered check-ins this we
   });
 });
 
+describe('buildWeeklyReport — "I\'m on it" lean-ins this week (snoozed engagement, R-279)', () => {
+  it('counts only snooze instants inside the same trailing 7 local days', () => {
+    // 3 lean-ins this week (0,2,5 days ago), 2 older (8, 11 — outside the window).
+    const snoozedTimestamps = [daysAgo(0), daysAgo(2), daysAgo(5), daysAgo(8), daysAgo(11)];
+    const rep = buildWeeklyReport({ keptTimestamps: [], snoozedTimestamps, timezone: 'UTC', nowISO: NOW });
+    expect(rep.snoozed_this_week).toBe(3);
+  });
+
+  it('defaults to 0 with no snoozedTimestamps (person report never passes them)', () => {
+    const rep = buildWeeklyReport({ deliveredTimestamps: [daysAgo(1)], timezone: 'UTC', nowISO: NOW });
+    expect(rep.snoozed_this_week).toBe(0);
+  });
+
+  it('is independent from kept-word count AND the kept-word rate (a lean-in is never a resolution)', () => {
+    // one kept word, three lean-ins — the two numbers do not merge, and the
+    // lean-ins live entirely outside kept_this_week.
+    const rep = buildWeeklyReport({
+      keptTimestamps: [daysAgo(1)],
+      snoozedTimestamps: [daysAgo(0), daysAgo(1), daysAgo(2)],
+      timezone: 'UTC', nowISO: NOW,
+    });
+    expect(rep.kept_this_week).toBe(1);
+    expect(rep.snoozed_this_week).toBe(3);
+  });
+});
+
 describe('buildWeeklyReport — milestone recognition (R-257)', () => {
   it('fires the milestone line only when the run is EXACTLY at a milestone', () => {
     for (const m of STREAK_MILESTONES) {
