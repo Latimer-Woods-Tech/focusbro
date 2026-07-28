@@ -190,7 +190,7 @@ export function reportKeptNoteLabelCopy() {
  * @param {string} [p.nowISO]          "today" anchor (defaults to now)
  * @returns {object} the structured report
  */
-export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], rhythms = [], latestNote = null, timezone, nowISO } = {}) {
+export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], snoozedTimestamps = [], rhythms = [], latestNote = null, timezone, nowISO } = {}) {
   const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
   const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
 
@@ -214,6 +214,17 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
   const deliveredBuckets = bucketKeptByDay({ timestamps: deliveredTimestamps, days: WEEKLY_WINDOW_DAYS, nowISO: anchorISO, timezone: tz });
   let showedUpThisWeek = 0;
   for (const b of deliveredBuckets) showedUpThisWeek += b.count;
+
+  // The person's OWN side of the week's engagement, on the SAME 7-local-day axis:
+  // how many times they answered a check-in with the "I'm on it" third answer (a
+  // recorded `commitment_snooze`, R-278). This is a lean-in, never a resolution
+  // and never a miss — it lives entirely apart from kept_this_week and is counted
+  // here only so a coach can SEE a client is actively in it (coach.js consumes it;
+  // /me/report does not pass snoozedTimestamps, so it defaults to 0 there). By
+  // construction it can only ever surface engagement, never a shortfall.
+  const snoozedBuckets = bucketKeptByDay({ timestamps: snoozedTimestamps, days: WEEKLY_WINDOW_DAYS, nowISO: anchorISO, timezone: tz });
+  let snoozedThisWeek = 0;
+  for (const b of snoozedBuckets) snoozedThisWeek += b.count;
 
   // 14-day momentum (first-person voice injected by the route via momentum copy;
   // here we build the neutral shape and let the route/text carry the words).
@@ -256,6 +267,10 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     kept_this_week: keptThisWeek,
     showed_up_this_week: showedUpThisWeek,
     showed_up_line: showedUpCopy({ showedUp: showedUpThisWeek }),
+    // The "I'm on it" lean-ins over the same seven days — an engagement signal
+    // kept strictly apart from kept_this_week (never merged, never a miss). Read
+    // by the coach snapshot only; 0 on the person's own report.
+    snoozed_this_week: snoozedThisWeek,
     best_day: { date: bestDay.date, count: bestDay.count },
     streak: { current_streak: current, longest_streak: longest, total_kept: total },
     // A milestone recognition for the report — the shareable/coach-proof twin of

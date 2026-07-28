@@ -362,6 +362,30 @@ export function clientWeeklyShowedUpCopy({ showedUp = 0 } = {}) {
   return `FocusBro showed up for them ${n} time${n === 1 ? '' : 's'} this week — the bro kept its word too.`;
 }
 
+/**
+ * The coach-voice "actively in it" line — the third-person read of the client's
+ * "I'm on it" third answers this week (recorded `commitment_snooze` events,
+ * R-278; now surfaced instead of only counted). The snooze is the single
+ * most-engaged reply on the two-way channel: the client picked up the check-in
+ * and chose to stay with the word rather than resolve it either way. Surfacing
+ * it gives a coach the one signal a low kept-count can hide — that a quiet client
+ * is still IN it — so a clean-page week never reads as a disengaged one.
+ *
+ * DESIGN LAW, by construction: a snooze is never a resolution and never a miss
+ * (events.js keeps it out of `resolved`), so this line can only ever count
+ * lean-ins. It celebrates the client showing up to the conversation; it never
+ * tallies, names, or hints at a miss. Returns '' when there are none yet this
+ * week — a quiet page, nothing to celebrate and nothing to apologise for, exactly
+ * like clientWeeklyShowedUpCopy.
+ * @param {object} p { snoozedThisWeek }
+ * @returns {string}
+ */
+export function clientWeeklyEngagedCopy({ snoozedThisWeek = 0 } = {}) {
+  const n = Number(snoozedThisWeek) || 0;
+  if (n <= 0) return '';
+  return `They leaned in ${n} time${n === 1 ? '' : 's'} this week — every “I’m on it” is them staying with it.`;
+}
+
 // ── BETWEEN-SESSION NOTE (the coach's copy/share artifact) ───────────────────
 // The weekly snapshot above lets a coach SEE where a client's week stands. This
 // turns that same seven-day picture into a ready-to-send, copy-pasteable note a
@@ -1156,6 +1180,21 @@ export function registerCoachRoutes(router, ctx) {
       ).bind(clientId, EVENTS.CHECKIN_DELIVERED, windowCutoffISO).all();
       const deliveredTimestamps = ((deliveredRows && deliveredRows.results) || []).map((r) => r.created_at);
 
+      // The client's OWN engagement on the same axis: their "I'm on it" third
+      // answers — recorded `commitment_snooze` events (R-278), read here for the
+      // first time. Same wide raw window as the kept + delivered reads;
+      // buildWeeklyReport buckets to the trailing 7 local days. DESIGN LAW: a
+      // snooze is never a resolution and never a miss (kept OUT of `resolved`),
+      // so this can only surface a lean-in — the signal that a quiet client is
+      // still actively in it, never a shortfall.
+      const snoozedRows = await env.DB.prepare(
+        `SELECT created_at FROM analytics_events
+          WHERE user_id = ? AND event_type = ? AND created_at >= ?
+          ORDER BY created_at ASC
+          LIMIT 1000`
+      ).bind(clientId, EVENTS.COMMITMENT_SNOOZE, windowCutoffISO).all();
+      const snoozedTimestamps = ((snoozedRows && snoozedRows.results) || []).map((r) => r.created_at);
+
       // The client's OWN WORDS ride the between-session note ONLY when the client
       // has opted in to sharing them (default OFF — getNoteSharingOptIn). The
       // coach link shares kept-word MOMENTUM by construction; the client's
@@ -1188,6 +1227,7 @@ export function registerCoachRoutes(router, ctx) {
         streak,
         keptTimestamps,
         deliveredTimestamps,
+        snoozedTimestamps,
         rhythms: activeCommitments.map((c) => ({
           title: c.title, recurrence: c.recurrence, local_time: c.local_time,
           timezone: c.timezone, next_checkin: c.next_checkin,
@@ -1203,6 +1243,8 @@ export function registerCoachRoutes(router, ctx) {
         until: weekly.window && weekly.window.until,
         summary_line: clientWeeklyKeptCopy({ keptThisWeek: weekly.kept_this_week }),
         showed_up_line: clientWeeklyShowedUpCopy({ showedUp: weekly.showed_up_this_week }),
+        engaged_this_week: weekly.snoozed_this_week,
+        engaged_line: clientWeeklyEngagedCopy({ snoozedThisWeek: weekly.snoozed_this_week }),
       };
 
       // A ready-to-send between-session note built from the SAME weekly picture,
