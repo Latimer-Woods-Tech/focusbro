@@ -2863,13 +2863,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
         var sharesLine = c.shares_reflections_line
           ? '<div class="roster-shares">' + esc(c.shares_reflections_line) + '</div>'
           : '';
+        // The at-a-glance "leaning in" cue: shown only when the server marks this
+        // client as having answered "I'm on it" (a snooze / lean-in) inside the
+        // trailing week — the roster twin of the detail view's exact lean-in count
+        // (R-279). It lets a coach tell an engaged-but-unresolved client from a
+        // truly-quiet one before deciding who to reach out to. A celebration of
+        // staying with the word, never a flag; absent for a client who hasn't
+        // leaned in (a clean card, never framed as a shortfall).
+        var engagedLine = c.engaged_line
+          ? '<div class="roster-engaged">' + esc(c.engaged_line) + '</div>'
+          : '';
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
-          +     nextLine + reachLine + backLine + milestoneLine + sharesLine + '</div>'
+          +     nextLine + reachLine + backLine + milestoneLine + sharesLine + engagedLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
