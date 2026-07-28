@@ -2593,7 +2593,23 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = {}; }
-      const minutes = clampSnoozeMinutes(body && body.minutes);
+
+      // The hold length can arrive two ways, and every OTHER snooze surface — the
+      // SMS "gimme 20" reply and the in-app "Move it → I'm on it" path — already
+      // reads a natural-language length through the shared `parseSnoozeMinutes`.
+      // This endpoint used to accept ONLY a numeric `minutes`, so it was the one
+      // snooze surface that couldn't understand "give me 20" / "half an hour" — an
+      // API/UX parity gap against the "one parser on every surface" line the
+      // two-way moat is built on (R-233). Read both: an explicit numeric `minutes`
+      // keeps the exact prior API contract and wins; otherwise a `when_text` is
+      // read with the SAME parser (a clock time or multi-day horizon is guarded to
+      // the default in there, never mis-clamped into a wrong count), and a plain
+      // snooze with neither stays the default. Streak-safe by construction — this
+      // route never reads or writes the kept-word streak.
+      const whenText = body && typeof body.when_text === 'string' ? body.when_text.trim() : '';
+      const minutes = body && body.minutes != null
+        ? clampSnoozeMinutes(body.minutes)
+        : (whenText ? (parseSnoozeMinutes(whenText) ?? SNOOZE_DEFAULT_MIN) : SNOOZE_DEFAULT_MIN);
 
       const commitment = await env.DB.prepare(
         `SELECT id, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
@@ -2647,7 +2663,12 @@ export function registerAccountabilityRoutes(router, ctx) {
         commitment_id: id,
         snoozed_until: snoozedUntil,
         minutes,
-        message: snoozeConfirmCopy({ persona, minutes }),
+        // Meet reported movement by name — "love that you're moving" — the exact
+        // warmth the SMS and in-app "when?" snooze surfaces already give, so a
+        // "grinding away, gimme 20" here no longer lands on the flatter generic
+        // line. Only a natural-language when_text can carry that signal; a numeric
+        // `minutes` request has no words to read, so it keeps the generic-warm copy.
+        message: snoozeConfirmCopy({ persona, minutes, progress: whenText ? isProgressReply(whenText) : false }),
       }, 200);
     } catch (err) {
       console.error('[accountability] snooze error:', err && err.message);

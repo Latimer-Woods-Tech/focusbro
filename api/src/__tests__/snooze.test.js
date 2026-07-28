@@ -139,6 +139,49 @@ describe('POST /api/commitments/:id/snooze — "I\'m on it"', () => {
     expect(inRange.minutes).toBe(30);
   });
 
+  // ── one parser on every surface (R-233): the direct endpoint reads natural
+  // language too, not just a raw number — closing the last snooze-surface gap ──
+  it('honors a natural-language hold length in when_text ("give me 20")', async () => {
+    const body = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'give me 20' } })).then((r) => r.json());
+    expect(body.minutes).toBe(20);
+  });
+
+  it('reads an idiomatic length in when_text the same way the SMS path does ("half an hour")', async () => {
+    const body = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'half an hour' } })).then((r) => r.json());
+    expect(body.minutes).toBe(30);
+  });
+
+  it('an explicit numeric minutes still wins over when_text (prior API contract preserved)', async () => {
+    const body = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { minutes: 45, when_text: 'give me 20' } })).then((r) => r.json());
+    expect(body.minutes).toBe(45);
+  });
+
+  it('a when_text with no readable length falls back to the default — never mis-clamped', async () => {
+    // A clock time is a reschedule TARGET, not a hold length; parseSnoozeMinutes
+    // guards it to null so the endpoint keeps the default rather than reading "3"
+    // as 3 (clamped-to-floor) minutes. A bare snooze with no length does the same.
+    const clock = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'at 3pm' } })).then((r) => r.json());
+    expect(clock.minutes).toBe(SNOOZE_DEFAULT_MIN);
+    const bare = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'on it' } })).then((r) => r.json());
+    expect(bare.minutes).toBe(SNOOZE_DEFAULT_MIN);
+  });
+
+  it('meets reported movement in when_text by name — parity with the other snooze surfaces', async () => {
+    const moving = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'grinding away, give me 20' } })).then((r) => r.json());
+    expect(moving.minutes).toBe(20);
+    expect(moving.message).toMatch(/moving/i);
+    // A plain length with no movement words stays the generic-warm line.
+    const plain = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
+      'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'give me 20' } })).then((r) => r.json());
+    expect(plain.message).not.toMatch(/moving/i);
+  });
+
   it('NEVER touches the kept-word streak — a snooze is not a resolution', async () => {
     const db = makeDB({ commitment: activeCommitment, openCheckin: openSent });
     const call = buildRouter(db);
