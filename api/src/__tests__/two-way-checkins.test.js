@@ -760,6 +760,11 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     // a snooze is NOT a resolution and NOT a miss — the streak/commitment are never touched
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(false);
+    // ...but it IS counted — the "I'm on it" third answer records commitment_snooze
+    // on the SMS moat, parity with the in-app and /snooze surfaces.
+    const snoozeEvt = db.runs.find((x) => x.params.includes('commitment_snooze'));
+    expect(snoozeEvt, 'the SMS snooze records a commitment_snooze').toBeTruthy();
+    expect(JSON.parse(snoozeEvt.params[2])).toMatchObject({ commitment_id: 'cm1', is_recurring: false, channel: 'text' });
     // the warm "you got it, I'll swing back" copy went out — never "reply DONE or LATER"
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);

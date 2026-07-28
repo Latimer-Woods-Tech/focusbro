@@ -35,6 +35,7 @@ export const EVENTS = Object.freeze({
   COMMITMENT_RESCHEDULE: 'commitment_reschedule',
   COMMITMENT_MISSED: 'commitment_missed',
   COMMITMENT_RELEASED: 'commitment_released',
+  COMMITMENT_SNOOZE: 'commitment_snooze',
   CHECKIN_DELIVERED: 'checkin_delivered',
   CHECKIN_RESPONDED: 'checkin_responded',
   CHECKIN_ESCALATED: 'checkin_escalated',
@@ -607,6 +608,10 @@ export async function computeLoopMetrics(env, opts = {}) {
     commitments_reschedule: by_type[EVENTS.COMMITMENT_RESCHEDULE] || 0,
     commitments_missed: by_type[EVENTS.COMMITMENT_MISSED] || 0,
     commitments_released: by_type[EVENTS.COMMITMENT_RELEASED] || 0,
+    // The "I'm on it" third answer — an engagement signal, never a resolution and
+    // never a miss, so it is counted on its own and deliberately kept OUT of
+    // `resolved` below (it must not move the kept-word rate).
+    commitments_snoozed: by_type[EVENTS.COMMITMENT_SNOOZE] || 0,
   };
 
   const resolved = totals.commitments_kept + totals.commitments_reschedule + totals.commitments_missed;

@@ -147,6 +147,29 @@ describe('POST /api/commitments/:id/snooze — "I\'m on it"', () => {
     expect(body.minutes).toBe(20);
   });
 
+  // ── the snooze is a first-class, counted engagement signal on every surface ──
+  it('records a commitment_snooze + checkin_responded event (the "I\'m on it" third answer is counted)', async () => {
+    const db = makeDB({ commitment: activeCommitment, openCheckin: openSent });
+    await buildRouter(db)('POST', '/api/commitments/cm1/snooze');
+    const snoozeEvt = db.runs.find((x) =>
+      /INSERT INTO analytics_events/.test(x.sql) && x.params.includes('commitment_snooze'));
+    expect(snoozeEvt, 'a commitment_snooze event is recorded').toBeTruthy();
+    // params: [user_id, event_type, event_data_json]; a one-shot word → is_recurring false.
+    expect(JSON.parse(snoozeEvt.params[2])).toMatchObject({ commitment_id: 'cm1', is_recurring: false, channel: 'push' });
+    // a snooze is still never a resolution and never a miss — no outcome event.
+    expect(db.runs.some((x) => x.params.includes('commitment_kept') || x.params.includes('commitment_missed'))).toBe(false);
+    // and the check-in is marked responded — parity with the in-app and SMS surfaces.
+    expect(db.runs.some((x) => x.params.includes('checkin_responded'))).toBe(true);
+  });
+
+  it('marks the snooze event is_recurring for a recurring word', async () => {
+    const recurring = { id: 'cm1', persona: 'ally', channel: 'text', status: 'active', recurrence: 'daily' };
+    const db = makeDB({ commitment: recurring, openCheckin: openSent });
+    await buildRouter(db)('POST', '/api/commitments/cm1/snooze');
+    const snoozeEvt = db.runs.find((x) => x.params.includes('commitment_snooze'));
+    expect(JSON.parse(snoozeEvt.params[2])).toMatchObject({ is_recurring: true, channel: 'text' });
+  });
+
   it('reads an idiomatic length in when_text the same way the SMS path does ("half an hour")', async () => {
     const body = await (buildRouter(makeDB({ commitment: activeCommitment, openCheckin: openSent }))(
       'POST', '/api/commitments/cm1/snooze', { body: { when_text: 'half an hour' } })).then((r) => r.json());
