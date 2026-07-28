@@ -181,6 +181,63 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     expect(db.runs.some((x) => /SET status = 'pending', scheduled_for = \?, attempts = 0/.test(x.sql))).toBe(true);
   });
 
+  // Two-way parity with SMS (R-275, consent.js resolveKept): answering the in-app
+  // "Move it → when?" prompt with a grateful completion — "did it, didn't think I
+  // could!" — is KEEPING the word, not rescheduling. R-275 taught detectCheckinReply
+  // to read that as 'kept'; before this the in-app surface fell through parseWhenReply
+  // to the cold 400 "I couldn't read that time" AND silently denied the streak the
+  // person just earned. It must credit the kept word instead — identical to the Kept
+  // button — the exact R-275 fix carried to the other channel.
+  it('honors a grateful completion while awaiting a reschedule time as KEPT (SMS resolveKept parity)', async () => {
+    const db = makeDB({ commitment: oneShot, openCheckin: { id: 'ck1' } });
+    const call = buildRouter(db);
+    const res = await call('POST', '/api/commitments/cm1/checkin', {
+      body: { outcome: 'reschedule', when_text: 'did it, didn\'t think I could!' },
+    });
+    expect(res.status).toBe(200);
+    const b = await res.json();
+    // A real kept resolution: streak echoed, kept copy — NOT a snooze, NOT a
+    // follow-up reschedule word, NOT the cold when-unclear error.
+    expect(b.streak).toBeTruthy();
+    expect(b.action).toBeUndefined();
+    expect(b.new_commitment).toBeUndefined();
+    expect(b.error).toBeUndefined();
+    // The check-in was resolved as 'kept' and the commitment set to 'kept'.
+    const checkinResolve = db.runs.find((x) => /UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(x.sql));
+    expect(checkinResolve).toBeTruthy();
+    expect(checkinResolve.params[0]).toBe('kept');
+    // Their OWN grateful words are kept as the note (parity with keptNoteFromReply).
+    expect(checkinResolve.params[1]).toBe('did it, didn\'t think I could!');
+    expect(db.runs.some((x) => /UPDATE commitments SET status = \?/.test(x.sql) && x.params[0] === 'kept')).toBe(true);
+    // The kept-word streak the person earned is credited (was silently denied before).
+    expect(db.runs.some((x) => /accountability_streaks/i.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_kept'))).toBe(true);
+    // Not a reschedule: no follow-up word was created.
+    expect(insertedCommitment(db.runs)).toBeNull();
+  });
+
+  it('a real not-done answering "when?" stays a reschedule — never inflated to kept', async () => {
+    // "didn't finish, tomorrow 9am" negates the completion word and names a
+    // reschedule intent, so detectCheckinReply returns 'reschedule' — the kept
+    // interceptor never fires. The word carries forward; the streak is untouched.
+    const db = makeDB({ commitment: oneShot });
+    const call = buildRouter(db);
+    const res = await call('POST', '/api/commitments/cm1/checkin', {
+      body: { outcome: 'reschedule', when_text: 'didn\'t finish, tomorrow 9am' },
+    });
+    expect(res.status).toBe(200);
+    const b = await res.json();
+    expect(b.new_commitment).toBeTruthy();      // a follow-up reschedule word
+    expect(insertedCommitment(db.runs)).toBeTruthy();
+    // Never inflated to kept: the commitment resolves as 'rescheduled', the
+    // reschedule event fires, and NO kept event is recorded. (A reschedule still
+    // writes the streak row — it protects the chain — so that write is expected;
+    // the kept event and 'kept' status are the true kept/reschedule discriminators.)
+    expect(db.runs.some((x) => /UPDATE commitments SET status = \?/.test(x.sql) && x.params[0] === 'rescheduled')).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_kept'))).toBe(false);
+  });
+
   it('a plain "later" answering "when?" is still a reschedule, never a wrong snooze', async () => {
     // detectCheckinReply runs RESCHEDULE before SNOOZE, so "later" never reads as
     // a snooze; parseWhenReply can't read a concrete time from it, so it gets the

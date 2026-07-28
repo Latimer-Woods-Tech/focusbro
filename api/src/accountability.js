@@ -2278,11 +2278,11 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = {}; }
-      const outcome = typeof body.outcome === 'string' ? body.outcome.toLowerCase() : '';
+      let outcome = typeof body.outcome === 'string' ? body.outcome.toLowerCase() : '';
       if (!OUTCOMES.includes(outcome)) {
         return jsonResponse({ error: `outcome must be one of: ${OUTCOMES.join(', ')}` }, 400);
       }
-      const note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
+      let note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
 
       const commitment = await env.DB.prepare(
         `SELECT id, title, persona, channel, timezone, recurrence, local_time, status
@@ -2292,6 +2292,43 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       const persona = pickPersona(commitment.persona);
       const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
+
+      // Free-text carried on the in-app "Move it → when?" surface. Read up-front
+      // because both the KEPT interception (just below) and the SNOOZE
+      // interception (further down) must inspect it BEFORE this is treated as a
+      // reschedule. An explicit picker instant (ISO new_start_at) is an
+      // unambiguous reschedule and never a completion or a snooze.
+      const rescheduleWhenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
+      const hasExplicitInstant = typeof body.new_start_at === 'string' && body.new_start_at.trim();
+
+      // Parity with the SMS awaiting-"when?" path (consent.js, R-275): someone who
+      // tapped "Move it → when?" and then reports they actually FINISHED — "did it,
+      // didn't think I could!" — is keeping their word, not rescheduling. R-275
+      // taught detectCheckinReply to read that grateful completion as 'kept'; over
+      // SMS the awaiting-time reply already honors it (resolveKept). Without this,
+      // the in-app surface fell through parseWhenReply to the cold "I couldn't read
+      // that time" AND silently denied the kept-word streak the person just earned
+      // — the coldest possible answer to the warmest reply, the exact R-275 defect
+      // on the other channel. Convert to a real kept so the whole resolution below
+      // (streak credit, kept copy, kept event) runs identically to the Kept button.
+      // Same guards as the snooze interception: only the reschedule "when?" surface,
+      // only a natural-language when_text with no explicit picker instant, only an
+      // active word. A real not-done can never reach here — detectCheckinReply
+      // returns 'kept' only on a clean, un-negated completion, never on a miss.
+      if (
+        outcome === 'reschedule'
+        && commitment.status === 'active'
+        && rescheduleWhenText
+        && !hasExplicitInstant
+        && detectCheckinReply(rescheduleWhenText) === 'kept'
+      ) {
+        outcome = 'kept';
+        // Keep the person's OWN grateful words as the note (parity with the SMS
+        // resolveKept's keptNoteFromReply) when they didn't type a separate note,
+        // so the kept-word history reads back in their voice, not a robotic label.
+        if (!note) note = keptNoteFromReply(rescheduleWhenText);
+      }
+
       // A recurring commitment is never "done" — it keeps its rhythm. Only a
       // one-shot commitment resolves to a terminal state.
       const newCommitmentStatus = isRecurring ? 'active'
@@ -2313,8 +2350,6 @@ export function registerAccountabilityRoutes(router, ctx) {
       // word (a settled one-shot has no live nudge to push). detectCheckinReply
       // runs RESCHEDULE before SNOOZE, so a plain "later" here stays a reschedule
       // and still gets the warm re-ask — never a wrong snooze.
-      const rescheduleWhenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
-      const hasExplicitInstant = typeof body.new_start_at === 'string' && body.new_start_at.trim();
       if (
         outcome === 'reschedule'
         && commitment.status === 'active'
