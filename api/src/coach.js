@@ -386,6 +386,38 @@ export function clientWeeklyEngagedCopy({ snoozedThisWeek = 0 } = {}) {
   return `They leaned in ${n} time${n === 1 ? '' : 's'} this week — every “I’m on it” is them staying with it.`;
 }
 
+/** Trailing-window (days) the roster's at-a-glance "leaning in" cue looks back over. */
+export const ROSTER_ENGAGED_WINDOW_DAYS = 7;
+
+/**
+ * The at-a-glance ROSTER twin of `clientWeeklyEngagedCopy` — a NON-numeric,
+ * boolean "leaning in" cue for a coach scanning the whole roster to decide who
+ * to reach out to. `clientWeeklyEngagedCopy` (the detail view) carries the exact
+ * lean-in COUNT; the roster, like every other at-a-glance cue here (reach-out,
+ * back-and-moving, shares-reflections), stays non-numeric so the triage glance
+ * never drifts from — or contradicts — the exact number on the detail page.
+ *
+ * The gap it closes: two clients can BOTH read "a clean page, 0 kept words in a
+ * row" on the roster, yet one has been answering "I'm on it" all week (engaged,
+ * just hasn't resolved) while the other has gone silent. Without this the coach
+ * triages them identically and reaches out with the wrong tone. This cue lets a
+ * coach tell an engaged-but-unresolved client from a truly-quiet one at a glance
+ * — the same signal R-279 added to the detail view, now on the surface where the
+ * reach-out decision is actually made.
+ *
+ * DESIGN LAW, by construction: a snooze is never a resolution and never a miss
+ * (events.js keeps it out of `resolved`), so this cue can only ever surface a
+ * lean-in — it celebrates the client staying with the word, never tallies,
+ * names, or hints at a miss. Returns '' when the client has not leaned in inside
+ * the window — a clean card, exactly like the other roster cues.
+ * @param {object} p { engaged } — truthy when ≥1 lean-in inside the window
+ * @returns {string}
+ */
+export function clientRosterEngagedCopy({ engaged } = {}) {
+  if (engaged !== true) return '';
+  return 'Leaning in this week — they’re staying with their words. 💪';
+}
+
 // ── BETWEEN-SESSION NOTE (the coach's copy/share artifact) ───────────────────
 // The weekly snapshot above lets a coach SEE where a client's week stands. This
 // turns that same seven-day picture into a ready-to-send, copy-pasteable note a
@@ -993,6 +1025,44 @@ export function registerCoachRoutes(router, ctx) {
           const shares = sharesSet.has(entry.client_id);
           entry.shares_reflections = shares;
           entry.shares_reflections_line = clientSharesReflectionsCopy({ shares });
+        }
+
+        // At-a-glance "leaning in" cue: the roster twin of the detail view's
+        // exact lean-in count (R-279). Which active clients have answered "I'm on
+        // it" — a `commitment_snooze` event (R-278) — inside the trailing week.
+        // ONE grouped query over the active set (no N+1). We compare on the
+        // calendar-day prefix (`substr(created_at,1,10)`), the format-agnostic
+        // pattern the reach-out / homecoming cues already use, so mixed ISO/space
+        // timestamps sort correctly and this stays consistent with the other
+        // day-granular roster cues. Non-fatal by construction: an at-a-glance
+        // indicator must never take down the roster, so any failure just yields
+        // no cue. DESIGN LAW: a snooze is never a resolution and never a miss, so
+        // this can only surface a lean-in — a quiet page here is a clean page,
+        // never a shortfall. Kept BOOLEAN on purpose (the detail carries the
+        // number) so the roster glance can never drift from the detail count.
+        let engagedSet = new Set();
+        try {
+          const engagedCutoffDay = new Date(
+            Date.parse(nowISO) - ROSTER_ENGAGED_WINDOW_DAYS * 24 * 60 * 60 * 1000
+          ).toISOString().slice(0, 10);
+          const engagedRows = await env.DB.prepare(
+            `SELECT user_id AS client_id
+               FROM analytics_events
+              WHERE user_id IN (${placeholders})
+                AND event_type = ?
+                AND substr(created_at, 1, 10) >= ?
+              GROUP BY user_id`
+          ).bind(...activeIds, EVENTS.COMMITMENT_SNOOZE, engagedCutoffDay).all();
+          for (const r of (engagedRows && engagedRows.results) || []) engagedSet.add(r.client_id);
+        } catch (err) {
+          console.warn('[coach] roster engaged query failed:', err && err.message);
+          engagedSet = new Set();
+        }
+        for (const entry of roster) {
+          if (entry.status !== 'active') continue;
+          const engaged = engagedSet.has(entry.client_id);
+          entry.engaged_this_week = engaged;
+          entry.engaged_line = clientRosterEngagedCopy({ engaged });
         }
 
         // Weekly homecoming digest: the batched, between-session twin of the
