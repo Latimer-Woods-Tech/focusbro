@@ -2438,7 +2438,21 @@ export function registerAccountabilityRoutes(router, ctx) {
         rescheduleValue = parsed.value;
       }
 
-      // Record the resolution on the pending check-in (or the latest one).
+      // Record the resolution on the check-in the person is actually acting on:
+      // the SOONEST still-outstanding occurrence — the exact one the /me/ card
+      // surfaces as `next_checkin` (MIN(scheduled_for) over the same open set,
+      // see the `outstanding` query above). This MUST NOT pick a later row.
+      // For a recurring word, the delivery cron marks today's check-in `sent` and
+      // immediately materializes tomorrow's as `pending` (checkins-cron.js). The
+      // previous ordering — pending-first, then latest `scheduled_for` DESC —
+      // therefore stamped the resolution on TOMORROW's not-yet-due occurrence and
+      // orphaned today's delivered check-in as an unanswered `sent` row: the card
+      // kept reading "still here whenever you're ready" right after the person
+      // marked it done, and the escalation ladder then texted a false "still here
+      // about <word>" nudge for a task they had already completed. Ordering by
+      // `scheduled_for ASC` over the open set resolves the current occurrence and
+      // leaves the future one untouched — an early in-app resolve (before any
+      // delivery) still lands on the single pending row exactly as before.
       await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
@@ -2446,7 +2460,8 @@ export function registerAccountabilityRoutes(router, ctx) {
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-               ORDER BY (status = 'pending') DESC, scheduled_for DESC LIMIT 1
+                 AND status IN ('pending', 'sent', 'deferred')
+               ORDER BY scheduled_for ASC LIMIT 1
             )`
       ).bind(outcome, note, auth.userId, id, id, auth.userId).run();
 
