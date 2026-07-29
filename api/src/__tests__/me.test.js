@@ -20,6 +20,7 @@ import {
   checkinActionLabels,
   keptWithNoteActionLabel,
   keptNotePromptCopy,
+  snoozeLengthPromptCopy,
   keptLogHeadingCopy,
   keptLogEmptyCopy,
   latestKeptNoteLabelCopy,
@@ -291,6 +292,44 @@ describe('renderMePage', () => {
     expect(html).toContain("resolve(id, 'kept', trimmed ? { note: trimmed } : undefined)");
     // Backing out of the optional prompt keeps nothing (leaves the fast tap free).
     expect(html).toContain('if (word === null) return;');
+  });
+
+  it('the in-app "I\'m on it" snooze can state a length, honored by the same parser as SMS (R-277 parity)', () => {
+    // The prompt copy is rendered into the page...
+    expect(html).toContain(snoozeLengthPromptCopy());
+    // ...the snooze action prompts for an optional length...
+    expect(html).toContain("act === 'snooze'");
+    expect(html).toContain('var snoozeLen = prompt(');
+    // ...a stated length rides the server's shared snooze parser as when_text...
+    expect(html).toContain('snooze(id, snoozeLenTrim ? snoozeLenTrim : undefined)');
+    expect(html).toContain('body: JSON.stringify(whenText ? { when_text: whenText } : {})');
+    // ...an empty answer keeps today's quick default (undefined → {} → server default)...
+    expect(html).toContain('var snoozeLenTrim = snoozeLen.trim();');
+    // ...and backing out (cancel) leaves the word exactly as it is, no snooze fired.
+    expect(html).toContain('if (snoozeLen === null) return;');
+  });
+});
+
+describe('the optional snooze-length prompt is warm and design-LAW clean', () => {
+  it('is non-empty, framed as optional, and preserves the quick default', () => {
+    const copy = snoozeLengthPromptCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(/optional/i.test(copy)).toBe(true);
+    // It is part of the curated copy surface, so the shame/AI/clinical batteries
+    // above already scan it — assert its membership so it can never drift out.
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('never shames, never brands "AI", never makes a clinical claim', () => {
+    const copy = snoozeLengthPromptCopy();
+    // A snooze is never a resolution and never a miss — the copy must not tally.
+    for (const pat of [/\bmiss(ed|es|ing)?\b/i, /\bfail/i, /\bbehind\b/i, /\bguilt/i, /\bshame\b/i]) {
+      expect(pat.test(copy), `snooze prompt tripped ${pat}: "${copy}"`).toBe(false);
+    }
+    expect(/\bAI\b/.test(copy)).toBe(false);
+    for (const pat of [/\btreat(s|ment|ing)?\b/i, /\bADHD\b/i, /\bdiagnos/i]) {
+      expect(pat.test(copy)).toBe(false);
+    }
   });
 });
 

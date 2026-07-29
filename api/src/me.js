@@ -290,6 +290,18 @@ export function snoozeActionLabel() {
   return 'I’m on it';
 }
 
+/**
+ * The optional prompt shown when a person taps "I'm on it" — lets them say how
+ * long they need so the bro checks back WHEN they said, in-app the same way the
+ * SMS "on it, give me 20" path already does (R-270/R-277, one parser per R-233).
+ * Purely optional: a stated length is honored, an empty answer keeps today's
+ * quick default check-back, and backing out leaves the word exactly as it is.
+ * Never a resolution, never a miss, never a tally — the streak is untouched.
+ */
+export function snoozeLengthPromptCopy() {
+  return 'On it. How long do you need? (Optional — “20 min”, “an hour”… or just OK and I’ll check back soon.)';
+}
+
 /** Suspend a repeating rhythm without ending the word — "life happens." */
 export function pauseActionLabel() {
   return 'Pause';
@@ -412,6 +424,7 @@ export function meCopySurface() {
     keptNotePromptCopy(),
     releaseActionLabel(),
     snoozeActionLabel(),
+    snoozeLengthPromptCopy(),
     pauseActionLabel(),
     resumeActionLabel(),
     editActionLabel(),
@@ -449,6 +462,7 @@ export function renderMePage() {
   const KEPT_NOTE_PROMPT = keptNotePromptCopy();
   const RELEASE = releaseActionLabel();
   const SNOOZE = snoozeActionLabel();
+  const SNOOZE_LEN_PROMPT = snoozeLengthPromptCopy();
   const PAUSE = pauseActionLabel();
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
@@ -1333,13 +1347,16 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () { if (msgHost) { msgHost.textContent = 'Could not set that down just now — try again.'; msgHost.className = 'msg err'; } });
   }
 
-  // "I'm on it" — keep the bro coming back a few minutes out without moving the
-  // word or touching the streak. Nothing in the list changes, so just show the
-  // warm confirmation on the card.
-  function snooze(id) {
+  // "I'm on it" — keep the bro coming back a little out without moving the word
+  // or touching the streak. Nothing in the list changes, so just show the warm
+  // confirmation on the card. An optional stated length is sent as when_text and
+  // read by the SAME parser as the SMS "on it, give me 20" path (R-277); no
+  // length keeps today's quick default. The streak is never read or written.
+  function snooze(id, whenText) {
     var msgHost = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
     fetch('/api/commitments/' + encodeURIComponent(id) + '/snooze', {
-      method: 'POST', headers: authHeaders(), body: JSON.stringify({})
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify(whenText ? { when_text: whenText } : {})
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
@@ -1498,7 +1515,19 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       resolve(id, 'kept', trimmed ? { note: trimmed } : undefined);
       return;
     }
-    if (act === 'snooze') { snooze(id); return; }
+    if (act === 'snooze') {
+      // "I'm on it" — ask, gently and optionally, how long they need so the bro
+      // checks back WHEN they said (in-app parity with the SMS "give me 20"
+      // path, R-270/R-277). A cancelled prompt (null) backs out and leaves the
+      // word exactly as it is; an empty answer keeps today's quick default
+      // check-back; a stated length rides the server's shared snooze parser.
+      // Never a resolution, never a miss — the streak is untouched either way.
+      var snoozeLen = prompt(${JSON.stringify(SNOOZE_LEN_PROMPT)});
+      if (snoozeLen === null) return;
+      var snoozeLenTrim = snoozeLen.trim();
+      snooze(id, snoozeLenTrim ? snoozeLenTrim : undefined);
+      return;
+    }
     if (act === 'pause') { pause(id); return; }
     if (act === 'resume') { resume(id); return; }
     if (act === 'edit') { openEdit(id); return; }
