@@ -418,6 +418,34 @@ export function clientRosterEngagedCopy({ engaged } = {}) {
   return 'Leaning in this week — they’re staying with their words. 💪';
 }
 
+/**
+ * Warm triage weight for ORDERING an active client on the roster — the number
+ * that decides how high a card floats, never a number a coach ever sees. The
+ * roster is where a coach scans top-down to decide WHO to reach out to, yet
+ * every card carried its cue while the ORDER stayed frozen (most-recent-invite
+ * first), so the two clients a touch would help most could sit anywhere. This
+ * floats them to where the eye lands first, using ONLY the signals already
+ * resolved on the entry:
+ *   +2  a reach-out cue is live — the client has gone quiet and a warm note
+ *       would land now (the exact `reach_out_line` the reach-out cue sets);
+ *   +1  the client is leaning in but unresolved this week (`engaged_this_week`)
+ *       — reinforce while they are still in it.
+ *
+ * DESIGN LAW, by construction: every input is an INVITATION to connect — a quiet
+ * client to reach, an engaged one to cheer on — never a miss, never a failure
+ * ranking. A calm, clean-page client simply scores 0 and keeps its natural spot;
+ * it is never demoted FOR being calm, never annotated, never flagged. The weight
+ * is internal only (never serialized), so no visible copy ever tallies anything.
+ * @param {object} entry a resolved active roster entry
+ * @returns {number} higher = surfaces sooner
+ */
+export function rosterTriageRank(entry = {}) {
+  let rank = 0;
+  if (entry && entry.reach_out_line) rank += 2;
+  if (entry && entry.engaged_this_week === true) rank += 1;
+  return rank;
+}
+
 // ── BETWEEN-SESSION NOTE (the coach's copy/share artifact) ───────────────────
 // The weekly snapshot above lets a coach SEE where a client's week stands. This
 // turns that same seven-day picture into a ready-to-send, copy-pasteable note a
@@ -1137,6 +1165,33 @@ export function registerCoachRoutes(router, ctx) {
           console.warn('[coach] homecoming digest query failed:', err && err.message);
           homecomingDigest = buildHomecomingDigest({ rows: [] });
         }
+      }
+
+      // Warm triage ordering: float the active clients a coach's touch helps
+      // most right now (a quiet client a note would reach; a leaning-in client to
+      // reinforce) to the top of the ACTIVE set, so a top-down scan lands on them
+      // first instead of on whoever was invited most recently. Uses ONLY the cues
+      // already resolved on each entry (rosterTriageRank) — no extra query, no new
+      // data. Pure reorder of the same objects, run once after every cue is set.
+      // Stable within equal rank (decorate-sort-undecorate preserves the SQL's
+      // most-recent-first order); PENDING links keep their place after every
+      // active client (they carry no data, so no triage). DESIGN LAW: the order is
+      // an invitation map, never a failure ranking — a clean-page client scores 0
+      // and holds its spot, never sunk for being calm, never flagged.
+      if (roster.filter((e) => e.status === 'active').length > 1) {
+        const decorated = roster.map((entry, i) => ({ entry, i }));
+        decorated.sort((a, b) => {
+          const aActive = a.entry.status === 'active';
+          const bActive = b.entry.status === 'active';
+          if (aActive !== bActive) return aActive ? -1 : 1; // active before pending
+          if (aActive && bActive) {
+            const d = rosterTriageRank(b.entry) - rosterTriageRank(a.entry);
+            if (d !== 0) return d; // higher triage weight surfaces sooner
+          }
+          return a.i - b.i; // stable tiebreak — preserves the SQL order
+        });
+        roster.length = 0;
+        for (const d of decorated) roster.push(d.entry);
       }
 
       return jsonResponse({
