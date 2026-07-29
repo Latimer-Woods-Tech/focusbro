@@ -1903,6 +1903,109 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
   return { streak: next, isRecurring };
 }
 
+// ── THE SILENT MISS, MET WITH WARMTH ON RETURN ───────────────
+// R-286. The escalation ladder (checkins-cron.js) knocks exactly ONCE more on a
+// quiet push check-in — an SMS — then latches `escalated_at` and, if that lands
+// on silence too, goes quiet forever. That was the last unresolved corner of the
+// two-way moat: a check-in nobody ever answered sat as an eternal `status='sent'`
+// row, surfacing across the list as a "still waiting" ghost that never closes.
+//
+// The DESIGN LAW's answer to a miss is never a scold and never a dangling thread:
+// it's a warm, no-shame door held open. So the moment the person comes back under
+// their own steam, we resolve every genuinely-silent check-in as a `reschedule` —
+// the streak-protected outcome (computeStreakAfter leaves the chain untouched),
+// the same one a person's own "later" earns. A recurring rhythm keeps rolling
+// (its next occurrence materializes); a one-shot reads "Moved — still on."
+// Nothing is ever scored as a miss; the door simply stops standing ajar.
+//
+// Bounded + safe by construction: only push check-ins that were ESCALATED and
+// then stayed silent for a further hour qualify (`STRANDED_SILENCE_MIN`), so a
+// reply still in flight is never stolen; resolution runs through the one shared
+// `applyCheckinOutcome` core (idempotent — a resolved row no longer matches);
+// and the whole pass is non-fatal, so a hiccup never blocks the return it rides.
+
+/**
+ * Minutes an ESCALATED, still-unanswered push check-in must stay silent before a
+ * return resolves it. The escalation SMS itself fires 15 min after a quiet push
+ * (ESCALATION_DELAY_MIN); this further hour of silence marks a genuine miss, not
+ * a reply the person is about to send as they walk back in.
+ */
+export const STRANDED_SILENCE_MIN = 60;
+
+/** Max stranded check-ins reconciled per return — bounded; a person has few. */
+const STRANDED_LIMIT = 25;
+
+/** Blameless provenance note on an auto-resolved silent miss (safe to surface). */
+export const STRANDED_NOTE = 'Moved on your return — still on.';
+
+/**
+ * Resolve a returning person's silently-missed check-ins as no-shame reschedules.
+ *
+ * "Silently missed" = a push check-in the bro escalated (one SMS) that then went
+ * fully quiet for at least `STRANDED_SILENCE_MIN`, on a still-active commitment.
+ * Each is closed through the shared `applyCheckinOutcome` core as a `reschedule`:
+ * streak-safe, rhythm-continuing for a recurring word, and never a miss score.
+ *
+ * DESIGN LAW: emits no scold and names no gap — it only stops an unanswered row
+ * from sitting open forever, so the person meets a door, not a ghost. Non-fatal:
+ * any failure resolves to `{ reconciled }` with what it managed, never throwing
+ * into the caller (a return is never blocked by a housekeeping pass).
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {string} userId
+ * @param {{ nowISO?: string }} [opts]
+ * @returns {Promise<{ reconciled: number }>}
+ */
+export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
+  if (!env || !env.DB || !userId) return { reconciled: 0 };
+  const now = nowISO || new Date().toISOString();
+  const cutoff = new Date(new Date(now).getTime() - STRANDED_SILENCE_MIN * 60 * 1000).toISOString();
+  let reconciled = 0;
+  try {
+    const stranded = await env.DB.prepare(
+      `SELECT c.id AS checkin_id, c.commitment_id,
+              m.recurrence, m.timezone, m.local_time, m.channel, m.status AS commitment_status
+         FROM commitment_checkins c
+         JOIN commitments m ON m.id = c.commitment_id
+        WHERE c.user_id = ?
+          AND c.status = 'sent'
+          AND c.responded_at IS NULL
+          AND c.escalated_at IS NOT NULL
+          AND c.escalated_at <= ?
+          AND m.status = 'active'
+        ORDER BY c.escalated_at ASC
+        LIMIT ?`
+    ).bind(userId, cutoff, STRANDED_LIMIT).all();
+
+    const rows = (stranded && stranded.results) || [];
+    for (const row of rows) {
+      try {
+        await applyCheckinOutcome(env, {
+          userId,
+          checkin: { id: row.checkin_id, commitment_id: row.commitment_id },
+          commitment: {
+            id: row.commitment_id,
+            recurrence: row.recurrence,
+            timezone: row.timezone,
+            local_time: row.local_time,
+            channel: row.channel,
+            status: row.commitment_status,
+          },
+          outcome: 'reschedule',
+          note: STRANDED_NOTE,
+          nowISO: now,
+        });
+        reconciled++;
+      } catch (err) {
+        console.error('[accountability] stranded reconcile row error:', err && err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[accountability] stranded reconcile error:', err && err.message);
+  }
+  return { reconciled };
+}
+
 /** Read a user's kept-word streak row (module-level; used by applyCheckinOutcome). */
 export async function readStreak(env, userId) {
   const row = await env.DB.prepare(
@@ -2145,6 +2248,14 @@ export function registerAccountabilityRoutes(router, ctx) {
     try {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
+
+      // The silent miss, met with warmth on return (R-286): loading your words is
+      // you coming back, so first close any check-in the bro nudged that then went
+      // fully quiet — resolved as a no-shame reschedule (streak-safe, rhythm kept)
+      // BEFORE the list is read, so a returning person meets an open door, never an
+      // unanswered "still waiting" ghost. Non-fatal by construction: never blocks
+      // the load.
+      await reconcileStrandedCheckins(env, auth.userId, { nowISO: new Date().toISOString() });
 
       const rows = await env.DB.prepare(
         `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
