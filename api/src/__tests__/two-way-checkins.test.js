@@ -202,6 +202,44 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply('😴')).toBeNull();
     expect(detectCheckinReply('👎')).toBeNull();
   });
+
+  it('meets a self-critical miss with the warm RESCHEDULE, never the cold re-prompt (the design LAW)', () => {
+    // The hardest reply on the moat: a person drowning in shame, no reschedule
+    // marker word. These used to fall through to `null` — the cold "I didn't
+    // catch that, reply DONE or LATER" — the exact scold the LAW forbids. Now
+    // each is read as the no-shame reschedule ("when do you want to try again?").
+    for (const t of [
+      'failed again',
+      'i failed',
+      'i suck',
+      'i suck at this',
+      "i'm useless",
+      'so useless',
+      "i'm the worst",
+      "i'm a failure",
+      "i'm hopeless",
+      'gave up',
+      'giving up',
+      "what's the point",
+      'whats the point',
+      'screwed up',
+      'messed it up',
+      'blew it',
+      'total failure',
+    ]) {
+      expect(detectCheckinReply(t), t).toBe('reschedule');
+    }
+  });
+
+  it('never lets a self-blame phrase steal a genuine completion, snooze, or plain reschedule', () => {
+    // Every higher-priority net returns first — SHAME_MISS can only ever rescue a
+    // would-be `null`, never regress an existing read. Streak-safe by construction.
+    expect(detectCheckinReply('did it, i suck at this but got it done')).toBe('kept');
+    expect(detectCheckinReply("nailed it, didn't think i could, i'm useless usually")).toBe('kept');
+    expect(detectCheckinReply("on it, i'm useless at focusing but grinding")).toBe('snooze');
+    expect(detectCheckinReply('gave up for now, tomorrow')).toBe('reschedule'); // plain reschedule wins
+    expect(detectCheckinReply('halfway, i suck but chipping away')).toBe('snooze');
+  });
 });
 
 describe('isStartHelpReply — asks for a tiny starting intervention', () => {

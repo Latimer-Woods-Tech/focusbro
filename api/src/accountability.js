@@ -1363,6 +1363,28 @@ const PROGRESS_MOVEMENT = /\b(working on it|still working|still on it|still at i
 // FLOW's exact spelling so the two never drift. Never touches the streak — a
 // snooze is not a resolution and not a miss.
 const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| through)?|plugging away|grinding(?: away)?)\b/;
+// The hardest reply on the whole moat: a self-critical miss. An ADHD user
+// drowning in shame texts back "failed again", "i suck", "gave up", "i'm
+// useless", "what's the point", "i'm the worst". None of these carries a
+// reschedule marker word (no "later"/"tomorrow"/"can't"/"didn't"), so they fell
+// through the entire classifier to a bare `null` — and `null` is the COLD "I
+// didn't catch that, reply DONE or LATER" re-prompt. That is the exact scold the
+// ONE design LAW forbids ("never shame"), delivered to the very person who most
+// needs the warm hand. Read the residual self-blame / defeat family as a
+// RESCHEDULE — the no-shame path, which answers "no problem, when do you want to
+// try again?" and keeps the streak safe (a reschedule never resets it).
+//
+// Streak-safe AND regression-safe BY CONSTRUCTION: this net is consulted only in
+// detectCheckinReply AFTER RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the bare
+// hold-length nets have each already returned. So a real completion ("did it, i
+// suck at this but got it done") stays KEPT, a "later"/"tomorrow" stays a plain
+// RESCHEDULE, and an "on it, i'm useless at focusing" stays a SNOOZE — every
+// existing classification is untouched. The only reply this net can ever change
+// is one that would otherwise have gone cold. The "the worst"/"a failure"/etc.
+// identity phrases are anchored to the "i'm ..." self-frame so a stray "worst
+// case, tomorrow" (already a reschedule) or "the point is done" (already kept)
+// can never reach or trip them.
+const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|hopeless)\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
@@ -1677,6 +1699,15 @@ export function detectCheckinReply(text) {
   // genuine reschedule. Streak-safe by construction — a snooze is not a resolution
   // and not a miss.
   if (isStatedHoldLength(raw)) return 'snooze';
+  // A self-critical miss ("failed again", "i suck", "gave up", "i'm useless",
+  // "what's the point") — the emotionally hardest reply on the two-way moat.
+  // RESCHEDULE/KEPT/PARTIAL/SNOOZE/FLOW/hold-length have ALL run first, so a
+  // completion, a "later"/"tomorrow", and any engaged mid-task reply have each
+  // already returned; only a residual self-blame phrase reaches here. Read it as
+  // the no-shame RESCHEDULE (warm "when do you want to try again?"), never the
+  // cold `null` re-prompt — that cold branch aimed at this reply is the exact
+  // scold the design LAW forbids. Streak-safe: a reschedule never resets.
+  if (SHAME_MISS.test(t)) return 'reschedule';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
