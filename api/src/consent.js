@@ -588,18 +588,32 @@ export function registerConsentRoutes(router, ctx) {
 
       // ── Two-way check-in reply: resolve the person's open text check-in ──
       // A text check-in is only half the loop if you can't answer it. Find the
-      // single most-recent open text check-in — whether it was just delivered
-      // ('sent') or is mid-"when do you want to try again?" conversation
-      // ('awaiting_time'). Newest wins, so a stale awaiting row never hijacks a
-      // fresh nudge. STOP/START/HELP are handled above, so they never land here.
+      // single open text check-in that is currently awaiting the person's word —
+      // whether it was just delivered ('sent'), is mid-"when do you want to try
+      // again?" conversation ('awaiting_time'), or was DELIVERED and then re-pended
+      // into a short wait window (a "help me start" check-back, or an "I'm on it"
+      // snooze) — those carry `status = 'pending'` but keep their `delivered_at`.
+      // Without the delivered-pending arm, the most engaged reply on the live moat
+      // met silence: the "help me start" copy literally says "Text STARTED when
+      // you're moving," yet a STARTED / done / on-it texted inside those two minutes
+      // found no open check-in and was dropped (no_open_checkin) — the same cold
+      // gap the recent two-way work has been closing, one channel at a time. The
+      // `delivered_at IS NOT NULL` guard is exact: a never-yet-delivered future
+      // occurrence is materialized with `delivered_at` NULL and only ever reaches
+      // 'sent' on delivery, so this arm matches ONLY a delivered-then-re-pended
+      // check-in — never a future one. The `status='pending'` rows rank LAST in the
+      // order (sent/awaiting first, then newest), so a fresh nudge is never
+      // shadowed by a snoozed row scheduled further out. STOP/START/HELP are handled
+      // above, so they never land here.
       const open = await env.DB.prepare(
         `SELECT c.id AS checkin_id, c.commitment_id, c.status AS checkin_status,
                 m.recurrence, m.timezone, m.local_time, m.channel, m.persona
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
-          WHERE c.user_id = ? AND c.channel = 'text'
-            AND c.status IN ('sent', 'awaiting_time') AND c.responded_at IS NULL
-          ORDER BY c.scheduled_for DESC LIMIT 1`
+          WHERE c.user_id = ? AND c.channel = 'text' AND c.responded_at IS NULL
+            AND ( c.status IN ('sent', 'awaiting_time')
+                  OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
+          ORDER BY (c.status = 'pending') ASC, c.scheduled_for DESC LIMIT 1`
       ).bind(user.id).first();
 
       if (!open) {

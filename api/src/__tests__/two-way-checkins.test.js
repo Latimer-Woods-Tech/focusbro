@@ -1526,3 +1526,131 @@ describe('reschedule invitation copy stays in lock-step with parseWhenReply', ()
     });
   }
 });
+
+// ── An early reply DURING a wait window is honored, not dropped (R-282) ──────
+// "Help me start" re-pends the check-in two minutes out; an "I'm on it" snooze
+// re-pends it further out. Both carry status='pending' but keep delivered_at.
+// Before R-282 the open-check-in lookup matched only ('sent','awaiting_time'),
+// so a STARTED / done / on-it texted INSIDE that window found no open check-in
+// and was dropped silently (no_open_checkin) — the coldest answer to the most
+// engaged reply, on the exact channel the "help me start" copy literally invites
+// it ("Text STARTED when you're moving"). This locks in that a delivered-and-
+// re-pended check-in is reachable for a reply, and that a never-delivered future
+// occurrence is not.
+//
+// The mock DB ignores SQL WHERE clauses, so to make these a real proof-of-
+// rejection the filter-aware mock returns the delivered-pending open ONLY when
+// the query actually carries the `delivered_at IS NOT NULL` arm — exactly what
+// the live SQL does. On the pre-R-282 query the row is withheld → the handler
+// falls to no_open_checkin → these assertions fail, as they must.
+function makeWindowDB({ open, user = { id: 'u1' } } = {}) {
+  const runs = [];
+  const db = {
+    runs,
+    prepare(sql) {
+      let params = [];
+      const stmt = {
+        bind(...a) { params = a; return stmt; },
+        async first() {
+          if (/FROM users WHERE phone/.test(sql)) return user;
+          if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
+            // Simulate the real WHERE: a delivered-pending row is only visible
+            // when the query carries the delivered_at arm (R-282). A 'sent' /
+            // 'awaiting_time' open is always visible, as it always was.
+            if (open && open.checkin_status === 'pending'
+                && !/delivered_at IS NOT NULL/.test(sql)) return null;
+            return open || null;
+          }
+          if (/FROM accountability_streaks/.test(sql)) return null;
+          if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() {
+          runs.push({ sql, params });
+          if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };
+          if (/event_id = \? AND status = 'failed'/.test(sql)) return { success: true, meta: { changes: 0 } };
+          if (/UPDATE contact_consent[\s\S]*status = 'revoked'/.test(sql)) return { success: true, meta: { changes: 0 } };
+          return { success: true, meta: { changes: 1 } };
+        },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+// A check-in that was DELIVERED and then re-pended into a wait window: the
+// "help me start" check-back or an "I'm on it" snooze. status='pending', but
+// (in the live DB) delivered_at is set — the state the R-282 arm matches.
+const windowedText = { ...openText, checkin_status: 'pending' };
+
+describe('a reply inside a "help me start" / snooze wait window is honored (R-282)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('"STARTED" texted inside the help-me-start window lands (snooze), never dropped', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: windowedText });
+    const res = await buildRouter(db).handle(inbound('STARTED'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    // Pre-R-282 the delivered-pending row is withheld → no_open_checkin. Now it's
+    // read as the third answer (moving, not done) — a snooze, streak untouched.
+    expect(body.action).toBe('snoozed');
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // and they hear the warm "love that you're moving", never silence
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/moving|check back|swing back/);
+  });
+
+  it('"done" texted inside a snooze window KEEPS the word — an early finisher is never dropped', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: windowedText });
+    const res = await buildRouter(db).handle(inbound('done, knocked it out'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('checkin_kept');
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/you did the thing|your word/);
+  });
+
+  it('a truly unprompted text (no delivered-pending, no sent) still stays silent', async () => {
+    // The delivered_at arm must not open a channel to text people unprompted:
+    // with no open check-in at all, the handler acknowledges silently as before.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: null });
+    const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('no_open_checkin');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the open-check-in query scopes the pending arm to DELIVERED rows and ranks it last', async () => {
+    // SQL-shape lock (the mock cannot execute WHERE/ORDER BY): the pending arm is
+    // guarded by delivered_at IS NOT NULL — so a never-delivered future occurrence
+    // (delivered_at NULL) is never picked — and pending rows sort AFTER sent/
+    // awaiting, so a fresh nudge is never shadowed by a snoozed row scheduled out.
+    const seen = [];
+    const db = {
+      runs: [],
+      prepare(sql) {
+        seen.push(sql);
+        const stmt = {
+          bind() { return stmt; },
+          async first() {
+            if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
+            return null;
+          },
+          async all() { return { results: [] }; },
+          async run() { return { success: true, meta: { changes: 1 } }; },
+        };
+        return stmt;
+      },
+    };
+    await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    const q = seen.find((s) => /FROM commitment_checkins c\s+JOIN commitments m/.test(s));
+    expect(q).toBeTruthy();
+    expect(q).toMatch(/status = 'pending' AND c\.delivered_at IS NOT NULL/);
+    expect(q).toMatch(/ORDER BY \(c\.status = 'pending'\) ASC/);
+  });
+});
