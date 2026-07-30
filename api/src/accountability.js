@@ -1904,11 +1904,12 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
 }
 
 // ── THE SILENT MISS, MET WITH WARMTH ON RETURN ───────────────
-// R-286. The escalation ladder (checkins-cron.js) knocks exactly ONCE more on a
-// quiet push check-in — an SMS — then latches `escalated_at` and, if that lands
-// on silence too, goes quiet forever. That was the last unresolved corner of the
-// two-way moat: a check-in nobody ever answered sat as an eternal `status='sent'`
-// row, surfacing across the list as a "still waiting" ghost that never closes.
+// R-286 / R-288. The escalation ladder (checkins-cron.js) knocks exactly ONCE
+// more on a quiet PUSH check-in — an SMS — then latches `escalated_at` and, if
+// that lands on silence too, goes quiet forever. That was the last unresolved
+// corner of the two-way moat: a check-in nobody ever answered sat as an eternal
+// `status='sent'` row, surfacing across the list as a "still waiting" ghost that
+// never closes.
 //
 // The DESIGN LAW's answer to a miss is never a scold and never a dangling thread:
 // it's a warm, no-shame door held open. So the moment the person comes back under
@@ -1918,9 +1919,19 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
 // (its next occurrence materializes); a one-shot reads "Moved — still on."
 // Nothing is ever scored as a miss; the door simply stops standing ajar.
 //
-// Bounded + safe by construction: only push check-ins that were ESCALATED and
-// then stayed silent for a further hour qualify (`STRANDED_SILENCE_MIN`), so a
-// reply still in flight is never stolen; resolution runs through the one shared
+// R-288 — the guarantee now covers EVERY channel, not just the one with a ladder.
+// The escalation ladder is push-only (`runEscalations` scans `channel = 'push'`),
+// so a TEXT check-in is never escalated: `escalated_at` stays NULL forever, and
+// the R-286 scan (which required `escalated_at IS NOT NULL`) never saw it — a
+// silently-missed text word sat open as its own eternal ghost. Text has no
+// escalation anchor, so its silence is measured from `delivered_at` instead, held
+// for the SAME total window a push miss weathers before it qualifies
+// (`STRANDED_TEXT_SILENCE_MIN`), so the door opens equally late on either channel.
+//
+// Bounded + safe by construction: a push check-in qualifies only once ESCALATED
+// and then silent for a further hour (`STRANDED_SILENCE_MIN`); a text check-in
+// only once delivered and silent for `STRANDED_TEXT_SILENCE_MIN` — either way a
+// reply still in flight is never stolen. Resolution runs through the one shared
 // `applyCheckinOutcome` core (idempotent — a resolved row no longer matches);
 // and the whole pass is non-fatal, so a hiccup never blocks the return it rides.
 
@@ -1932,6 +1943,17 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
  */
 export const STRANDED_SILENCE_MIN = 60;
 
+/**
+ * Minutes a delivered-but-unanswered TEXT check-in must stay silent — measured
+ * from `delivered_at` — before a return resolves it. Text has no escalation
+ * ladder (that's push-only), so it has no `escalated_at` anchor; this window is
+ * set to the SAME total silence a push miss weathers before it qualifies — the
+ * 15-min escalation delay (ESCALATION_DELAY_MIN) plus the further
+ * STRANDED_SILENCE_MIN — so a missed word is held open exactly as long on either
+ * channel, and a text reply the person is about to send is never stolen.
+ */
+export const STRANDED_TEXT_SILENCE_MIN = 15 + STRANDED_SILENCE_MIN;
+
 /** Max stranded check-ins reconciled per return — bounded; a person has few. */
 const STRANDED_LIMIT = 25;
 
@@ -1941,10 +1963,14 @@ export const STRANDED_NOTE = 'Moved on your return — still on.';
 /**
  * Resolve a returning person's silently-missed check-ins as no-shame reschedules.
  *
- * "Silently missed" = a push check-in the bro escalated (one SMS) that then went
- * fully quiet for at least `STRANDED_SILENCE_MIN`, on a still-active commitment.
- * Each is closed through the shared `applyCheckinOutcome` core as a `reschedule`:
- * streak-safe, rhythm-continuing for a recurring word, and never a miss score.
+ * "Silently missed" spans both channels of the moat:
+ *   - a PUSH check-in the bro escalated (one SMS) that then went fully quiet for
+ *     at least `STRANDED_SILENCE_MIN` past the escalation; and
+ *   - a TEXT check-in — which has no escalation ladder, so no `escalated_at`
+ *     anchor — that stayed quiet for `STRANDED_TEXT_SILENCE_MIN` past delivery.
+ * Both are on a still-active commitment, and each is closed through the shared
+ * `applyCheckinOutcome` core as a `reschedule`: streak-safe, rhythm-continuing
+ * for a recurring word, and never a miss score.
  *
  * DESIGN LAW: emits no scold and names no gap — it only stops an unanswered row
  * from sitting open forever, so the person meets a door, not a ghost. Non-fatal:
@@ -1959,7 +1985,9 @@ export const STRANDED_NOTE = 'Moved on your return — still on.';
 export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
   if (!env || !env.DB || !userId) return { reconciled: 0 };
   const now = nowISO || new Date().toISOString();
-  const cutoff = new Date(new Date(now).getTime() - STRANDED_SILENCE_MIN * 60 * 1000).toISOString();
+  const nowMs = new Date(now).getTime();
+  const cutoff = new Date(nowMs - STRANDED_SILENCE_MIN * 60 * 1000).toISOString();
+  const textCutoff = new Date(nowMs - STRANDED_TEXT_SILENCE_MIN * 60 * 1000).toISOString();
   let reconciled = 0;
   try {
     const stranded = await env.DB.prepare(
@@ -1970,12 +1998,14 @@ export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
         WHERE c.user_id = ?
           AND c.status = 'sent'
           AND c.responded_at IS NULL
-          AND c.escalated_at IS NOT NULL
-          AND c.escalated_at <= ?
           AND m.status = 'active'
-        ORDER BY c.escalated_at ASC
+          AND (
+                (c.channel = 'push' AND c.escalated_at IS NOT NULL AND c.escalated_at <= ?)
+             OR (c.channel = 'text' AND c.escalated_at IS NULL AND c.delivered_at IS NOT NULL AND c.delivered_at <= ?)
+              )
+        ORDER BY COALESCE(c.escalated_at, c.delivered_at) ASC
         LIMIT ?`
-    ).bind(userId, cutoff, STRANDED_LIMIT).all();
+    ).bind(userId, cutoff, textCutoff, STRANDED_LIMIT).all();
 
     const rows = (stranded && stranded.results) || [];
     for (const row of rows) {
