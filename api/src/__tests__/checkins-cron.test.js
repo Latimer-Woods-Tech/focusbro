@@ -75,7 +75,7 @@ describe('runDueCheckins — scan query shape', () => {
   it('reports an all-zero summary when nothing is due', async () => {
     const db = makeDB({ due: [] });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
-    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, materialized: 0 });
+    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0 });
   });
 });
 
@@ -484,5 +484,76 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
     expect(s.skipped).toBe(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(escalationLatch(db, 'ci9')).toBeTruthy();
+  });
+});
+
+describe('runDueCheckins — a moment that has passed is retired, never nudged late (R-290)', () => {
+  // The design LAW on the delivery half: "You said you'd start the taxes at 2.
+  // Ready?" is an ally ONLY when it lands on time. Delivered a day late — after a
+  // recovered cron outage (the #74 crons death), a stuck consent/quiet-hours
+  // gate, or a long provider backlog — it is a nag about a gone moment. So a
+  // check-in aged past MAX_CHECKIN_LATENESS_MIN is parked no-shame instead of
+  // sent, and a recurring rhythm continues at its next correct time.
+  const NOW = '2026-07-30T12:00:00.000Z';
+  const staleAt = '2026-07-28T12:00:00.000Z';   // 48h late — unambiguously passed
+  const onTimeAt = '2026-07-30T11:59:00.000Z';  // 1 min late — a timely nudge
+
+  it('parks a stale text check-in as no-shame skipped WITHOUT sending', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ due: [textRow({ scheduled_for: staleAt, recurrence: 'none', commitment_status: 'active' })], phone: '+15557654321' });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(s.stale).toBe(1);
+    expect(s.sent).toBe(0);
+    expect(s.skipped).toBe(0);           // 'stale' is counted apart from no-channel
+    expect(fetchSpy).not.toHaveBeenCalled(); // the moment is gone — no late nag on the wire
+    const upd = updateFor(db, 'ci1');
+    expect(upd.sql).toMatch(/status = 'skipped'/);
+    expect(upd.params).toContain('stale');
+  });
+
+  it('still delivers an on-time (barely-late) check-in — the guard only catches passed moments', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({ due: [textRow({ scheduled_for: onTimeAt, recurrence: 'none', commitment_status: 'active' })], phone: '+15557654321' });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(s.stale).toBe(0);
+    expect(s.sent).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a recurring rhythm on-beat: a stale occurrence retires AND materializes the next one', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const db = makeDB({
+      due: [textRow({ scheduled_for: staleAt, recurrence: 'daily', timezone: 'UTC', local_time: '09:00', commitment_status: 'active' })],
+      phone: '+15557654321',
+    });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(s.stale).toBe(1);
+    expect(s.materialized).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const ins = db.runs.find((r) => /INSERT INTO commitment_checkins/.test(r.sql) && r.params.includes('cm1'));
+    expect(ins).toBeTruthy();
+    // Next daily 09:00Z occurrence strictly after NOW — never a backfilled flood.
+    expect(ins.params).toContain('2026-07-31T09:00:00.000Z');
+  });
+
+  it('a quiet-hours deferral is never mistaken for stale (guard runs AFTER the defer)', async () => {
+    // Scheduled 48h ago but the consent gate says defer (inside quiet hours now):
+    // the row must stay pending for a later tick, NOT be retired as stale.
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const QUIET_NOW = '2026-07-30T02:00:00.000Z';          // inside the 22→08 window
+    const staleInQuiet = '2026-07-28T02:00:00.000Z';       // still 48h old
+    const db = makeDB({
+      due: [textRow({ scheduled_for: staleInQuiet, recurrence: 'none', commitment_status: 'active' })],
+      phone: '+15557654321',
+      consent: { status: 'granted', quiet_start: 22, quiet_end: 8, timezone: 'UTC' },
+    });
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: QUIET_NOW });
+    expect(s.deferred).toBe(1);
+    expect(s.stale).toBe(0);
+    expect(updateFor(db, 'ci1')).toBeFalsy(); // left pending, untouched
   });
 });

@@ -64,6 +64,22 @@ export async function materializeNextOccurrence(env, row, nowISO) {
 export const MAX_ATTEMPTS = 3;
 
 /**
+ * How long past its scheduled moment a check-in may still go out as a timely
+ * nudge. Beyond this the moment has passed: "ready to start the taxes you said
+ * you'd do at 2?" arriving this late is a nag about a gone moment — the exact
+ * opposite of the on-time ally the design LAW requires — so a stale occurrence
+ * is RETIRED without a late send instead of firing it. A one-shot is parked
+ * no-shame (never a miss, never a count); a recurring commitment still
+ * materializes its next occurrence on-beat, and the silent-miss warm door
+ * (R-286/R-288) greets the person warmly on return. Deliberately longer than any
+ * overnight quiet-hours deferral (which IS delivered on purpose once its window
+ * opens — evaluated before this guard), so this only ever catches an
+ * unambiguously-passed moment: a recovered cron outage (the #74 crons death), a
+ * stuck consent/quiet-hours gate, or a long provider backlog.
+ */
+export const MAX_CHECKIN_LATENESS_MIN = 24 * 60;
+
+/**
  * True when a delivery provider's HTTP status describes a PERMANENT failure —
  * one that can never succeed on retry (e.g. Telnyx 400/422 for a mistyped or
  * unreachable number). These are parked `failed` on the first attempt instead
@@ -179,12 +195,13 @@ async function deliverText(env, row, message) {
  */
 export async function runDueCheckins(env, opts = {}) {
   const now = opts.now || new Date().toISOString();
+  const nowMs = Date.parse(now);
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, materialized: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0 };
 
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
-            COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
+            c.scheduled_for, COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
             m.recurrence, m.timezone, m.local_time, m.status AS commitment_status
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
@@ -216,6 +233,20 @@ export async function runDueCheckins(env, opts = {}) {
       }
     } catch (err) {
       outcome = { status: 'failed', detail: (err && err.message) || 'consent_gate_error' };
+    }
+
+    // Too old to be a timely nudge? Retire it instead of nagging late (see
+    // MAX_CHECKIN_LATENESS_MIN). Checked only AFTER the quiet-hours defer above
+    // (a deferred row `continue`s and never reaches here), so a check-in held
+    // pending on purpose overnight and delivered when its window opens is never
+    // mistaken for stale — only an unambiguously-passed moment (recovered cron
+    // outage, stuck gate, provider backlog) lands here. Parked no-shame; the
+    // recurring materialize below keeps the rhythm on-beat.
+    if (!outcome && !Number.isNaN(nowMs) && row.scheduled_for) {
+      const scheduledMs = Date.parse(row.scheduled_for);
+      if (!Number.isNaN(scheduledMs) && nowMs - scheduledMs > MAX_CHECKIN_LATENESS_MIN * 60 * 1000) {
+        outcome = { status: 'skipped', detail: 'stale' };
+      }
     }
 
     if (!outcome) {
@@ -254,13 +285,16 @@ export async function runDueCheckins(env, opts = {}) {
           data: { commitment_id: row.commitment_id, channel: row.channel === 'text' ? 'text' : 'push' },
         });
       } else if (outcome.status === 'skipped') {
-        // No channel available for this user — park it (terminal, no shame, no retry storm).
+        // Terminal park, no shame, no retry storm: either no channel is available
+        // for this user, or the moment aged out (detail 'stale'). Both leave the
+        // occupancy queue and, for a recurring commitment, let the next
+        // occurrence materialize below so the rhythm continues on-beat.
         await env.DB.prepare(
           `UPDATE commitment_checkins
               SET status = 'skipped', attempts = COALESCE(attempts,0) + 1, last_error = ?
             WHERE id = ?`
         ).bind(outcome.detail, row.checkin_id).run();
-        summary.skipped++;
+        if (outcome.detail === 'stale') summary.stale++; else summary.skipped++;
         leftPending = true;
       } else {
         // Delivery failure: bump attempts. Park as 'failed' once the retry cap
