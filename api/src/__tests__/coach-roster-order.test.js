@@ -54,12 +54,18 @@ function isEngagedQuery(sql) {
 function isQuietQuery(sql) {
   return /HAVING\s+substr\(MAX\(created_at\), 1, 10\) <= \?/.test(sql);
 }
+// The roster's "back and moving" (once-quiet-now-active) query: the only one that
+// reads `return_nudge_sent` via `json_extract` — distinct from quiet (HAVING) and
+// engaged (no json_extract).
+function isBackQuery(sql) {
+  return /return_nudge_sent/.test(sql) && /json_extract/.test(sql);
+}
 
 // In-memory D1 double. Streak/active-count resolve by bound client id; the quiet
 // and engaged queries resolve by SQL shape, returning the configured client sets;
 // every other analytics query (back / shares / homecoming / next-checkin) yields
 // nothing, so the ONLY ordering signals under test are quiet + engaged.
-function makeDB({ links = [], streaks = {}, activeCounts = {}, quietClients = [], engagedClients = [] } = {}) {
+function makeDB({ links = [], streaks = {}, activeCounts = {}, quietClients = [], engagedClients = [], backClients = [] } = {}) {
   const queries = [];
   const db = {
     queries,
@@ -81,6 +87,7 @@ function makeDB({ links = [], streaks = {}, activeCounts = {}, quietClients = []
           if (/FROM coach_clients cc/.test(sql)) return { results: links };
           if (isQuietQuery(sql)) return { results: quietClients.map((id) => ({ client_id: id })) };
           if (isEngagedQuery(sql)) return { results: engagedClients.map((id) => ({ client_id: id })) };
+          if (isBackQuery(sql)) return { results: backClients.map((id) => ({ client_id: id })) };
           return { results: [] };
         },
         async run() { return { success: true, meta: { changes: 1 } }; },
@@ -207,6 +214,70 @@ describe('GET /api/coach/clients — warm triage ordering (R-281)', () => {
   });
 });
 
+// ── R-289: a live celebration MOMENT floats too ────────────────────────────
+// R-281 floated the reach-out (quiet) and leaning-in cues, but two equally
+// time-bounded warm-touch cues — a kept-word milestone just landing
+// (`milestone_line`) and a client coming back and moving again (`back_line`) —
+// still sat frozen at their invite-recency spot, so a coach scanning top-down
+// could scroll right past the exact moment each copy invites ("a great moment to
+// send a word / reconnect"). This floats them, +1, same tier as leaning-in and
+// strictly below a client who has gone quiet. Still a pure reorder of resolved
+// cues — the milestone rides the streak already loaded per card, the back cue the
+// same return query already run. DESIGN LAW: both inputs are invitations to
+// CELEBRATE, never a miss; a calm client still scores 0 and holds its spot.
+describe('GET /api/coach/clients — a live celebration moment floats too (R-289)', () => {
+  it('floats a milestone-just-landed client above a calm, newer-invited one', async () => {
+    const calm = active('u-calm', 'Calm', '2026-07-14T00:00:00Z'); // newest → top pre-triage, rank 0
+    const mile = active('u-mile', 'Mel', '2026-07-10T00:00:00Z'); // older, but a milestone just landed
+    const db = makeDB({
+      links: [calm, mile], activeCounts: { 'u-calm': 1, 'u-mile': 1 },
+      // current_streak EXACTLY a milestone (STREAK_MILESTONES: 3/7/14/30/100) → milestone_line set
+      streaks: { 'u-mile': { current_streak: 7, longest_streak: 7, total_kept: 12 } },
+    });
+    const body = await (await buildRouter(db)('GET', '/api/coach/clients')).json();
+    // OLD (frozen / reverted) code keeps SQL order [u-calm, u-mile]; the reorder overturns it.
+    expect(idsOf(body)).toEqual(['u-mile', 'u-calm']);
+    // The floated card carries the milestone cue; the calm one is untouched (never annotated).
+    expect(body.roster.find((e) => e.client_id === 'u-mile').milestone_line).toContain('milestone just landed');
+    expect(body.roster.find((e) => e.client_id === 'u-calm').milestone_line).toBe('');
+  });
+
+  it('floats a back-and-moving client above a calm, newer-invited one', async () => {
+    const calm = active('u-calm', 'Calm', '2026-07-14T00:00:00Z'); // newest → top pre-triage, rank 0
+    const back = active('u-back', 'Bea', '2026-07-10T00:00:00Z'); // older, but just came back
+    const db = makeDB({
+      links: [calm, back], activeCounts: { 'u-calm': 1, 'u-back': 1 },
+      backClients: ['u-back'], // once quiet, nudged, now active again → back_line set (not quiet)
+    });
+    const body = await (await buildRouter(db)('GET', '/api/coach/clients')).json();
+    expect(idsOf(body)).toEqual(['u-back', 'u-calm']);
+    expect(body.roster.find((e) => e.client_id === 'u-back').back_line).not.toBe('');
+  });
+
+  it('a gone-quiet client (reach-out, +2) still outranks a milestone client (+1)', async () => {
+    const mile = active('u-mile', 'Mel', '2026-07-14T00:00:00Z'); // newest, milestone → +1
+    const qui = active('u-qui2', 'Quinn', '2026-07-10T00:00:00Z'); // older, quiet → +2
+    const db = makeDB({
+      links: [mile, qui], activeCounts: { 'u-mile': 1, 'u-qui2': 1 },
+      streaks: { 'u-mile': { current_streak: 7 } }, quietClients: ['u-qui2'],
+    });
+    const body = await (await buildRouter(db)('GET', '/api/coach/clients')).json();
+    // The client who has gone quiet — the one a warm note helps most — leads.
+    expect(idsOf(body)).toEqual(['u-qui2', 'u-mile']);
+  });
+
+  it('adds NO extra query for the new signals — milestone rides the streak, back the return query', async () => {
+    const db = makeDB({
+      links: [active('u-mile', 'Mel', '2026-07-12T00:00:00Z'), active('u-back', 'Bea', '2026-07-11T00:00:00Z')],
+      activeCounts: { 'u-mile': 1, 'u-back': 1 },
+      streaks: { 'u-mile': { current_streak: 7 } }, backClients: ['u-back'],
+    });
+    await buildRouter(db)('GET', '/api/coach/clients');
+    // Exactly one back/return query drives the back cue; the reorder issues none of its own.
+    expect(db.queries.filter(isBackQuery).length).toBe(1);
+  });
+});
+
 describe('rosterTriageRank — warm, invisible triage weight, never a failure ranking', () => {
   it('scores a quiet client (reach-out live) at 2', () => {
     expect(rosterTriageRank({ reach_out_line: 'Might be a good time to check in.' })).toBe(2);
@@ -216,6 +287,25 @@ describe('rosterTriageRank — warm, invisible triage weight, never a failure ra
   });
   it('scores a quiet AND leaning-in client at 3', () => {
     expect(rosterTriageRank({ reach_out_line: 'reach', engaged_this_week: true })).toBe(3);
+  });
+  it('scores a milestone-just-landed client at 1 (a celebration moment floats)', () => {
+    expect(rosterTriageRank({ milestone_line: '🎯 7 kept words in a row — a milestone just landed.' })).toBe(1);
+  });
+  it('scores a back-and-moving client at 1 (a return floats)', () => {
+    expect(rosterTriageRank({ back_line: 'Back and moving again — a great moment to say you noticed.' })).toBe(1);
+  });
+  it('counts a milestone AND a return once, not twice (one warm-moment dimension)', () => {
+    expect(rosterTriageRank({ milestone_line: 'm', back_line: 'b' })).toBe(1);
+  });
+  it('stacks the celebration moment above leaning-in, but never past a gone-quiet client', () => {
+    // milestone (+1) + leaning-in (+1) = 2 — a strong positive-touch card…
+    expect(rosterTriageRank({ milestone_line: 'm', engaged_this_week: true })).toBe(2);
+    // …yet a gone-quiet client (+2) alone still matches it, and outranks the moment alone.
+    expect(rosterTriageRank({ reach_out_line: 'reach' })).toBe(2);
+    expect(rosterTriageRank({ reach_out_line: 'reach', milestone_line: 'm', engaged_this_week: true })).toBe(4);
+  });
+  it('ignores an empty-string milestone/back cue (the copy returns "" off-moment)', () => {
+    expect(rosterTriageRank({ milestone_line: '', back_line: '' })).toBe(0);
   });
   it('scores a calm, clean-page client at 0 (never negative — never demoted for calm)', () => {
     expect(rosterTriageRank({ reach_out_line: '', engaged_this_week: false })).toBe(0);
