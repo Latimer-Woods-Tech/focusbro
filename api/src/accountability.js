@@ -2503,13 +2503,19 @@ export function registerAccountabilityRoutes(router, ctx) {
         // snooze with no named interval keeps the default. Clamped, streak-safe.
         const minutes = parseSnoozeMinutes(rescheduleWhenText) ?? SNOOZE_DEFAULT_MIN;
         const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
-        // Mirror the /snooze endpoint exactly: re-arm the latest still-open
-        // check-in (or open a fresh one), reset attempts, clear last_error /
-        // responded_at — this check-in is not resolved, just moved a little.
+        // Mirror the /snooze endpoint exactly: re-arm the CURRENT still-open
+        // check-in — the SOONEST open occurrence, the one the /me/ card surfaces
+        // and the person is acting on — or open a fresh one; reset attempts, clear
+        // last_error / responded_at (not resolved, just moved a little). Ordering
+        // `scheduled_for ASC` is load-bearing: for a recurring word the delivery
+        // cron marks today's check-in `sent` and materializes tomorrow's as
+        // `pending` (checkins-cron.js), so a `DESC` pick would snooze TOMORROW's
+        // occurrence into today and orphan today's `sent` row into a false
+        // escalation nudge — the exact R-284 bug class, here on the snooze path.
         const open = await env.DB.prepare(
           `SELECT id FROM commitment_checkins
             WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
-            ORDER BY scheduled_for DESC LIMIT 1`
+            ORDER BY scheduled_for ASC LIMIT 1`
         ).bind(id, auth.userId).first();
         if (open && open.id) {
           await env.DB.prepare(
@@ -2802,14 +2808,20 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
 
-      // Re-arm the latest still-open check-in if there is one: the person may be
-      // answering a nudge already delivered (status='sent') or one held for quiet
-      // hours ('deferred'). Reset attempts so the fresh window starts clean, and
-      // clear responded_at — this check-in is not resolved, just moved a little.
+      // Re-arm the CURRENT still-open check-in — the SOONEST open occurrence, the
+      // one the /me/ card surfaces (MIN(scheduled_for)) and the person is answering:
+      // a nudge already delivered (status='sent') or one held for quiet hours
+      // ('deferred'). Reset attempts so the fresh window starts clean, and clear
+      // responded_at — not resolved, just moved a little. Ordering `scheduled_for
+      // ASC` is load-bearing: for a recurring word the cron materializes tomorrow's
+      // occurrence as `pending` while today's is `sent`, so a `DESC` pick would
+      // snooze TOMORROW's occurrence into today and orphan today's `sent` row into a
+      // false escalation nudge (the R-284 bug class, on the snooze path). ASC re-arms
+      // the occurrence the person is acting on and leaves the future one to fire.
       const open = await env.DB.prepare(
         `SELECT id FROM commitment_checkins
           WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
-          ORDER BY scheduled_for DESC LIMIT 1`
+          ORDER BY scheduled_for ASC LIMIT 1`
       ).bind(id, auth.userId).first();
 
       if (open && open.id) {
