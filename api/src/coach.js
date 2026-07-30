@@ -428,12 +428,22 @@ export function clientRosterEngagedCopy({ engaged } = {}) {
  * resolved on the entry:
  *   +2  a reach-out cue is live — the client has gone quiet and a warm note
  *       would land now (the exact `reach_out_line` the reach-out cue sets);
+ *   +1  a live celebration MOMENT — a kept-word milestone just landed
+ *       (`milestone_line`, clientMilestoneCopy) or the client just came back and
+ *       is moving again (`back_line`, backAfterReachCopy). Both cues literally
+ *       read "a great moment to send a word / reconnect", so — like the reach-out
+ *       and leaning-in cues — the card should surface WHILE that moment is live,
+ *       not sit frozen at its invite-recency spot where a top-down scan scrolls
+ *       past it. Counted once (the two are one warm-moment dimension, and a
+ *       returning client's restarted run never also lands on a milestone), so it
+ *       can never out-weigh a client who has gone quiet;
  *   +1  the client is leaning in but unresolved this week (`engaged_this_week`)
  *       — reinforce while they are still in it.
  *
  * DESIGN LAW, by construction: every input is an INVITATION to connect — a quiet
- * client to reach, an engaged one to cheer on — never a miss, never a failure
- * ranking. A calm, clean-page client simply scores 0 and keeps its natural spot;
+ * client to reach, a milestone or a return to celebrate, an engaged one to cheer
+ * on — never a miss, never a failure ranking. A calm, clean-page client simply
+ * scores 0 and keeps its natural spot;
  * it is never demoted FOR being calm, never annotated, never flagged. The weight
  * is internal only (never serialized), so no visible copy ever tallies anything.
  * @param {object} entry a resolved active roster entry
@@ -442,6 +452,7 @@ export function clientRosterEngagedCopy({ engaged } = {}) {
 export function rosterTriageRank(entry = {}) {
   let rank = 0;
   if (entry && entry.reach_out_line) rank += 2;
+  if (entry && (entry.milestone_line || entry.back_line)) rank += 1;
   if (entry && entry.engaged_this_week === true) rank += 1;
   return rank;
 }
