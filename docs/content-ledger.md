@@ -15,8 +15,8 @@ Derived deterministically from the guides module of record —
 from what is actually live. Regenerate with `node scripts/generate-content-ledger.mjs`
 (`--check` fails CI if the committed ledger is stale).
 
-**Totals:** 20 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
-**20 not yet instrumented** (see the `ref` column + the attribution note below).
+**Totals:** 21 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
+**21 not yet instrumented** (see the `ref` column + the attribution note below).
 
 ## Attribution note (§7 portability gap)
 
@@ -43,6 +43,7 @@ spine pointer · request id — plus `ref` (✅ = CTA carries `?ref=cf_focusbro_
 | `/guides/deep-work-and-attention-residue.html` | deep work and attention residue | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_deep-work-and-attention-residue` | — |
 | `/guides/habit-stacking.html` | habit stacking | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_habit-stacking` | — |
 | `/guides/how-long-should-a-pomodoro-be.html` | how long should a pomodoro be | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_how-long-should-a-pomodoro-be` | — |
+| `/guides/meditation-and-attention.html` | meditation and attention | guide | 2026-08-04 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_meditation-and-attention` | — |
 | `/guides/movement-breaks-and-focus.html` | movement breaks and focus | guide | 2026-07-15 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_movement-breaks-and-focus` | — |
 | `/guides/music-and-noise-for-focus.html` | music and noise for focus | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_music-and-noise-for-focus` | — |
 | `/guides/notification-batching.html` | notification batching | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_notification-batching` | — |
