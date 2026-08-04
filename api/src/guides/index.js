@@ -258,7 +258,7 @@ const GUIDE_GROUPS = Object.freeze([
   },
   {
     label: 'Breaks, breathing & calm',
-    slugs: ['the-physiological-sigh', 'box-breathing', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
+    slugs: ['the-physiological-sigh', 'box-breathing', 'meditation-and-attention', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
   },
   {
     label: 'Procrastination, habits & planning',
@@ -1476,6 +1476,65 @@ export const guides = [
       { q: 'What is the 5-4-3-2-1 grounding technique?', a: 'It is a sensory exercise for interrupting anxiety or overwhelm: you name five things you can see, four you can feel, three you can hear, two you can smell, and one you can taste. Working through the senses pulls your attention out of anxious thought and back to the present.' },
       { q: 'Does 5-4-3-2-1 grounding really work?', a: 'The mechanism it uses — redirecting attention away from internal threat and toward the external world — is a well-supported way to regulate emotion. The specific 5-4-3-2-1 recipe, though, is a clinical teaching device rather than a protocol proven superior in controlled trials. It works because it reliably puts a real mechanism to use.' },
       { q: 'When should I use grounding instead of breathing?', a: 'Reach for grounding when your attention is trapped in anxious thoughts and you need to get back into the room; reach for slow breathing when your body feels activated and you want to calm the nervous system. They pair well — many people ground first, then finish with a long, slow exhale.' },
+    ],
+  },
+  {
+    slug: 'meditation-and-attention',
+    howto: {
+      name: 'How to do a simple focused-attention meditation',
+      description: 'Rest your attention on one anchor, and every time you notice it has wandered, gently bring it back.',
+      steps: [
+        'Sit comfortably, set a timer for a few minutes, and let your eyes close or soften your gaze toward the floor.',
+        'Choose one anchor for your attention — most often the feeling of the breath where you notice it most clearly, at the nose or in the rise and fall of the belly.',
+        'Rest your attention on that sensation, breath after breath, without trying to control or deepen the breathing.',
+        'When you notice your mind has wandered off — and it will, many times — note it kindly and guide your attention back to the anchor.',
+        'Treat each return as the repetition that matters, not as a failure, and keep going gently until the timer ends.',
+      ],
+    },
+    title: 'Does Meditation Improve Focus? What the Attention Research Shows',
+    description: 'What focused-attention meditation actually trains, what controlled studies have and have not shown about meditation and concentration, and how to start with a few honest minutes a day.',
+    lastmod: '2026-08-04',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">Meditation gets sold as a cure for a scattered mind, and the promises usually run ahead of the evidence. But strip away the hype and there is a real, testable idea underneath: a simple attention practice, done regularly, trains the exact skill a distracted day keeps asking of you — noticing that your mind has drifted, and bringing it back. Here is what that practice actually is, what careful studies have shown, and where the science is thinner than the marketing.</p>
+
+<h2>What "meditation for focus" actually means</h2>
+<p>Meditation is not one thing, and the differences matter. Researchers Antoine Lutz, Heleen Slagter, John Dunne, and Richard Davidson, in an influential 2008 paper in <em>Trends in Cognitive Sciences</em>, drew a useful line between two broad families of practice. <strong>Focused-attention</strong> meditation asks you to hold your attention on a single object — usually the breath — and to return to it whenever you notice you have wandered. <strong>Open-monitoring</strong> meditation instead asks you to rest in awareness of whatever arises, without fixing on any one thing. When people talk about meditating to sharpen focus, they almost always mean the focused-attention kind, because its core move is a direct rehearsal of concentration itself.</p>
+<p>That core move is worth spelling out, because it is where the training lives. You place attention on the breath. Before long — seconds, sometimes — your mind slips off to a plan, a worry, a memory. At some point you notice. You let the thought go and come back to the breath. The noticing-and-returning is not the interruption to the practice; it <em>is</em> the practice. Every return is one repetition of catching a wandering mind and redirecting it, which is precisely the muscle that a morning of pings and open tabs keeps demanding.</p>
+
+<h2>What the research shows</h2>
+<p>Several controlled studies have found measurable gains from surprisingly little practice. In a 2013 study in <em>Psychological Science</em>, Michael Mrazek and colleagues put undergraduates through a two-week mindfulness course and found improvements in working-memory capacity and reading-comprehension scores on the GRE, along with less mind-wandering during the tasks — with the biggest gains among students who had been the most prone to drifting. Earlier, in a 2010 paper in <em>Consciousness and Cognition</em>, Fadel Zeidan and colleagues found that just four days of brief mindfulness training — around twenty minutes a day — improved performance on demanding tests of sustained attention.</p>
+<p>Brain-imaging work points at a plausible mechanism. A 2011 study in <em>PNAS</em> led by Judson Brewer found that experienced meditators showed reduced activity in the <strong>default mode network</strong> — the set of brain regions most active during self-referential, mind-wandering thought — both while meditating and at rest. In other words, the network that hums along when you are lost in your own head appears to quiet down with practice. Taken together, this is a genuinely encouraging picture: a low-cost, equipment-free practice that seems to train attention and dampen the wandering that pulls focus apart.</p>
+
+<h2>Where the evidence is thinner than the hype</h2>
+<p>Now the honest part. The meditation research base is young, and a lot of it is built on small samples, short interventions, and studies that lack a strong comparison group — so it is easy to overstate. The most careful summary is a 2014 meta-analysis in <em>JAMA Internal Medicine</em> by Madhav Goyal and colleagues, which pooled dozens of randomized trials of mindfulness programs. It found <em>moderate</em> evidence that these programs reduce anxiety, depression, and pain — but only <em>low or insufficient</em> evidence that they improve attention, mood, sleep, or related outcomes. A 2015 review in <em>Nature Reviews Neuroscience</em> by Yi-Yuan Tang, Britta Hölzel, and Michael Posner reached a similar verdict: the findings are promising and the mechanisms are becoming clearer, but many studies are too small or poorly controlled to lean on hard.</p>
+<p>The fair reading is neither "meditation transforms your focus" nor "it does nothing." It is that focused-attention practice trains a real and relevant skill, some controlled studies show modest gains in attention and less mind-wandering, and the effects are smaller and less certain than the wellness industry implies. Treat it as a habit worth building for its own sake, not as a switch that fixes concentration.</p>
+
+<h2>How to start — and actually stick with it</h2>
+<p>Consistency beats duration. A few minutes every day builds the skill faster than a rare half-hour, and it keeps the practice from feeling like a chore. If sitting in silence is daunting, a guided session — a voice that reminds you what to do when you drift — is an easier on-ramp than going it alone, and there is no shame in leaning on one for months. Expect your mind to wander constantly; that is not a sign you are bad at it, it is the raw material. And pair the practice with the rest of a focused day rather than asking it to do all the work: a short sit before a block of hard work, or in the reset between blocks, tends to land better than one big session with nothing around it.</p>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Chasing a blank mind.</strong> The goal is not to stop thinking — that is not something a human brain does on command. The goal is to notice thinking and return. A "busy" session where you came back a hundred times is a good session.</li>
+<li><strong>Starting with a marathon.</strong> A forty-minute first sit usually ends in restlessness and a quiet decision never to do it again. Start with three to five minutes and let it grow on its own.</li>
+<li><strong>Judging yourself on the misses.</strong> Meeting a wandering mind with irritation just adds a second distraction. The instruction is to come back gently — the gentleness is part of what is being trained.</li>
+<li><strong>Expecting an overnight fix.</strong> The studies that show gains still involve days or weeks of repeated practice, and the effects fade without it. It is training, not a treatment.</li>
+</ul>
+
+<p>Want a voice to guide the first few minutes? <a class="app-cta" href="/?tool=meditation">Open the Meditation tool</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/the-body-scan.html">The body scan: a beginner-friendly way into attention practice</a></li>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and attention residue: why switching tasks costs so much</a></li>
+<li><a href="/guides/attention-restoration-nature-breaks.html">Attention restoration: how a short nature break refills your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'Does meditation really improve focus?', a: 'Controlled studies have shown short courses improving sustained attention and reducing mind-wandering — for example a two-week course in a 2013 Psychological Science study and four days of brief training in a 2010 Consciousness and Cognition study. But the samples are small and the wider evidence base is young; a 2014 JAMA Internal Medicine review rated the evidence for attention benefits as low. It is best treated as a low-cost skill worth practicing, not a guaranteed fix.' },
+      { q: 'How long before meditation helps my concentration?', a: 'Some studies saw changes after only days to two weeks of short daily sessions, but the effects are modest and fade without continued practice. Think of it as ongoing training rather than a course you finish once — a few consistent minutes a day builds the skill more reliably than an occasional long sit.' },
+      { q: 'Does meditation treat ADHD?', a: 'No. Meditation is not a treatment for ADHD or any medical condition. Some people find attention practices a helpful complement to the support they already use, but the evidence is limited and meditation is not a substitute for professional care. If focus difficulties are disrupting your life, that is a reason to talk to a qualified professional.' },
     ],
   }
 ];
