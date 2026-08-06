@@ -15,8 +15,8 @@ Derived deterministically from the guides module of record —
 from what is actually live. Regenerate with `node scripts/generate-content-ledger.mjs`
 (`--check` fails CI if the committed ledger is stale).
 
-**Totals:** 21 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
-**21 not yet instrumented** (see the `ref` column + the attribution note below).
+**Totals:** 22 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
+**22 not yet instrumented** (see the `ref` column + the attribution note below).
 
 ## Attribution note (§7 portability gap)
 
@@ -36,6 +36,7 @@ spine pointer · request id — plus `ref` (✅ = CTA carries `?ref=cf_focusbro_
 
 | URL | Target keyword | Type | Published | Spine pointer | Request id | ref |
 |---|---|---|---|---|---|:--:|
+| `/guides/4-7-8-breathing.html` | 4 7 8 breathing | guide | 2026-08-06 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_4-7-8-breathing` | — |
 | `/guides/adhd-focus-strategies.html` | adhd focus strategies | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_adhd-focus-strategies` | — |
 | `/guides/attention-restoration-nature-breaks.html` | attention restoration nature breaks | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_attention-restoration-nature-breaks` | — |
 | `/guides/box-breathing.html` | box breathing | guide | 2026-07-13 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_box-breathing` | — |
