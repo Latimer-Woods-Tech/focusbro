@@ -258,7 +258,7 @@ const GUIDE_GROUPS = Object.freeze([
   },
   {
     label: 'Breaks, breathing & calm',
-    slugs: ['the-physiological-sigh', 'box-breathing', 'meditation-and-attention', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
+    slugs: ['the-physiological-sigh', 'box-breathing', '4-7-8-breathing', 'meditation-and-attention', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
   },
   {
     label: 'Procrastination, habits & planning',
@@ -1290,6 +1290,77 @@ export const guides = [
 <li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
 </ul>
 </div>`
+  },
+  {
+    slug: '4-7-8-breathing',
+    howto: {
+      name: 'How to do 4-7-8 breathing',
+      description: 'Breathe in for four, hold for seven, and exhale slowly for eight to lean the breath toward its calming, longer-exhale phase.',
+      steps: [
+        'Rest the tip of your tongue lightly behind your upper front teeth and let your lips part; you will exhale around the tongue.',
+        'Empty your lungs, then inhale quietly through your nose for a count of four.',
+        'Hold your breath gently for a count of seven.',
+        'Exhale slowly and completely through your mouth for a count of eight, letting it make a soft whoosh.',
+        'That is one round; repeat for up to four rounds, and stop sooner if you feel light-headed.',
+      ],
+    },
+    title: 'The 4-7-8 Breathing Technique: A Longer Exhale to Wind Down',
+    description: 'What 4-7-8 breathing is, why the extended exhale — not the exact numbers — does the calming work, what the slow-breathing research actually shows, and how to use it to settle before sleep.',
+    lastmod: '2026-08-06',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">The 4-7-8 pattern is a paced breath built around one idea: make the out-breath long. You inhale quietly for four counts, hold for seven, and exhale slowly for eight — so every breath spends more time in its calming phase than its arousing one. It is best known as a wind-down tool, the thing to reach for when your body is wired and you want it to settle. Here is where it comes from, why the long exhale is the active part, what the research does and doesn't support, and how to use it well.</p>
+
+<h2>Where 4-7-8 comes from</h2>
+<p>The 4-7-8 breath was popularized by Andrew Weil, a physician known for integrative medicine, who teaches it as a simple, portable way to calm the nervous system and describes it as a "natural tranquilizer" for a keyed-up body. Weil is clear that he did not invent the pattern: it is adapted from <em>pranayama</em>, the breath-control practices of yoga, which have used slow, ratio-based breathing for a very long time. The specific counts — four in, seven held, eight out — are his packaging of a much older idea, chosen to be easy to remember and to push the exhale longer than the inhale. As with any single technique, the origin story tells you it has been found useful by a lot of people, not that it works miracles; the counts cost nothing to try.</p>
+
+<h2>Why the long exhale is the point</h2>
+<p>The number that matters most in 4-7-8 is the eight. Your heart rate is not perfectly steady from moment to moment — it rises a little when you breathe in and falls when you breathe out, a healthy pattern called <strong>respiratory sinus arrhythmia</strong>. That fall on the exhale reflects the vagus nerve, the main line of your body's calming, parasympathetic branch, briefly taking the wheel. Make the exhale longer than the inhale and you spend proportionally more of each breath in that parasympathetic-leaning phase — which is the physiological reason an extended out-breath tends to feel settling.</p>
+<p>Slowing the breath overall points the same direction. A 2018 systematic review by Andrea Zaccaro and colleagues in <em>Frontiers in Human Neuroscience</em>, which gathered dozens of studies on slow breathing, found that slow-paced breathing is consistently linked to greater heart rate variability, a shift toward parasympathetic dominance, and self-reported increases in comfort and relaxation alongside reductions in anxiety. A full 4-7-8 cycle runs nineteen seconds — roughly three breaths a minute, far below the twelve to twenty most people take at rest, and even slower than the six-breaths-a-minute "resonance frequency" that heart rate variability researchers Paul Lehrer and Richard Gevirtz found maximizes that healthy heart-rate swing for most adults. In short: 4-7-8 combines two calming levers — genuinely slow breathing and an out-breath that outlasts the in-breath.</p>
+
+<h2>The counts, and what each is for</h2>
+<ul>
+<li><strong>Inhale (4):</strong> a quiet breath in through the nose, low in the belly rather than high in the chest.</li>
+<li><strong>Hold (7):</strong> a gentle pause with the lungs comfortably full — it stretches the cycle and gives the mind a steady shape to follow, not a strained breath-hold.</li>
+<li><strong>Exhale (8):</strong> the main event — a slow, complete release through the mouth, ideally making a soft whoosh, so the out-breath clearly outlasts the in-breath.</li>
+</ul>
+<p>Weil's instruction is to keep the <em>ratio</em> even if you can't keep the exact seconds: if a seven-count hold leaves you gasping, speed the whole thing up so four-seven-eight becomes a shorter but still-proportional two-and-a-half, four-and-a-half, five. The point is the shape — short in, longer hold, longest out — not the literal stopwatch. Four rounds is plenty to start; the pattern is meant to be a quick reset, not an endurance test.</p>
+
+<h2>What the evidence supports — and what it doesn't</h2>
+<p>Be clear-eyed here. The broad, well-supported finding is that slow, paced breathing — especially with an extended exhale — increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety. What is <em>not</em> well established is that the specific four-seven-eight ratio, with its seven-count hold, beats other slow-breathing patterns. Controlled trials that isolate this exact recipe are few and small, so the honest claim is modest: 4-7-8 is a convenient, memorable way to breathe slowly with a long exhale, and it borrows the general benefits of doing so — not a uniquely powerful formula whose numbers carry special power.</p>
+<p>It follows that the breath-hold of seven is best treated as a pacing and attention device rather than a proven active ingredient, and that 4-7-8 is <strong>not a medical treatment</strong> for anxiety disorders or insomnia. Weil suggests it as a sleep aid, and many people find a long exhale genuinely helps them drift off, but that is a reasonable use of a low-risk tool — not a substitute for care when sleep or anxiety problems are serious. If a long hold ever makes you dizzy or anxious, that is your cue to shorten it or drop the hold entirely and simply breathe out longer than you breathe in. Research on breathing that emphasizes a long exhale — such as cyclic sighing — even suggests it can calm you faster than perfectly equal breathing, which is the same lever 4-7-8 is pulling.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>As a wind-down before sleep.</strong> This is 4-7-8's home turf. A few rounds in bed give a racing mind a slow, repeating shape to follow and lean your body toward its calming branch. It pairs naturally with a fuller <a href="/guides/sleep-and-executive-function.html">sleep routine</a>.</li>
+<li><strong>To come down from stress.</strong> After a tense moment, four rounds hand your body an off-ramp from fight-or-flight instead of letting the adrenaline linger.</li>
+<li><strong>In the gap between focus blocks.</strong> A short reset that actually restores attention — unlike checking your phone, which keeps it working. It fits the break in a <a href="/guides/how-long-should-a-pomodoro-be.html">Pomodoro cycle</a>.</li>
+<li><strong>When you want steadiness over speed, try its cousin.</strong> If the seven-count hold feels like a strain, the equal-count <a href="/guides/box-breathing.html">box breathing</a> pattern is a gentler on-ramp; for the fastest single-breath reset, the <a href="/guides/the-physiological-sigh.html">physiological sigh</a> is the tool.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Forcing the hold.</strong> If a seven-count hold makes you gulp air afterward, the counts are too long. Keep the ratio but shrink the seconds; you should never feel starved for air.</li>
+<li><strong>Rushing the exhale.</strong> The out-breath is the whole point — if it isn't clearly the longest part, you have lost the calming lever. Let it be slow and complete.</li>
+<li><strong>Breathing into the chest.</strong> Aim for a quiet breath low in the belly; heaving shoulders signal the shallow, stress-style breathing you are trying to leave behind.</li>
+<li><strong>Doing round after round.</strong> More is not better here — several rounds are enough, and stacking many in a row can leave some people light-headed. Stop if you feel dizzy.</li>
+</ul>
+
+<p>Want a steady pacer to breathe along with? <a class="app-cta" href="/?tool=breathing">Open the breathing tool</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/box-breathing.html">Box breathing: the four-count square for steady calm</a></li>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: the fastest way to calm down between blocks</a></li>
+<li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is the 4-7-8 breathing technique good for?', a: 'It is a simple way to breathe slowly with a long exhale, which tends to shift the nervous system toward its calming, parasympathetic branch. People most often use it to wind down before sleep or to settle after a stressful moment. It is a low-risk relaxation tool, not a medical treatment for insomnia or anxiety disorders.' },
+      { q: 'Do the exact numbers 4, 7, and 8 matter?', a: 'The ratio matters more than the literal seconds. What does the calming work is breathing slowly with an out-breath that is longer than the in-breath. If a seven-count hold is uncomfortable, keep the short-in, longer-hold, longest-out shape but speed the whole cycle up. Controlled studies have not shown the specific 4-7-8 numbers to be uniquely powerful compared with other slow-breathing patterns.' },
+      { q: 'Is 4-7-8 breathing safe, and can it make me dizzy?', a: 'For most people a few rounds are safe and calming, but holding the breath and doing many rounds back-to-back can leave some people light-headed. Do no more than about four rounds at a time, and if you feel dizzy, shorten or drop the hold and simply breathe out longer than you breathe in. If you have a heart or respiratory condition or are pregnant, check with a professional before making it a habit.' },
+    ],
   },
   {
     slug: 'movement-breaks-and-focus',
