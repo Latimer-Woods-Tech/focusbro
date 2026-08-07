@@ -15,8 +15,8 @@ Derived deterministically from the guides module of record —
 from what is actually live. Regenerate with `node scripts/generate-content-ledger.mjs`
 (`--check` fails CI if the committed ledger is stale).
 
-**Totals:** 22 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
-**22 not yet instrumented** (see the `ref` column + the attribution note below).
+**Totals:** 23 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
+**23 not yet instrumented** (see the `ref` column + the attribution note below).
 
 ## Attribution note (§7 portability gap)
 
@@ -56,5 +56,6 @@ spine pointer · request id — plus `ref` (✅ = CTA carries `?ref=cf_focusbro_
 | `/guides/the-weekly-review.html` | the weekly review | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_the-weekly-review` | — |
 | `/guides/time-blocking.html` | time blocking | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_time-blocking` | — |
 | `/guides/ultradian-rhythms-and-focus.html` | ultradian rhythms and focus | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_ultradian-rhythms-and-focus` | — |
+| `/guides/what-is-the-pomodoro-technique.html` | what is the pomodoro technique | guide | 2026-08-07 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_what-is-the-pomodoro-technique` | — |
 | `/guides/why-we-procrastinate.html` | why we procrastinate | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_why-we-procrastinate` | — |
 | `/guides/workspace-ergonomics.html` | workspace ergonomics | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_workspace-ergonomics` | — |
