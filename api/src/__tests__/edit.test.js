@@ -113,14 +113,42 @@ describe('POST /api/commitments/:id/edit — change a word in place', () => {
       body: { recurrence: 'daily', local_time: '09:15', timezone: 'UTC' },
     });
     expect(res.status).toBe(200);
-    // Old waiting check-ins cancelled…
+    // Old open check-ins cancelled — including a delivered-but-unanswered `sent`
+    // occurrence, so a stale nudge can't linger beside the fresh one (see below).
     expect(db.runs.some((x) =>
       /UPDATE commitment_checkins SET status = 'cancelled'/.test(x.sql) &&
-      /status IN \('pending', 'deferred', 'awaiting_time'\)/.test(x.sql))).toBe(true);
+      /status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/.test(x.sql))).toBe(true);
     // …and a fresh pending one queued (active word).
     expect(db.runs.some((x) => /INSERT INTO commitment_checkins/.test(x.sql) && /'pending'/.test(x.sql))).toBe(true);
     const body = await res.json();
     expect(body.message).toMatch(/Next check-in/);
+  });
+
+  it('editing the time cancels the CURRENT occurrence even after it was delivered (status=sent), so no stale duplicate lingers (R-310)', async () => {
+    // The defect: release/pause cancel only the waiting substates and leave a
+    // delivered `sent` row live — harmless there because the commitment leaves
+    // 'active' and every active-scoped surface then ignores it. An edit KEEPS
+    // the word active, so if the edit's cancel had used the same three-status set
+    // ('pending','deferred','awaiting_time'), a delivered-but-unanswered `sent`
+    // occurrence would survive beside the freshly-queued `pending` one: the /me/
+    // + coach next-check-in (MIN over the open set) would surface the OLD moment
+    // the person just moved away from, and the escalation cron (which chases
+    // c.status='sent' AND m.status='active') would ping a false "still here"
+    // nudge for that superseded moment. Editing the time redefines the current
+    // occurrence, so its delivered nudge is superseded and must be cancelled too.
+    const db = makeDB({ commitment: recurringActive });
+    const res = await buildRouter(db)('POST', '/api/commitments/cm1/edit', {
+      body: { recurrence: 'daily', local_time: '09:15', timezone: 'UTC' },
+    });
+    expect(res.status).toBe(200);
+    // The cancel set MUST include 'sent' (reverting to the three-status set that
+    // release/pause use fails this — the proof-of-rejection).
+    const cancel = db.runs.find((x) => /UPDATE commitment_checkins SET status = 'cancelled'/.test(x.sql));
+    expect(cancel).toBeTruthy();
+    expect(cancel.sql).toMatch(/status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/);
+    // Exactly ONE fresh occurrence is queued — no duplicate open row survives.
+    const inserts = db.runs.filter((x) => /INSERT INTO commitment_checkins/.test(x.sql));
+    expect(inserts.length).toBe(1);
   });
 
   it('a paused word can be edited but stays quiet — cancel, no re-queue', async () => {
