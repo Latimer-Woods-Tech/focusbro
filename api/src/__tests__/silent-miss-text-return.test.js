@@ -70,9 +70,15 @@ function makeDB({ candidates = [], streak = null, existingPending = null } = {})
           const legacyEscalated = !hasPushBranch && /c\.escalated_at IS NOT NULL/.test(sql);
           const boundPush = params.includes(pushCutoff);
           const boundText = params.includes(textCutoff);
+          // Faithful to the exact open-status set the SQL enumerates, so a
+          // revert to `c.status = 'sent'` drops the awaiting_time row and the
+          // awaiting_time case fails (proof-of-rejection, Standing Law 1).
+          const openStatus = /c\.status IN \('sent', 'awaiting_time'\)/.test(sql)
+            ? new Set(['sent', 'awaiting_time'])
+            : /c\.status = 'sent'/.test(sql) ? new Set(['sent']) : new Set();
 
           const results = candidates.filter((r) => {
-            if (r.status !== 'sent' || r.responded_at != null || r.commitment_status !== 'active') return false;
+            if (!openStatus.has(r.status) || r.responded_at != null || r.commitment_status !== 'active') return false;
             const pushOk = (hasPushBranch && r.channel === 'push' && r.escalated_at != null && boundPush && r.escalated_at <= pushCutoff)
               || (legacyEscalated && r.escalated_at != null && boundPush && r.escalated_at <= pushCutoff);
             const textOk = hasTextBranch && r.channel === 'text' && r.escalated_at == null
@@ -106,6 +112,15 @@ const strandedTextDaily = {
   ...strandedTextOneShot,
   checkin_id: 'ci-text-daily', commitment_id: 'cm-t2',
   recurrence: 'daily', timezone: 'America/New_York', local_time: '08:40',
+};
+// a text nudge answered with a bare "later" (parked `awaiting_time`, the bro
+// having asked "when?") and then never given a time → the same delivered-but-
+// unanswered thread, the one open state the door could not previously see.
+const strandedAwaitingTime = {
+  checkin_id: 'ci-text-awaiting', commitment_id: 'cm-t4',
+  status: 'awaiting_time', responded_at: null, escalated_at: null,
+  delivered_at: '2026-07-29T16:00:00.000Z', // 2h before NOW; past the 75-min window
+  channel: 'text', recurrence: 'none', timezone: 'UTC', local_time: null, commitment_status: 'active',
 };
 // a text word delivered only 10 min ago — a reply may still be in flight; must NOT be stolen
 const inFlightText = {
@@ -155,6 +170,25 @@ describe('reconcileStrandedCheckins — the silent miss closes on the TEXT chann
     expect(db.runs.some((x) => /INSERT INTO commitment_checkins/.test(x.sql))).toBe(true);
   });
 
+  it('closes a text nudge answered "later" then ghosted (awaiting_time) as a no-shame reschedule too', async () => {
+    const db = makeDB({
+      candidates: [strandedAwaitingTime],
+      streak: { current_streak: 5, longest_streak: 9, total_kept: 20, last_kept_date: '2026-07-28' },
+    });
+    const out = await reconcileStrandedCheckins({ DB: db }, USER, { nowISO: NOW });
+    expect(out.reconciled).toBe(1);
+
+    const rowUpd = db.runs.find((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('ci-text-awaiting'));
+    expect(rowUpd).toBeTruthy();
+    expect(rowUpd.params).toContain('reschedule'); // never 'missed'
+    expect(rowUpd.params).toContain(STRANDED_NOTE);
+
+    // streak persisted UNCHANGED — saying "later" and going quiet is never a miss
+    const sUpd = db.runs.find((x) => /INSERT INTO accountability_streaks/.test(x.sql));
+    expect(sUpd.params).toContain(5);
+    expect(sUpd.params).toContain(20);
+  });
+
   it('never steals a text reply still in flight — a row delivered inside the window is left open', async () => {
     const db = makeDB({ candidates: [inFlightText] });
     const out = await reconcileStrandedCheckins({ DB: db }, USER, { nowISO: NOW });
@@ -181,8 +215,9 @@ describe('reconcileStrandedCheckins — the silent miss closes on the TEXT chann
     await reconcileStrandedCheckins({ DB: db }, USER, { nowISO: NOW });
     const scan = db.queries.find((q) => /FROM commitment_checkins c\s+JOIN commitments m/.test(q.sql) && /escalated_at/.test(q.sql));
     expect(scan).toBeTruthy();
-    // the shared guards remain
-    expect(scan.sql).toMatch(/c\.status = 'sent'/);
+    // the shared guards remain — the open set now spans awaiting_time too, so a
+    // text nudge answered "later" and then ghosted is greeted, not left hanging.
+    expect(scan.sql).toMatch(/c\.status IN \('sent', 'awaiting_time'\)/);
     expect(scan.sql).toMatch(/c\.responded_at IS NULL/);
     expect(scan.sql).toMatch(/m\.status = 'active'/);
     // the text branch: never-escalated, delivered, silent past the text window

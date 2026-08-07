@@ -385,7 +385,8 @@ export function registerReportRoutes(router, ctx) {
   // Coach-proof artifact: returns both the structured report and a plain-text
   // rendering for copy / mailto / download. Momentum-only by construction — the
   // only check-in rows read are status='kept' (the win record) and OUTSTANDING
-  // (pending/sent/deferred) future moments; no miss series is ever queried.
+  // (pending/sent/deferred/awaiting_time) future moments; no miss series is ever
+  // queried (awaiting_time = a text nudge answered "later", still an open moment).
   router.get('/api/me/report', async (request, env) => {
     try {
       const auth = await requireUser(request, env);
@@ -464,7 +465,7 @@ export function registerReportRoutes(router, ctx) {
         const nextRows = await env.DB.prepare(
           `SELECT commitment_id, MIN(scheduled_for) AS next_for
              FROM commitment_checkins
-            WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+            WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
             GROUP BY commitment_id`
         ).bind(auth.userId).all();
         for (const r of (nextRows && nextRows.results) || []) {

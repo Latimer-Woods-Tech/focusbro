@@ -1968,6 +1968,10 @@ export const STRANDED_NOTE = 'Moved on your return — still on.';
  *     at least `STRANDED_SILENCE_MIN` past the escalation; and
  *   - a TEXT check-in — which has no escalation ladder, so no `escalated_at`
  *     anchor — that stayed quiet for `STRANDED_TEXT_SILENCE_MIN` past delivery.
+ *     This also covers a text nudge the person answered with a bare "later" (so
+ *     it is parked `awaiting_time`, the bro having asked "when?") and then never
+ *     named a time: the same delivered-but-unanswered thread, closed the same
+ *     warm way rather than left hanging as the one open state the door can't see.
  * Both are on a still-active commitment, and each is closed through the shared
  * `applyCheckinOutcome` core as a `reschedule`: streak-safe, rhythm-continuing
  * for a recurring word, and never a miss score.
@@ -1996,7 +2000,7 @@ export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
          FROM commitment_checkins c
          JOIN commitments m ON m.id = c.commitment_id
         WHERE c.user_id = ?
-          AND c.status = 'sent'
+          AND c.status IN ('sent', 'awaiting_time')
           AND c.responded_at IS NULL
           AND m.status = 'active'
           AND (
@@ -2306,7 +2310,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       const outstanding = await env.DB.prepare(
         `SELECT commitment_id, MIN(scheduled_for) AS next_checkin
            FROM commitment_checkins
-          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
           GROUP BY commitment_id`
       ).bind(auth.userId).all();
       const nextByCommitment = {};
@@ -2392,7 +2396,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         const up = await env.DB.prepare(
           `SELECT scheduled_for
              FROM commitment_checkins
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred')
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
             ORDER BY scheduled_for ASC
             LIMIT 1`
         ).bind(id, auth.userId).first();
@@ -2631,6 +2635,13 @@ export function registerAccountabilityRoutes(router, ctx) {
       // `scheduled_for ASC` over the open set resolves the current occurrence and
       // leaves the future one untouched — an early in-app resolve (before any
       // delivery) still lands on the single pending row exactly as before.
+      // The open set includes `awaiting_time`: when the current occurrence was
+      // delivered over text and answered "later" (so the bro asked "when?"), it
+      // is the soonest-open row and MUST be the one a subsequent in-app tap
+      // resolves — otherwise ASC skips it and stamps tomorrow's freshly
+      // materialized `pending` row (the R-284 wrong-row/orphan defect, one
+      // substate over), crediting the streak for a day that has not happened and
+      // orphaning the delivered occurrence into a false "still here" nudge.
       await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
@@ -2638,7 +2649,7 @@ export function registerAccountabilityRoutes(router, ctx) {
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-                 AND status IN ('pending', 'sent', 'deferred')
+                 AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
                ORDER BY scheduled_for ASC LIMIT 1
             )`
       ).bind(outcome, note, auth.userId, id, id, auth.userId).run();

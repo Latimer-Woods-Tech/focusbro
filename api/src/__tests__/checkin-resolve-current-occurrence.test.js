@@ -56,11 +56,20 @@ const RECURRING = {
 // test passes on the fix and fails on a revert.
 function makeDB(rows) {
   const runs = [];
-  const OPEN = new Set(['pending', 'sent', 'deferred']);
+  // Faithful to whatever open-status set the subquery actually enumerates — so a
+  // revert that drops 'awaiting_time' genuinely excludes an awaiting_time row and
+  // ASC then skips to the future occurrence, failing the awaiting_time cases
+  // (proof-of-rejection, Standing Law 1).
+  function openSetFromSql(sql) {
+    const m = sql.match(/status IN \(([^)]*)\)/);
+    if (!m) return null;
+    return new Set(m[1].split(',').map((s) => s.trim().replace(/'/g, '')));
+  }
   function selectResolveTarget(sql, commitmentId) {
     let pool = rows.filter((r) => r.commitment_id === commitmentId);
-    if (/status IN \('pending', 'sent', 'deferred'\)/.test(sql)) {
-      pool = pool.filter((r) => OPEN.has(r.status));
+    const open = openSetFromSql(sql);
+    if (open) {
+      pool = pool.filter((r) => open.has(r.status));
     }
     if (/ORDER BY scheduled_for ASC/.test(sql)) {
       pool = pool.slice().sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
@@ -169,6 +178,46 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
     expect(onlyPending.status).toBe('kept');
   });
 
+  // ── awaiting_time: a text nudge answered "later" (the bro asked "when?") is an
+  // OPEN occurrence and must be the one an in-app resolve lands on (R-308). Before
+  // the open set included it, ASC skipped the awaiting_time row and stamped a
+  // future/none row — the R-284 wrong-row/orphan defect, one substate over.
+  it('recurring: an in-app Done lands on TODAY\'s awaiting_time row, never TOMORROW\'s pending one', async () => {
+    const now = Date.now();
+    // today's text nudge was delivered, answered "later" → parked awaiting_time.
+    const today = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'awaiting_time',
+      scheduled_for: new Date(now - 3 * 3600 * 1000).toISOString(), responded_at: null };
+    const tomorrow = { id: 'ckB', commitment_id: 'cm1', user_id: 'u1', status: 'pending',
+      scheduled_for: new Date(now + 21 * 3600 * 1000).toISOString(), responded_at: null };
+    const db = makeDB([today, tomorrow]);
+    const call = buildCall(db);
+
+    const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+    expect(res.status).toBe(200);
+    // the occurrence the person is actually acting on is credited...
+    expect(today.status).toBe('kept');
+    expect(today.responded_at).not.toBeNull();
+    // ...and tomorrow's not-yet-due row is left untouched — no streak credit for a
+    // day that hasn't happened, no orphaned "still here" thread on today's.
+    expect(tomorrow.status).toBe('pending');
+    expect(tomorrow.responded_at).toBeNull();
+  });
+
+  it('one-shot: an in-app Done resolves the lone awaiting_time row (no orphan, no later re-nag)', async () => {
+    const now = Date.now();
+    const only = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'awaiting_time',
+      scheduled_for: new Date(now - 1 * 3600 * 1000).toISOString(), responded_at: null };
+    const db = makeDB([only]);
+    const call = buildCall(db);
+
+    const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+    expect(res.status).toBe(200);
+    // the row is stamped (responded_at set) rather than left an eternal orphan the
+    // inbound-SMS path could later re-pend into a nag on an already-kept word.
+    expect(only.status).toBe('kept');
+    expect(only.responded_at).not.toBeNull();
+  });
+
   it('SQL-shape lock: the resolve subquery filters to the open set and orders scheduled_for ASC', async () => {
     const now = Date.now();
     const today = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'sent',
@@ -180,7 +229,7 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
     const resolve = db.runs.find((x) => /UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(x.sql)
       && /SELECT id FROM commitment_checkins/.test(x.sql));
     expect(resolve).toBeTruthy();
-    expect(resolve.sql).toMatch(/status IN \('pending', 'sent', 'deferred'\)/);
+    expect(resolve.sql).toMatch(/status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/);
     expect(resolve.sql).toMatch(/ORDER BY scheduled_for ASC/);
     // The old future-picking ordering is gone.
     expect(resolve.sql).not.toMatch(/\(status = 'pending'\) DESC/);
