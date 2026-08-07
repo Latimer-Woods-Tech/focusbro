@@ -930,8 +930,9 @@ export function registerCoachRoutes(router, ctx) {
       // row on a released word never leaks in, and MIN() picks the soonest. The
       // bare `timezone` follows that MIN row (SQLite min/max bare-column rule),
       // so the moment is formatted in its OWN commitment's zone. Momentum-only
-      // by construction: pending/sent/deferred is a future moment about to be
-      // KEPT — never a miss.
+      // by construction: pending/sent/deferred/awaiting_time is a future moment
+      // about to be KEPT — never a miss (awaiting_time = the bro asked "when?"
+      // over text and is holding the door, still an outstanding moment to show).
       const activeIds = roster.filter((e) => e.status === 'active').map((e) => e.client_id);
       if (activeIds.length) {
         const placeholders = activeIds.map(() => '?').join(', ');
@@ -941,7 +942,7 @@ export function registerCoachRoutes(router, ctx) {
              JOIN commitments c ON c.id = cc.commitment_id
             WHERE c.user_id IN (${placeholders})
               AND c.status = 'active'
-              AND cc.status IN ('pending', 'sent', 'deferred')
+              AND cc.status IN ('pending', 'sent', 'deferred', 'awaiting_time')
             GROUP BY c.user_id`
         ).bind(...activeIds).all();
         const nextByClient = {};
@@ -1246,11 +1247,13 @@ export function registerCoachRoutes(router, ctx) {
       // The soonest OUTSTANDING check-in per active commitment — the concrete
       // next moment the bro will show up. One grouped query (not N per row).
       // Momentum-only by construction: an outstanding check-in is a future
-      // moment about to be KEPT (pending/sent/deferred), never a miss.
+      // moment about to be KEPT (pending/sent/deferred/awaiting_time), never a
+      // miss (awaiting_time = a text nudge answered "later", the bro holding the
+      // door for a time — still an outstanding moment to surface, not a gap).
       const nextRows = await env.DB.prepare(
         `SELECT commitment_id, MIN(scheduled_for) AS next_for
            FROM commitment_checkins
-          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
           GROUP BY commitment_id`
       ).bind(clientId).all();
       const nextByCommitment = {};

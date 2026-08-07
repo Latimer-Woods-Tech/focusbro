@@ -122,7 +122,8 @@ describe('reconcileStrandedCheckins — the silent miss, resolved warmly on retu
     const scan = db.queries.find((q) => /FROM commitment_checkins c\s+JOIN commitments m/.test(q.sql) && /escalated_at IS NOT NULL/.test(q.sql));
     expect(scan).toBeTruthy();
     // the SQL enforces the four guards that make this a real silent miss
-    expect(scan.sql).toMatch(/c\.status = 'sent'/);
+    // (the open set spans awaiting_time too, but a push row is only ever 'sent')
+    expect(scan.sql).toMatch(/c\.status IN \('sent', 'awaiting_time'\)/);
     expect(scan.sql).toMatch(/c\.responded_at IS NULL/);
     expect(scan.sql).toMatch(/c\.escalated_at IS NOT NULL/);
     expect(scan.sql).toMatch(/m\.status = 'active'/);
