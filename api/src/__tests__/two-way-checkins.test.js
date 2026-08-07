@@ -1692,3 +1692,90 @@ describe('a reply inside a "help me start" / snooze wait window is honored (R-28
     expect(q).toMatch(/ORDER BY \(c\.status = 'pending'\) ASC/);
   });
 });
+
+// ── A reply never resurrects a word you set down (Contender #10) ──────────────
+// release/pause/terminal-resolve cancel a commitment's WAITING check-ins
+// (`IN ('pending','deferred','awaiting_time')`) but deliberately leave a nudge
+// already DELIVERED (`status='sent'`, `responded_at` NULL) live. Without an
+// `m.status='active'` guard on the inbound lookup, a late "done"/"3pm" reply to
+// that stray sent row matches it and runs applyCheckinOutcome — re-activating a
+// released rhythm + re-arming its next occurrence (or flipping a one-shot
+// released→kept) and ringing the bro again on a word the person explicitly set
+// down: the guilt-engine the design LAW forbids. This mirrors reconcileStrandedCheckins,
+// which already scopes its resolve to active commitments.
+//
+// The double is guard-faithful: the JOIN lookup returns the row only when the SQL
+// does NOT filter it out by `m.status='active'`. So with the guard present + a
+// non-active parent → no open row → `no_open_checkin`, nothing written, no SMS.
+// Reverting the guard (dropping `m.status = 'active'`) makes the double return the
+// row → resolution + confirmation SMS fire → these assertions fail
+// (proof-of-rejection, Standing Law 1).
+function makeGuardFaithfulDB(open) {
+  const runs = [];
+  const db = {
+    runs,
+    prepare(sql) {
+      let params = [];
+      const stmt = {
+        bind(...a) { params = a; return stmt; },
+        async first() {
+          if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
+          if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
+            const guarded = /m\.status\s*=\s*'active'/.test(sql);
+            if (guarded && open.commitment_status && open.commitment_status !== 'active') return null;
+            return open;
+          }
+          if (/FROM accountability_streaks/.test(sql)) return null;
+          if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() {
+          runs.push({ sql, params });
+          if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };
+          return { success: true, meta: { changes: 1 } };
+        },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+describe('inbound reply never resurrects a word the person set down', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  for (const status of ['released', 'paused', 'kept']) {
+    it(`a "done" reply to a leftover sent row on a ${status} word resolves nothing (no re-nag)`, async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true }));
+      vi.stubGlobal('fetch', fetchMock);
+      const stray = {
+        checkin_id: 'ci-stray', commitment_id: 'cm-stray', commitment_status: status,
+        checkin_status: 'sent', recurrence: 'daily', timezone: 'UTC', local_time: null,
+        channel: 'text', persona: 'ally',
+      };
+      const db = makeGuardFaithfulDB(stray);
+      const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+      expect((await res.json()).action).toBe('no_open_checkin');
+      // Nothing resolved, nothing re-pended, no confirmation SMS went out.
+      expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+      expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  }
+
+  it('an ACTIVE word still resolves a "done" reply (the guard does not over-block)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const live = {
+      checkin_id: 'ci-live', commitment_id: 'cm-live', commitment_status: 'active',
+      checkin_status: 'sent', recurrence: 'none', timezone: 'UTC', local_time: null,
+      channel: 'text', persona: 'ally',
+    };
+    const db = makeGuardFaithfulDB(live);
+    const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('checkin_kept');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

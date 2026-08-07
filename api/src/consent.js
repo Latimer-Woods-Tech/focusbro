@@ -605,12 +605,26 @@ export function registerConsentRoutes(router, ctx) {
       // order (sent/awaiting first, then newest), so a fresh nudge is never
       // shadowed by a snoozed row scheduled further out. STOP/START/HELP are handled
       // above, so they never land here.
+      //
+      // `m.status = 'active'` is load-bearing under the design LAW. Setting a word
+      // DOWN (release), pausing a rhythm, and the terminal resolves all cancel a
+      // commitment's *waiting* rows — but their cancel scan is
+      // `IN ('pending','deferred','awaiting_time')`, so a nudge already DELIVERED
+      // (status='sent', responded_at NULL) is deliberately left live. Without this
+      // guard a late "done"/"3pm" reply to that stray sent row would match it and
+      // run applyCheckinOutcome — resurrecting a released word (re-activating the
+      // rhythm + re-arming the next occurrence, or moving a one-shot released→kept)
+      // and ringing the bro again on a word the person explicitly set down: the
+      // exact guilt-engine the LAW forbids. Parity with reconcileStrandedCheckins,
+      // which already scopes its resolve to `m.status='active'`. A non-active parent
+      // falls through to `no_open_checkin` (silent ack — never text unprompted).
       const open = await env.DB.prepare(
         `SELECT c.id AS checkin_id, c.commitment_id, c.status AS checkin_status,
                 m.recurrence, m.timezone, m.local_time, m.channel, m.persona
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
           WHERE c.user_id = ? AND c.channel = 'text' AND c.responded_at IS NULL
+            AND m.status = 'active'
             AND ( c.status IN ('sent', 'awaiting_time')
                   OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
           ORDER BY (c.status = 'pending') ASC, c.scheduled_for DESC LIMIT 1`
