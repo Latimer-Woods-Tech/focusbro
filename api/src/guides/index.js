@@ -1607,6 +1607,79 @@ export const guides = [
       { q: 'How long before meditation helps my concentration?', a: 'Some studies saw changes after only days to two weeks of short daily sessions, but the effects are modest and fade without continued practice. Think of it as ongoing training rather than a course you finish once — a few consistent minutes a day builds the skill more reliably than an occasional long sit.' },
       { q: 'Does meditation treat ADHD?', a: 'No. Meditation is not a treatment for ADHD or any medical condition. Some people find attention practices a helpful complement to the support they already use, but the evidence is limited and meditation is not a substitute for professional care. If focus difficulties are disrupting your life, that is a reason to talk to a qualified professional.' },
     ],
+  },
+  {
+    slug: 'what-is-the-pomodoro-technique',
+    howto: {
+      name: 'How to use the Pomodoro Technique',
+      description: 'Work in fixed, single-task intervals separated by short breaks, taking a longer break after every four intervals.',
+      steps: [
+        'Pick one task and decide what "done for now" looks like for this interval.',
+        'Set a timer for 25 minutes — one "pomodoro" — and work on only that task until it rings.',
+        'If a distraction pops up, jot it on a scrap of paper and return to the task instead of acting on it.',
+        'When the timer rings, stop and take a short break of about five minutes — stand up and look away from the screen.',
+        'After four pomodoros, take a longer break of fifteen to thirty minutes before starting the next set.',
+      ],
+    },
+    title: 'What Is the Pomodoro Technique? How the 25-Minute Method Actually Works',
+    description: 'Where the Pomodoro Technique comes from, how the 25-minutes-on, 5-minutes-off loop works, why the structure helps more than the exact number, and how to use it without turning it into a rigid ritual.',
+    lastmod: '2026-08-07',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">The Pomodoro Technique is one of the best-known ways to structure focused work: pick a task, work on it for twenty-five minutes without switching, take a short break, and repeat — with a longer break after every fourth round. It is simple enough to explain in a sentence, which is part of why it spread so widely. But the reason it works is not the magic of the number twenty-five; it is what the structure forces you to do. Here is where the method comes from, how to run it, what actually makes it help, and how to use it without letting the timer boss you around.</p>
+
+<h2>Where the Pomodoro Technique comes from</h2>
+<p>The method was created by Francesco Cirillo in the late 1980s, when he was a university student in Italy struggling to concentrate on his studying. He grabbed a kitchen timer shaped like a tomato — <em>pomodoro</em> is Italian for "tomato" — and challenged himself to focus for just the time it counted down. The tomato timer gave the technique its name, and each work interval is still called "a pomodoro." Cirillo later wrote the approach up as a formal method with its own rules, but the core is the same student's trick: shrink the commitment down to a length you can actually sustain, and let a timer, not your willpower, hold the boundary.</p>
+
+<h2>How the method works</h2>
+<p>The basic loop has four moving parts:</p>
+<ul>
+<li><strong>Choose one task</strong> and commit to working on only that until the timer rings.</li>
+<li><strong>Work for one pomodoro — 25 minutes</strong> — with single focus. No email, no "quick" tab-switch.</li>
+<li><strong>Take a short break, about 5 minutes.</strong> Stand up, look away, let your attention rest.</li>
+<li><strong>After four pomodoros, take a longer break</strong> of fifteen to thirty minutes.</li>
+</ul>
+<p>Cirillo added one rule that is easy to skip but does a lot of the work: <strong>the pomodoro is indivisible.</strong> There are no half-pomodoros. If you break focus and can't get back to the task, that pomodoro doesn't count — you start a fresh one. Treating the interval as all-or-nothing is what turns a vague "I'll work for a while" into a clean, protected block. The 25-and-5 numbers are the classic recipe, but they are a starting point, not a law; sizing the interval to your task and attention span is covered in the companion guide on <a href="/guides/how-long-should-a-pomodoro-be.html">how long a Pomodoro should be</a>.</p>
+
+<h2>Why the structure helps — and what the evidence actually says</h2>
+<p>Be clear-eyed about the research. Rigorous controlled trials that test the Pomodoro Technique as a whole package are scarce, and there is nothing special about twenty-five minutes in particular. What is better supported is the value of the <em>ingredients</em> the method bundles together.</p>
+<p>The first ingredient is the break. Attention to a single task tends to fade the longer you hold it — a slow decline researchers call the vigilance decrement. In a 2011 study in the journal <em>Cognition</em>, Atsunori Ariga and Alejandro Lleras found that brief mental breaks from a long, monotonous task helped people sustain their performance, while those who pushed straight through steadily got worse. The Pomodoro breaks build that recovery in on a schedule instead of leaving it to chance.</p>
+<p>The second ingredient is single-tasking. When you switch tasks before finishing, part of your attention stays snagged on the one you left — a carryover the management researcher Sophie Leroy named <strong>attention residue</strong> in her 2009 work on why it is so hard to settle into new work. A pomodoro's "one task until it rings" rule is a practical way to keep that residue low; the mechanism is unpacked further in the guide on <a href="/guides/deep-work-and-attention-residue.html">deep work and attention residue</a>. The third ingredient is simply a low-friction start: committing to twenty-five minutes is far less daunting than committing to "finish the report," which is why the timer is such a useful lever against <a href="/guides/why-we-procrastinate.html">procrastination</a>. The honest summary: the Pomodoro Technique is a convenient container for timeboxing, single-tasking, and regular breaks — habits with real support — not a formula whose exact numbers carry special power.</p>
+
+<h2>Handling interruptions</h2>
+<p>Interruptions are what actually break most focus blocks, and Cirillo treated them as the central problem rather than an afterthought. He split them in two. An <strong>internal</strong> interruption is a thought from inside your own head — "I should check that," "did I reply to her?" The move is to not act on it: write it on a list and keep going, so the idea is captured but your block survives. An <strong>external</strong> interruption is someone or something demanding your attention now. Where you can, protect the pomodoro — note what they need, agree a time to deal with it, and come back to it on your break rather than abandoning the block. You will not defend every interval perfectly, and that is fine; the goal is to make the protected block your default, not to achieve a flawless streak.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>Point it at the task you're avoiding.</strong> The technique earns its keep on work you would rather not start. "Just one pomodoro" is a small enough ask to get moving, and momentum usually carries you past the first block.</li>
+<li><strong>Actually take the breaks.</strong> Skipping them to "keep the flow" defeats the recovery the method is built around. Spend the short break away from the screen — a <a href="/guides/movement-breaks-and-focus.html">movement break</a> or a few rounds of <a href="/guides/box-breathing.html">box breathing</a> resets attention better than scrolling, which keeps it working.</li>
+<li><strong>Match the interval to your rhythm.</strong> Twenty-five minutes is the default, not a mandate. If you routinely hit a natural wall sooner or later than that, resize the block — working with your own <a href="/guides/ultradian-rhythms-and-focus.html">ultradian rhythms</a> beats forcing a number.</li>
+<li><strong>Count pomodoros, not hours.</strong> Tallying how many clean intervals a task took turns a fuzzy day into something you can plan against next time, and makes finishing four blocks feel like real progress.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Working through the ring.</strong> If you never stop when the timer goes off, you have a stopwatch, not a Pomodoro — the break is the half of the method that makes the focus sustainable.</li>
+<li><strong>Stuffing one pomodoro with many tasks.</strong> "Email, then this doc, then that message" inside one block is exactly the task-switching the interval is meant to prevent. One task per pomodoro.</li>
+<li><strong>Treating 25 minutes as sacred.</strong> The number is a convenient default. Guarding it like a rule — cutting off mid-thought at 25:00 or refusing a slightly longer block a task clearly needs — misses the point.</li>
+<li><strong>Making it a productivity ritual.</strong> The technique is a tool for getting started and protecting attention, not a scoreboard. If tracking pomodoros starts to feel like the real work, simplify it back down.</li>
+</ul>
+
+<p>Ready to run your first interval? <a class="app-cta" href="/?tool=pomodoro">Start a Pomodoro timer</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How long should a Pomodoro be? Sizing your focus intervals</a></li>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and attention residue: why switching tasks costs so much</a></li>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps you start</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is the Pomodoro Technique in simple terms?', a: 'It is a time-management method: you work on a single task for a fixed interval — classically 25 minutes, called a "pomodoro" — then take a short break of about five minutes, and after four intervals you take a longer break. Francesco Cirillo created it in the late 1980s using a tomato-shaped kitchen timer, which is where the name comes from.' },
+      { q: 'Why 25 minutes — is that number special?', a: 'Not really. Twenty-five minutes is the classic default because it is long enough to make progress and short enough to feel doable, but there is no strong evidence that this exact length beats others. The value is in the structure — one task at a time, a protected block, and a real break afterward — so it is fine to resize the interval to your task and attention span.' },
+      { q: 'Does the Pomodoro Technique actually work?', a: 'Controlled trials testing the technique as a whole are scarce, so the honest answer is that its individual ingredients are what have support: brief scheduled breaks help sustain attention, single-tasking reduces the "attention residue" that task-switching leaves behind, and committing to a short interval lowers the friction of starting. Many people find that combination genuinely helpful; treat it as a useful structure to try, not a guaranteed system.' },
+    ],
   }
 ];
 
