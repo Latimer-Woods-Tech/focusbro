@@ -1043,6 +1043,20 @@ export function releaseConfirmCopy({ persona } = {}) {
 }
 
 /**
+ * Warm reply when a check-in resolve arrives for a word that is no longer active
+ * — already kept, set down (released), paused, or otherwise settled (e.g. a stale
+ * tab, or a second device acting after the word was closed elsewhere). Under the
+ * design LAW this is never a scold and never a miss: the word simply isn't waiting
+ * on the person right now, and the door back in stays open. Streak is never touched.
+ */
+export function alreadySettledCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'That one’s already handled — nothing waiting on you here. Streak’s safe. Give a fresh word whenever you’re ready. 💪';
+  }
+  return 'That word isn’t waiting on you right now — it’s already settled, no problem at all. Your streak stays right where it is. Give a new word whenever you’re ready.';
+}
+
+/**
  * Confirming a snooze ("I'm on it"): the person is mid-thing and wants the bro
  * to check back shortly — not a resolution, not a reschedule, not a miss. The
  * copy is glad they're on it and promises to come back, never "don't forget,"
@@ -2467,6 +2481,24 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
       const persona = pickPersona(commitment.persona);
+
+      // Never resurrect a word that's already been set down or otherwise settled.
+      // The kept/snooze interceptions below already guard on `active`, but the main
+      // resolve path did not — so a resolve landing on a released/paused/kept word
+      // (a stale tab, or a second device acting after the word was closed elsewhere)
+      // would move the commitment's status and re-arm a recurring rhythm, ringing
+      // the bro again on a word the person explicitly closed. That is the guilt
+      // engine the design LAW forbids and the SMS twin of the inbound-reply guard in
+      // consent.js. A settled word is not waiting on anyone: reply warmly, write
+      // NOTHING (no check-in stamp, no status move, streak untouched), keep the door
+      // open. 200 (not an error) — nothing failed; the word is simply already done.
+      if (commitment.status !== 'active') {
+        return jsonResponse({
+          status: commitment.status,
+          message: alreadySettledCopy({ persona }),
+        }, 200);
+      }
+
       const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
 
       // Free-text carried on the in-app "Move it → when?" surface. Read up-front

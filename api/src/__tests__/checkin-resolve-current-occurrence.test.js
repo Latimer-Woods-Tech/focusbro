@@ -235,3 +235,84 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
     expect(resolve.sql).not.toMatch(/\(status = 'pending'\) DESC/);
   });
 });
+
+// ── A settled word is never resurrected by an in-app resolve (Contender #10) ──
+// Setting a word DOWN (release), pausing a rhythm, or resolving a one-shot moves
+// the commitment off `active` and cancels its WAITING check-ins — but not a nudge
+// already DELIVERED (status='sent'). A stale tab, or a second device tapping "I
+// did it" after the word was closed elsewhere, would then POST a resolve at a
+// non-active word. Before the guard the main path stamped the leftover sent row,
+// moved the commitment's status, and (for a recurring word) re-armed the next
+// occurrence — ringing the bro again on a word the person explicitly closed, the
+// exact guilt-engine the design LAW forbids. The guard replies warmly and writes
+// nothing. Proof-of-rejection (Standing Law 1): removing the `status !== 'active'`
+// guard lets `UPDATE commitments SET status` + the streak write run again, failing
+// these assertions.
+function makeSettledDB(commitment) {
+  const runs = [];
+  const db = {
+    runs,
+    prepare(sql) {
+      let params = [];
+      const stmt = {
+        bind(...a) { params = a; return stmt; },
+        async first() {
+          if (/FROM commitments WHERE id = \? AND user_id = \?/.test(sql)) return commitment;
+          if (/status = 'pending' AND scheduled_for > \?/.test(sql)) return null;
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+describe('an in-app resolve never resurrects a settled word', () => {
+  for (const status of ['released', 'paused', 'kept', 'missed']) {
+    it(`a resolve on a ${status} word writes nothing and answers warmly, streak untouched`, async () => {
+      const commitment = {
+        id: 'cm1', title: 'file the taxes', persona: 'ally', channel: 'text',
+        timezone: 'UTC', recurrence: 'daily', local_time: '09:00', status,
+      };
+      // In reality a leftover DELIVERED nudge still lives on this word
+      // (release/pause cancel only pending/deferred/awaiting_time) — without the
+      // guard the resolve subquery would find it and stamp it. The guard returns
+      // before any check-in query runs, so the double need only serve the
+      // ownership SELECT.
+      const db = makeSettledDB(commitment);
+      const call = buildCall(db);
+
+      const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe(status);
+      expect(typeof body.message).toBe('string');
+      expect(body.message.length).toBeGreaterThan(0);
+
+      // Nothing resolved: no check-in stamped, no commitment status moved, no
+      // streak write, no next-occurrence re-arm.
+      expect(db.runs.some((x) => /UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(x.sql))).toBe(false);
+      expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+      expect(db.runs.some((x) => /INSERT INTO accountability_streaks/.test(x.sql))).toBe(false);
+      expect(db.runs.some((x) => /INSERT INTO commitment_checkins/.test(x.sql))).toBe(false);
+    });
+  }
+
+  it('an ACTIVE word still resolves normally (the guard does not over-block)', async () => {
+    const commitment = {
+      id: 'cm1', title: 'file the taxes', persona: 'ally', channel: 'text',
+      timezone: 'UTC', recurrence: 'none', local_time: null, status: 'active',
+    };
+    const db = makeSettledDB(commitment);
+    const call = buildCall(db);
+
+    const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+    expect(res.status).toBe(200);
+    // The resolve path ran: the check-in stamp + commitment move both fire.
+    expect(db.runs.some((x) => /UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(true);
+  });
+});
