@@ -3110,10 +3110,28 @@ export function registerAccountabilityRoutes(router, ctx) {
       // If WHEN the bro shows up changed, re-queue the check-in: cancel the
       // outstanding one and, for a still-active word, schedule a fresh one at the
       // new time. A paused rhythm is left quiet — resume schedules it from now.
+      //
+      // The cancel set includes a DELIVERED-but-unanswered `sent` row, unlike
+      // release/pause (which cancel only the waiting substates and leave `sent`
+      // live). The difference is load-bearing: release/pause move the commitment
+      // OUT of 'active', so every active-scoped surface — the /me/ + coach
+      // next-check-in (MIN over the open set), the escalation cron
+      // (`c.status='sent' AND m.status='active'`), and the resolve guard — stops
+      // touching the stray `sent` row and it goes inert. An edit KEEPS the word
+      // active, so a leftover `sent` occurrence is NOT neutralised: it would
+      // linger beside the freshly-queued `pending` one as a DUPLICATE open
+      // occurrence — the /me/ card's MIN(scheduled_for) would surface the OLD,
+      // pre-edit moment the person just moved away from, and the escalation
+      // ladder would chase that superseded moment with a false "still here about
+      // <word>" nudge (a design-LAW brush: the bro chasing a moment you
+      // rescheduled). Editing the time redefines the current occurrence, so the
+      // delivered nudge for the old moment is superseded — cancel it too. Anti-
+      // shame by construction: `cancelled` is inert, the streak is never read or
+      // written by an edit, and no miss is recorded.
       if (built.scheduleChanged) {
         await env.DB.prepare(
           `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')`
         ).bind(id, auth.userId).run();
 
         if (commitment.status === 'active') {
