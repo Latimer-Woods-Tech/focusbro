@@ -262,7 +262,7 @@ const GUIDE_GROUPS = Object.freeze([
   },
   {
     label: 'Procrastination, habits & planning',
-    slugs: ['why-we-procrastinate', 'habit-stacking', 'the-weekly-review', 'notification-batching'],
+    slugs: ['why-we-procrastinate', 'habit-stacking', 'the-weekly-review', 'notification-batching', 'dopamine-and-focus'],
   },
   {
     label: 'Focus, ADHD & the body',
@@ -1679,6 +1679,69 @@ export const guides = [
       { q: 'What is the Pomodoro Technique in simple terms?', a: 'It is a time-management method: you work on a single task for a fixed interval — classically 25 minutes, called a "pomodoro" — then take a short break of about five minutes, and after four intervals you take a longer break. Francesco Cirillo created it in the late 1980s using a tomato-shaped kitchen timer, which is where the name comes from.' },
       { q: 'Why 25 minutes — is that number special?', a: 'Not really. Twenty-five minutes is the classic default because it is long enough to make progress and short enough to feel doable, but there is no strong evidence that this exact length beats others. The value is in the structure — one task at a time, a protected block, and a real break afterward — so it is fine to resize the interval to your task and attention span.' },
       { q: 'Does the Pomodoro Technique actually work?', a: 'Controlled trials testing the technique as a whole are scarce, so the honest answer is that its individual ingredients are what have support: brief scheduled breaks help sustain attention, single-tasking reduces the "attention residue" that task-switching leaves behind, and committing to a short interval lowers the friction of starting. Many people find that combination genuinely helpful; treat it as a useful structure to try, not a guaranteed system.' },
+    ],
+  },
+  {
+    slug: 'dopamine-and-focus',
+    howto: {
+      name: 'How to build a dopamine menu',
+      description: 'Write a short menu of healthier things to reach for when you feel the urge for a quick hit, so the better option is already decided before the craving arrives.',
+      steps: [
+        'Notice the moments you reach for a quick distraction — the tab-switch, the phone, the scroll — and jot down what triggers them.',
+        'List a handful of small, genuinely enjoyable activities that take two to ten minutes: stretch, step outside, make tea, message a friend, play one song.',
+        'Add a few "slower" options that feel good but take more effort — a short walk, a chapter of a book, tidying one surface, a real hobby.',
+        'Write the list somewhere you will actually see it when the urge hits — a sticky note, your phone lock screen, or the app.',
+        'When you catch the craving, pick one item off the menu instead of defaulting to the feed. The point is that the choice is already made.',
+      ],
+    },
+    title: 'Dopamine, Distraction, and Focus: What a "Dopamine Menu" Actually Does',
+    description: 'What dopamine really does (it is closer to motivation than pleasure), why modern distractions pull so hard, why "dopamine detox" is a misnomer, and how a simple dopamine menu makes the healthier choice the easy default.',
+    lastmod: '2026-08-07',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">Dopamine gets blamed for a lot: doom-scrolling, procrastination, the itch to check your phone the second work gets hard. Most of what gets said about it in passing is half-right at best — it is not simply a "pleasure chemical," and you cannot "detox" from it. But the real story is more useful than the myth, and it points to a small, practical tool: a dopamine menu. Here is what dopamine actually does, why quick distractions feel so good, and how a short list can put a better choice within reach before the craving takes over.</p>
+
+<h2>What dopamine actually is — and isn't</h2>
+<p>The popular shorthand is that dopamine is the "pleasure chemical" your brain releases when something feels good. That is misleading. Decades of research suggest dopamine is less about the pleasure of a reward and more about <em>wanting</em> it and <em>predicting</em> it. In foundational work published in <em>Science</em> in 1997, Wolfram Schultz, Peter Dayan, and Read Montague showed that dopamine neurons fire not simply when a reward arrives, but in proportion to how much better or worse the reward is than expected — a "reward prediction error." The signal is a teacher pointing at what to pursue next time, not a reward in itself.</p>
+<p>The neuroscientists Kent Berridge and Terry Robinson drew a related line between "wanting" and "liking." In their work, dopamine drives the <em>wanting</em> — the pull toward a thing, the anticipation — while the actual <em>liking</em>, the pleasure of consuming it, leans on other systems. That gap explains a familiar, uncomfortable experience: you can crave and chase something — one more video, one more refresh — that you barely enjoy once you get it. The wanting outlived the liking. Understanding that dopamine is a motivation-and-prediction signal, not a happiness meter, reframes the whole problem of distraction.</p>
+
+<h2>Why modern distractions pull so hard</h2>
+<p>If dopamine tracks anticipated reward, then the most compelling things are the ones whose rewards are <em>unpredictable</em>. This is old behavioral science. B. F. Skinner showed that a variable-ratio reinforcement schedule — a reward that comes after an unpredictable number of tries — produces the most persistent, hardest-to-extinguish behavior, far more than a reward you can count on. A slot machine runs on exactly this. So does a feed: you pull to refresh not knowing whether the next post is boring or delightful, and the not-knowing is precisely what keeps the wanting high.</p>
+<p>None of this makes a phone a drug or a person powerless — that framing overstates it. But it does explain why willpower alone is a weak defense. You are not lazy for finding an infinite, unpredictable feed more magnetic than a hard task with a distant payoff; you are running normal machinery in an environment engineered to exploit it. The useful response is not to shame the craving but to change the choice in front of you when it strikes — the same logic behind <a href="/guides/notification-batching.html">notification batching</a> and a considered <a href="/guides/why-we-procrastinate.html">approach to procrastination</a>.</p>
+
+<h2>Why "dopamine detox" is the wrong idea</h2>
+<p>"Dopamine detox" — the trend of abstaining from all stimulation for a day to "reset" your dopamine — gets the science wrong. You cannot detox from dopamine; it is a neurotransmitter your brain makes and needs constantly for movement, motivation, and learning. Depriving yourself of a chemical you never had "too much" of in some toxic sense is not what is happening.</p>
+<p>There is, however, a real mechanism worth taking seriously underneath the hype. In her 2021 book <em>Dopamine Nation</em>, the Stanford psychiatrist Anna Lembke describes the brain's tendency to keep pleasure and pain in balance: a big, easy spike of reward tends to be followed by a dip below your baseline — the comedown that nudges you back for more. On this view, the problem is not dopamine itself but a diet of high-intensity, low-effort rewards that keeps yanking the balance around, so that ordinary, slower satisfactions — reading, a project, a conversation — start to feel flat by comparison. The honest takeaway is not to purge stimulation but to <em>rebalance</em> it: spend less time in the loudest reward loops so the quieter ones feel worth doing again. Treat the strong claims about detoxes and "resets" with skepticism; the modest, well-grounded idea is simply that what you repeatedly reach for shapes what feels rewarding.</p>
+
+<h2>What a dopamine menu is</h2>
+<p>A dopamine menu is a small, pre-written list of healthier things to reach for when you feel the urge for a quick hit — so the better option is already decided before the craving arrives. The idea was popularized in the ADHD self-management community, where it is sometimes styled a "dopamenu"; the therapist Eric Tivers is often credited with the framing, and the creator Jessica McCabe helped spread it through her <em>How to ADHD</em> work. You do not need an ADHD diagnosis for it to be useful — anyone who reaches for the feed on autopilot can benefit.</p>
+<p>The trick is that it works by <strong>choice architecture</strong>, not willpower. In the moment a craving hits, deciding what to do instead is hard — that is the worst time to weigh options. A menu moves the decision earlier, to a calm moment, and makes the good choice the low-friction default. Some people borrow a restaurant format to keep it varied: quick <em>starters</em> (a few minutes — stretch, step outside, one song), fuller <em>mains</em> (a walk, a hobby, a real break), small <em>sides</em> to pair with work (music, tea), and occasional <em>specials</em> (a bigger treat you plan for). The format is optional; the point is a concrete list you will actually see when you need it. Pairing a menu item with a genuine reset — a <a href="/guides/movement-breaks-and-focus.html">movement break</a> or a few minutes of <a href="/guides/music-and-noise-for-focus.html">music</a> — beats a scroll that leaves your attention more frayed than before.</p>
+
+<h2>Using it without overthinking it</h2>
+<ul>
+<li><strong>Keep it short and specific.</strong> "Take a break" is not a menu item; "walk to the end of the block and back" is. Specific options are easier to pick when your willpower is low.</li>
+<li><strong>Put it where the craving happens.</strong> A menu in a notebook you never open does nothing. On your phone's lock screen or taped to your monitor, it competes with the feed at the moment it matters.</li>
+<li><strong>Make the healthy option the easy one.</strong> Leave a book on your desk, keep walking shoes by the door, close the tabs you'd otherwise drift to. You are lowering the friction on the good choice and raising it on the reflexive one.</li>
+<li><strong>Do not turn it into another scoreboard.</strong> The menu is a gentle nudge, not a discipline test you can fail. Pick one thing, enjoy it, get back to work.</li>
+</ul>
+
+<h2>The honest caveats</h2>
+<p>A dopamine menu is a self-management habit, not a treatment for anything. The dopamine science above is real but simplified — the brain's reward systems are far more tangled than any single neurotransmitter story, and pop accounts routinely overreach. And a menu will not overpower a genuinely compelling pull every time; it just tilts the odds by making the better choice visible and easy when your attention is at its weakest. That modest tilt, repeated, is the whole point.</p>
+
+<p>Want a menu you can actually reach for in the moment? <a class="app-cta" href="/?tool=dopamine">Build your dopamine menu</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps you start</a></li>
+<li><a href="/guides/notification-batching.html">Notification batching: check on your schedule, not theirs</a></li>
+<li><a href="/guides/movement-breaks-and-focus.html">Movement breaks: why getting up sharpens your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is a dopamine menu?', a: 'It is a short, pre-written list of healthier things to reach for when you feel the urge for a quick distraction — small activities like stretching, stepping outside, a song, or a short walk. The idea, popularized in the ADHD self-management community as a "dopamenu," is to decide the better option ahead of time, in a calm moment, so it is easy to pick when a craving hits and your willpower is low.' },
+      { q: 'Is a dopamine detox real?', a: 'Not in the literal sense. You cannot detox from dopamine — it is a neurotransmitter your brain constantly makes and needs. The grain of truth is that a steady diet of high-intensity, low-effort rewards can leave slower satisfactions feeling flat, so spending less time in the loudest reward loops can help ordinary activities feel rewarding again. Treat the stronger "reset your dopamine in a day" claims with skepticism.' },
+      { q: 'Why do distractions like scrolling feel so good?', a: 'Dopamine tracks anticipated and unpredictable rewards more than pleasure itself, so the things that pull hardest are the ones whose payoff you cannot predict. A feed you pull to refresh — not knowing if the next post is dull or delightful — runs on the same variable-reward pattern that makes slot machines so sticky. The wanting stays high even when the actual enjoyment is low, which is why willpower alone is a weak defense and changing the choice in front of you works better.' },
     ],
   }
 ];
