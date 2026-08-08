@@ -3037,6 +3037,28 @@ export function registerAccountabilityRoutes(router, ctx) {
           WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).run();
 
+      // Neutralise any occurrence left over from before the break BEFORE queuing
+      // the fresh one. Pause deliberately cancels only the waiting substates
+      // (`pending`/`deferred`/`awaiting_time`) and leaves a DELIVERED-but-
+      // unanswered `sent` nudge live — safe *while paused* because every active-
+      // scoped surface filters on `m.status='active'`, so the stray row is inert.
+      // Resume flips the word back to 'active', which re-arms that same stray row
+      // on exactly those surfaces: the escalation cron (`c.status='sent' AND
+      // m.status='active'`) would text a "still here about <word>" nudge chasing a
+      // moment from before the break, and the /me/ + coach next-check-in
+      // (MIN(scheduled_for) over the open set) would surface that pre-pause
+      // moment beside the freshly-queued one as a DUPLICATE open occurrence.
+      // Resume's contract is "pick up cleanly from now, never a backlog of the
+      // days away" — so the pre-pause occurrence is superseded, exactly as an
+      // edit's time change supersedes its outstanding check-in. Cancel the same
+      // wider set the edit path does (`sent` included). Anti-shame by
+      // construction: `cancelled` is inert, the streak is never read or written
+      // by a resume, and no miss is recorded.
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')`
+      ).bind(id, auth.userId).run();
+
       // Schedule the next occurrence so the rhythm actually starts ringing again.
       // ensureNextOccurrence is idempotent + a no-op for a non-recurring word (a
       // paused rhythm is always recurring by construction of the pause gate).
