@@ -404,3 +404,63 @@ CREATE TABLE IF NOT EXISTS contact_consent (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_consent_user ON contact_consent(user_id, channel);
+
+-- ── OPERATOR PLATFORM (Contender #10, Phase C · @latimer-woods-tech/operator) ──
+-- Identity + operator→client hierarchy tables for the shared operator platform,
+-- backed by D1 through the thin D1OperatorStore adapter (src/operator-store.js).
+-- FocusBro mounts the hub instead of hand-rolling a coach hierarchy. The money
+-- tables (price books / ledger / payouts) are intentionally absent — that is
+-- Phase D (tiers & billing, founder-gated on Stripe live-mode).
+CREATE TABLE IF NOT EXISTS operators (
+  id                 TEXT PRIMARY KEY,
+  slug               TEXT NOT NULL,
+  display_name       TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'pending',
+  connect_account_id TEXT,
+  charge_mode        TEXT NOT NULL DEFAULT 'direct',
+  white_label        TEXT,
+  default_currency   TEXT NOT NULL DEFAULT 'usd',
+  metadata           TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_slug ON operators(slug);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_connect_account ON operators(connect_account_id) WHERE connect_account_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS operator_clients (
+  id              TEXT PRIMARY KEY,
+  operator_id     TEXT NOT NULL,
+  external_org_id TEXT,
+  name            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'active',
+  retail_override TEXT,
+  metadata        TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_operator_clients_operator ON operator_clients(operator_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_operator_clients_external ON operator_clients(operator_id, external_org_id) WHERE external_org_id IS NOT NULL;
+
+-- ── COACH ↔ OPERATOR MAP (Contender #10, Phase C) ──
+-- Thin glue between a FocusBro user and their operator id; one row per coach.
+-- NOT a second hierarchy — the hierarchy lives in operator_clients.
+CREATE TABLE IF NOT EXISTS coach_operators (
+  user_id     TEXT PRIMARY KEY,
+  operator_id TEXT NOT NULL,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+);
+
+-- ── COACH CHECK-IN CONFIG (Contender #10, Phase C) ──
+-- FocusBro-native: cadence, voice persona, and the opening line. The script is
+-- anti-shame-validated at the write boundary before it is ever stored here.
+CREATE TABLE IF NOT EXISTS coach_checkin_config (
+  operator_id   TEXT PRIMARY KEY,
+  cadence       TEXT NOT NULL,
+  voice_persona TEXT NOT NULL,
+  script        TEXT NOT NULL,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+);

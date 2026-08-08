@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "node --check src/index.js && node --check src/accountability.js && node --check src/coach.js && node --check src/consent.js && node --check src/me.js && node --check src/webpush.js && node --check src/push-routes.js",
+    "build": "node --check src/index.js && node --check src/accountability.js && node --check src/coach.js && node --check src/coach-onboarding.js && node --check src/operator-store.js && node --check src/consent.js && node --check src/me.js && node --check src/webpush.js && node --check src/push-routes.js",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest watch",
@@ -15,6 +15,8 @@
     "test:smoke": "playwright test"
   },
   "dependencies": {
+    "@latimer-woods-tech/errors": "0.2.0",
+    "@latimer-woods-tech/operator": "0.8.0",
     "itty-router": "^4.0.0"
   },
   "devDependencies": {

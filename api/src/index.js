@@ -8,6 +8,7 @@ import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
+import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
 import { registerConsentRoutes } from './consent.js';
 import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
@@ -490,6 +491,65 @@ async function initializeDatabase(env) {
         shared INTEGER DEFAULT 0,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      // ── OPERATOR PLATFORM (Contender #10, Phase C · @latimer-woods-tech/operator) ──
+      // The shared operator platform's identity + hierarchy tables, backed by
+      // D1 through the thin `D1OperatorStore` adapter (src/operator-store.js).
+      // FocusBro mounts the hub instead of hand-rolling a coach hierarchy. The
+      // money tables (price books / ledger / payouts) are intentionally NOT here
+      // — that surface is Phase D (tiers & billing, founder-gated on Stripe live).
+      `CREATE TABLE IF NOT EXISTS operators (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        connect_account_id TEXT,
+        charge_mode TEXT NOT NULL DEFAULT 'direct',
+        white_label TEXT,
+        default_currency TEXT NOT NULL DEFAULT 'usd',
+        metadata TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_slug ON operators(slug)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_connect_account
+         ON operators(connect_account_id) WHERE connect_account_id IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS operator_clients (
+        id TEXT PRIMARY KEY,
+        operator_id TEXT NOT NULL,
+        external_org_id TEXT,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        retail_override TEXT,
+        metadata TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_operator_clients_operator ON operator_clients(operator_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operator_clients_external
+         ON operator_clients(operator_id, external_org_id) WHERE external_org_id IS NOT NULL`,
+      // ── COACH ↔ OPERATOR MAP (Contender #10, Phase C) ──
+      // The thin glue between a FocusBro user and their operator id. One row per
+      // coach — NOT a second hierarchy; the hierarchy lives in operator_clients.
+      `CREATE TABLE IF NOT EXISTS coach_operators (
+        user_id TEXT PRIMARY KEY,
+        operator_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+      )`,
+      // ── COACH CHECK-IN CONFIG (Contender #10, Phase C) ──
+      // FocusBro-native: how the bro checks in for this coach — cadence, voice
+      // persona, and the opening line. The script is anti-shame-validated at the
+      // write boundary (coach-onboarding.js) before it is ever stored here.
+      `CREATE TABLE IF NOT EXISTS coach_checkin_config (
+        operator_id TEXT PRIMARY KEY,
+        cadence TEXT NOT NULL,
+        voice_persona TEXT NOT NULL,
+        script TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
       )`,
       // ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
       // Delivery-side consent state; a text/voice check-in cannot send without a
@@ -2263,6 +2323,11 @@ registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, 
 // Consent-gated coach→client roster + read-only client views. The dashboard
 // PAGE is /coach/ (below). Full white-label is Phase C (operator UNBLOCK gated).
 registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
+
+// ── COACH ONBOARDING ROUTES (Contender #10, Phase C · slice 1) ──
+// Coach → operator identity + white-label (mounted on @latimer-woods-tech/operator
+// via the D1OperatorStore adapter) + FocusBro-native cadence/voice/script config.
+registerCoachOnboardingRoutes(router, { getAuthToken, verifyToken, jsonResponse });
 
 // ── CONTACT CONSENT ROUTES (TCPA consent-by-construction — Contender #10, Phase A) ──
 // Express consent capture + durable STOP opt-out + inbound SMS webhook. The
