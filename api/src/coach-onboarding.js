@@ -41,6 +41,19 @@ export const COACH_VOICE_PERSONAS = ['hype_bro', 'calm_ally'];
 const MAX_SCRIPT = 400;
 const MAX_DISPLAY_NAME = 120;
 
+/**
+ * Map a coach's configured voice persona (`COACH_VOICE_PERSONAS`) onto the copy
+ * engine's persona vocabulary (`accountability.js` `PERSONAS`: 'hype' | 'ally').
+ * Both coach voices are ride-or-die allies — this only carries the *energy*
+ * across to the warm nudge the client actually hears, never the care. Anything
+ * unrecognised falls back to the calm ally, the product's gentlest default.
+ * @param {string} voicePersona
+ * @returns {'hype'|'ally'}
+ */
+export function mapCoachPersona(voicePersona) {
+  return voicePersona === 'hype_bro' ? 'hype' : 'ally';
+}
+
 // ── ANTI-SHAME BATTERIES ─────────────────────────────────────
 // Mirrors the batteries the consumer-copy suites enforce (me.test.js /
 // coach.test.js), applied here to COACH-AUTHORED text at the write boundary.
