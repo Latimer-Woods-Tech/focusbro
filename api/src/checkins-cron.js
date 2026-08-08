@@ -21,6 +21,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy } from './accountability.js';
+import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate, localHour } from './consent.js';
 import { generateUUID } from './middleware.js';
@@ -112,14 +113,72 @@ const DEFAULT_LIMIT = 100;
  *   `deactivate` lists push endpoints that returned 404/410 (gone) to be disabled.
  */
 export async function deliverCheckin(env, row) {
-  const message = checkinPromptCopy({ title: row.title, persona: row.persona });
+  // A coached client hears their COACH's configured voice + opening line; a
+  // self-directed user is completely unchanged. This is the delivery half of the
+  // coach's pen (coach-onboarding.js slice 1 validated + stored it) — the line a
+  // coach authored is now the first thing the person actually hears.
+  const coach = await resolveCoachCheckin(env, row.user_id);
+  const persona = coach ? mapCoachPersona(coach.voice_persona) : row.persona;
+  const opener = coach ? safeCoachOpener(coach.script) : '';
+
+  const nudge = checkinPromptCopy({ title: row.title, persona });
+  const message = opener ? `${opener}\n\n${nudge}` : nudge;
   const channel = row.channel === 'text' ? 'text' : 'push';
 
   // Text has no action buttons, so the nudge itself invites the reply — that's
   // what makes the two-way loop (DONE / LATER / HELP ME START) discoverable over
   // SMS. Push carries its own in-app actions, so it stays clean.
-  if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(row.persona)}`);
+  if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(persona)}`);
   return deliverPush(env, row, message);
+}
+
+/**
+ * A coach's opening line, but ONLY if it still passes the never-shame battery
+ * at read time. The line is already validated at the write boundary
+ * (coach-onboarding.js), so this is defence in depth: a line that somehow fails
+ * validation — an older row, a direct DB write — is dropped and the client gets
+ * the warm standard nudge instead. A shaming line can never reach a person, even
+ * one stored out-of-band. THE DESIGN LAW, enforced twice.
+ * @param {string} script
+ * @returns {string} the safe opening line, or '' to fall back to the standard nudge
+ */
+function safeCoachOpener(script) {
+  const v = validateCheckinScript(script);
+  return v.ok ? v.value : '';
+}
+
+/**
+ * Resolve the coach-configured opening line + voice for a client's check-in, or
+ * null when this user is not a consented client of a coach who has set up
+ * check-ins.
+ *
+ * CONSENT BY CONSTRUCTION: only an `active` coach_clients link is ever
+ * considered — a pending / declined / removed link never lets a coach's voice
+ * reach the person. A client linked to more than one coach resolves
+ * deterministically to their earliest active link, so the voice never flickers
+ * between ticks. One indexed `.first()` lookup (idx_coach_clients_client), so a
+ * check-in is never fanned out into a double send. Non-fatal: any error resolves
+ * to null and the standard nudge is delivered — the coach layer never breaks a
+ * self-directed check-in.
+ * @param {object} env
+ * @param {string} userId
+ * @returns {Promise<{script:string, voice_persona:string}|null>}
+ */
+async function resolveCoachCheckin(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT kcfg.script AS script, kcfg.voice_persona AS voice_persona
+         FROM coach_clients cc
+         JOIN coach_operators co ON co.user_id = cc.coach_user_id
+         JOIN coach_checkin_config kcfg ON kcfg.operator_id = co.operator_id
+        WHERE cc.client_user_id = ? AND cc.status = 'active'
+        ORDER BY cc.created_at ASC, cc.id ASC
+        LIMIT 1`,
+    ).bind(userId).first();
+    return row && row.script ? row : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Deliver over Web Push to every active subscription the user has. */
