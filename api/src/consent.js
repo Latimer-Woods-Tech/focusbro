@@ -852,9 +852,26 @@ export function registerConsentRoutes(router, ctx) {
       // when, right here over text, and hold this check-in in 'awaiting_time' for
       // the person's next reply. The design LAW's literal promise: "no problem —
       // when do you want to try again?"
+      //
+      // Park the SPECIFIC open row we already resolved (`open`), guarded only on it
+      // still being unanswered — the exact condition the open lookup required at
+      // selection. The old `AND status = 'sent'` guard was too narrow: the open
+      // lookup validly matches a delivered-then-re-pended check-in too (a "help me
+      // start" or snooze re-pend carries `status='pending'` with `delivered_at`
+      // set), so a "later" reply to one of those left the UPDATE matching zero rows
+      // — the check-in stayed 'pending' at its near-future time, the promised
+      // "when?" holding state never took effect, and `runDueCheckins` re-delivered
+      // the nudge minutes later, nagging the person on the very moment they just
+      // deferred (a design-LAW brush). `responded_at IS NULL` transitions both a
+      // fresh 'sent' row and a delivered-'pending' one, matching the sibling
+      // re-pend branches (which all key on `id` alone), and is a stronger optimistic
+      // guard than the old one — a concurrently-resolved row is correctly skipped.
+      // An 'awaiting_time' row never reaches here (handled above); a 'deferred' row
+      // is never selected by the inbound open lookup — so this can only ever match
+      // the intended open, unresponded occurrence.
       await env.DB.prepare(
         `UPDATE commitment_checkins SET status = 'awaiting_time'
-          WHERE id = ? AND user_id = ? AND status = 'sent'`
+          WHERE id = ? AND user_id = ? AND responded_at IS NULL`
       ).bind(open.checkin_id, user.id).run();
       await sendSms(env, phone, smsAskWhenCopy({ persona }));
       return finish({ ok: true, action: 'reschedule_ask_when' });
