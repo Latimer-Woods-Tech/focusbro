@@ -9,6 +9,7 @@ import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
+import { registerCoachOperatorRosterRoutes } from './coach-operator-roster.js';
 import { registerConsentRoutes } from './consent.js';
 import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
@@ -2328,6 +2329,13 @@ registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateU
 // Coach → operator identity + white-label (mounted on @latimer-woods-tech/operator
 // via the D1OperatorStore adapter) + FocusBro-native cadence/voice/script config.
 registerCoachOnboardingRoutes(router, { getAuthToken, verifyToken, jsonResponse });
+
+// ── COACH OPERATOR ROSTER ROUTES (Contender #10, Phase C · slice 2) ──
+// Seat the consented Phase-A roster (`coach_clients`, active only) into the
+// operator→client hierarchy (`operator_clients`, owned by the operator package)
+// and read the coach dashboard back OFF that hierarchy — momentum-only, no miss
+// tally. A withdrawn client's seat is suspended and drops out of the read.
+registerCoachOperatorRosterRoutes(router, { getAuthToken, verifyToken, jsonResponse });
 
 // ── CONTACT CONSENT ROUTES (TCPA consent-by-construction — Contender #10, Phase A) ──
 // Express consent capture + durable STOP opt-out + inbound SMS webhook. The
