@@ -181,6 +181,26 @@ async function resolveCoachCheckin(env, userId) {
   }
 }
 
+/**
+ * The voice a check-in to this user should speak in across the WHOLE ladder — the
+ * first nudge, the escalation knock, the return nudge. When they are the consented
+ * client of a coach who has set up check-ins, it is the coach's mapped voice; when
+ * they are self-directed, it is the fallback (the commitment's own persona). Same
+ * consent-by-construction + deterministic single-link resolution as the delivery
+ * path (`resolveCoachCheckin`), so a coached client never hears their coach's voice
+ * open the conversation and then a stranger's voice finish it. Non-fatal by
+ * inheritance: a resolution error falls back to the person's own persona.
+ *
+ * @param {object} env
+ * @param {string} userId
+ * @param {string} fallbackPersona  the persona to speak in when there is no coach
+ * @returns {Promise<string>} the persona the copy engine should speak in
+ */
+async function checkinVoice(env, userId, fallbackPersona) {
+  const coach = await resolveCoachCheckin(env, userId);
+  return coach ? mapCoachPersona(coach.voice_persona) : fallbackPersona;
+}
+
 /** Deliver over Web Push to every active subscription the user has. */
 async function deliverPush(env, row, message) {
   if (!vapidConfigured(env)) return { status: 'skipped', detail: 'push_not_configured' };
@@ -470,7 +490,11 @@ export async function runEscalations(env, opts = {}) {
         outcome = { status: 'skipped', detail: gate.skip };
       } else {
         try {
-          const message = `${escalationCopy({ title: row.title, persona: row.persona })}\n\n${checkinReplyHint(row.persona)}`;
+          // Speak in the coach's voice if this client has one — the escalation is
+          // the same conversation's second knock, so it must not switch voices
+          // mid-ladder. Self-directed clients are unchanged (own persona).
+          const persona = await checkinVoice(env, row.user_id, row.persona);
+          const message = `${escalationCopy({ title: row.title, persona })}\n\n${checkinReplyHint(persona)}`;
           outcome = await deliverText(env, row, message);
         } catch (err) {
           outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
@@ -756,7 +780,10 @@ export async function runReturnNudges(env, opts = {}) {
     const pref = await env.DB.prepare(
       `SELECT persona, timezone FROM commitments WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
     ).bind(userId).first();
-    const persona = pickPersona(pref && pref.persona);
+    // A coached client hears their coach's voice welcoming them back too — the
+    // return nudge is the far end of the same ladder, so it stays one consistent
+    // voice. Self-directed users are unchanged (their most-recent commitment's tone).
+    const persona = await checkinVoice(env, userId, pickPersona(pref && pref.persona));
     const timezone = (pref && pref.timezone) || 'UTC';
 
     // Pick a reachable channel: push first (subscribed, no TCPA), else text if
