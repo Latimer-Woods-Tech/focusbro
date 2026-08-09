@@ -41,6 +41,13 @@
 // warm hello. It reads the OUTREACH marker only — never who answered — so it is
 // a positive re-engagement moment, never a "went quiet" tally. Same design law:
 // the cue is '' unless the moment is live, and its copy names no gap.
+//
+// That cue now also FLOATS its seat (Contender #10, Phase C · R-320): the roster
+// leads with the person the bro just welcomed back so a coach's top-down scan
+// lands on the live moment first, using the Phase-A roster's `rosterTriageRank`
+// pattern (a pure, stable reorder of already-resolved cues — no new query). A
+// calm seat scores 0 and keeps its natural hierarchy spot; the order is an
+// invitation map, never a failure ranking.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
@@ -141,6 +148,29 @@ export async function reconcileOperatorClients(env, svc, operatorId, coachUserId
   }
 
   return { seated, resumed, suspended, active: consented.size };
+}
+
+/**
+ * Warm triage weight for ORDERING a seat on the operator-backed roster — the
+ * number that floats a card, never one a coach ever sees. Mirrors the Phase-A
+ * roster's `rosterTriageRank` pattern (coach.js): every seat carries its cue
+ * while the ORDER stayed frozen in hub-hierarchy order, so the one seat a
+ * coach's touch would help most right now — the person the bro just welcomed
+ * back — could sit anywhere. The only live MOMENT this surface resolves is that
+ * just-fired return-nudge outreach, so:
+ *   +1  the bro's return nudge just reached this person (`welcomed_back.recent`)
+ *       — a live re-engagement moment for the coach to add their own touch to.
+ *
+ * DESIGN LAW, by construction: the one input is an INVITATION to connect — a
+ * person coming back to say you noticed — never a miss, never a "went quiet"
+ * tally. A calm seat simply scores 0 and keeps its natural hierarchy spot; it is
+ * never demoted FOR being calm, never annotated, never flagged. The weight is
+ * internal only (never serialized), so no visible copy ever tallies anything.
+ * @param {object} entry a built operator-roster entry
+ * @returns {number} higher = surfaces sooner
+ */
+export function operatorRosterTriageRank(entry = {}) {
+  return entry && entry.welcomed_back && entry.welcomed_back.recent === true ? 1 : 0;
 }
 
 /** Kept-word streak numbers for a client, defaulting to a clean zero row. */
@@ -247,7 +277,23 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       momentum,
     });
   }
-  return roster;
+
+  // Warm triage ordering: float the seats the bro just welcomed back to where a
+  // coach's top-down scan lands first, instead of leaving them wherever they sit
+  // in the hub hierarchy. Uses ONLY the cue already resolved on each entry
+  // (operatorRosterTriageRank) — no extra query, no new data. Pure, STABLE
+  // reorder (decorate-sort-undecorate preserves the hub's created_at order
+  // within equal rank). DESIGN LAW: the order is an invitation map, never a
+  // failure ranking — a calm seat scores 0 and holds its spot, never sunk for
+  // being calm, never flagged.
+  return roster
+    .map((entry, i) => ({ entry, i }))
+    .sort((a, b) => {
+      const d = operatorRosterTriageRank(b.entry) - operatorRosterTriageRank(a.entry);
+      if (d !== 0) return d; // higher triage weight surfaces sooner
+      return a.i - b.i; // stable tiebreak — preserves the hub hierarchy order
+    })
+    .map((x) => x.entry);
 }
 
 /**

@@ -31,6 +31,7 @@ import {
   registerCoachOperatorRosterRoutes,
   reconcileOperatorClients,
   buildOperatorRoster,
+  operatorRosterTriageRank,
   deriveClientName,
   coachOperatorRosterCopySurface,
 } from '../coach-operator-roster.js';
@@ -428,6 +429,99 @@ describe('buildOperatorRoster — dashboard read off the hierarchy, momentum-onl
     const [entry] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
     expect(entry.welcome_back_line).toMatch(/reconnect/i);
     expect(JSON.stringify(entry).toLowerCase()).not.toContain('fail');
+  });
+});
+
+// ── R-320: the welcomed-back moment FLOATS to the top of the roster ──
+describe('buildOperatorRoster — warm triage floats the just-welcomed-back seat', () => {
+  const now = '2026-08-08T12:00:00.000Z';
+
+  /** Pre-seat two ACTIVE seats in a known hierarchy order (calm first by created_at). */
+  function seedTwoSeats(db, opId, extraEvents = []) {
+    db._t.operator_clients.push(
+      {
+        id: 'seat-calm', operator_id: opId, external_org_id: 'c-calm', name: 'Cal',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 'seat-welcomed', operator_id: opId, external_org_id: 'c-welcomed', name: 'Wes',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-05T00:00:00Z', updated_at: '2026-08-05T00:00:00Z',
+      },
+    );
+    db._t.analytics_events.push(...extraEvents);
+  }
+
+  it('floats a welcomed-back client above a calm one, overturning the hierarchy order', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    // Pre-triage hierarchy order is [c-calm, c-welcomed] (c-calm seated earlier).
+    seedTwoSeats(db, opId, [
+      { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c-welcomed', channel: 'text' }), created_at: '2026-08-06 09:00:00' },
+    ]);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // The welcomed-back seat now leads, though it sits second in the hierarchy.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-welcomed', 'c-calm']);
+    expect(roster[0].welcomed_back.recent).toBe(true);
+    expect(roster[1].welcomed_back.recent).toBe(false);
+  });
+
+  it('leaves the order untouched when nobody has been welcomed back (calm holds its spot)', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId, []); // no return-nudge markers at all
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Pure hierarchy order preserved — a calm page is never demoted for being calm.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-calm', 'c-welcomed']);
+  });
+
+  it('keeps two welcomed-back seats in stable hierarchy order relative to each other', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId, [
+      { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c-calm' }), created_at: '2026-08-06 08:00:00' },
+      { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c-welcomed' }), created_at: '2026-08-06 09:00:00' },
+    ]);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Equal triage rank → stable tiebreak preserves created_at (hub) order.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-calm', 'c-welcomed']);
+    expect(roster.every((e) => e.welcomed_back.recent === true)).toBe(true);
+  });
+
+  it('does not serialize the internal triage weight onto the entry (invisible to the coach)', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId, [
+      { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c-welcomed' }), created_at: '2026-08-06 09:00:00' },
+    ]);
+    const svc = svcFor(db);
+
+    const [lead] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    const keys = JSON.stringify(lead).toLowerCase();
+    expect(keys).not.toContain('rank');
+    expect(keys).not.toContain('triage');
+  });
+
+  describe('operatorRosterTriageRank — invisible weight, never a failure ranking', () => {
+    it('scores a just-welcomed-back seat at 1', () => {
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: true, at: 'x' } })).toBe(1);
+    });
+    it('scores a calm seat at 0 (never negative — never demoted for calm)', () => {
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: false, at: null } })).toBe(0);
+      expect(operatorRosterTriageRank({})).toBe(0);
+      expect(operatorRosterTriageRank()).toBe(0);
+    });
+    it('counts only the exact boolean true (never a truthy near-miss)', () => {
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: 1 } })).toBe(0);
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: 'yes' } })).toBe(0);
+    });
   });
 });
 
