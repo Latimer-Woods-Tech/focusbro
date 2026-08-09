@@ -15,8 +15,8 @@ Derived deterministically from the guides module of record —
 from what is actually live. Regenerate with `node scripts/generate-content-ledger.mjs`
 (`--check` fails CI if the committed ledger is stale).
 
-**Totals:** 24 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
-**24 not yet instrumented** (see the `ref` column + the attribution note below).
+**Totals:** 25 guides · 0 carry a `?ref=cf_focusbro_*` CTA ·
+**25 not yet instrumented** (see the `ref` column + the attribution note below).
 
 ## Attribution note (§7 portability gap)
 
@@ -43,6 +43,7 @@ spine pointer · request id — plus `ref` (✅ = CTA carries `?ref=cf_focusbro_
 | `/guides/caffeine-timing-and-focus.html` | caffeine timing and focus | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_caffeine-timing-and-focus` | — |
 | `/guides/deep-work-and-attention-residue.html` | deep work and attention residue | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_deep-work-and-attention-residue` | — |
 | `/guides/dopamine-and-focus.html` | dopamine and focus | guide | 2026-08-07 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_dopamine-and-focus` | — |
+| `/guides/flow-state-and-focus.html` | flow state and focus | guide | 2026-08-09 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_flow-state-and-focus` | — |
 | `/guides/habit-stacking.html` | habit stacking | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_habit-stacking` | — |
 | `/guides/how-long-should-a-pomodoro-be.html` | how long should a pomodoro be | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_how-long-should-a-pomodoro-be` | — |
 | `/guides/meditation-and-attention.html` | meditation and attention | guide | 2026-08-04 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_meditation-and-attention` | — |
