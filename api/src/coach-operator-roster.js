@@ -48,6 +48,15 @@
 // pattern (a pure, stable reorder of already-resolved cues — no new query). A
 // calm seat scores 0 and keeps its natural hierarchy spot; the order is an
 // invitation map, never a failure ranking.
+//
+// The OTHER live positive moment now floats too (Contender #10, Phase C · R-321):
+// a kept-word MILESTONE just landing (`milestone_line`, clientMilestoneCopy —
+// already resolved on every seat) is the celebration twin of the return-nudge
+// welcome, so the operator triage now folds it in as ONE warm-moment dimension
+// with the welcomed-back cue — a return OR a milestone floats a seat, counted
+// once, exactly the Phase-A grouping. Still momentum-only and engine-independent:
+// the milestone cue reads the kept-word run, present only AT a milestone, so a
+// between-milestone seat holds its calm spot and no gap is ever surfaced.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
@@ -154,23 +163,35 @@ export async function reconcileOperatorClients(env, svc, operatorId, coachUserId
  * Warm triage weight for ORDERING a seat on the operator-backed roster — the
  * number that floats a card, never one a coach ever sees. Mirrors the Phase-A
  * roster's `rosterTriageRank` pattern (coach.js): every seat carries its cue
- * while the ORDER stayed frozen in hub-hierarchy order, so the one seat a
- * coach's touch would help most right now — the person the bro just welcomed
- * back — could sit anywhere. The only live MOMENT this surface resolves is that
- * just-fired return-nudge outreach, so:
- *   +1  the bro's return nudge just reached this person (`welcomed_back.recent`)
- *       — a live re-engagement moment for the coach to add their own touch to.
+ * while the ORDER stayed frozen in hub-hierarchy order, so the seat a coach's
+ * touch would help most right now — the one carrying a live positive moment —
+ * could sit anywhere. This surface resolves TWO live positive moments, and they
+ * are ONE warm-moment dimension (exactly the Phase-A grouping of a milestone
+ * with a return), counted once so neither can out-weigh the other:
+ *   +1  a live warm MOMENT for the coach to reinforce — EITHER the bro's return
+ *       nudge just reached this person (`welcomed_back.recent`, a re-engagement
+ *       moment) OR their current kept-word run just landed on a milestone
+ *       (`milestone_line`, clientMilestoneCopy — a celebration moment). Both read
+ *       "a great moment to send a word / reconnect", so the card should surface
+ *       WHILE that moment is live, not sit frozen at its hub-hierarchy spot where
+ *       a top-down scan scrolls past it.
  *
- * DESIGN LAW, by construction: the one input is an INVITATION to connect — a
- * person coming back to say you noticed — never a miss, never a "went quiet"
- * tally. A calm seat simply scores 0 and keeps its natural hierarchy spot; it is
- * never demoted FOR being calm, never annotated, never flagged. The weight is
- * internal only (never serialized), so no visible copy ever tallies anything.
+ * DESIGN LAW, by construction: every input is an INVITATION to connect — a
+ * person coming back to say you noticed, a kept-word milestone to celebrate —
+ * never a miss, never a "went quiet" tally. A calm seat simply scores 0 and
+ * keeps its natural hierarchy spot; it is never demoted FOR being calm, never
+ * annotated, never flagged. `milestone_line` is present ONLY at the exact moment
+ * a run lands on a milestone (clientMilestoneCopy is '' otherwise), so a
+ * between-milestone seat contributes nothing here. The weight is internal only
+ * (never serialized), so no visible copy ever tallies anything.
  * @param {object} entry a built operator-roster entry
  * @returns {number} higher = surfaces sooner
  */
 export function operatorRosterTriageRank(entry = {}) {
-  return entry && entry.welcomed_back && entry.welcomed_back.recent === true ? 1 : 0;
+  const welcomedBack = Boolean(entry && entry.welcomed_back && entry.welcomed_back.recent === true);
+  const milestone = Boolean(entry && entry.milestone_line);
+  // One warm-moment dimension (a return OR a milestone landing), counted once.
+  return welcomedBack || milestone ? 1 : 0;
 }
 
 /** Kept-word streak numbers for a client, defaulting to a clean zero row. */
@@ -278,12 +299,13 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
     });
   }
 
-  // Warm triage ordering: float the seats the bro just welcomed back to where a
-  // coach's top-down scan lands first, instead of leaving them wherever they sit
-  // in the hub hierarchy. Uses ONLY the cue already resolved on each entry
-  // (operatorRosterTriageRank) — no extra query, no new data. Pure, STABLE
-  // reorder (decorate-sort-undecorate preserves the hub's created_at order
-  // within equal rank). DESIGN LAW: the order is an invitation map, never a
+  // Warm triage ordering: float the seats carrying a live positive moment — the
+  // bro just welcomed them back OR their kept-word run just landed a milestone —
+  // to where a coach's top-down scan lands first, instead of leaving them
+  // wherever they sit in the hub hierarchy. Uses ONLY the cues already resolved
+  // on each entry (operatorRosterTriageRank) — no extra query, no new data.
+  // Pure, STABLE reorder (decorate-sort-undecorate preserves the hub's created_at
+  // order within equal rank). DESIGN LAW: the order is an invitation map, never a
   // failure ranking — a calm seat scores 0 and holds its spot, never sunk for
   // being calm, never flagged.
   return roster
