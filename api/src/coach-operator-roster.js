@@ -57,6 +57,18 @@
 // once, exactly the Phase-A grouping. Still momentum-only and engine-independent:
 // the milestone cue reads the kept-word run, present only AT a milestone, so a
 // between-milestone seat holds its calm spot and no gap is ever surfaced.
+//
+// A SECOND, independent warm dimension now floats too (Contender #10, Phase C ·
+// R-322): a client MOVING this week — a kept word landed inside the trailing
+// week (`moving_this_week`, `moving_line`) — read straight off the momentum every
+// seat already carries, with no extra query. This is the operator twin of the
+// Phase-A roster's `engaged_this_week` rung: where Phase A reads the two-way "I'm
+// on it" lean-in off the snooze channel, the operator-backed roster has no such
+// channel wired, so it derives live engagement from the kept-word momentum. Like
+// Phase A it is a SEPARATE rung from the warm-moment dimension, so a seat both at
+// a warm moment AND moving this week floats highest. DESIGN LAW holds: the
+// momentum buckets count status='kept' only, so this reads the presence of wins,
+// never a miss — a quiet week is simply a calm card that holds its natural spot.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
@@ -70,6 +82,8 @@ import {
   clientMilestoneCopy,
   coachWelcomedBackCopy,
   WELCOMED_BACK_WINDOW_DAYS,
+  momentumMovingThisWeek,
+  clientMovingThisWeekCopy,
 } from './coach.js';
 
 /**
@@ -165,33 +179,43 @@ export async function reconcileOperatorClients(env, svc, operatorId, coachUserId
  * roster's `rosterTriageRank` pattern (coach.js): every seat carries its cue
  * while the ORDER stayed frozen in hub-hierarchy order, so the seat a coach's
  * touch would help most right now — the one carrying a live positive moment —
- * could sit anywhere. This surface resolves TWO live positive moments, and they
- * are ONE warm-moment dimension (exactly the Phase-A grouping of a milestone
- * with a return), counted once so neither can out-weigh the other:
+ * could sit anywhere. This mirrors Phase A's TWO independent warm dimensions:
  *   +1  a live warm MOMENT for the coach to reinforce — EITHER the bro's return
  *       nudge just reached this person (`welcomed_back.recent`, a re-engagement
  *       moment) OR their current kept-word run just landed on a milestone
- *       (`milestone_line`, clientMilestoneCopy — a celebration moment). Both read
- *       "a great moment to send a word / reconnect", so the card should surface
- *       WHILE that moment is live, not sit frozen at its hub-hierarchy spot where
- *       a top-down scan scrolls past it.
+ *       (`milestone_line`, clientMilestoneCopy — a celebration moment). These two
+ *       are ONE warm-moment dimension (exactly the Phase-A grouping of a
+ *       milestone with a return), counted once so neither can out-weigh the
+ *       other. Both read "a great moment to send a word / reconnect", so the card
+ *       should surface WHILE that moment is live, not sit frozen at its
+ *       hub-hierarchy spot where a top-down scan scrolls past it.
+ *   +1  the client is MOVING this week (`moving_this_week`) — a kept word has
+ *       landed inside the trailing week, read off the momentum already computed.
+ *       The operator twin of Phase A's `engaged_this_week` rung: a second,
+ *       independent dimension, so a client both at a warm moment AND moving this
+ *       week floats highest (reinforce while they are actively in it).
  *
  * DESIGN LAW, by construction: every input is an INVITATION to connect — a
- * person coming back to say you noticed, a kept-word milestone to celebrate —
- * never a miss, never a "went quiet" tally. A calm seat simply scores 0 and
- * keeps its natural hierarchy spot; it is never demoted FOR being calm, never
- * annotated, never flagged. `milestone_line` is present ONLY at the exact moment
- * a run lands on a milestone (clientMilestoneCopy is '' otherwise), so a
- * between-milestone seat contributes nothing here. The weight is internal only
- * (never serialized), so no visible copy ever tallies anything.
+ * person coming back to say you noticed, a kept-word milestone to celebrate, a
+ * client keeping words this week to cheer on — never a miss, never a "went quiet"
+ * tally. A calm seat simply scores 0 and keeps its natural hierarchy spot; it is
+ * never demoted FOR being calm, never annotated, never flagged. `milestone_line`
+ * is present ONLY at the exact moment a run lands on a milestone
+ * (clientMilestoneCopy is '' otherwise) and `moving_this_week` reads kept
+ * instants ONLY (never a miss), so a between-milestone / quiet seat contributes
+ * nothing here. The weight is internal only (never serialized), so no visible
+ * copy ever tallies anything.
  * @param {object} entry a built operator-roster entry
  * @returns {number} higher = surfaces sooner
  */
 export function operatorRosterTriageRank(entry = {}) {
   const welcomedBack = Boolean(entry && entry.welcomed_back && entry.welcomed_back.recent === true);
   const milestone = Boolean(entry && entry.milestone_line);
-  // One warm-moment dimension (a return OR a milestone landing), counted once.
-  return welcomedBack || milestone ? 1 : 0;
+  const moving = Boolean(entry && entry.moving_this_week === true);
+  // Two independent warm dimensions, mirroring the Phase-A roster's rank:
+  //   +1 a live warm MOMENT (a return OR a milestone landing), counted once
+  //   +1 the client is MOVING this week (kept words landing) — reinforce while live
+  return (welcomedBack || milestone ? 1 : 0) + (moving ? 1 : 0);
 }
 
 /** Kept-word streak numbers for a client, defaulting to a clean zero row. */
@@ -282,6 +306,12 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
     const welcomedAt = welcomedByClient.get(clientId) || null;
     const welcomed = welcomedAt !== null;
 
+    // "Moving this week": at least one kept word inside the trailing week, read
+    // straight off the momentum just computed — no extra query. The operator
+    // twin of Phase A's `engaged_this_week`. DESIGN LAW: the momentum buckets
+    // count status='kept' only, so this reads the presence of wins, never a miss.
+    const moving = momentumMovingThisWeek(momentum);
+
     roster.push({
       operator_client_id: c.id,
       client_id: clientId,
@@ -295,6 +325,10 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       // outreach instant (internal). Copy is '' when there is nothing live.
       welcomed_back: { recent: welcomed, at: welcomedAt },
       welcome_back_line: coachWelcomedBackCopy({ welcomed }),
+      // Kept words landing this week — a live-engagement cue to reinforce, read
+      // off the momentum above. '' / false when the trailing week is quiet.
+      moving_this_week: moving,
+      moving_line: clientMovingThisWeekCopy({ moving }),
       momentum,
     });
   }
@@ -335,6 +369,7 @@ export function coachOperatorRosterCopySurface() {
     clientMilestoneCopy({ streak: { current_streak: 7 } }),
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
     coachWelcomedBackCopy({ welcomed: true }),
+    clientMovingThisWeekCopy({ moving: true }),
   ];
 }
 

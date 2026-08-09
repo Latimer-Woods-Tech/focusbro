@@ -456,6 +456,54 @@ export function clientRosterEngagedCopy({ engaged } = {}) {
 }
 
 /**
+ * Whether an active client is MOVING this week — at least one kept word inside
+ * the trailing {@link ROSTER_ENGAGED_WINDOW_DAYS} days, read straight off the
+ * kept-word momentum block already built for the card. This is the operator
+ * dashboard's twin of the Phase-A `engaged_this_week` rung: Phase A reads the
+ * two-way "I'm on it" lean-in off the snooze channel; the operator-backed roster
+ * has no such channel wired, so it derives live engagement from the momentum it
+ * already computes — no extra query, engine-independent.
+ *
+ * DESIGN LAW, by construction: momentum.js buckets `status='kept'` instants ONLY,
+ * so this reads the PRESENCE of wins and nothing else — never a miss, a gap, or a
+ * quiet stretch. A client with no kept word in the window is simply not "moving
+ * this week": that is the neutral default (a clean, calm card), never surfaced as
+ * falling behind. Pure.
+ * @param {object} momentum a built momentum block ({ buckets: Array<{count:number}> })
+ * @param {object} [p]
+ * @param {number} [p.windowDays=ROSTER_ENGAGED_WINDOW_DAYS] trailing days to read
+ * @returns {boolean} true iff ≥1 kept word landed inside the window
+ */
+export function momentumMovingThisWeek(momentum, { windowDays = ROSTER_ENGAGED_WINDOW_DAYS } = {}) {
+  const buckets = momentum && Array.isArray(momentum.buckets) ? momentum.buckets : [];
+  if (!buckets.length) return false;
+  const n = Math.max(1, Math.floor(windowDays) || ROSTER_ENGAGED_WINDOW_DAYS);
+  let kept = 0;
+  for (const b of buckets.slice(-n)) kept += Number(b && b.count) || 0;
+  return kept > 0;
+}
+
+/**
+ * The at-a-glance ROSTER cue for an active client who is MOVING this week — the
+ * operator-dashboard twin of Phase A's `clientRosterEngagedCopy`. Where the
+ * Phase-A cue celebrates a lean-in on the two-way channel, this celebrates kept
+ * words actually landing this week, read off the momentum the card already
+ * carries. Non-numeric like every roster cue, so the glance never drifts from —
+ * or contradicts — the exact sparkline beside it. Returns '' unless `moving` is
+ * exactly true.
+ *
+ * DESIGN LAW, by construction: it can only ever name the PRESENCE of kept words —
+ * never a count, a distance to go, or a quiet day. A client not moving this week
+ * gets '' (a clean card, the neutral default), never a "slowing down" line.
+ * @param {object} p { moving } — true iff ≥1 kept word this week (momentumMovingThisWeek)
+ * @returns {string} the cue, or '' when there is no kept word this week
+ */
+export function clientMovingThisWeekCopy({ moving } = {}) {
+  if (moving !== true) return '';
+  return 'Moving this week — kept words are landing. A lovely moment to cheer them on. 🌱';
+}
+
+/**
  * Warm triage weight for ORDERING an active client on the roster — the number
  * that decides how high a card floats, never a number a coach ever sees. The
  * roster is where a coach scans top-down to decide WHO to reach out to, yet
