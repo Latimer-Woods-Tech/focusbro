@@ -250,6 +250,43 @@ export function backAfterReachCopy({ back } = {}) {
   return 'Back and moving again — a great moment to tell them you noticed, and that you’re glad they’re here.';
 }
 
+// ── "JUST WELCOMED BACK" CUE — the operator-roster twin of the reach-out ────
+// The bro's return nudge fires automatically the moment an active person has
+// been quiet for a stretch (`runReturnNudges` → a RETURN_NUDGE_SENT marker). Off
+// the roster that outreach was invisible to the coach: the automated warm hello
+// went out and the coach never knew to add their own. This is that signal on the
+// operator-backed roster — WHICH of the coach's people the bro just reached out
+// to, so the coach can pile their personal touch onto the automated one at the
+// good moment. It reads the RETURN_NUDGE_SENT marker only (see the roster query),
+// never who did or didn't answer it.
+//
+// DESIGN LAW, by construction: this fires ONLY on a fresh outreach and the copy
+// celebrates the reconnection — it names no quiet stretch, no gap, no count, and
+// nothing owed. It returns '' whenever there is no recent outreach, so a card
+// carries it only while the moment is live — never as a "this one went quiet"
+// prompt. It is the joyful twin of the person-side welcome and sits beside any
+// other cue on the card.
+
+/** Trailing window (days) the roster's "just welcomed back" cue looks back over
+ * for a RETURN_NUDGE_SENT outreach — matches the roster's other trailing windows. */
+export const WELCOMED_BACK_WINDOW_DAYS = 7;
+
+/**
+ * The warm coach-voice cue for an active client the bro's return nudge just
+ * reached out to (a RETURN_NUDGE_SENT inside {@link WELCOMED_BACK_WINDOW_DAYS}).
+ * Returns '' unless the caller passes an explicit `welcomed: true` (the roster
+ * query owns the decision; any falsy/garbage input is silent) so a card only
+ * ever carries it while the outreach is live. Purely a celebration and an
+ * invitation to reconnect; it names nothing about the quiet stretch that
+ * preceded the outreach.
+ * @param {object} p { welcomed }
+ * @returns {string} the cue, or '' when there is no recent outreach to add to
+ */
+export function coachWelcomedBackCopy({ welcomed } = {}) {
+  if (welcomed !== true) return '';
+  return 'The bro just reached out with a warm hello to reconnect — a lovely moment to add your own note and let them know you’re in their corner.';
+}
+
 // ── KEPT-WORD MILESTONE CUE (the coach twin of the person-side badge) ──────
 // The person's own /me/ streak card shows a discrete "you just reached it"
 // badge the moment a kept-word run crosses a meaningful count (3/7/14/30/100 —
