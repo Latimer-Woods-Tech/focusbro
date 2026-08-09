@@ -480,6 +480,63 @@ describe('buildOperatorRoster — warm triage floats the just-welcomed-back seat
     expect(roster.map((e) => e.client_id)).toEqual(['c-calm', 'c-welcomed']);
   });
 
+  // ── R-321: a kept-word MILESTONE landing floats too (the celebration twin) ──
+  /** Seed a streak row so a seat's current kept-word run lands on `current`. */
+  function seatWithStreak(db, external, current) {
+    db._t.accountability_streaks.push({
+      user_id: external, current_streak: current, longest_streak: current, total_kept: current,
+    });
+  }
+
+  it('floats a seat whose kept-word run just landed a milestone above a calm one', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    // Hierarchy order [c-calm, c-welcomed]; give c-welcomed a milestone run (7)
+    // and NO return-nudge marker, so the float is driven by the milestone alone.
+    seedTwoSeats(db, opId, []);
+    seatWithStreak(db, 'c-welcomed', 7); // exactly STREAK_MILESTONES → milestone_line set
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(roster.map((e) => e.client_id)).toEqual(['c-welcomed', 'c-calm']);
+    expect(roster[0].milestone_line).toMatch(/milestone just landed/i);
+    expect(roster[1].milestone_line).toBe('');
+    // Still no failure/gap surface with the celebration cue live.
+    const flat = JSON.stringify(roster[0]).toLowerCase();
+    for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'gap']) {
+      expect(flat.includes(banned)).toBe(false);
+    }
+  });
+
+  it('a between-milestone run does NOT float — a calm page holds its natural spot', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId, []);
+    seatWithStreak(db, 'c-welcomed', 5); // not a milestone value → milestone_line ''
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Order untouched: a strong-but-not-milestone run is never a moment to float.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-calm', 'c-welcomed']);
+    expect(roster.every((e) => e.milestone_line === '')).toBe(true);
+  });
+
+  it('a seat both welcomed back AND at a milestone still scores one warm-moment (counted once)', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId, [
+      { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c-welcomed', channel: 'text' }), created_at: '2026-08-06 09:00:00' },
+    ]);
+    seatWithStreak(db, 'c-welcomed', 14); // milestone AND welcomed back
+    const svc = svcFor(db);
+
+    const [lead] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(lead.client_id).toBe('c-welcomed');
+    // Both moments live, but they are ONE dimension — the weight is still 1, so a
+    // doubly-warm seat can never out-rank; it simply floats like any warm seat.
+    expect(operatorRosterTriageRank(lead)).toBe(1);
+  });
+
   it('keeps two welcomed-back seats in stable hierarchy order relative to each other', async () => {
     const db = makeD1();
     const opId = seedOnboardedCoach(db);
@@ -513,14 +570,27 @@ describe('buildOperatorRoster — warm triage floats the just-welcomed-back seat
     it('scores a just-welcomed-back seat at 1', () => {
       expect(operatorRosterTriageRank({ welcomed_back: { recent: true, at: 'x' } })).toBe(1);
     });
+    it('scores a seat at a kept-word milestone at 1 (the celebration twin)', () => {
+      expect(operatorRosterTriageRank({ milestone_line: '🎯 7 kept words in a row — a milestone just landed. A great moment to send a word.' })).toBe(1);
+    });
+    it('scores a doubly-warm seat (welcomed back AND at a milestone) at 1 — one dimension, counted once', () => {
+      expect(operatorRosterTriageRank({
+        welcomed_back: { recent: true, at: 'x' },
+        milestone_line: '🎯 14 kept words in a row — a milestone just landed. A great moment to send a word.',
+      })).toBe(1);
+    });
     it('scores a calm seat at 0 (never negative — never demoted for calm)', () => {
       expect(operatorRosterTriageRank({ welcomed_back: { recent: false, at: null } })).toBe(0);
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: false }, milestone_line: '' })).toBe(0);
       expect(operatorRosterTriageRank({})).toBe(0);
       expect(operatorRosterTriageRank()).toBe(0);
     });
     it('counts only the exact boolean true (never a truthy near-miss)', () => {
       expect(operatorRosterTriageRank({ welcomed_back: { recent: 1 } })).toBe(0);
       expect(operatorRosterTriageRank({ welcomed_back: { recent: 'yes' } })).toBe(0);
+    });
+    it('an empty milestone_line contributes nothing (a between-milestone run never floats)', () => {
+      expect(operatorRosterTriageRank({ milestone_line: '' })).toBe(0);
     });
   });
 });
