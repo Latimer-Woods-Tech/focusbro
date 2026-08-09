@@ -780,10 +780,19 @@ export async function runReturnNudges(env, opts = {}) {
     const pref = await env.DB.prepare(
       `SELECT persona, timezone FROM commitments WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
     ).bind(userId).first();
-    // A coached client hears their coach's voice welcoming them back too — the
-    // return nudge is the far end of the same ladder, so it stays one consistent
-    // voice. Self-directed users are unchanged (their most-recent commitment's tone).
-    const persona = await checkinVoice(env, userId, pickPersona(pref && pref.persona));
+    // A coached client hears their coach's voice welcoming them back — and, on
+    // this fresh re-entry after days of silence, their coach's authored opening
+    // LINE too. The return nudge is a natural re-entry greeting (unlike the
+    // mid-conversation escalation knock, which stays voice-only — an opener there
+    // would be redundant). Resolved once: the coach lends BOTH their voice and
+    // their opener, or the person keeps their own tone with no opener. A
+    // self-directed user is byte-for-byte unchanged. The stored line is
+    // re-validated at read (safeCoachOpener) exactly as the first-nudge delivery
+    // path does, so a shaming line planted out-of-band can never reach a
+    // returning person — THE DESIGN LAW, enforced twice.
+    const coach = await resolveCoachCheckin(env, userId);
+    const persona = coach ? mapCoachPersona(coach.voice_persona) : pickPersona(pref && pref.persona);
+    const opener = coach ? safeCoachOpener(coach.script) : '';
     const timezone = (pref && pref.timezone) || 'UTC';
 
     // Pick a reachable channel: push first (subscribed, no TCPA), else text if
@@ -807,7 +816,8 @@ export async function runReturnNudges(env, opts = {}) {
       continue;
     }
 
-    const message = returnNudgeCopy({ persona });
+    const nudge = returnNudgeCopy({ persona });
+    const message = opener ? `${opener}\n\n${nudge}` : nudge;
     let outcome;
     if (channel === 'push') {
       // Never buzz an un-scheduled push in the middle of the night. Outside the
