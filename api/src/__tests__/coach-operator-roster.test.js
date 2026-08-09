@@ -49,6 +49,7 @@ function makeD1(seed = {}) {
     accountability_streaks: seed.accountability_streaks || [],
     commitments: seed.commitments || [],
     commitment_checkins: seed.commitment_checkins || [],
+    analytics_events: seed.analytics_events || [],
   };
   const now = () => new Date().toISOString();
 
@@ -134,6 +135,20 @@ function makeD1(seed = {}) {
         .filter((c) => c.user_id === p[0] && c.status === 'kept' && c.responded_at && c.responded_at >= p[1])
         .sort((a, b) => (a.responded_at < b.responded_at ? -1 : 1))
         .map((c) => ({ responded_at: c.responded_at }));
+    }
+    if (S === "SELECT json_extract(event_data, '$.user_id') AS client_id, MAX(created_at) AS at FROM analytics_events WHERE event_type = 'return_nudge_sent' AND substr(created_at, 1, 10) >= ? GROUP BY json_extract(event_data, '$.user_id')") {
+      const cutoff = p[0];
+      const byClient = new Map();
+      for (const e of t.analytics_events) {
+        if (e.event_type !== 'return_nudge_sent') continue;
+        if (String(e.created_at).slice(0, 10) < cutoff) continue;
+        let cid = null;
+        try { cid = e.event_data ? JSON.parse(e.event_data).user_id : null; } catch { cid = null; }
+        if (cid == null) continue;
+        const prev = byClient.get(cid);
+        if (prev === undefined || e.created_at > prev) byClient.set(cid, e.created_at);
+      }
+      return Array.from(byClient.entries()).map(([client_id, at]) => ({ client_id, at }));
     }
     throw new Error('unhandled all SQL: ' + S);
   }
@@ -332,6 +347,87 @@ describe('buildOperatorRoster — dashboard read off the hierarchy, momentum-onl
 
     const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
     expect(roster).toEqual([]);
+  });
+
+  // ── "just welcomed back": the bro's return-nudge outreach on the roster ──
+  const welcomedClient = (extra = {}) => ({
+    coach_clients: [{ coach_user_id: 'u-coach-1', client_user_id: 'c1', client_label: 'Ada', status: 'active' }],
+    accountability_streaks: [{ user_id: 'c1', current_streak: 1, longest_streak: 1, total_kept: 1 }],
+    ...extra,
+  });
+
+  it('surfaces a recent return-nudge outreach as a live "welcomed back" cue', async () => {
+    const db = makeD1(welcomedClient({
+      analytics_events: [
+        { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c1', channel: 'text' }), created_at: '2026-08-06 09:00:00' },
+      ],
+    }));
+    const opId = seedOnboardedCoach(db);
+    const svc = svcFor(db);
+    await reconcileOperatorClients({ DB: db }, svc, opId, 'u-coach-1');
+
+    const [entry] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(entry.welcomed_back).toEqual({ recent: true, at: '2026-08-06 09:00:00' });
+    expect(entry.welcome_back_line).toMatch(/reconnect/i);
+
+    // DESIGN LAW holds even with the live cue present: no miss/gap/shame surface.
+    // (Same battery as the momentum-only read above — "quiet days are just quiet"
+    // in the momentum intro is celebratory framing, not a tally, by design.)
+    const flat = JSON.stringify(entry).toLowerCase();
+    for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'gap']) {
+      expect(flat.includes(banned)).toBe(false);
+    }
+  });
+
+  it('an outreach older than the window is not surfaced (no stale cue)', async () => {
+    const db = makeD1(welcomedClient({
+      analytics_events: [
+        // > WELCOMED_BACK_WINDOW_DAYS before `now` (2026-08-08) → out of window.
+        { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c1', channel: 'push' }), created_at: '2026-07-20 09:00:00' },
+      ],
+    }));
+    const opId = seedOnboardedCoach(db);
+    const svc = svcFor(db);
+    await reconcileOperatorClients({ DB: db }, svc, opId, 'u-coach-1');
+
+    const [entry] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(entry.welcomed_back).toEqual({ recent: false, at: null });
+    expect(entry.welcome_back_line).toBe('');
+  });
+
+  it('a nudge sent to a NON-client never leaks onto the roster (consent by construction)', async () => {
+    const db = makeD1(welcomedClient({
+      analytics_events: [
+        // A person the coach does NOT support was nudged — must not appear, and
+        // must not attach to the coach's own client c1.
+        { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'stranger', channel: 'text' }), created_at: '2026-08-06 09:00:00' },
+      ],
+    }));
+    const opId = seedOnboardedCoach(db);
+    const svc = svcFor(db);
+    await reconcileOperatorClients({ DB: db }, svc, opId, 'u-coach-1');
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(roster.map((e) => e.client_id)).toEqual(['c1']);
+    expect(roster[0].welcomed_back).toEqual({ recent: false, at: null });
+  });
+
+  it('a shaming line planted out-of-band can never reach the cue (copy is engine-owned)', async () => {
+    // The cue copy is generated by coachWelcomedBackCopy at read time from a
+    // boolean — there is no stored string to poison. Even given a marker, the
+    // surfaced line is the engine's warm copy, never anything from the payload.
+    const db = makeD1(welcomedClient({
+      analytics_events: [
+        { event_type: 'return_nudge_sent', event_data: JSON.stringify({ user_id: 'c1', note: 'you failed again', channel: 'text' }), created_at: '2026-08-06 09:00:00' },
+      ],
+    }));
+    const opId = seedOnboardedCoach(db);
+    const svc = svcFor(db);
+    await reconcileOperatorClients({ DB: db }, svc, opId, 'u-coach-1');
+
+    const [entry] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(entry.welcome_back_line).toMatch(/reconnect/i);
+    expect(JSON.stringify(entry).toLowerCase()).not.toContain('fail');
   });
 });
 

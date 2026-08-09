@@ -33,6 +33,14 @@
 // sparkline. There is no miss count anywhere in it, by construction: the
 // sparkline reads `status='kept'` rows exclusively, so a quiet day is a short
 // bar, never a surfaced gap. Enforced by coach-operator-roster.test.js.
+//
+// A "JUST WELCOMED BACK" cue rides the same read (Contender #10, Phase C · R-319):
+// when the bro's automated return nudge has just reached out to one of the
+// coach's people (a RETURN_NUDGE_SENT marker inside WELCOMED_BACK_WINDOW_DAYS),
+// the roster surfaces it so the coach can add their own touch to the automated
+// warm hello. It reads the OUTREACH marker only — never who answered — so it is
+// a positive re-engagement moment, never a "went quiet" tally. Same design law:
+// the cue is '' unless the moment is live, and its copy names no gap.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
@@ -44,6 +52,8 @@ import {
   rosterEmptyCopy,
   clientStatusLine,
   clientMilestoneCopy,
+  coachWelcomedBackCopy,
+  WELCOMED_BACK_WINDOW_DAYS,
 } from './coach.js';
 
 /**
@@ -159,6 +169,28 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
   const clients = await svc.listClientOrgs(operatorId);
   const active = clients.filter((c) => c.status === 'active' && c.externalOrgId);
 
+  // "Just welcomed back": which of these people the bro's return nudge reached
+  // out to inside the trailing window (a RETURN_NUDGE_SENT marker). ONE batched
+  // query for the whole roster — the marker's payload carries the person's id
+  // (the row's user_id is NULL by design, so the nudge never counts as their own
+  // activity). DESIGN LAW: this reads the OUTREACH only, never who answered it —
+  // a positive re-engagement moment for the coach to add their touch to, never a
+  // "went quiet" tally. Format-agnostic day-prefix compare, the events.js idiom.
+  const welcomedCutoff = new Date(
+    Date.parse(now) - WELCOMED_BACK_WINDOW_DAYS * 86400000,
+  ).toISOString().slice(0, 10);
+  const welcomedRows = await env.DB.prepare(
+    `SELECT json_extract(event_data, '$.user_id') AS client_id, MAX(created_at) AS at
+       FROM analytics_events
+      WHERE event_type = 'return_nudge_sent'
+        AND substr(created_at, 1, 10) >= ?
+      GROUP BY json_extract(event_data, '$.user_id')`,
+  ).bind(welcomedCutoff).all();
+  const welcomedByClient = new Map();
+  for (const r of (welcomedRows && welcomedRows.results) || []) {
+    if (r.client_id) welcomedByClient.set(r.client_id, r.at || null);
+  }
+
   const roster = [];
   for (const c of active) {
     const clientId = c.externalOrgId;
@@ -196,6 +228,9 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       timestamps: keptTs, days: MOMENTUM_WINDOW_DAYS, nowISO: now, timezone: tz,
     });
 
+    const welcomedAt = welcomedByClient.get(clientId) || null;
+    const welcomed = welcomedAt !== null;
+
     roster.push({
       operator_client_id: c.id,
       client_id: clientId,
@@ -204,6 +239,11 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       active_commitments: Number(activeCount && activeCount.n) || 0,
       status_line: clientStatusLine({ streak }),
       milestone_line: clientMilestoneCopy({ streak }),
+      // The bro's just-fired return-nudge outreach, surfaced for the coach to
+      // add their own touch to. `recent` gates the card cue; `at` is the
+      // outreach instant (internal). Copy is '' when there is nothing live.
+      welcomed_back: { recent: welcomed, at: welcomedAt },
+      welcome_back_line: coachWelcomedBackCopy({ welcomed }),
       momentum,
     });
   }
@@ -226,6 +266,7 @@ export function coachOperatorRosterCopySurface() {
     clientStatusLine({ streak: { current_streak: 5, longest_streak: 9 } }),
     clientMilestoneCopy({ streak: { current_streak: 7 } }),
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
+    coachWelcomedBackCopy({ welcomed: true }),
   ];
 }
 
