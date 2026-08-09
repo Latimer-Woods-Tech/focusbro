@@ -35,6 +35,7 @@ import {
   deriveClientName,
   coachOperatorRosterCopySurface,
 } from '../coach-operator-roster.js';
+import { momentumMovingThisWeek, clientMovingThisWeekCopy } from '../coach.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -592,6 +593,134 @@ describe('buildOperatorRoster — warm triage floats the just-welcomed-back seat
     it('an empty milestone_line contributes nothing (a between-milestone run never floats)', () => {
       expect(operatorRosterTriageRank({ milestone_line: '' })).toBe(0);
     });
+    // ── R-322: MOVING this week is a second, independent warm dimension ──
+    it('adds +1 for a client MOVING this week (a distinct rung from the warm moment)', () => {
+      expect(operatorRosterTriageRank({ moving_this_week: true })).toBe(1);
+    });
+    it('a warm-moment client ALSO moving this week scores 2 (two dimensions stack)', () => {
+      expect(operatorRosterTriageRank({ welcomed_back: { recent: true, at: 'x' }, moving_this_week: true })).toBe(2);
+      expect(operatorRosterTriageRank({
+        milestone_line: '🎯 7 kept words in a row — a milestone just landed. A great moment to send a word.',
+        moving_this_week: true,
+      })).toBe(2);
+    });
+    it('a doubly-warm-moment seat that is also moving still tops out at 2 (warm counted once)', () => {
+      expect(operatorRosterTriageRank({
+        welcomed_back: { recent: true, at: 'x' },
+        milestone_line: '🎯 14 kept words in a row — a milestone just landed. A great moment to send a word.',
+        moving_this_week: true,
+      })).toBe(2);
+    });
+    it('moving counts only the exact boolean true (never a truthy near-miss)', () => {
+      expect(operatorRosterTriageRank({ moving_this_week: 1 })).toBe(0);
+      expect(operatorRosterTriageRank({ moving_this_week: 'yes' })).toBe(0);
+    });
+  });
+});
+
+describe('momentumMovingThisWeek + clientMovingThisWeekCopy — kept-word live-engagement, momentum-only', () => {
+  const bucket = (count) => ({ date: '2026-08-08', count });
+
+  it('is true when ≥1 kept word landed inside the trailing week', () => {
+    const momentum = { buckets: [bucket(0), bucket(0), bucket(0), bucket(0), bucket(0), bucket(0), bucket(1)] };
+    expect(momentumMovingThisWeek(momentum)).toBe(true);
+  });
+  it('reads ONLY the trailing window — a kept word older than the week does not count', () => {
+    // 14-day block: one kept word 10 buckets back (outside the trailing 7).
+    const buckets = Array.from({ length: 14 }, (_, i) => bucket(i === 3 ? 2 : 0));
+    expect(momentumMovingThisWeek({ buckets })).toBe(false);
+  });
+  it('is false for an all-quiet window (a calm page, the neutral default)', () => {
+    expect(momentumMovingThisWeek({ buckets: Array.from({ length: 14 }, () => bucket(0)) })).toBe(false);
+  });
+  it('is false for a missing/garbage momentum block (never throws)', () => {
+    expect(momentumMovingThisWeek(null)).toBe(false);
+    expect(momentumMovingThisWeek({})).toBe(false);
+    expect(momentumMovingThisWeek({ buckets: [] })).toBe(false);
+  });
+  it('copy names the presence of kept words only when moving, else a clean card', () => {
+    expect(clientMovingThisWeekCopy({ moving: true })).toMatch(/moving this week/i);
+    expect(clientMovingThisWeekCopy({ moving: false })).toBe('');
+    expect(clientMovingThisWeekCopy({})).toBe('');
+    expect(clientMovingThisWeekCopy()).toBe('');
+    // Exact boolean only — a truthy near-miss is silent.
+    expect(clientMovingThisWeekCopy({ moving: 1 })).toBe('');
+  });
+});
+
+describe('buildOperatorRoster — warm triage floats a client MOVING this week (R-322)', () => {
+  const now = '2026-08-08T12:00:00.000Z';
+
+  /** Pre-seat two ACTIVE seats: calm first by created_at (hierarchy order). */
+  function seedTwoSeats(db, opId) {
+    db._t.operator_clients.push(
+      {
+        id: 'seat-calm', operator_id: opId, external_org_id: 'c-calm', name: 'Cal',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 'seat-moving', operator_id: opId, external_org_id: 'c-moving', name: 'Mo',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-05T00:00:00Z', updated_at: '2026-08-05T00:00:00Z',
+      },
+    );
+  }
+
+  it('floats a client moving this week above a calm one, overturning hierarchy order', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    // c-moving kept a word two days ago (inside the trailing week); c-calm none.
+    // No streak row, no return-nudge marker → the float is driven by MOVING alone.
+    db._t.commitment_checkins.push({ user_id: 'c-moving', status: 'kept', responded_at: '2026-08-06T09:00:00.000Z' });
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(roster.map((e) => e.client_id)).toEqual(['c-moving', 'c-calm']);
+    expect(roster[0].moving_this_week).toBe(true);
+    expect(roster[0].moving_line).toMatch(/moving this week/i);
+    expect(roster[1].moving_this_week).toBe(false);
+    expect(roster[1].moving_line).toBe('');
+    // The moving cue is its own dimension, not a warm moment.
+    expect(operatorRosterTriageRank(roster[0])).toBe(1);
+    // DESIGN LAW: no failure/gap surface with the moving cue live.
+    const flat = JSON.stringify(roster[0]).toLowerCase();
+    for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'gap']) {
+      expect(flat.includes(banned)).toBe(false);
+    }
+  });
+
+  it('a kept word OLDER than the trailing week does not float — a calm page holds its spot', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    // c-moving's only kept word is 10 days back — inside the 14-day momentum
+    // block but outside the trailing "this week", so it is not a live cue.
+    db._t.commitment_checkins.push({ user_id: 'c-moving', status: 'kept', responded_at: '2026-07-29T09:00:00.000Z' });
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(roster.map((e) => e.client_id)).toEqual(['c-calm', 'c-moving']);
+    expect(roster.every((e) => e.moving_this_week === false)).toBe(true);
+  });
+
+  it('a client at a milestone AND moving this week floats above one only moving (2 vs 1)', async () => {
+    const db = makeD1();
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    // c-calm is actually moving (rank 1); c-moving is moving AND at a milestone (rank 2).
+    db._t.commitment_checkins.push(
+      { user_id: 'c-calm', status: 'kept', responded_at: '2026-08-07T09:00:00.000Z' },
+      { user_id: 'c-moving', status: 'kept', responded_at: '2026-08-07T09:00:00.000Z' },
+    );
+    db._t.accountability_streaks.push({ user_id: 'c-moving', current_streak: 7, longest_streak: 7, total_kept: 7 });
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(roster.map((e) => e.client_id)).toEqual(['c-moving', 'c-calm']);
+    expect(operatorRosterTriageRank(roster[0])).toBe(2); // milestone + moving
+    expect(operatorRosterTriageRank(roster[1])).toBe(1); // moving only
   });
 });
 
