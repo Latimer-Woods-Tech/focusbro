@@ -159,6 +159,20 @@ function makeD1(seed = {}) {
         .filter((r) => ids.has(r.user_id) && (r.shared === 1 || r.shared === true))
         .map((r) => ({ client_id: r.user_id }));
     }
+    // Grouped snooze-lean-in query: params are [...ids, event_type, cutoffDay].
+    if (S.startsWith('SELECT user_id AS client_id FROM analytics_events WHERE user_id IN')) {
+      const cutoff = p[p.length - 1];
+      const eventType = p[p.length - 2];
+      const ids = new Set(p.slice(0, p.length - 2));
+      const seen = new Set();
+      for (const e of t.analytics_events) {
+        if (e.event_type !== eventType) continue;
+        if (!ids.has(e.user_id)) continue;
+        if (String(e.created_at).slice(0, 10) < cutoff) continue;
+        seen.add(e.user_id);
+      }
+      return Array.from(seen).map((client_id) => ({ client_id }));
+    }
     throw new Error('unhandled all SQL: ' + S);
   }
 
@@ -857,6 +871,120 @@ describe('buildOperatorRoster — surfaces a client\'s shares-reflections openne
     const [open] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
     const flat = JSON.stringify(open).toLowerCase();
     for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'gap', 'withhold']) {
+      expect(flat.includes(banned)).toBe(false);
+    }
+  });
+});
+
+describe('buildOperatorRoster — surfaces a client\'s "I\'m on it" lean-in, as a CUE not a rung (R-324)', () => {
+  const now = '2026-08-08T12:00:00.000Z'; // window cutoff day = 2026-08-01
+
+  // c-lean sits FIRST in the hierarchy, c-calm second — so a re-order caused by
+  // the lean-in cue would be visible whether it floated either seat.
+  function seedTwoSeats(db, opId) {
+    db._t.operator_clients.push(
+      {
+        id: 'seat-lean', operator_id: opId, external_org_id: 'c-lean', name: 'Le',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 'seat-calm', operator_id: opId, external_org_id: 'c-calm', name: 'Ca',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-05T00:00:00Z', updated_at: '2026-08-05T00:00:00Z',
+      },
+    );
+  }
+
+  it('decorates a client who answered "I\'m on it" this week; leaves a non-answering seat clean', async () => {
+    const db = makeD1({
+      analytics_events: [
+        { event_type: 'commitment_snooze', event_data: null, user_id: 'c-lean', created_at: '2026-08-06 09:00:00' },
+      ],
+    });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    const lean = roster.find((e) => e.client_id === 'c-lean');
+    const calm = roster.find((e) => e.client_id === 'c-calm');
+
+    expect(lean.answered_checkin).toBe(true);
+    expect(lean.answered_checkin_line).toMatch(/leaning in/i);
+    // A client who did not answer is a clean, calm card — never framed as unresponsive.
+    expect(calm.answered_checkin).toBe(false);
+    expect(calm.answered_checkin_line).toBe('');
+  });
+
+  it('is a CUE, not a triage rung — the lean-in NEVER floats the seat', async () => {
+    const db = makeD1({
+      // Only the SECOND seat (c-calm) answered "I'm on it". If the lean-in were a
+      // rung it would float c-calm above c-lean.
+      analytics_events: [
+        { event_type: 'commitment_snooze', event_data: null, user_id: 'c-calm', created_at: '2026-08-06 09:00:00' },
+      ],
+    });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Hierarchy order is untouched: the lean-in cue does NOT reorder.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-lean', 'c-calm']);
+    const answerer = roster.find((e) => e.client_id === 'c-calm');
+    expect(answerer.answered_checkin).toBe(true);
+    // And it contributes nothing to the triage weight.
+    expect(operatorRosterTriageRank(answerer)).toBe(0);
+  });
+
+  it('reads ONLY the snooze of a SEATED client — a stray snooze never leaks', async () => {
+    const db = makeD1({
+      analytics_events: [
+        { event_type: 'commitment_snooze', event_data: null, user_id: 'not-a-client', created_at: '2026-08-06 09:00:00' },
+      ],
+    });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    for (const e of roster) {
+      expect(e.answered_checkin).toBe(false);
+      expect(e.answered_checkin_line).toBe('');
+    }
+  });
+
+  it('a snooze OLDER than the trailing week is not "this week" — the neutral default holds', async () => {
+    const db = makeD1({
+      analytics_events: [
+        { event_type: 'commitment_snooze', event_data: null, user_id: 'c-lean', created_at: '2026-07-20 09:00:00' },
+      ],
+    });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const lean = (await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now }))
+      .find((e) => e.client_id === 'c-lean');
+    expect(lean.answered_checkin).toBe(false);
+    expect(lean.answered_checkin_line).toBe('');
+  });
+
+  it('DESIGN LAW: the lean-in cue surfaces no shame/miss on the serialized seat', async () => {
+    const db = makeD1({
+      analytics_events: [
+        { event_type: 'commitment_snooze', event_data: null, user_id: 'c-lean', created_at: '2026-08-06 09:00:00' },
+      ],
+    });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const lean = (await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now }))
+      .find((e) => e.client_id === 'c-lean');
+    const flat = JSON.stringify(lean).toLowerCase();
+    for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'unrespons']) {
       expect(flat.includes(banned)).toBe(false);
     }
   });

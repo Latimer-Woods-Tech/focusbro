@@ -82,10 +82,26 @@
 // so it is deliberately NOT folded into operatorRosterTriageRank. DESIGN LAW: it
 // reflects a client's affirmative, reversible choice to open up; a client who has
 // not shared is simply absent here — a clean card, never framed as withholding.
+//
+// An "ANSWERED THE CHECK-IN / LEANING IN" cue now rides the read too (Contender
+// #10, Phase C · R-324): the Phase-A roster surfaces a client who replied "I'm on
+// it" — a `commitment_snooze` lean-in (R-278) — via `clientRosterEngagedCopy`.
+// R-322's `moving_this_week` approximated that from kept momentum because the
+// snooze channel was believed unwired here; it IS wireable (this reads D1
+// directly), so this decorates the ACTUAL lean-in — a signal distinct from
+// moving_this_week (a client can answer "I'm on it" before a kept word lands).
+// ONE grouped query over the active set reads the `commitment_snooze` events and
+// decorates each seat with `answered_checkin` + `answered_checkin_line`. Like the
+// shares cue this is a CUE, NOT a rung: `moving_this_week` already holds the
+// engaged-this-week +1 dimension, so folding the lean-in in would double-count it
+// — it is deliberately NOT in operatorRosterTriageRank. DESIGN LAW: a snooze is
+// never a resolution and never a miss, so this can only surface a lean-in; a
+// client who has not answered is a clean, calm card, never framed as unresponsive.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
 import { D1OperatorStore } from './operator-store.js';
+import { EVENTS } from './events.js';
 import {
   buildMomentum,
   MOMENTUM_WINDOW_DAYS,
@@ -98,6 +114,8 @@ import {
   momentumMovingThisWeek,
   clientMovingThisWeekCopy,
   clientSharesReflectionsCopy,
+  clientRosterEngagedCopy,
+  ROSTER_ENGAGED_WINDOW_DAYS,
 } from './coach.js';
 
 /**
@@ -312,6 +330,51 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
     }
   }
 
+  // "Answered the check-in / leaning in": which of these people have replied
+  // "I'm on it" — a `commitment_snooze` event (R-278) — on the two-way check-in
+  // channel inside the trailing engaged window. The Phase-A roster surfaces this
+  // exact signal (`clientRosterEngagedCopy`, the "leaning in this week" lean-in);
+  // R-322's `moving_this_week` approximated it from kept momentum because the
+  // snooze channel was believed unwired on the operator path. It IS wireable here
+  // — buildOperatorRoster reads D1 directly — so this decorates the actual
+  // lean-in, a DISTINCT signal from moving_this_week: a client can answer "I'm on
+  // it" without a kept word landing yet (engaged, just not resolved). ONE grouped
+  // query over the active set (no N+1), day-prefix compare (the events.js idiom
+  // the welcomed-back query already uses). Non-fatal by construction — an
+  // at-a-glance cue must never take down the roster, so any failure yields no cue.
+  //
+  // This is a CUE, not a triage rung: `moving_this_week` already occupies the
+  // engaged-this-week +1 dimension, and folding the lean-in in as a second
+  // engagement rung would double-count it against the "counted once" discipline,
+  // so it is deliberately NOT folded into operatorRosterTriageRank — it decorates
+  // the seat, it never reorders. DESIGN LAW: a snooze is never a resolution and
+  // never a miss (events.js keeps it out of `resolved`), so this can only ever
+  // surface a lean-in — a client who has not answered is simply absent here (a
+  // clean, calm card, the neutral default), never framed as unresponsive.
+  let answeredSet = new Set();
+  if (activeIds.length) {
+    try {
+      const placeholders = activeIds.map(() => '?').join(',');
+      const answeredCutoffDay = new Date(
+        Date.parse(now) - ROSTER_ENGAGED_WINDOW_DAYS * 86400000,
+      ).toISOString().slice(0, 10);
+      const answeredRows = await env.DB.prepare(
+        `SELECT user_id AS client_id
+           FROM analytics_events
+          WHERE user_id IN (${placeholders})
+            AND event_type = ?
+            AND substr(created_at, 1, 10) >= ?
+          GROUP BY user_id`,
+      ).bind(...activeIds, EVENTS.COMMITMENT_SNOOZE, answeredCutoffDay).all();
+      for (const r of (answeredRows && answeredRows.results) || []) {
+        if (r.client_id) answeredSet.add(r.client_id);
+      }
+    } catch (err) {
+      console.warn('[coach-operator] answered-checkin query failed:', err && err.message);
+      answeredSet = new Set();
+    }
+  }
+
   const roster = [];
   for (const c of active) {
     const clientId = c.externalOrgId;
@@ -380,6 +443,12 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       // client opted in. A cue, NOT a triage rung: it never floats the seat.
       shares_reflections: sharesSet.has(clientId),
       shares_reflections_line: clientSharesReflectionsCopy({ shares: sharesSet.has(clientId) }),
+      // The client answered "I'm on it" on the check-in this week — the actual
+      // snooze lean-in (distinct from moving_this_week's kept words). '' / false
+      // when they have not answered inside the window. A cue, NOT a triage rung:
+      // it decorates the seat, it never floats it.
+      answered_checkin: answeredSet.has(clientId),
+      answered_checkin_line: clientRosterEngagedCopy({ engaged: answeredSet.has(clientId) }),
       momentum,
     });
   }
@@ -422,6 +491,7 @@ export function coachOperatorRosterCopySurface() {
     coachWelcomedBackCopy({ welcomed: true }),
     clientMovingThisWeekCopy({ moving: true }),
     clientSharesReflectionsCopy({ shares: true }),
+    clientRosterEngagedCopy({ engaged: true }),
   ];
 }
 
