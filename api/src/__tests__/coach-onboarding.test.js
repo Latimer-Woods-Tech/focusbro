@@ -186,6 +186,15 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
     expect(validateCheckinScript('Our AI will ring you').ok).toBe(false);
   });
 
+  it('closes the drift holes the old local list missed — "therapy" and "unresponsive"', () => {
+    // Proof-of-rejection (Standing Law #1): before this guard was routed through
+    // the canonical `scanDesignLaw`, the local CLINICAL list omitted `therapy`
+    // and the local SHAME list omitted `unrespons`, so both saved silently at
+    // this write boundary. They must now be rejected.
+    expect(validateCheckinScript('I booked your therapy session for 2').ok).toBe(false);
+    expect(validateCheckinScript("You've been unresponsive lately").ok).toBe(false);
+  });
+
   it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
     const reasons = [
       validateCheckinScript('').reason,
