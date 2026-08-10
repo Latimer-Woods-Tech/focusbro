@@ -1840,6 +1840,83 @@ export function inAppWhenExamplesText() {
 }
 
 /**
+ * THE DESIGN-LAW SURFACE for the bro's actual voice — every outbound and
+ * user-facing string the accountability copy engine emits, enumerated so the one
+ * canonical `scanDesignLaw` guard (`design-law.js`) sweeps them the same way it
+ * sweeps the dashboard surfaces (`meCopySurface`, `roomCopySurface`, …).
+ *
+ * WHY this surface matters most: these are the words that land on a person's
+ * PHONE — the check-in nudge, the escalation knock, the return-nudge, the
+ * two-way SMS replies, and every kept/miss/reschedule/snooze/pause/resume/edit
+ * confirmation. The anti-shame law (issue #10: "any copy that tallies failures
+ * is a defect") is at its highest stakes here, yet before this the copy engine
+ * had no unified sweep — each string was only as safe as its own local test.
+ * The five dashboard `*CopySurface()` helpers were folded into one scanner in
+ * R-325; this closes the gap on the surface that actually reaches the user.
+ *
+ * Enumerated across BOTH personas (calm `ally` + `hype`) and the argument arms
+ * that change the wording (streak counts, `progress` reported vs not,
+ * `scheduleChanged`, empty vs populated records), so a future edit that leaks a
+ * shame word / "AI" / a clinical claim onto ANY arm of ANY persona is caught.
+ * Consumer voice: `allowAdhd` is false — the bro never names a diagnosis.
+ *
+ * @returns {string[]} every string the copy engine can say to a person.
+ */
+export function accountabilityCopySurface() {
+  const personas = ['ally', 'hype'];
+  const when = '2026-08-11T09:00:00.000Z';
+  const title = 'the taxes';
+  const out = [];
+  const add = (...strings) => {
+    for (const s of strings) {
+      if (typeof s === 'string' && s.length > 0) out.push(s);
+    }
+  };
+  for (const persona of personas) {
+    // The outbound nudges + hints — what actually reaches the phone.
+    add(checkinPromptCopy({ title, persona }));
+    add(checkinReplyHint(persona));
+    add(escalationCopy({ title, persona }));
+    add(returnNudgeCopy({ persona }));
+    // Resolution confirmations across every streak / progress / schedule arm.
+    add(keptCopy({ persona, streak: 0 }), keptCopy({ persona, streak: 1 }), keptCopy({ persona, streak: 5 }));
+    add(missRescheduleCopy({ persona }));
+    add(rescheduleConfirmCopy({ persona, when }), rescheduleConfirmCopy({ persona, when, progress: true }));
+    add(releaseConfirmCopy({ persona }));
+    add(alreadySettledCopy({ persona }));
+    add(snoozeConfirmCopy({ persona, minutes: 10 }), snoozeConfirmCopy({ persona, minutes: 10, progress: true }));
+    add(pauseConfirmCopy({ persona }));
+    add(resumeConfirmCopy({ persona, when }));
+    add(editConfirmCopy({ persona }), editConfirmCopy({ persona, scheduleChanged: true, when }));
+    add(keptLogCopy({ persona, total: 0 }), keptLogCopy({ persona, total: 1 }), keptLogCopy({ persona, total: 5 }));
+    // First-person momentum + streak voice (persona arms present on some).
+    add(momentumSelfSummaryCopy({ total: 0 }), momentumSelfSummaryCopy({ total: 5, peak: { count: 3 } }));
+    add(detailMomentumSummaryCopy({ total: 0 }), detailMomentumSummaryCopy({ total: 5, peak: { count: 3 } }));
+    add(commitmentDetailCopy({ persona, keptCount: 0 }), commitmentDetailCopy({ persona, keptCount: 5 }));
+    add(
+      streakSummaryCopy({ persona, streak: { current_streak: 0, longest_streak: 0 } }),
+      streakSummaryCopy({ persona, streak: { current_streak: 5, longest_streak: 7 } }),
+    );
+    // The two-way SMS reply family — the moat's on-channel conversation.
+    add(smsKeptReplyCopy({ persona, streak: 0 }), smsKeptReplyCopy({ persona, streak: 5 }));
+    add(smsRescheduleReplyCopy({ persona }));
+    add(smsAmbiguousReplyCopy({ persona }));
+    add(smsStartHelpCopy({ persona }));
+    add(smsAskWhenCopy({ persona }));
+    add(smsRescheduledCopy({ persona, when }), smsRescheduledCopy({ persona, when, progress: true }));
+    add(smsWhenUnclearCopy({ persona }));
+  }
+  // Persona-independent momentum headings/intros + peak/best/milestone marks.
+  add(momentumSelfHeadingCopy(), momentumSelfIntroCopy());
+  add(detailMomentumHeadingCopy(), detailMomentumIntroCopy());
+  add(detailPeakDayCopy({ count: 3, whenPhrase: 'Tuesday' }));
+  add(personalBestCopy({ streak: { current_streak: 5, longest_streak: 5 } }));
+  add(milestoneCopy({ streak: { current_streak: 7 } }));
+  add(inAppWhenExamplesText());
+  return out;
+}
+
+/**
  * The shared check-in resolution core. Used by the in-app route AND the inbound
  * SMS reply path so both keep the streak the same way. Given an already-loaded
  * check-in row joined with its commitment, this:

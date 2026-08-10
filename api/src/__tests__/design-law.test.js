@@ -12,6 +12,7 @@ import { roomCopySurface } from '../room.js';
 import { consentCopySurface } from '../consent.js';
 import { coachOnboardingCopySurface } from '../coach-onboarding.js';
 import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
+import { accountabilityCopySurface } from '../accountability.js';
 
 /**
  * THE DESIGN LAW, enforced once for every user-facing copy surface.
@@ -29,6 +30,11 @@ const SURFACES = [
   { label: 'meCopySurface', strings: meCopySurface(), allowAdhd: false },
   { label: 'roomCopySurface', strings: roomCopySurface(), allowAdhd: false },
   { label: 'consentCopySurface', strings: consentCopySurface(), allowAdhd: false },
+  // The bro's actual voice — the nudge/escalation/return copy + two-way SMS
+  // replies that land on a person's phone. Highest-stakes anti-shame surface;
+  // consumer voice, so bare ADHD is banned here the same as the other consumer
+  // surfaces.
+  { label: 'accountabilityCopySurface', strings: accountabilityCopySurface(), allowAdhd: false },
   // Coach-facing pitch/onboarding + operator roster: ADHD may be named in the
   // pitch, but shame / treatment claims / "AI" are banned the same as anywhere.
   { label: 'coachOnboardingCopySurface', strings: coachOnboardingCopySurface(), allowAdhd: true },
@@ -121,6 +127,36 @@ describe('scanDesignLaw — proof it rejects real violations', () => {
     ]) {
       expect(scanDesignLaw(ok), `unexpected violation in: ${ok}`).toEqual([]);
     }
+  });
+});
+
+/**
+ * Proof-of-rejection for the newly-swept accountability surface (Standing Law #1):
+ * the sweep is only real if it would FAIL on a shame leak in the bro's voice. We
+ * can't mutate the frozen copy engine, so we prove the guard the sweep relies on
+ * rejects a representative outbound violation, and that the real surface is broad
+ * enough that the sweep isn't vacuously passing on a near-empty list.
+ */
+describe('accountabilityCopySurface — the bro voice is swept and the sweep bites', () => {
+  it('enumerates a broad surface (both personas × every confirmation arm), not a stub', () => {
+    const strings = accountabilityCopySurface();
+    expect(Array.isArray(strings)).toBe(true);
+    // Both personas × the full copy family → well over the dashboard surfaces.
+    expect(strings.length).toBeGreaterThan(40);
+    expect(strings.every((s) => typeof s === 'string' && s.length > 0)).toBe(true);
+  });
+
+  it('the sweep would catch a shame / "AI" leak in an outbound nudge', () => {
+    // A hand-authored counterfeit of a check-in nudge that violates the law —
+    // exactly the class of edit the sweep exists to stop reaching a phone.
+    const shamingNudge = 'You missed the taxes again — you keep failing your streak.';
+    const aiBrandedNudge = 'Your AI coach is checking in about the taxes.';
+    expect(() => assertDesignLawClean([shamingNudge], { label: 'accountabilityCopySurface' })).toThrow(/shame/);
+    expect(() => assertDesignLawClean([aiBrandedNudge], { label: 'accountabilityCopySurface' })).toThrow(/ai-branding/);
+    // And the real surface, swept at the same bar, is clean.
+    expect(() =>
+      assertDesignLawClean(accountabilityCopySurface(), { allowAdhd: false, label: 'accountabilityCopySurface' }),
+    ).not.toThrow();
   });
 });
 
