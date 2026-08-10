@@ -27,6 +27,7 @@
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
 import { D1OperatorStore } from './operator-store.js';
+import { scanDesignLaw } from './design-law.js';
 
 /** Check-in cadences a coach can pick. Kept deliberately small and legible. */
 export const COACH_CADENCES = ['daily', 'weekdays', 'weekly'];
@@ -54,32 +55,35 @@ export function mapCoachPersona(voicePersona) {
   return voicePersona === 'hype_bro' ? 'hype' : 'ally';
 }
 
-// ── ANTI-SHAME BATTERIES ─────────────────────────────────────
-// Mirrors the batteries the consumer-copy suites enforce (me.test.js /
-// coach.test.js), applied here to COACH-AUTHORED text at the write boundary.
-const SHAME_PATTERNS = [
-  /\bfail(ed|ure|ing|s)?\b/i,
-  /\blaz(y|iness)\b/i,
-  /\bdisappoint/i,
-  /\bguilt/i,
-  /\bashamed\b/i,
-  /\bshame\b/i,
-  /\byou (didn.?t|should have|should.?ve)\b/i,
-  /\bfall(ing|en)? behind\b/i,
-  /\bbehind\b/i,
-  /\bexcuse/i,
-  /\bslack(ing|er|ed)? off\b/i,
-  /\bpathetic\b/i,
-  /\bworthless\b/i,
-  /\bmiss(ed|es|ing)?\b/i,
-];
-const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
+// ── ANTI-SHAME BATTERY ───────────────────────────────────────
+// The coach's opening line is the WORD THE BRO SAYS ON A CLIENT'S PHONE — a
+// consumer-facing string authored by the coach. It is held to the SAME design
+// LAW as every other user-facing surface, via the ONE canonical scanner
+// (`design-law.js`), never a hand-rolled local list. This closed a real drift:
+// the old local list here checked for shame + "AI" + a partial clinical set but
+// OMITTED `therapy` (a clinical word the canonical law bans) and the
+// `unrespons` shame catch — so a coach could once save a line saying "therapy"
+// or "unresponsive" at this write boundary. `allowAdhd` stays false: this is the
+// line the client hears, not the coach pitch, so naming a diagnosis is banned.
+
+/**
+ * Warm, banned-word-free feedback per violation kind. The reason itself must
+ * pass the design LAW (a rejection message can never shame or go clinical), so
+ * these are curated and mapped from `scanDesignLaw`'s `kind`.
+ */
+const CHECKIN_SCRIPT_REASON = Object.freeze({
+  shame: 'Let’s keep it on their side — rewrite this warm, with no blame in it.',
+  treatment: 'Keep the line everyday and warm — no clinical wording.',
+  'adhd-in-consumer-copy': 'Keep the line everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — the bro is a person to them, warm and human.',
+});
 
 /**
  * Validate a coach-authored opening line. Returns `{ ok: true, value }` for a
  * warm line, or `{ ok: false, reason }` (a warm, banned-word-free explanation)
- * for one that shames, brands "AI", or makes a clinical claim.
+ * for one that shames, brands "AI", or makes a clinical claim — enforced through
+ * the canonical `scanDesignLaw` so this write boundary can never drift weaker
+ * than the surfaces the rest of the suite guards.
  * @param {unknown} text
  */
 export function validateCheckinScript(text) {
@@ -90,18 +94,13 @@ export function validateCheckinScript(text) {
   if (t.length > MAX_SCRIPT) {
     return { ok: false, reason: `Keep the opening line under ${MAX_SCRIPT} characters.` };
   }
-  for (const p of SHAME_PATTERNS) {
-    if (p.test(t)) {
-      return { ok: false, reason: 'Let’s keep it on their side — rewrite this warm, with no blame in it.' };
-    }
-  }
-  for (const p of CLINICAL_PATTERNS) {
-    if (p.test(t)) {
-      return { ok: false, reason: 'Keep the line everyday and warm — no clinical wording.' };
-    }
-  }
-  if (AI_WORD.test(t)) {
-    return { ok: false, reason: 'Skip that word — the bro is a person to them, warm and human.' };
+  const violations = scanDesignLaw(t, { allowAdhd: false });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: CHECKIN_SCRIPT_REASON[kind] || CHECKIN_SCRIPT_REASON.shame,
+    };
   }
   return { ok: true, value: t };
 }
