@@ -52,6 +52,7 @@ function makeD1(seed = {}) {
     commitments: seed.commitments || [],
     commitment_checkins: seed.commitment_checkins || [],
     analytics_events: seed.analytics_events || [],
+    coach_note_consent: seed.coach_note_consent || [],
   };
   const now = () => new Date().toISOString();
 
@@ -151,6 +152,12 @@ function makeD1(seed = {}) {
         if (prev === undefined || e.created_at > prev) byClient.set(cid, e.created_at);
       }
       return Array.from(byClient.entries()).map(([client_id, at]) => ({ client_id, at }));
+    }
+    if (S.startsWith('SELECT user_id AS client_id FROM coach_note_consent')) {
+      const ids = new Set(p);
+      return t.coach_note_consent
+        .filter((r) => ids.has(r.user_id) && (r.shared === 1 || r.shared === true))
+        .map((r) => ({ client_id: r.user_id }));
     }
     throw new Error('unhandled all SQL: ' + S);
   }
@@ -759,6 +766,99 @@ describe('parity — same hierarchy over D1OperatorStore and InMemoryOperatorSto
     expect(d1.seats).toEqual(ref.seats);
     // Only the two active clients were seated; the pending one was rejected.
     expect(d1.seats.map((s) => s.externalOrgId)).toEqual(['c1', 'c2']);
+  });
+});
+
+describe('buildOperatorRoster — surfaces a client\'s shares-reflections openness, as a CUE not a rung (R-323)', () => {
+  const now = '2026-08-08T12:00:00.000Z';
+
+  /** Pre-seat two ACTIVE seats: c-open first by created_at (hierarchy order). */
+  function seedTwoSeats(db, opId) {
+    db._t.operator_clients.push(
+      {
+        id: 'seat-open', operator_id: opId, external_org_id: 'c-open', name: 'Op',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 'seat-quiet', operator_id: opId, external_org_id: 'c-quiet', name: 'Qi',
+        status: 'active', retail_override: null, metadata: null,
+        created_at: '2026-08-05T00:00:00Z', updated_at: '2026-08-05T00:00:00Z',
+      },
+    );
+  }
+
+  it('decorates a consented seat with the openness cue, and leaves a non-consented seat clean', async () => {
+    const db = makeD1({ coach_note_consent: [{ user_id: 'c-open', shared: 1 }] });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    const open = roster.find((e) => e.client_id === 'c-open');
+    const quiet = roster.find((e) => e.client_id === 'c-quiet');
+
+    expect(open.shares_reflections).toBe(true);
+    expect(open.shares_reflections_line).toMatch(/sharing their own words/i);
+    // A client who has NOT opted in is a clean card — never flagged as withholding.
+    expect(quiet.shares_reflections).toBe(false);
+    expect(quiet.shares_reflections_line).toBe('');
+  });
+
+  it('is a CUE, not a triage rung — the openness NEVER floats the seat', async () => {
+    const db = makeD1({ coach_note_consent: [{ user_id: 'c-quiet', shared: 1 }] });
+    const opId = seedOnboardedCoach(db);
+    // c-open sits first in the hierarchy; only the SECOND seat (c-quiet) has
+    // opted in to sharing. If openness were a rung it would float c-quiet up.
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Hierarchy order is untouched: the shares cue does NOT reorder.
+    expect(roster.map((e) => e.client_id)).toEqual(['c-open', 'c-quiet']);
+    // And it contributes nothing to the triage weight.
+    const sharer = roster.find((e) => e.client_id === 'c-quiet');
+    expect(sharer.shares_reflections).toBe(true);
+    expect(operatorRosterTriageRank(sharer)).toBe(0);
+  });
+
+  it('reads ONLY the consent flag of a SEATED client — a stray consent row never leaks', async () => {
+    // A consent row for someone who is NOT on this coach's roster.
+    const db = makeD1({ coach_note_consent: [{ user_id: 'not-a-client', shared: 1 }] });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const roster = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    // Nobody on the roster consented, so nobody carries the cue.
+    for (const e of roster) {
+      expect(e.shares_reflections).toBe(false);
+      expect(e.shares_reflections_line).toBe('');
+    }
+  });
+
+  it('an opted-OUT (shared=0) row is not an opt-in — the neutral default holds', async () => {
+    const db = makeD1({ coach_note_consent: [{ user_id: 'c-open', shared: 0 }] });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const [first] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    expect(first.shares_reflections).toBe(false);
+    expect(first.shares_reflections_line).toBe('');
+  });
+
+  it('DESIGN LAW: the openness cue surfaces no shame/gap on the serialized seat', async () => {
+    const db = makeD1({ coach_note_consent: [{ user_id: 'c-open', shared: 1 }] });
+    const opId = seedOnboardedCoach(db);
+    seedTwoSeats(db, opId);
+    const svc = svcFor(db);
+
+    const [open] = await buildOperatorRoster({ DB: db }, svc, opId, { nowISO: now });
+    const flat = JSON.stringify(open).toLowerCase();
+    for (const banned of ['miss', 'fail', 'behind', 'lazy', 'shame', 'gap', 'withhold']) {
+      expect(flat.includes(banned)).toBe(false);
+    }
   });
 });
 

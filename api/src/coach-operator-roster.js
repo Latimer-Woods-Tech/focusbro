@@ -69,6 +69,19 @@
 // a warm moment AND moving this week floats highest. DESIGN LAW holds: the
 // momentum buckets count status='kept' only, so this reads the presence of wins,
 // never a miss — a quiet week is simply a calm card that holds its natural spot.
+//
+// A "SHARES THEIR REFLECTIONS" cue now rides the read too (Contender #10, Phase C
+// · R-323): the Phase-A roster surfaces a client who has opted in to sharing
+// their OWN WORDS with the coach (`clientSharesReflectionsCopy`, R-267 consent,
+// default OFF); the operator-backed roster resolved streak / momentum / welcome /
+// moving cues but not this consent-gated openness signal. ONE grouped query over
+// the active set reads ONLY the client-controlled `coach_note_consent` flag —
+// never the words themselves — and decorates each seat with `shares_reflections`
+// + `shares_reflections_line`. Unlike the four cues above this is a CUE, NOT a
+// triage rung: openness is an invitation to listen, not a float-to-top urgency,
+// so it is deliberately NOT folded into operatorRosterTriageRank. DESIGN LAW: it
+// reflects a client's affirmative, reversible choice to open up; a client who has
+// not shared is simply absent here — a clean card, never framed as withholding.
 // ════════════════════════════════════════════════════════════
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
@@ -84,6 +97,7 @@ import {
   WELCOMED_BACK_WINDOW_DAYS,
   momentumMovingThisWeek,
   clientMovingThisWeekCopy,
+  clientSharesReflectionsCopy,
 } from './coach.js';
 
 /**
@@ -266,6 +280,38 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
     if (r.client_id) welcomedByClient.set(r.client_id, r.at || null);
   }
 
+  // "Shares their reflections": which of these people have opted in to sharing
+  // their OWN WORDS (the free-text they leave on a kept word) with the coach
+  // (R-267 consent; default OFF). The Phase-A roster already surfaces this
+  // (clientSharesReflectionsCopy); this is the operator-backed twin. ONE grouped
+  // query over the active set (no N+1), reading ONLY the client-controlled
+  // consent flag — never the words themselves. Non-fatal by construction: an
+  // at-a-glance cue must never take down the roster, so any failure (or a
+  // missing consent table) just yields no cue. DESIGN LAW: this reflects a
+  // client's affirmative, reversible choice to open up; a client who has not
+  // shared is simply absent here — a clean card, never flagged as withholding.
+  // This is a CUE, not a triage rung: openness is an invitation to listen, not a
+  // float-to-top urgency, so it is NOT folded into operatorRosterTriageRank.
+  const activeIds = active.map((c) => c.externalOrgId).filter(Boolean);
+  let sharesSet = new Set();
+  if (activeIds.length) {
+    try {
+      const placeholders = activeIds.map(() => '?').join(',');
+      const shareRows = await env.DB.prepare(
+        `SELECT user_id AS client_id
+           FROM coach_note_consent
+          WHERE user_id IN (${placeholders})
+            AND shared = 1`,
+      ).bind(...activeIds).all();
+      for (const r of (shareRows && shareRows.results) || []) {
+        if (r.client_id) sharesSet.add(r.client_id);
+      }
+    } catch (err) {
+      console.warn('[coach-operator] shares-reflections query failed:', err && err.message);
+      sharesSet = new Set();
+    }
+  }
+
   const roster = [];
   for (const c of active) {
     const clientId = c.externalOrgId;
@@ -329,6 +375,11 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       // off the momentum above. '' / false when the trailing week is quiet.
       moving_this_week: moving,
       moving_line: clientMovingThisWeekCopy({ moving }),
+      // The client's own choice to open their words to the coach — a consent-
+      // gated openness cue (never the words themselves). '' / false unless the
+      // client opted in. A cue, NOT a triage rung: it never floats the seat.
+      shares_reflections: sharesSet.has(clientId),
+      shares_reflections_line: clientSharesReflectionsCopy({ shares: sharesSet.has(clientId) }),
       momentum,
     });
   }
@@ -370,6 +421,7 @@ export function coachOperatorRosterCopySurface() {
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
     coachWelcomedBackCopy({ welcomed: true }),
     clientMovingThisWeekCopy({ moving: true }),
+    clientSharesReflectionsCopy({ shares: true }),
   ];
 }
 
