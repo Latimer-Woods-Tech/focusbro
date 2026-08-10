@@ -28,6 +28,7 @@ import { D1OperatorStore } from '../operator-store.js';
 import {
   registerCoachOnboardingRoutes,
   validateCheckinScript,
+  validateBrandName,
   deriveOperatorSlug,
   coachOnboardingCopySurface,
   COACH_CADENCES,
@@ -212,6 +213,51 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
   });
 });
 
+describe('validateBrandName — the design LAW on the coach\'s white-label', () => {
+  it('accepts a clean brand and trims it', () => {
+    const r = validateBrandName('  Steady Wins Coaching  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('Steady Wins Coaching');
+  });
+
+  it('allows "ADHD" in a brand — a brand IS the coach pitch', () => {
+    // Guardrail: "ADHD lives in SEO and the coach pitch, not a clinical promise."
+    // A coaching business legitimately named for its market must not be rejected.
+    expect(validateBrandName('ADHD Focus Coaching').ok).toBe(true);
+  });
+
+  it('rejects a shaming, empty, or over-long brand', () => {
+    expect(validateBrandName('Lazy No More Coaching').ok).toBe(false);
+    expect(validateBrandName('No More Excuses').ok).toBe(false);
+    expect(validateBrandName('   ').ok).toBe(false);
+    expect(validateBrandName('x'.repeat(81)).ok).toBe(false);
+  });
+
+  it('rejects a clinical/treatment claim and the "AI" brand even in the name', () => {
+    // A brand promising to "treat"/"cure" a diagnosis is exactly the clinical
+    // claim with regulatory teeth the law bans everywhere; "AI" is never allowed.
+    expect(validateBrandName('ADHD Cure Partners').ok).toBe(false);
+    expect(validateBrandName('Therapy Line').ok).toBe(false);
+    expect(validateBrandName('AI Accountability').ok).toBe(false);
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateBrandName('').reason,
+      validateBrandName('Lazy No More Coaching').reason,
+      validateBrandName('ADHD Cure Partners').reason,
+      validateBrandName('AI Accountability').reason,
+    ];
+    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
+    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\btherapy\b/i, /\bADHD\b/i];
+    for (const s of reasons) {
+      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
+      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
+      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+    }
+  });
+});
+
 describe('coachOnboardingCopySurface — never shames, brands "AI", or goes clinical', () => {
   const SHAME = [/\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bshame\b/i, /\bguilt/i, /\bbehind\b/i, /\bmiss(ed|es|ing)?\b/i, /\bpathetic\b/i, /\bworthless\b/i];
   const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
@@ -344,6 +390,32 @@ describe('coach onboarding routes (mounted on the operator platform)', () => {
     await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
     const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', primaryColor: 'not-a-color' } });
     expect(res.status).toBe(400);
+  });
+
+  it('the white-label PUT rejects a shaming / "AI" / clinical brand name (400)', async () => {
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
+    for (const bad of ['Lazy No More Coaching', 'ADHD Cure Partners', 'AI Accountability']) {
+      const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: bad } });
+      expect(res.status, `expected 400 for brand "${bad}"`).toBe(400);
+    }
+    // A clean brand (and an ADHD-in-pitch brand) still saves.
+    const ok = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'ADHD Focus Coaching' } });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).white_label.brandName).toBe('ADHD Focus Coaching');
+  });
+
+  it('onboarding rejects a shaming brand up front and creates NO operator', async () => {
+    // Proof-of-rejection (Standing Law #1): the sibling drift hole R-327 left —
+    // the brand name reached updateWhiteLabel unscanned on the onboarding path.
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    const res = await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching', brandName: "Don't Be Lazy Coaching" } });
+    expect(res.status).toBe(400);
+    // The rejection happened before any operator was created.
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).onboarded).toBe(false);
   });
 
   it('GET before onboarding reports not onboarded', async () => {
