@@ -24,6 +24,24 @@ import {
   clientWeeklyShowedUpCopy,
 } from '../coach.js';
 import { generateUUID } from '../middleware.js';
+import { scanDesignLaw } from '../design-law.js';
+
+// THE DESIGN LAW is one lexicon now (design-law.js). This surface used to
+// hand-roll its own banned-word union, which had drifted WEAKER than canonical:
+// it missed `disappoint`, `ashamed`, `pathetic`, `worthless`, `unrespons`, the
+// incredulous `again?!`, `therapy`, and the fuller shame/clinical stems
+// (`failing`/`fails`, `laziness`, `treats`/`treating`). Route the guard through
+// `scanDesignLaw` (shame + clinical + "AI" + consumer-ADHD in one pass) so this
+// coach-visible weekly snapshot is held to the same bar as every other surface —
+// while preserving the three genuine per-surface extras the canonical list
+// intentionally does NOT carry:
+//   • `late` / `overdue` — miss-framing this weekly snapshot must never use
+//   • bare `slack(ing)` — canonical only bans "slack off" (so "Slack" the app
+//     stays sayable elsewhere); this snapshot never names the app, so the
+//     stricter form is kept here
+//   • bare `should have` — canonical anchors it to "you should have"
+const localExtras = /\b(late|overdue|slack(ing)?|should have)\b/i;
+const hasBanned = (s) => scanDesignLaw(String(s)).length > 0 || localExtras.test(String(s));
 
 // ── pure helper: the coach-voice weekly kept-word summary ────
 describe('clientWeeklyKeptCopy — the coach-voice seven-day kept-word line', () => {
@@ -63,7 +81,6 @@ describe('clientWeeklyShowedUpCopy — how many times the bro showed up (support
 
 // ── THE DESIGN LAW extends to the coach's weekly snapshot ────
 describe('copy law — the weekly snapshot never reads shame, "AI", or a clinical claim', () => {
-  const banned = /\b(late|overdue|missed|miss|behind|fail|failed|failure|slack(ing)?|lazy|should have|guilt|shame|slipping|excuse|AI|diagnos|treat(ment)?|cure|disorder|symptom|ADHD|medication)\b/i;
   const samples = [
     clientWeeklyKeptCopy({ keptThisWeek: 0 }),
     clientWeeklyKeptCopy({ keptThisWeek: 1 }),
@@ -75,7 +92,46 @@ describe('copy law — the weekly snapshot never reads shame, "AI", or a clinica
     for (const s of samples) {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
-      expect(banned.test(s), `banned word in: "${s}"`).toBe(false);
+      expect(hasBanned(s), `banned word in: "${s}"`).toBe(false);
+    }
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled union silently missed, that the preserved per-surface extras still
+// fire, and — the load-bearing one — that the warm kept-word / clean-page copy
+// stays clean, so the anti-shame LAW is protected by construction, not by luck.
+describe('the weekly snapshot is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface union silently missed', () => {
+    // None of these were in the old `banned` union; all are caught by scanDesignLaw now.
+    for (const bad of [
+      'you disappointed me',           // disappoint
+      'that was pathetic',             // pathetic
+      'you feel worthless',            // worthless
+      'not this again?!',              // the incredulous again?! (the R-331 dead-regex class)
+      'this is therapy for you',       // therapy (clinical)
+      'a quiet, unresponsive client',  // unrespons
+      'you keep failing',              // failing (the fuller stem the union missed)
+    ]) {
+      expect(hasBanned(bad), `should be caught: ${bad}`).toBe(true);
+    }
+  });
+
+  it('still fires on the genuine per-surface extras kept out of the canonical list', () => {
+    for (const bad of ['you are late', 'the taxes are overdue', 'stop slacking', 'you should have started']) {
+      expect(hasBanned(bad), `per-surface extra should fire: ${bad}`).toBe(true);
+    }
+  });
+
+  it('leaves the warm kept-word + clean-page copy clean (the anti-shame LAW survives)', () => {
+    for (const good of [
+      'This week: 3 kept words.',
+      'A quiet week is a clean page',
+      'The bro showed up 2 times this week',
+      'when do you want to try again?', // single "?" — the warm reschedule, NOT the eye-roll
+    ]) {
+      expect(hasBanned(good), `warm copy must stay clean: ${good}`).toBe(false);
     }
   });
 });
