@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
+import { scanDesignLaw } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
@@ -401,15 +401,6 @@ describe('rescheduleConfirmCopy — meets reported progress by name, in-app pari
 
 // ── DESIGN LAW on the reply copy ─────────────────────────────
 describe('copy law — SMS reply strings never shame, never "AI", never clinical', () => {
-  const SHAME = [
-    /\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bdisappoint/i, /\bguilt/i,
-    /\bashamed\b/i, /\bshame\b/i, /\byou (didn.?t|should have|should.?ve)\b/i,
-    /\bfall(ing|en)? behind\b/i, /\bbehind again\b/i, /\bexcuse/i, /\bpathetic\b/i,
-    /\bworthless\b/i,
-  ];
-  const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
-  const AI = /\bAI\b/;
-
   const samples = [];
   for (const persona of ['ally', 'hype', 'unknown']) {
     for (const streak of [0, 1, 2, 30]) samples.push(smsKeptReplyCopy({ persona, streak }));
@@ -421,14 +412,16 @@ describe('copy law — SMS reply strings never shame, never "AI", never clinical
   it('are all non-empty strings', () => {
     for (const s of samples) { expect(typeof s).toBe('string'); expect(s.trim().length).toBeGreaterThan(0); }
   });
-  it('never shame', () => {
-    for (const s of samples) for (const p of SHAME) expect(p.test(s), `${s} matched ${p}`).toBe(false);
-  });
-  it('never say "AI"', () => {
-    for (const s of samples) expect(AI.test(s), s).toBe(false);
-  });
-  it('never make a clinical claim', () => {
-    for (const s of samples) for (const p of CLINICAL) expect(p.test(s), `${s} matched ${p}`).toBe(false);
+  // One law, one scanner: every SMS reply string is swept through the canonical
+  // `scanDesignLaw` (shame + clinical + "AI" branding + consumer-ADHD in a single
+  // pass) instead of the hand-rolled lists this block used to carry — which had
+  // drifted weaker than the frozen lexicon (no `slipping`, no working `again?!`,
+  // no `unrespons`, only `behind again` where the canonical bans the bare `behind`).
+  it('obey the one design LAW — no shame / clinical / "AI" / consumer-ADHD', () => {
+    for (const s of samples) {
+      const violations = scanDesignLaw(s);
+      expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    }
   });
   it('the reschedule reply keeps the door open (a new time, streak safe)', () => {
     for (const persona of ['ally', 'hype']) {
@@ -1500,24 +1493,28 @@ describe('formatWhenLocal — warm, recipient-local confirmation', () => {
 
 // ── The design LAW, on the conversational-reschedule copy ──
 describe('conversational-reschedule copy obeys the one LAW: never shame', () => {
-  const SHAME = /\b(fail(ed|ure)?|miss(ed)?|behind|lazy|should have|guilt|disappoint|streak (lost|broken)|again\?!)\b/i;
-  const CLINICAL = /\b(ADHD|diagnos|treat(ment)?|therap|disorder|symptom|patient)\b/i;
-  const AI = /\bA\.?I\.?\b/i;
+  // Routed through the canonical `scanDesignLaw` (shame + clinical + "AI" +
+  // consumer-ADHD). The old local union carried a DEAD `again\?!` branch — a `\b`
+  // after `!` can never be a boundary, so the eye-roll went unguarded — now fixed
+  // in the frozen lexicon. The one genuine per-surface extra the canonical list
+  // does not carry, `streak (lost|broken)`, is preserved locally.
+  const STREAK_SHAME = /\bstreak (lost|broken)\b/i;
+  const assertLaw = (s) => {
+    const violations = scanDesignLaw(s);
+    expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    expect(STREAK_SHAME.test(s), `${s} matched streak-shame`).toBe(false);
+  };
   for (const persona of ['ally', 'hype']) {
     for (const fn of [smsAskWhenCopy, smsWhenUnclearCopy]) {
       it(`${fn.name} (${persona}) is warm, no shame / clinical / "AI"`, () => {
         const s = fn({ persona });
-        expect(s).not.toMatch(SHAME);
-        expect(s).not.toMatch(CLINICAL);
-        expect(s).not.toMatch(AI);
+        assertLaw(s);
         expect(s.toLowerCase()).toMatch(/try again|time|check back/);
       });
     }
     it(`smsRescheduledCopy (${persona}) confirms warmly and protects the streak`, () => {
       const s = smsRescheduledCopy({ persona, when: '2026-07-06T19:00:00.000Z', timezone: 'America/New_York', nowISO: '2026-07-06T12:00:00.000Z' });
-      expect(s).not.toMatch(SHAME);
-      expect(s).not.toMatch(CLINICAL);
-      expect(s).not.toMatch(AI);
+      assertLaw(s);
       expect(s.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(s.toLowerCase()).toMatch(/still counts|streak/);
     });
@@ -1531,11 +1528,22 @@ describe('conversational-reschedule copy obeys the one LAW: never shame', () => 
       // Still a reschedule: names the new time, keeps the streak safe, never scolds.
       expect(withProgress.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(withProgress.toLowerCase()).toMatch(/still counts|streak/);
-      expect(withProgress).not.toMatch(SHAME);
-      expect(withProgress).not.toMatch(CLINICAL);
-      expect(withProgress).not.toMatch(AI);
+      assertLaw(withProgress);
     });
   }
+
+  it('the consolidation closes the drift the old local unions missed', () => {
+    // Proof-of-rejection (Standing Law #1): the old hand-rolled `SHAME` union here
+    // missed `slipping` and `unresponsive`, and — because its `again\?!` branch was
+    // dead — the incredulous "again?!". The canonical scanner catches all three,
+    // while the preserved local `streak (lost|broken)` extra still fires.
+    expect(scanDesignLaw('you keep slipping').length).toBeGreaterThan(0);
+    expect(scanDesignLaw("you've been unresponsive").length).toBeGreaterThan(0);
+    expect(scanDesignLaw('late again?!').length).toBeGreaterThan(0);
+    expect(STREAK_SHAME.test('your streak lost')).toBe(true);
+    // …and the warm reschedule line the LAW protects stays clean through the scanner.
+    expect(scanDesignLaw('No problem — when do you want to try again?')).toEqual([]);
+  });
 });
 
 // ── The invitation copy may only advertise phrasings the parser can read ──
