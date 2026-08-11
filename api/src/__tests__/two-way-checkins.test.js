@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
@@ -406,7 +407,7 @@ describe('copy law — SMS reply strings never shame, never "AI", never clinical
     /\bfall(ing|en)? behind\b/i, /\bbehind again\b/i, /\bexcuse/i, /\bpathetic\b/i,
     /\bworthless\b/i,
   ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI = /\bAI\b/;
 
   const samples = [];

@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   registerAccountabilityRoutes, commitmentDetailCopy,
@@ -238,7 +239,7 @@ describe('per-word detail copy — momentum, never a scold', () => {
     /\bashamed\b/i, /\bshame\b/i, /\bmiss(ed|ing|es)?\b/i, /\bbehind\b/i,
     /\byou (didn.?t|should have|should.?ve)\b/i, /\bexcuse/i, /\bpathetic\b/i, /\bworthless\b/i,
   ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI = /\bAI\b/;
 
   const samples = ['ally', 'hype', 'unknown'].flatMap((persona) => [
