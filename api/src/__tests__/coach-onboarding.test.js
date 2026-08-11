@@ -29,6 +29,7 @@ import {
   registerCoachOnboardingRoutes,
   validateCheckinScript,
   validateBrandName,
+  validateSupportEmail,
   deriveOperatorSlug,
   coachOnboardingCopySurface,
   COACH_CADENCES,
@@ -258,6 +259,47 @@ describe('validateBrandName — the design LAW on the coach\'s white-label', () 
   });
 });
 
+describe('validateSupportEmail — the design LAW on the coach\'s white-label support address', () => {
+  it('accepts a clean support address and trims it', () => {
+    const r = validateSupportEmail('  hello@steadywins.coach  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('hello@steadywins.coach');
+  });
+
+  it('allows "ADHD" in a support address — it is part of the coach pitch', () => {
+    // Same guardrail as the brand: a coach whose real address names their market
+    // must not be blocked ("ADHD lives in SEO and the coach pitch").
+    expect(validateSupportEmail('help@adhdfocuscoaching.com').ok).toBe(true);
+  });
+
+  it('rejects a valid-format but design-dirty address (shame / clinical / AI)', () => {
+    // Proof-of-rejection (Standing Law #1): each of these PASSES the operator
+    // package's email-format check yet shames or makes a clinical claim to the
+    // client — before this guard they reached updateWhiteLabel unscanned.
+    expect(validateSupportEmail('dont-be-lazy@coach.com').ok).toBe(false); // shame
+    expect(validateSupportEmail('you-failed@coach.com').ok).toBe(false); // shame
+    expect(validateSupportEmail('cure-your-adhd@clinic.com').ok).toBe(false); // clinical
+    expect(validateSupportEmail('therapy@coach.com').ok).toBe(false); // clinical
+    expect(validateSupportEmail('the-AI-desk@coach.com').ok).toBe(false); // "AI"
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateSupportEmail('').reason,
+      validateSupportEmail('dont-be-lazy@coach.com').reason,
+      validateSupportEmail('cure-your-adhd@clinic.com').reason,
+      validateSupportEmail('the-AI-desk@coach.com').reason,
+    ];
+    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
+    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\btherapy\b/i, /\bADHD\b/i];
+    for (const s of reasons) {
+      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
+      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
+      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+    }
+  });
+});
+
 describe('coachOnboardingCopySurface — never shames, brands "AI", or goes clinical', () => {
   const SHAME = [/\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bshame\b/i, /\bguilt/i, /\bbehind\b/i, /\bmiss(ed|es|ing)?\b/i, /\bpathetic\b/i, /\bworthless\b/i];
   const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
@@ -416,6 +458,38 @@ describe('coach onboarding routes (mounted on the operator platform)', () => {
     // The rejection happened before any operator was created.
     const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
     expect((await get.json()).onboarded).toBe(false);
+  });
+
+  it('the white-label PUT rejects a valid-but-design-dirty support email (400) and stores a clean one', async () => {
+    // Proof-of-rejection (Standing Law #1): the support email is the sibling
+    // white-label field that reached updateWhiteLabel unscanned. A valid-format
+    // address that shames / goes clinical / brands "AI" must now be rejected.
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
+    for (const bad of ['dont-be-lazy@coach.com', 'cure-your-adhd@clinic.com', 'therapy@coach.com', 'the-AI-desk@coach.com']) {
+      const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', supportEmail: bad } });
+      expect(res.status, `expected 400 for support email "${bad}"`).toBe(400);
+    }
+    // A clean support address (and an ADHD-in-pitch one) saves and reads back.
+    const ok = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', supportEmail: 'help@janecoaching.com' } });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).white_label.supportEmail).toBe('help@janecoaching.com');
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).white_label.supportEmail).toBe('help@janecoaching.com');
+  });
+
+  it('onboarding rejects a design-dirty support email up front and creates NO operator', async () => {
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    const res = await app('POST', '/api/coach/onboarding', {
+      token: 'coach1',
+      body: { displayName: 'Jane Coaching', brandName: 'Jane', supportEmail: 'you-failed@coach.com' },
+    });
+    expect(res.status).toBe(400);
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).onboarded).toBe(false);
+    expect(env.DB._t.operators.length).toBe(0);
   });
 
   it('GET before onboarding reports not onboarded', async () => {

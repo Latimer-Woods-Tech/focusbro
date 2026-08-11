@@ -155,6 +155,59 @@ export function validateBrandName(text) {
   return { ok: true, value: t };
 }
 
+// The white-label SUPPORT EMAIL is the THIRD coach-authored, client-facing
+// white-label string — the address the person sees on their accountability
+// space to reach their coach. It rode into `svc.updateWhiteLabel` (the same
+// config object as brandName) UNSCANNED on BOTH write paths, the sibling drift
+// hole R-327/R-328 left after routing the opening line and the brand name
+// through the canonical scanner. The operator package format-validates it as an
+// email, but a *valid* email can still carry the exact wording the design LAW
+// bans on a user-facing surface — `dont-be-lazy@coach.com`, `cure-your-adhd@
+// clinic.com`, `therapy@coach.com` all pass the email check yet shame or make a
+// clinical claim to the client. So it is held to the SAME canonical design LAW,
+// before it reaches the store. `allowAdhd: true`, mirroring the brand: a support
+// address is part of the coach's pitch/market brand (naming ADHD is permitted),
+// while shame, "AI", and clinical/treatment claims stay banned. Email *format*
+// and length stay owned by the operator package's `validateWhiteLabel` — this
+// guard adds only the design-LAW scan the package does not do.
+
+/**
+ * Warm, banned-word-free feedback per violation kind for a rejected support
+ * email. Each string must itself pass the design LAW.
+ */
+const SUPPORT_EMAIL_REASON = Object.freeze({
+  shame: 'Use a support address that stays on their side — no blame in it.',
+  treatment: 'Keep the support address everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — your support address reads warm and human here.',
+});
+
+/**
+ * Validate a coach-authored white-label support email for the design LAW only
+ * (format/length are the operator package's job). Returns `{ ok: true, value }`
+ * for a clean address, or `{ ok: false, reason }` (a warm, banned-word-free
+ * explanation) for one that shames, brands "AI", or makes a clinical claim —
+ * so a valid-but-design-dirty address (e.g. `dont-be-lazy@coach.com`) can never
+ * reach the client. Callers pass only a non-empty value (the field is optional).
+ * `allowAdhd: true`: a support address is the coach pitch, where naming ADHD is
+ * permitted.
+ * @param {unknown} text
+ */
+export function validateSupportEmail(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'Add a support email, or leave it blank.' };
+  }
+  const t = text.trim();
+  const violations = scanDesignLaw(t, { allowAdhd: true });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: SUPPORT_EMAIL_REASON[kind] || SUPPORT_EMAIL_REASON.shame,
+    };
+  }
+  return { ok: true, value: t };
+}
+
 /**
  * Turn a coach's display name into a valid operator slug (2–63 lowercase
  * alphanumeric segments joined by single hyphens), disambiguated per user so two
@@ -200,6 +253,11 @@ export function coachOnboardingCopySurface() {
     validateBrandName('Lazy No More Coaching').reason,
     validateBrandName('ADHD Cure Partners').reason,
     validateBrandName('AI Accountability').reason,
+    // Support-email validation feedback (must themselves be warm + banned-word-free):
+    validateSupportEmail('').reason,
+    validateSupportEmail('lazy-no-more@coaching.com').reason,
+    validateSupportEmail('cure-your-adhd@clinic.com').reason,
+    validateSupportEmail('the-AI-desk@coaching.com').reason,
   ];
 }
 
@@ -303,11 +361,19 @@ export function registerCoachOnboardingRoutes(router, ctx) {
       }
 
       // THE DESIGN LAW at the write boundary: a shaming / "AI" / clinical brand
-      // name is rejected up front, before any operator is created.
+      // name — or support email — is rejected up front, before any operator is
+      // created. Both are client-facing white-label strings and ride the same
+      // config object; both are held to the one canonical scanner. (The support
+      // email is only stored alongside a brand, so it is only checked then.)
       const rawBrand = body && typeof body.brandName === 'string' ? body.brandName.trim() : '';
+      const rawSupport = body && typeof body.supportEmail === 'string' ? body.supportEmail.trim() : '';
       if (rawBrand) {
         const brand = validateBrandName(rawBrand);
         if (!brand.ok) return jsonResponse({ error: brand.reason }, 400);
+        if (rawSupport) {
+          const support = validateSupportEmail(rawSupport);
+          if (!support.ok) return jsonResponse({ error: support.reason }, 400);
+        }
       }
 
       const svc = service(env);
@@ -342,7 +408,7 @@ export function registerCoachOnboardingRoutes(router, ctx) {
         const config = { brandName: rawBrand };
         if (body.primaryColor) config.primaryColor = body.primaryColor;
         if (body.secondaryColor) config.secondaryColor = body.secondaryColor;
-        if (body.supportEmail) config.supportEmail = body.supportEmail;
+        if (rawSupport) config.supportEmail = rawSupport; // design-LAW validated above
         const updated = await svc.updateWhiteLabel(operator.id, config);
         whiteLabel = updated.whiteLabel;
       }
@@ -406,7 +472,15 @@ export function registerCoachOnboardingRoutes(router, ctx) {
       const config = { brandName: brand.value };
       if (body.primaryColor) config.primaryColor = body.primaryColor;
       if (body.secondaryColor) config.secondaryColor = body.secondaryColor;
-      if (body.supportEmail) config.supportEmail = body.supportEmail;
+      // THE DESIGN LAW at the write boundary: the support email is client-facing
+      // white-label copy — scan it the same as the brand before it is stored, so
+      // a valid-but-design-dirty address never reaches the client.
+      const rawSupport = body && typeof body.supportEmail === 'string' ? body.supportEmail.trim() : '';
+      if (rawSupport) {
+        const support = validateSupportEmail(rawSupport);
+        if (!support.ok) return jsonResponse({ error: support.reason }, 400);
+        config.supportEmail = support.value;
+      }
 
       const svc = service(env);
       const updated = await svc.updateWhiteLabel(operatorId, config);
