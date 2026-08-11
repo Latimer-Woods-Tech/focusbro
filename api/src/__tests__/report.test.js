@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
+import { SHAME_PATTERNS, TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   WEEKLY_WINDOW_DAYS,
   reportIntroCopy,
@@ -364,21 +364,9 @@ describe('own-voice note (R-266) — the person\'s last kept word rides in the r
 });
 
 describe('copy law — a weekly report never reads shame, "AI", or a clinical claim', () => {
-  const SHAME_PATTERNS = [
-    /\bfail(ed|ure|ing|s)?\b/i,
-    /\blaz(y|iness)\b/i,
-    /\bdisappoint/i,
-    /\bguilt/i,
-    /\bashamed\b/i,
-    /\bshame\b/i,
-    /\bslipping\b/i,
-    /\bfall(ing|en)? behind\b/i,
-    /\bbehind\b/i,
-    /\bmiss(es|ed|ing)?\b/i,
-    /\bexcuse/i,
-    /\bpathetic\b/i,
-    /\bworthless\b/i,
-  ];
+  // Shame guard sourced from the one frozen lexicon (design-law.js), not a local
+  // copy — `slipping` and the (now-fixed) `again?!` this surface used to carry
+  // live there. No report-specific extras remain.
   const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI_WORD = /\bAI\b/;
 
