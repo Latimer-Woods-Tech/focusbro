@@ -83,6 +83,8 @@ describe('scanDesignLaw — proof it rejects real violations', () => {
       'You missed three check-ins.',
       "You should have started by now.",
       'The client went unresponsive.',
+      "Here's who's slipping this week.", // promoted from report/coach surfaces
+      "Seriously, late again?!", // the incredulous eye-roll (fixed from a dead per-surface regex)
     ]) {
       const v = scanDesignLaw(bad);
       expect(v.some((x) => x.kind === 'shame'), `expected shame in: ${bad}`).toBe(true);
@@ -189,5 +191,23 @@ describe('design-law lexicon shape', () => {
     for (const ok of ['no problem — when do you want to try again?', 'ready when you are']) {
       expect(hit(ok), `unexpected clinical hit in: ${ok}`).toBe(false);
     }
+  });
+
+  // Proof-of-rejection (Standing Law #1) for the SHAME promotion done this run:
+  // `slipping` (report/coach) and the incredulous `again?!` (accountability/
+  // two-way-checkins) were only ever guarded per-surface, and the `again?!`
+  // regex those surfaces carried — `/\bagain\?!\b/i` — was DEAD (a `\b` can never
+  // follow `!`), so it caught nothing. Both now live in the frozen SHAME_PATTERNS.
+  // This pins that the canonical list catches them AND that the fix is precise:
+  // the shaming "again?!" is flagged while the warm reschedule "try again?"
+  // (single `?`) stays clean. Drop either promotion from the frozen list and this
+  // goes red; loosen `again?!` so it swallows the warm line and it goes red too.
+  it('the frozen SHAME lexicon catches "slipping" and "again?!" but never the warm "try again?"', () => {
+    const shame = (s) => SHAME_PATTERNS.some((p) => p.test(s));
+    expect(shame("who's slipping this week"), 'expected shame: slipping').toBe(true);
+    expect(shame('late again?!'), 'expected shame: again?!').toBe(true);
+    // the anti-shame reschedule LAW line — must survive the new pattern
+    expect(shame('No problem — when do you want to try again?'), 'warm line must stay clean').toBe(false);
+    expect(shame("Let's do it again!"), 'single-! encouragement must stay clean').toBe(false);
   });
 });

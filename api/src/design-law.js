@@ -30,8 +30,11 @@
  * The word-boundary anchors keep innocuous words safe: `\bmiss(ed|es|ing)?\b` does
  * not match "mission"/"permission"/"dismiss"; `\bbehind\b` does not match "behind
  * the scenes" only as the literal word (curated copy simply never uses it).
- * Copied verbatim from the strictest consumer sweep (`me.js` tests), which is the
- * most complete list the codebase already trusts.
+ * Seeded from the strictest consumer sweep (`me.js` tests), then extended with the
+ * two shame words that were only ever guarded per-surface and had drifted: the
+ * "who's slipping" framing (`report`/`coach`) and the incredulous "again?!"
+ * (`accountability`/`two-way-checkins`, whose local regex was dead — see below).
+ * Now every surface derives its shame guard from this one list.
  */
 export const SHAME_PATTERNS = Object.freeze([
   /\bfail(ed|ure|ing|s)?\b/i,
@@ -48,6 +51,13 @@ export const SHAME_PATTERNS = Object.freeze([
   /\bpathetic\b/i,
   /\bworthless\b/i,
   /\bunrespons/i, // a quiet client is never framed as "unresponsive"
+  /\bslipping\b/i, // no "who's slipping" framing — a quiet client is an open page, not a miss
+  // The incredulous "late again?!" is shame; the warm reschedule "want to try
+  // again?" (single `?`) is NOT. Anchoring the `?!` pair keeps that warm line
+  // clean while catching the eye-roll. (The old per-surface `/\bagain\?!\b/i`
+  // never matched — a `\b` after `!` can never be a boundary — so this was
+  // silently unguarded until it was promoted here.)
+  /\bagain\?!/i,
   /\bmiss(ed|es|ing)?\b/i, // no miss tally in what the person reads
 ]);
 

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
+import { SHAME_PATTERNS, TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   CHANNELS,
   PERSONAS,
@@ -333,22 +333,11 @@ describe('computeStreakAfter — kept-word streak (no miss tally, by design)', (
 // and a spread of streak states, and fails the build if any output contains a
 // shaming word, the banned "AI" branding, or a clinical/treatment claim.
 describe('copy law — never shame, never "AI", never a clinical claim', () => {
-  const SHAME_PATTERNS = [
-    /\bfail(ed|ure|ing|s)?\b/i,
-    /\blaz(y|iness)\b/i,
-    /\bdisappoint/i,
-    /\bguilt/i,
-    /\bashamed\b/i,
-    /\bshame\b/i,
-    /\byou (didn.?t|should have|should.?ve)\b/i,
-    /\bfall(ing|en)? behind\b/i,
-    /\bbehind again\b/i,
-    /\bexcuse/i,
-    /\bslack(ing|er|ed)? off\b/i,
-    /\bpathetic\b/i,
-    /\bworthless\b/i,
-    /\bagain\?!\b/i,
-  ];
+  // Shame guard sourced from the one frozen lexicon (design-law.js). This surface
+  // used to hand-roll the incredulous `again?!` as `/\bagain\?!\b/i` — a DEAD
+  // regex (a `\b` can never follow `!`), so it silently caught nothing. The
+  // canonical list now carries the fixed `/\bagain\?!/i`, which catches "late
+  // again?!" while leaving the warm reschedule "want to try again?" clean.
   const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
 
