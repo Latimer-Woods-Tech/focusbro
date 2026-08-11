@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   COMMITMENT_STATUSES,
   statusPresentation,
@@ -71,7 +72,7 @@ const SHAME_PATTERNS = [
   /\bworthless\b/i,
   /\bmiss(ed|es|ing)?\b/i, // no miss tally in what the person reads
 ];
-const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
 const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
 
 describe('commitment statuses', () => {

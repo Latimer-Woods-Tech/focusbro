@@ -169,4 +169,25 @@ describe('design-law lexicon shape', () => {
     expect(AI_BRANDING).toBeInstanceOf(RegExp);
     expect(ADHD_WORD).toBeInstanceOf(RegExp);
   });
+
+  // Proof-of-rejection (Standing Law #1) for the consolidation done this run:
+  // every consumer/coach copy-surface test now derives its clinical guard from
+  // `[...TREATMENT_CLAIM_PATTERNS, ADHD_WORD]` instead of a hand-rolled list.
+  // The old hand-rolled lists had drifted — several omitted `therapy`, so a
+  // valid-but-clinical string like "a form of therapy" slipped past them. This
+  // pins the composed shape those surfaces now share: it MUST catch `therapy`
+  // (the word the drift dropped) and `medication` from the frozen source, and
+  // the consumer `ADHD` ban, while staying clean on warm copy. If a future edit
+  // drops `therapy` from the canonical list, every consolidated surface loses it
+  // at once — and this test goes red first.
+  it('the composed consumer clinical guard rejects therapy/medication/ADHD, not warm copy', () => {
+    const guard = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
+    const hit = (s) => guard.some((p) => p.test(s));
+    for (const bad of ['a form of therapy', 'adjust your medication', 'built for ADHD brains']) {
+      expect(hit(bad), `expected a clinical hit in: ${bad}`).toBe(true);
+    }
+    for (const ok of ['no problem — when do you want to try again?', 'ready when you are']) {
+      expect(hit(ok), `unexpected clinical hit in: ${ok}`).toBe(false);
+    }
+  });
 });

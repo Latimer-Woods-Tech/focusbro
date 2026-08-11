@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   WEEKLY_WINDOW_DAYS,
   reportIntroCopy,
@@ -378,7 +379,7 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
     /\bpathetic\b/i,
     /\bworthless\b/i,
   ];
-  const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI_WORD = /\bAI\b/;
 
   const samples = [
