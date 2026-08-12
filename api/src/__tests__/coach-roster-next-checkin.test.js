@@ -24,6 +24,30 @@ import {
   nextCheckinCopy,
 } from '../coach.js';
 import { generateUUID } from '../middleware.js';
+import { scanDesignLaw } from '../design-law.js';
+
+// THE DESIGN LAW is one lexicon now (design-law.js). This coach-facing roster
+// next-check-in surface (R-234) used to hand-roll its own banned-word union,
+// which had drifted WEAKER than canonical: it missed `disappoint`, `ashamed`,
+// `pathetic`, `worthless`, `unrespons`, `slipping`, the incredulous `again?!`,
+// `disorder`, `symptom`, `medication`, `therapy`, the bare word `ADHD` (banned in
+// consumer copy), and the fuller shame/clinical stems the terse union missed —
+// `failing`/`fails` (its `fail|failed|failure` never caught the `-ing`/`-s`
+// forms), `laziness` (only `lazy`), and `treats`/`treating` (only
+// `treat`/`treatment`). Route the guard through `scanDesignLaw` (shame + clinical
+// + "AI" branding + consumer-ADHD in one pass) so this roster next-check-in copy
+// is held to the same bar as every other surface — while preserving the genuine
+// per-surface extras the canonical list intentionally does NOT carry:
+//   • `late` / `overdue` — the miss-framing this line must never use
+//   • bare `slack(ing)` — canonical only bans "slack off" (so "Slack" the app
+//     stays sayable elsewhere); this line never names the app, so the stricter
+//     form is kept here
+//   • bare `should have` — canonical anchors it to "you should have"
+// Coach-facing, but the scan runs with the default (allowAdhd=false) exactly like
+// the sibling coach engagement line (R-335): this scheduling copy never
+// legitimately names ADHD, so the stricter consumer bar is the right default.
+const localExtras = /\b(late|overdue|slack(ing)?|should have)\b/i;
+const hasBanned = (s) => scanDesignLaw(String(s)).length > 0 || localExtras.test(String(s));
 
 // ── router harness (mirrors next-checkin-list.test.js) ───────
 function jsonResponse(data, status = 200) {
@@ -194,18 +218,61 @@ describe('rosterNextCheckinLine — pure helper', () => {
 });
 
 describe('R-234 copy obeys the design LAW (never shame)', () => {
-  const banned = /\b(late|overdue|missed|miss|behind|fail|failed|failure|slack(ing)?|lazy|should have|guilt|shame|AI|diagnos|treat(ment)?|cure)\b/i;
   it('the waiting line carries no shame, no miss tally, no "AI", no clinical claim', () => {
     const s = rosterNextCheckinWaitingCopy();
     expect(typeof s).toBe('string');
     expect(s.length).toBeGreaterThan(0);
-    expect(banned.test(s), `banned word in: "${s}"`).toBe(false);
+    expect(hasBanned(s), `banned word in: "${s}"`).toBe(false);
   });
   it('the waiting line is warmly forward, third-person, not a scold about time passing', () => {
     expect(rosterNextCheckinWaitingCopy().toLowerCase()).toContain('still here');
   });
   it('a rendered future line carries no shame either', () => {
     const line = rosterNextCheckinLine({ iso: '2026-07-12T15:00:00Z', timezone: 'UTC', nowISO: '2026-07-12T12:00:00Z' });
-    expect(banned.test(line), `banned word in: "${line}"`).toBe(false);
+    expect(hasBanned(line), `banned word in: "${line}"`).toBe(false);
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled union silently missed, that the preserved per-surface extras still
+// fire, and — the load-bearing one — that the warm roster next-check-in copy stays
+// clean, so the anti-shame LAW is protected by construction, not by luck.
+describe('the coach roster next-check-in copy is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface union silently missed', () => {
+    // None of these were in the old `banned` union; all are caught by scanDesignLaw now.
+    for (const bad of [
+      'you disappointed me',           // disappoint
+      'that was pathetic',             // pathetic
+      'they feel worthless',           // worthless
+      "they're slipping",              // slipping (never guarded here before)
+      'not this again?!',              // the incredulous again?! (the R-331 dead-regex class)
+      'this is therapy for them',      // therapy (clinical)
+      'a diagnosed disorder',          // disorder (clinical, unguarded before)
+      'take your medication',          // medication (clinical, unguarded before)
+      'built for their ADHD',          // ADHD in consumer copy (unguarded before)
+      'they keep failing',             // failing (the -ing stem the terse union missed)
+      'sheer laziness',                // laziness (only `lazy` was guarded)
+      'it treats the condition',       // treats (only `treat`/`treatment` was guarded)
+    ]) {
+      expect(hasBanned(bad), `should be caught: ${bad}`).toBe(true);
+    }
+  });
+
+  it('still fires on the genuine per-surface extras kept out of the canonical list', () => {
+    for (const bad of ['the check-in is late', 'the check-in is overdue', 'stop slacking', 'they should have started']) {
+      expect(hasBanned(bad), `per-surface extra should fire: ${bad}`).toBe(true);
+    }
+  });
+
+  it('leaves the warm roster next-check-in copy clean (the anti-shame LAW survives)', () => {
+    for (const good of [
+      rosterNextCheckinWaitingCopy(),
+      rosterNextCheckinLine({ iso: '2026-07-12T15:00:00Z', timezone: 'UTC', nowISO: '2026-07-12T12:00:00Z' }),
+      'Still here whenever they’re ready',
+      'when do you want to try again?', // single "?" — the warm reschedule, NOT the eye-roll
+    ]) {
+      expect(hasBanned(good), `warm copy must stay clean: ${good}`).toBe(false);
+    }
   });
 });
