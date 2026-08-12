@@ -18,6 +18,27 @@ import { Router } from 'itty-router';
 import { registerAccountabilityRoutes } from '../accountability.js';
 import { listNextCheckinLabelCopy, listNextCheckinWaitingCopy } from '../me.js';
 import { generateUUID } from '../middleware.js';
+import { scanDesignLaw } from '../design-law.js';
+
+// THE DESIGN LAW is one lexicon now (design-law.js). This person-facing /me/
+// surface used to hand-roll its own banned-word union, which had drifted WEAKER
+// than canonical: it missed `disappoint`, `ashamed`, `pathetic`, `worthless`,
+// `unrespons`, `slipping`, the incredulous `again?!`, `disorder`, `symptom`,
+// `medication`, `therapy`, the bare word `ADHD` (banned in consumer copy), and
+// the fuller shame/clinical stems the terse union missed — `failing`/`fails`
+// (its `fail|failed|failure` never caught the `-ing`/`-s` forms), `laziness`
+// (only `lazy`), and `treats`/`treating` (only `treat`/`treatment`). Route the
+// guard through `scanDesignLaw` (shame + clinical + "AI" branding + consumer-ADHD
+// in one pass) so this /me/ next-check-in copy is held to the same bar as every
+// other surface — while preserving the genuine per-surface extras the canonical
+// list intentionally does NOT carry:
+//   • `late` / `overdue` — the miss-framing this line must never use
+//   • bare `slack(ing)` — canonical only bans "slack off" (so "Slack" the app
+//     stays sayable elsewhere); this line never names the app, so the stricter
+//     form is kept here
+//   • bare `should have` — canonical anchors it to "you should have"
+const localExtras = /\b(late|overdue|slack(ing)?|should have)\b/i;
+const hasBanned = (s) => scanDesignLaw(String(s)).length > 0 || localExtras.test(String(s));
 
 // ── router harness (mirrors kept-log.test.js) ────────────────
 function jsonResponse(data, status = 200) {
@@ -130,17 +151,60 @@ describe('GET /api/commitments — next check-in attached to active words (R-233
 
 describe('R-233 copy obeys the design LAW (never shame)', () => {
   const strings = [listNextCheckinLabelCopy(), listNextCheckinWaitingCopy()];
-  const banned = /\b(late|overdue|missed|miss|behind|fail|failed|failure|slack(ing)?|lazy|should have|guilt|shame|AI|diagnos|treat(ment)?|cure)\b/i;
 
   it('the label and the waiting line carry no shame, no miss tally, no "AI", no clinical claim', () => {
     for (const s of strings) {
       expect(typeof s).toBe('string');
       expect(s.length).toBeGreaterThan(0);
-      expect(banned.test(s), `banned word in: "${s}"`).toBe(false);
+      expect(hasBanned(s), `banned word in: "${s}"`).toBe(false);
     }
   });
 
   it('the waiting line is warmly forward, not a scold about time passing', () => {
     expect(listNextCheckinWaitingCopy().toLowerCase()).toContain('still here');
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled union silently missed, that the preserved per-surface extras still
+// fire, and — the load-bearing one — that the warm next-check-in copy stays clean,
+// so the anti-shame LAW is protected by construction, not by luck.
+describe('the /me/ next-check-in copy is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface union silently missed', () => {
+    // None of these were in the old `banned` union; all are caught by scanDesignLaw now.
+    for (const bad of [
+      'you disappointed me',           // disappoint
+      'that was pathetic',             // pathetic
+      'you feel worthless',            // worthless
+      "you're slipping",               // slipping (never guarded here before)
+      'not this again?!',              // the incredulous again?! (the R-331 dead-regex class)
+      'this is therapy for you',       // therapy (clinical)
+      'a diagnosed disorder',          // disorder (clinical, unguarded before)
+      'take your medication',          // medication (clinical, unguarded before)
+      'built for your ADHD',           // ADHD in consumer copy (unguarded before)
+      'you keep failing',              // failing (the -ing stem the terse union missed)
+      'sheer laziness',                // laziness (only `lazy` was guarded)
+      'it treats the condition',       // treats (only `treat`/`treatment` was guarded)
+    ]) {
+      expect(hasBanned(bad), `should be caught: ${bad}`).toBe(true);
+    }
+  });
+
+  it('still fires on the genuine per-surface extras kept out of the canonical list', () => {
+    for (const bad of ['the taxes are late', 'the taxes are overdue', 'stop slacking', 'you should have started']) {
+      expect(hasBanned(bad), `per-surface extra should fire: ${bad}`).toBe(true);
+    }
+  });
+
+  it('leaves the warm next-check-in copy clean (the anti-shame LAW survives)', () => {
+    for (const good of [
+      listNextCheckinLabelCopy(),
+      listNextCheckinWaitingCopy(),
+      'Still here whenever you’re ready',
+      'when do you want to try again?', // single "?" — the warm reschedule, NOT the eye-roll
+    ]) {
+      expect(hasBanned(good), `warm copy must stay clean: ${good}`).toBe(false);
+    }
   });
 });
