@@ -10,6 +10,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { runDueCheckins, runEscalations, deliverCheckin, isPermanentDeliveryError, MAX_ATTEMPTS, ESCALATION_DELAY_MIN } from '../checkins-cron.js';
+import { checkinPromptCopy, checkinReplyHint, escalationCopy, returnNudgeCopy } from '../accountability.js';
+import { scanDesignLaw } from '../design-law.js';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `consent` is the row returned for the contact_consent gate query. It defaults
@@ -319,14 +321,39 @@ describe('permanent vs. transient delivery errors', () => {
   });
 });
 
-describe('THE DESIGN LAW — the delivered copy never shames', () => {
-  const BANNED = [
-    'fail', 'failed', 'failure', 'missed', 'miss', 'behind', 'lazy', 'again you',
-    'disappointed', 'streak lost', 'you didn', 'guilt', 'shame', 'should have',
-  ];
-  const CLINICAL = ['treat', 'treatment', 'cure', 'diagnos', 'disorder', 'symptom', 'patient', 'therapy'];
+// THE DESIGN LAW is ONE lexicon now (design-law.js). The copy this cron puts on
+// the wire used to be guarded by a hand-rolled BANNED/CLINICAL substring pair
+// local to this file, which had drifted WEAKER than canonical in two ways:
+//   • substring matching with no word boundaries — its bare `miss` would false-
+//     match "permission"/"dismiss", while its `fail` list ('fail'/'failed'/
+//     'failure') never caught the `-ing`/`-s` stems ('failing'/'fails'), `lazy`
+//     never caught `laziness`, and `treat`/`treatment` never caught
+//     `treats`/`treating`.
+//   • whole framings it never listed at all: `disappoint`, `ashamed`, `pathetic`,
+//     `worthless`, `unrespons`, `slipping`, the incredulous `again?!` (the R-331
+//     dead-regex class), `excuse`, `fall(ing) behind`, plus the clinical
+//     `medication` and the consumer-banned bare `ADHD`.
+// Route the delivered SMS bodies through `scanDesignLaw` (shame + clinical + "AI"
+// branding + consumer-ADHD in one pass) so this delivery surface is held to the
+// exact same bar as every other. The scan runs on the RAW body (never lowercased)
+// so its case-sensitive `\bAI\b` guard stays meaningful. The genuine per-surface
+// extras the canonical list intentionally does NOT carry are preserved locally:
+//   • `streak lost` — this delivery copy must never tally a broken streak
+//     (canonical has no streak concept)
+//   • `again you` — the "again you…" scold framing specific to a nudge
+//   • bare `should have` — canonical anchors it to "you should have"
+// One word the OLD local list carried is deliberately DROPPED, not preserved:
+//   • bare `patient` — canonical intentionally omits it so warm copy can say
+//     "be patient with yourself"; re-banning it here would contradict the LAW and
+//     risk a false positive on legitimately warm copy.
+const localExtras = /\bstreak lost\b|\bagain you\b|\bshould have\b/i;
+const scanDelivered = (s) => [
+  ...scanDesignLaw(String(s)).map((v) => v.kind),
+  ...(localExtras.test(String(s)) ? ['per-surface-extra'] : []),
+];
 
-  it('puts only ally copy on the wire (both personas), with no AI/clinical words', async () => {
+describe('THE DESIGN LAW — the delivered copy never shames', () => {
+  it('puts only ally copy on the wire (both personas), guarded by the ONE canonical scanner', async () => {
     for (const persona of ['ally', 'hype']) {
       const bodies = [];
       vi.stubGlobal('fetch', vi.fn(async (url, init) => {
@@ -338,10 +365,53 @@ describe('THE DESIGN LAW — the delivered copy never shames', () => {
       vi.unstubAllGlobals();
 
       expect(bodies.length).toBe(1);
-      const text = bodies[0].toLowerCase();
-      for (const w of BANNED) expect(text, `banned "${w}" in: ${bodies[0]}`).not.toContain(w);
-      for (const w of CLINICAL) expect(text, `clinical "${w}" in: ${bodies[0]}`).not.toContain(w);
-      expect(text).not.toMatch(/\bai\b/);
+      // RAW body (not lowercased) so the case-sensitive `\bAI\b` guard is meaningful.
+      expect(scanDelivered(bodies[0]), `design-LAW violation in delivered copy: ${bodies[0]}`).toEqual([]);
+    }
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled substring pair silently missed, that the preserved per-surface
+// extras still fire, and — the load-bearing one — that the warm copy this cron
+// actually emits (the check-in nudge + reply hint, the escalation knock, the
+// return nudge) stays clean, so the anti-shame LAW is protected by construction.
+describe('the delivered check-in copy is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface substring list silently missed', () => {
+    for (const bad of [
+      'you disappointed me',        // disappoint — never listed
+      'that was pathetic',          // pathetic — never listed
+      'you feel worthless',         // worthless — never listed
+      "you're slipping",            // slipping — never listed
+      'not this again?!',           // the incredulous again?! (the R-331 dead-regex class)
+      'no more excuses',            // excuse — never listed
+      'take your medication',       // medication (clinical, unlisted)
+      'built for your ADHD',        // consumer-banned bare ADHD
+      'you keep failing',           // failing — the -ing stem the terse `fail` list missed
+      'sheer laziness',             // laziness — only `lazy` was listed
+      'it treats the condition',    // treats — only `treat`/`treatment` was listed
+    ]) {
+      expect(scanDelivered(bad).length, `should be caught: ${bad}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('still fires on the genuine per-surface extras kept out of the canonical list', () => {
+    for (const bad of ['your streak lost', 'again you skipped it', 'you should have started']) {
+      expect(scanDelivered(bad).length, `per-surface extra should fire: ${bad}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves the warm copy this cron emits clean (the anti-shame LAW survives)', () => {
+    for (const good of [
+      `${checkinPromptCopy({ title: 'start the taxes', persona: 'ally' })}\n\n${checkinReplyHint('ally')}`,
+      `${checkinPromptCopy({ title: 'start the taxes', persona: 'hype' })}\n\n${checkinReplyHint('hype')}`,
+      escalationCopy({ title: 'start the taxes', persona: 'ally' }),
+      escalationCopy({ title: 'start the taxes', persona: 'hype' }),
+      returnNudgeCopy({ persona: 'ally' }),
+      returnNudgeCopy({ persona: 'hype' }),
+    ]) {
+      expect(scanDelivered(good).length, `warm copy must stay clean: ${good}`).toBe(0);
     }
   });
 });
