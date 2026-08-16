@@ -35,6 +35,7 @@ import {
   COACH_CADENCES,
   COACH_VOICE_PERSONAS,
 } from '../coach-onboarding.js';
+import { scanDesignLaw } from '../design-law.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -204,12 +205,12 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
       validateCheckinScript('treat your disorder').reason,
       validateCheckinScript('the AI calls you').reason,
     ];
-    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
-    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i];
+    // Held to the ONE canonical bar (shame + clinical + "AI" + consumer-ADHD in
+    // one pass). The old local list here was the WEAKEST of the four — its
+    // CLINICAL regexes omitted `cure`, `therapy`, AND `medication`, and its SHAME
+    // list omitted `disappoint`/`pathetic`/`worthless`/`unrespons`/`slipping`.
     for (const s of reasons) {
-      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
     }
   });
 });
@@ -249,12 +250,10 @@ describe('validateBrandName — the design LAW on the coach\'s white-label', () 
       validateBrandName('ADHD Cure Partners').reason,
       validateBrandName('AI Accountability').reason,
     ];
-    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
-    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\btherapy\b/i, /\bADHD\b/i];
+    // Same ONE canonical bar. The old local list here omitted `cure` and
+    // `medication` from CLINICAL (and the fuller shame framings from SHAME).
     for (const s of reasons) {
-      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
     }
   });
 });
@@ -290,26 +289,67 @@ describe('validateSupportEmail — the design LAW on the coach\'s white-label su
       validateSupportEmail('cure-your-adhd@clinic.com').reason,
       validateSupportEmail('the-AI-desk@coach.com').reason,
     ];
-    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
-    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\btherapy\b/i, /\bADHD\b/i];
+    // Same ONE canonical bar. The old local list here omitted `medication` from
+    // CLINICAL (and the fuller shame framings from SHAME).
     for (const s of reasons) {
-      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
     }
   });
 });
 
 describe('coachOnboardingCopySurface — never shames, brands "AI", or goes clinical', () => {
-  const SHAME = [/\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bshame\b/i, /\bguilt/i, /\bbehind\b/i, /\bmiss(ed|es|ing)?\b/i, /\bpathetic\b/i, /\bworthless\b/i];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-  it('passes every battery', () => {
-    for (const s of coachOnboardingCopySurface()) {
+  it('passes every battery — via the ONE canonical scanner', () => {
+    // The onboarding copy surface (intro + labels + the warm validation-feedback
+    // reasons) is held to the SAME canonical bar as every other surface. The old
+    // local list here omitted `therapy` from CLINICAL. `allowAdhd` stays false
+    // (default): this copy never legitimately names ADHD, so the stricter
+    // consumer bar is correct — exactly what the old list's bare `\bADHD\b` did.
+    const surface = coachOnboardingCopySurface();
+    expect(surface.length).toBeGreaterThan(0);
+    for (const s of surface) {
       expect(typeof s).toBe('string');
       expect(s.length).toBeGreaterThan(0);
-      for (const p of SHAME) expect(p.test(s), `shame in copy: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in copy: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in copy: "${s}"`).toBe(false);
+      // RAW string (not lowercased) so the case-sensitive `\bAI\b` guard is meaningful.
+      expect(scanDesignLaw(s), `design-LAW violation in copy: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS these surfaces ──
+// The four hand-rolled SHAME/CLINICAL/AI arrays this file used to carry (one per
+// reason/copy battery above) had each drifted WEAKER than canonical, and — unlike
+// the consent fold (R-339) — they carried NO genuine per-surface extras at all:
+// every regex in them is a strict subset of `scanDesignLaw`, so routing straight
+// through the canonical scanner loses nothing and closes real holes:
+//   • the checkin-script battery missed `cure` / `therapy` / `medication`;
+//   • the brand-name battery missed `cure` / `medication`;
+//   • the support-email battery missed `medication`;
+//   • the copy-surface battery missed `therapy`;
+//   • all four missed the fuller shame framings `disappoint` / `unrespons` /
+//     `slipping` (and the incredulous `again?!`).
+// Pins that the canonical scanner catches each of those, and that the warm copy
+// this module actually emits stays clean. Verified load-bearing by mutation:
+// revert any block above to its old subset list and its "missed framing" here
+// still trips canonical while the old list would have let it pass.
+describe('the coach-onboarding surfaces are guarded by the ONE canonical design-LAW scanner (never shame/clinical)', () => {
+  it('catches shame/clinical framings the old per-surface subset lists silently missed', () => {
+    for (const bad of [
+      'let us cure your focus',    // cure — missed by the checkin/support batteries' old CLINICAL
+      'book a therapy session',    // therapy — missed by the checkin & copy-surface batteries
+      'take your medication',      // medication — missed by ALL FOUR old lists
+      'you keep disappointing me',  // disappoint — never listed in any local SHAME
+      "you've been unresponsive",   // unrespons — never listed
+      "you're slipping again",      // slipping — never listed
+      'not this again?!',           // the incredulous again?! (the R-331 dead-regex class)
+      'built for your ADHD',        // consumer-banned bare ADHD (default allowAdhd=false)
+    ]) {
+      expect(scanDesignLaw(bad).length, `should be caught: ${bad}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves the warm coach-onboarding copy this module emits clean (the anti-shame LAW survives)', () => {
+    for (const good of coachOnboardingCopySurface()) {
+      expect(scanDesignLaw(good).length, `warm copy must stay clean: ${good}`).toBe(0);
     }
   });
 });
