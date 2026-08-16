@@ -1322,6 +1322,41 @@ export function milestoneCopy({ streak } = {}) {
   return `🎯 ${cur} kept words in a row — that’s a real milestone. Proud of you.`;
 }
 
+/** Lifetime kept-word totals worth a distinct "you've kept this many, ever" mark. */
+export const KEPT_TOTAL_LANDMARKS = [10, 25, 50, 100, 250, 500, 1000];
+
+/**
+ * A LIFETIME-landmark badge for the kept-word total — the one number in the whole
+ * product that can only ever go up. Where {@link milestoneCopy} marks a current
+ * RUN (which a single miss resets to zero) and {@link personalBestCopy} marks
+ * being AT your all-time peak (which a decline takes away), this marks the
+ * cumulative count of every word you have EVER kept crossing a landmark
+ * ({@link KEPT_TOTAL_LANDMARKS}).
+ *
+ * Anti-shame not just by wording but by ARITHMETIC: it reads `total_kept`, which
+ * {@link computeStreakAfter} increments on a kept word and NEVER decrements — a
+ * miss silently resets the run but never touches the lifetime total. So this line
+ * can only ever appear on the way UP; no reset, quiet stretch, or missed word can
+ * ever take a reached landmark away. It is the celebration that survives every
+ * reset — for the person whose run keeps returning to zero, it is the count that
+ * only grows.
+ *
+ * Fires ONLY when the lifetime total is EXACTLY a landmark, '' otherwise — so a
+ * between-landmarks total carries nothing: never a "N to go" nag, never a
+ * distance-to-next, never a reference to a gap or a past. Independent of both
+ * streak celebrations and free to co-occur with either: you can cross your 100th
+ * kept word (a lifetime landmark) while your current run is 4 and your best is 30
+ * — three true, unshaming wins that each say something different.
+ *
+ * @param {object} p { streak: { total_kept } }
+ * @returns {string} the landmark line, or '' when not exactly at a landmark
+ */
+export function keptTotalLandmarkCopy({ streak } = {}) {
+  const total = Number(streak?.total_kept) || 0;
+  if (!KEPT_TOTAL_LANDMARKS.includes(total)) return '';
+  return `🏅 ${total} words kept, all-time — every word you’ve ever shown up for. This number only ever grows. Proud of you.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -3271,6 +3306,11 @@ export function registerAccountabilityRoutes(router, ctx) {
         message: streakSummaryCopy({ streak }),
         best: personalBestCopy({ streak }),
         milestone: milestoneCopy({ streak }),
+        // The lifetime-total landmark (10/25/50/100/250/500/1000 words kept ever).
+        // Reads total_kept, which only ever grows, so — unlike best/milestone (both
+        // current-run signals that a miss can zero) — this celebration can never be
+        // taken away once reached. '' between landmarks, so it never nags.
+        landmark: keptTotalLandmarkCopy({ streak }),
       }, 200, 'short');
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
