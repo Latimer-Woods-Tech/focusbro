@@ -36,6 +36,7 @@ import {
   coachOperatorRosterCopySurface,
 } from '../coach-operator-roster.js';
 import { momentumMovingThisWeek, clientMovingThisWeekCopy } from '../coach.js';
+import { scanDesignLaw } from '../design-law.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -990,17 +991,68 @@ describe('buildOperatorRoster — surfaces a client\'s "I\'m on it" lean-in, as 
   });
 });
 
-describe('coachOperatorRosterCopySurface — never shames, brands "AI", or goes clinical', () => {
-  const SHAME = [/\bfail/i, /\blaz/i, /\bshame/i, /\bbehind\b/i, /\bmiss(ed|es|ing)?\b/i, /\bguilt/i, /\bdisappoint/i];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i];
-  const AI = /\bAI\b/;
+// ── THE DESIGN LAW is one lexicon now (design-law.js) ──────────────────────────
+// This coach-facing operator-roster surface was the LAST copy surface in the suite
+// still guarded by its OWN hand-rolled SHAME/CLINICAL arrays, and both had drifted a
+// WEAKER subset of canonical: the shame list missed `ashamed`/`pathetic`/`worthless`/
+// `unrespons`/`slipping`/the incredulous `again?!`/`excuse`/`slack off`/`fall behind`/
+// `you should have`, and the clinical list missed `medication` and `therapy`. (Its
+// broad `\bfail`/`\blaz` prefixes and its `\bAI\b` check were already >= canonical,
+// so nothing is lost.) Every local regex is a strict subset of canonical — no genuine
+// per-surface extra — so routing straight through `scanDesignLaw` loses nothing and
+// closes real holes. This retires the last hand-rolled design-LAW list in the suite:
+// every copy surface now derives its guard from one source of truth.
+//
+// allowAdhd:false (default): this is coach-facing DISPLAY copy (dashboard intro,
+// status/milestone lines) that never legitimately names ADHD, exactly matching the
+// old list's bare `\bADHD\b` ban — so holding it to the stricter consumer bar loses
+// nothing.
+describe('coachOperatorRosterCopySurface — the ONE canonical design-LAW scanner (never shames, brands "AI", or goes clinical)', () => {
+  const hasBanned = (s) => scanDesignLaw(String(s), { allowAdhd: false }).length > 0;
 
-  it('passes every battery', () => {
+  it('every roster copy string passes the canonical scanner', () => {
     for (const line of coachOperatorRosterCopySurface()) {
       expect(typeof line).toBe('string');
-      for (const p of SHAME) expect(p.test(line)).toBe(false);
-      for (const p of CLINICAL) expect(p.test(line)).toBe(false);
-      expect(AI.test(line)).toBe(false);
+      expect(hasBanned(line), `roster copy must stay clean: ${line}`).toBe(false);
+    }
+  });
+
+  // proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface.
+  it('catches shame/clinical framings the old hand-rolled subset silently missed', () => {
+    for (const bad of [
+      'you disappointed me',      // disappoint — was guarded
+      'that was pathetic',        // pathetic — MISSED before
+      'they feel worthless',      // worthless — MISSED before
+      "they're slipping",         // slipping — MISSED before
+      'not this again?!',         // again?! — MISSED before (the R-331 dead-regex class)
+      'no excuses',               // excuse — MISSED before
+      'stop slacking off',        // slack off — MISSED before
+      'falling behind',           // fall behind — MISSED before
+      'you should have started',  // you should have — MISSED before
+      'this is therapy for them', // therapy — MISSED before (clinical)
+      'take your medication',     // medication — MISSED before (clinical)
+      'built for their ADHD',     // ADHD in consumer copy
+      'they keep failing',        // failing — the -ing stem
+      'sheer laziness',           // laziness
+    ]) {
+      expect(hasBanned(bad), `should be caught: ${bad}`).toBe(true);
+    }
+  });
+
+  it('proves the fold is load-bearing: canonical catches `medication`/`therapy` where the old clinical subset did not', () => {
+    const oldClinicalSubset = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i];
+    for (const missed of ['remember your medication', 'this is therapy for them']) {
+      expect(oldClinicalSubset.some((p) => p.test(missed))).toBe(false); // old list: a hole
+      expect(hasBanned(missed), `canonical must catch: ${missed}`).toBe(true); // canonical: caught
+    }
+  });
+
+  it('leaves the warm roster copy clean (the anti-shame LAW survives)', () => {
+    for (const good of [
+      'when do you want to try again?', // single "?" — the warm reschedule, NOT the eye-roll
+      'Still here whenever you’re ready',
+    ]) {
+      expect(hasBanned(good), `warm copy must stay clean: ${good}`).toBe(false);
     }
   });
 });
