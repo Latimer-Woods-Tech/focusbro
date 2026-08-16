@@ -15,6 +15,7 @@ import {
   normalizePhone, evaluateContactGate, consentCopySurface,
   verifyTelnyxSignature,
 } from '../consent.js';
+import { scanDesignLaw } from '../design-law.js';
 
 function bytesToB64(bytes) {
   return btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -160,21 +161,85 @@ describe('evaluateContactGate (delivery gate)', () => {
   });
 });
 
-describe('THE DESIGN LAW — no consent string ever shames', () => {
-  const BANNED = [
-    'fail', 'failed', 'failure', 'missed', 'miss', 'behind', 'lazy',
-    'disappointed', 'guilt', 'shame', 'should have', 'you didn', 'permission',
-  ];
-  const CLINICAL = ['treat', 'treatment', 'cure', 'diagnos', 'disorder', 'symptom', 'patient', 'therapy'];
+// THE DESIGN LAW is ONE lexicon now (design-law.js). Every consent-surface
+// string used to be guarded by a hand-rolled BANNED/CLINICAL substring pair
+// local to this file, and `.toContain()` matching had drifted WEAKER than
+// canonical in two ways:
+//   • substring matching with no word boundaries — its bare `miss` false-matched
+//     "permission"/"dismiss" (a false POSITIVE), while `lazy` never caught
+//     `laziness` and the clinical list never listed `medication`.
+//   • whole framings it never listed at all: `pathetic`, `worthless`, `slipping`,
+//     `unrespons`, the incredulous `again?!` (the R-331 dead-regex class),
+//     `excuse`, plus the consumer-banned bare `ADHD`.
+// Route every consent-surface string through `scanDesignLaw` (shame + clinical +
+// "AI" branding + consumer-ADHD in one pass) so this surface is held to the exact
+// same bar as every other. The scan runs on the RAW string (never lowercased) so
+// its case-sensitive `\bAI\b` guard stays meaningful.
+//
+// The one genuine per-surface extra canonical intentionally does NOT carry is
+// preserved locally so the fold never WEAKENS this surface:
+//   • bare `should have` — canonical anchors it to "you should have"; this
+//     surface's old list guarded the bare form, so keep it.
+// Two words the OLD local list carried are deliberately DROPPED, not preserved:
+//   • bare `patient` — canonical intentionally omits it so warm copy can say "be
+//     patient with yourself"; re-banning it here would contradict the LAW.
+//   • bare `permission` — not a shame/clinical/"AI"/ADHD concern at all (it was
+//     only ever collateral from the old bare-`miss` substring, which canonical's
+//     word-boundary `\bmiss…\b` deliberately stopped matching); guarding a
+//     non-design-LAW word on one surface is exactly the drift this fold ends.
+const localExtras = /\bshould have\b/i;
+const scanConsent = (s) => [
+  ...scanDesignLaw(String(s)).map((v) => v.kind),
+  ...(localExtras.test(String(s)) ? ['per-surface-extra'] : []),
+];
 
-  it('every consent-surface string is warm, non-clinical, and has no bare "AI"', () => {
+describe('THE DESIGN LAW — no consent string ever shames', () => {
+  it('every consent-surface string is warm, non-clinical, no bare "AI", no consumer "ADHD" — via the ONE canonical scanner', () => {
     const surface = consentCopySurface();
     expect(surface.length).toBeGreaterThan(10);
     for (const raw of surface) {
-      const s = String(raw).toLowerCase();
-      for (const w of BANNED) expect(s, `banned "${w}" in: ${raw}`).not.toContain(w);
-      for (const w of CLINICAL) expect(s, `clinical "${w}" in: ${raw}`).not.toContain(w);
-      expect(s, `bare AI in: ${raw}`).not.toMatch(/\bai\b/);
+      // RAW string (not lowercased) so the case-sensitive `\bAI\b` guard is meaningful.
+      expect(scanConsent(raw), `design-LAW violation in consent copy: ${raw}`).toEqual([]);
+    }
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled substring pair silently missed, that the preserved per-surface
+// extra still fires, and — the load-bearing one — that the warm consent copy this
+// module actually emits stays clean, so the anti-shame LAW is protected by
+// construction. Verified load-bearing by mutation (both reverted):
+//   • drop the scanDesignLaw half → "catches missed framings" goes red.
+//   • drop the local-extras half  → "per-surface extra" goes red.
+describe('the consent surface is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface substring list silently missed', () => {
+    for (const bad of [
+      'that was pathetic',        // pathetic — never listed
+      'you feel worthless',       // worthless — never listed
+      "you're slipping",          // slipping — never listed
+      'not this again?!',         // the incredulous again?! (the R-331 dead-regex class)
+      'no more excuses',          // excuse — never listed
+      'take your medication',     // medication (clinical, unlisted)
+      'built for your ADHD',      // consumer-banned bare ADHD
+      'sheer laziness',           // laziness — only bare `lazy` was listed
+      'you were unresponsive',    // unrespons — never listed
+    ]) {
+      expect(scanConsent(bad).length, `should be caught: ${bad}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('still fires on the genuine per-surface extra kept out of the canonical list', () => {
+    // Canonical anchors "should have" to "you should have"; the bare form is this
+    // surface's local extra, so it must still trip without a preceding "you".
+    expect(scanConsent('it should have been easier').length, 'per-surface extra should fire').toBeGreaterThan(0);
+    // ...and canonical alone does NOT catch the bare form — proving the extra is load-bearing.
+    expect(scanDesignLaw('it should have been easier').length).toBe(0);
+  });
+
+  it('leaves the warm consent copy this module emits clean (the anti-shame LAW survives)', () => {
+    for (const good of consentCopySurface()) {
+      expect(scanConsent(good).length, `warm copy must stay clean: ${good}`).toBe(0);
     }
   });
 });
