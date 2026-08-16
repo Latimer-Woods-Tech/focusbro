@@ -33,6 +33,7 @@ import {
   personalBestCopy,
   milestoneCopy,
   keptTotalLandmarkCopy,
+  personalRecordCopy,
   inAppWhenExamplesText,
 } from './accountability.js';
 
@@ -422,6 +423,8 @@ export function meCopySurface() {
     milestoneCopy({ streak: { current_streak: 100 } }),
     keptTotalLandmarkCopy({ streak: { total_kept: 10 } }),
     keptTotalLandmarkCopy({ streak: { total_kept: 1000 } }),
+    personalRecordCopy({ streak: { current_streak: 0, longest_streak: 2 } }),
+    personalRecordCopy({ streak: { current_streak: 0, longest_streak: 42 } }),
     labels.kept, labels.missed, labels.reschedule,
     keptWithNoteActionLabel(),
     keptNotePromptCopy(),
@@ -524,6 +527,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <div class="streakbest hidden" id="streakBest"></div>
     <div class="streakmilestone hidden" id="streakMilestone"></div>
     <div class="streaklandmark hidden" id="streakLandmark"></div>
+    <div class="streakrecord hidden" id="streakRecord"></div>
   </div>
 
   <div class="card">
@@ -764,6 +768,19 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       var lline = (data && data.landmark) || '';
       land.textContent = lline;
       if (lline) { land.classList.remove('hidden'); } else { land.classList.add('hidden'); }
+    }
+    // Standing all-time record: shown ONLY when the server sends a non-empty line
+    // (current run is at zero AND there's a best run of 2+ on record). This is the
+    // one line that speaks at a fresh start, where message/best/milestone all go
+    // quiet — the strongest run held as a permanent record a reset can't revoke.
+    // Anti-shame by construction: it fires only with no current run to compare
+    // against, and the API returns '' the instant a run is going, so it never sits
+    // beside — or nags about — a live streak.
+    var rec = el('streakRecord');
+    if (rec) {
+      var rline = (data && data.record) || '';
+      rec.textContent = rline;
+      if (rline) { rec.classList.remove('hidden'); } else { rec.classList.add('hidden'); }
     }
   }
 

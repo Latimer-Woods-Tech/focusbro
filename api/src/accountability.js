@@ -1357,6 +1357,43 @@ export function keptTotalLandmarkCopy({ streak } = {}) {
   return `🏅 ${total} words kept, all-time — every word you’ve ever shown up for. This number only ever grows. Proud of you.`;
 }
 
+/**
+ * The STANDING all-time record for the kept-word streak — your strongest run,
+ * shown as a permanent record that a reset can never revoke. This fills the one
+ * gap the other three streak lines leave open: at `current_streak === 0` (a fresh
+ * start, or the moment right after a miss zeroes the run) {@link streakSummaryCopy}
+ * says only "fresh start", and {@link personalBestCopy} / {@link milestoneCopy}
+ * both go silent — so the person's genuine best run (a real thing they achieved)
+ * becomes completely invisible at the single most shame-prone moment in the
+ * product ("I lost my streak"). This surfaces it there, as reassurance.
+ *
+ * Anti-shame not just by wording but by ARITHMETIC and by GATING:
+ * - `longest_streak` is monotonic — {@link computeStreakAfter} only ever raises it
+ *   (a miss resets the run but never lowers the best), so this line, like the
+ *   lifetime landmark, can only ever describe a number on the way up; no reset can
+ *   take a reached record away.
+ * - It fires ONLY at `current_streak === 0`. That is deliberate: it never sits
+ *   beside a live run (where {@link streakSummaryCopy} already narrates the best
+ *   inline, and where a "your record is N but you're at M" juxtaposition would be
+ *   exactly the decline-comparison the LAW forbids). At zero there is no current
+ *   run to compare against, so the record stands alone — a standing achievement,
+ *   never a gap. It names the record and frames it as permanent ("yours to keep",
+ *   "a fresh start never takes it back"); it never references the reset, a decline,
+ *   a "you were better", or a distance to anything.
+ *
+ * Requires `longest_streak >= 2` (a run of one isn't a record worth naming),
+ * matching {@link personalBestCopy}'s "worth marking" bar. Returns '' otherwise.
+ *
+ * @param {object} p { streak: { current_streak, longest_streak } }
+ * @returns {string} the standing-record line, or '' when there's no record to hold
+ */
+export function personalRecordCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  const best = Number(streak?.longest_streak) || 0;
+  if (cur !== 0 || best < 2) return '';
+  return `🛡️ Your best run stands: ${best} words kept in a row — the strongest you’ve ever put together, and it’s yours to keep. A fresh start never takes it back.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -3311,6 +3348,12 @@ export function registerAccountabilityRoutes(router, ctx) {
         // current-run signals that a miss can zero) — this celebration can never be
         // taken away once reached. '' between landmarks, so it never nags.
         landmark: keptTotalLandmarkCopy({ streak }),
+        // The STANDING all-time record — the strongest run, shown ONLY at a fresh
+        // start (current_streak === 0), where the summary/best/milestone lines all
+        // go quiet. Reads longest_streak (monotonic; a reset never lowers it), so
+        // it can only describe a record on the way up, and it stands alone with no
+        // current run to compare against — reassurance, never a decline.
+        record: personalRecordCopy({ streak }),
       }, 200, 'short');
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
