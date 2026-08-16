@@ -71,6 +71,8 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .streaklandmark { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--warn-light); background: var(--warn-dim); border: 1px solid rgba(245, 158, 11, 0.30); }
   /* Standing all-time record — the strongest run held as a permanent record, shown only at a fresh start; a purple accent distinct from the blue best, green milestone, and gold landmark. */
   .streakrecord { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--purple); background: rgba(167, 139, 250, 0.12); border: 1px solid rgba(167, 139, 250, 0.30); }
+  /* Power hours — the warm "you're strongest around N" read; a teal accent, distinct from the streak badges, matching its own insight card. */
+  .powerhours { margin-top: 6px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--teal); background: rgba(20, 184, 166, 0.12); border: 1px solid rgba(20, 184, 166, 0.30); }
   .name { font-weight: 600; color: var(--text); }
   .line { color: var(--text-muted); font-size: 14px; }
   .when { color: var(--text-dim); font-size: 13px; }
