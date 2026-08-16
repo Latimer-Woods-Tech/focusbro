@@ -20,7 +20,11 @@
 // ════════════════════════════════════════════════════════════
 
 import { generateUUID } from './middleware.js';
-import { buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS } from './momentum.js';
+import {
+  buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS,
+  bucketKeptByHour, peakKeptHour, describeHourBand,
+  POWER_HOURS_WINDOW_DAYS,
+} from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
@@ -1392,6 +1396,45 @@ export function personalRecordCopy({ streak } = {}) {
   const best = Number(streak?.longest_streak) || 0;
   if (cur !== 0 || best < 2) return '';
   return `🛡️ Your best run stands: ${best} words kept in a row — the strongest you’ve ever put together, and it’s yours to keep. A fresh start never takes it back.`;
+}
+
+// ── POWER HOURS ──────────────────────────────────────────────
+// The person's own read of WHEN in the day their kept words tend to land — the
+// insight the per-day momentum sparkline can't give. The histogram math + the
+// signal gate live in ./momentum.js (bucketKeptByHour, peakKeptHour); the warm
+// first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever point at an hour you SHOWED UP — never a quiet hour, never a "you get
+// nothing done after lunch". It names a single high point as a strength to lean
+// into, and fires ONLY when peakKeptHour clears its signal gate — a thin or flat
+// history returns null → '' here, never a guess.
+
+/** Heading over the person's power-hours read. */
+export function powerHoursHeadingCopy() {
+  return 'Your power hours';
+}
+
+/** Intro under the power-hours heading — first person, strengths-only by design. */
+export function powerHoursIntroCopy() {
+  return 'The time of day your kept words tend to land. Only ever your strong hours — a quiet hour is just quiet, never counted against you.';
+}
+
+/**
+ * Warm one-line "power hours" read: names the hour of day the person is strongest,
+ * from a peak-hour object (see {@link peakKeptHour}). Anti-shame by CONSTRUCTION —
+ * it points only at a time they kept their word and frames it as a window to lean
+ * into, never a deficit, a comparison, or the hours they missed. Returns '' when
+ * there is no trustworthy power hour to name (the gate returned null).
+ * @param {object} p
+ * @param {{ hour:number, count:number } | null} p.peak  from {@link peakKeptHour}
+ * @returns {string}
+ */
+export function powerHoursCopy({ peak } = {}) {
+  if (!peak || typeof peak.hour !== 'number') return '';
+  const when = describeHourBand(peak.hour);
+  if (!when) return '';
+  return `You’re strongest around ${when} — that’s where most of your kept words land. Lean into it. 💪`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3451,11 +3494,29 @@ export function registerAccountabilityRoutes(router, ctx) {
         summary: momentumSelfSummaryCopy,
       });
 
+      // ── Your power hours (kept-word count by local hour over a wider window) ──
+      // A time-of-day pattern needs more history than the 14-day sparkline to be
+      // honest, so this reads its own POWER_HOURS_WINDOW_DAYS window and buckets
+      // by local wall-clock hour. DESIGN LAW: status='kept' ONLY (same as every
+      // read here) → it can only ever name an hour the person SHOWED UP, and the
+      // peak gate keeps a thin/flat history from getting an arbitrary "power hour".
+      const powerCutoffISO = new Date(Date.parse(nowISO) - (POWER_HOURS_WINDOW_DAYS + 1) * 86400000).toISOString();
+      const powerRows = await env.DB.prepare(
+        `SELECT responded_at FROM commitment_checkins
+          WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL AND responded_at >= ?
+          ORDER BY responded_at DESC
+          LIMIT 2000`
+      ).bind(auth.userId, powerCutoffISO).all();
+      const powerTimestamps = ((powerRows && powerRows.results) || []).map((r) => r.responded_at);
+      const powerPeak = peakKeptHour(bucketKeptByHour({ timestamps: powerTimestamps, timezone: momentumTz }));
+      const powerHours = powerHoursCopy({ peak: powerPeak });
+
       return jsonResponse({
         kept: keptList,
         latest_note: latestNote,
         total_kept: total,
         momentum,
+        power_hours: powerHours,
         message: keptLogCopy({ total }),
       }, 200, 'short');
     } catch (err) {

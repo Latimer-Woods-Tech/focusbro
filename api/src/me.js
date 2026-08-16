@@ -26,6 +26,9 @@ import {
   momentumSelfHeadingCopy,
   momentumSelfIntroCopy,
   momentumSelfSummaryCopy,
+  powerHoursHeadingCopy,
+  powerHoursIntroCopy,
+  powerHoursCopy,
   detailMomentumHeadingCopy,
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
@@ -451,6 +454,13 @@ export function meCopySurface() {
     momentumSelfSummaryCopy({ total: 0, days: 14 }),
     momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
     momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
+    powerHoursHeadingCopy(),
+    powerHoursIntroCopy(),
+    powerHoursCopy({ peak: { hour: 9, count: 5 } }),
+    powerHoursCopy({ peak: { hour: 14, count: 8 } }),
+    powerHoursCopy({ peak: { hour: 22, count: 4 } }),
+    powerHoursCopy({ peak: { hour: 0, count: 3 } }),
+    powerHoursCopy({ peak: { hour: 12, count: 6 } }),
     latestKeptNoteLabelCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
@@ -577,6 +587,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${momentumSelfHeadingCopy()}</h2>
     <div id="momentum"></div>
     <p class="latest-note hidden" id="latestNote"></p>
+  </div>
+
+  <div class="card hidden" id="powerHoursCard">
+    <h2>${powerHoursHeadingCopy()}</h2>
+    <p class="muted">${powerHoursIntroCopy()}</p>
+    <p class="powerhours" id="powerHours"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -876,10 +892,30 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     host.classList.remove('hidden');
   }
 
+  // Your power hours: the warm one-line read of WHEN in the day your kept words
+  // tend to land. The server sends a non-empty string ONLY when there's enough
+  // kept history to name a trustworthy peak (design-LAW-scanned, strengths-only);
+  // a thin or flat history sends '' and the card simply stays hidden — never a
+  // blank panel, never a guess.
+  function renderPowerHours(line) {
+    var card = el('powerHoursCard');
+    var host = el('powerHours');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(function (data) { renderKept(data); renderMomentum(data && data.momentum); renderLatestNote(data && data.latest_note); })
+      .then(function (data) {
+        renderKept(data);
+        renderMomentum(data && data.momentum);
+        renderLatestNote(data && data.latest_note);
+        renderPowerHours(data && data.power_hours);
+      })
       .catch(function () {});
   }
 
