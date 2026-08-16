@@ -67,6 +67,8 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .streakbest { margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.30); }
   /* Milestone badge — a discrete "you reached it" win, so a warm success accent (distinct from the blue personal-best line; the two can show together). */
   .streakmilestone { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.30); }
+  /* Lifetime landmark — the cumulative total (never resets), so a gold/trophy accent distinct from both the blue best line and the green milestone; all three can show together. */
+  .streaklandmark { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--warn-light); background: var(--warn-dim); border: 1px solid rgba(245, 158, 11, 0.30); }
   .name { font-weight: 600; color: var(--text); }
   .line { color: var(--text-muted); font-size: 14px; }
   .when { color: var(--text-dim); font-size: 13px; }

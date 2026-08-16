@@ -32,6 +32,7 @@ import {
   detailPeakDayCopy,
   personalBestCopy,
   milestoneCopy,
+  keptTotalLandmarkCopy,
   inAppWhenExamplesText,
 } from './accountability.js';
 
@@ -419,6 +420,8 @@ export function meCopySurface() {
     personalBestCopy({ streak: { current_streak: 12, longest_streak: 12 } }),
     milestoneCopy({ streak: { current_streak: 3 } }),
     milestoneCopy({ streak: { current_streak: 100 } }),
+    keptTotalLandmarkCopy({ streak: { total_kept: 10 } }),
+    keptTotalLandmarkCopy({ streak: { total_kept: 1000 } }),
     labels.kept, labels.missed, labels.reschedule,
     keptWithNoteActionLabel(),
     keptNotePromptCopy(),
@@ -520,6 +523,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     </div>
     <div class="streakbest hidden" id="streakBest"></div>
     <div class="streakmilestone hidden" id="streakMilestone"></div>
+    <div class="streaklandmark hidden" id="streakLandmark"></div>
   </div>
 
   <div class="card">
@@ -747,6 +751,19 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       var mline = (data && data.milestone) || '';
       mile.textContent = mline;
       if (mline) { mile.classList.remove('hidden'); } else { mile.classList.add('hidden'); }
+    }
+    // Lifetime landmark: shown ONLY when the server sends a non-empty line (the
+    // lifetime kept-word TOTAL is exactly at a landmark — 10/25/50/100/…). Unlike
+    // the best/milestone lines above (both read the current run, which a miss can
+    // zero), this reads total_kept, which only ever grows — so once it shows, no
+    // reset can take it back. Independent of the other two: all three can show at
+    // once, each a distinct, true win. Anti-shame by construction — the API
+    // returns '' between landmarks, so this never nags.
+    var land = el('streakLandmark');
+    if (land) {
+      var lline = (data && data.landmark) || '';
+      land.textContent = lline;
+      if (lline) { land.classList.remove('hidden'); } else { land.classList.add('hidden'); }
     }
   }
 
