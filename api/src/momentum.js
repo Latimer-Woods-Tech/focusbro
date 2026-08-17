@@ -532,3 +532,59 @@ export function describeWeekday(weekday) {
   if (typeof weekday !== 'number' || !Number.isInteger(weekday) || weekday < 0 || weekday > 6) return '';
   return WEEKDAY_LONG[weekday];
 }
+
+// ════════════════════════════════════════════════════════════
+// TYPICAL DAY — how many words you tend to keep on a day you show up
+// ════════════════════════════════════════════════════════════
+// Every other read here answers a different question: HOW MANY (the lifetime
+// count), the PEAK (best day / power hour / power day), the BREADTH (distinct days
+// you showed up), or the ANCHOR (when it began). None names the INTENSITY of a
+// normal active day — when you DO show up, how much do you tend to keep? This does:
+// the average kept words per active day, over the same status='kept' history the
+// record reads use.
+//
+// DESIGN LAW, by construction: BOTH halves of the average — the kept total (the
+// numerator) and the count of distinct active days (the denominator) — are drawn
+// from status='kept' instants ONLY. A quiet day is in NEITHER number: it is never
+// counted and never divided in, so this can only ever describe the days the person
+// SHOWED UP. There is no "days you kept nothing", no target, no comparison. And it
+// speaks only once there is enough history for an average to be honest (see the
+// gate), so a thin record never gets a hollow figure.
+
+/** Minimum distinct active days before a typical-day average is honest to name. */
+export const TYPICAL_DAY_MIN_DAYS = 6;
+
+/** Minimum kept words behind the average before it is worth naming. */
+export const TYPICAL_DAY_MIN_TOTAL = 12;
+
+/**
+ * The person's TYPICAL active day: the average number of words they keep on a day
+ * they show up, from status='kept' instants ONLY. Buckets the instants by local
+ * calendar day (DST-correct, via {@link localDayInZone}), then divides the kept
+ * total by the count of distinct active days. Both halves are kept-only, so a quiet
+ * day is in neither — the average describes only the days shown up, never averages a
+ * miss in. Returns null below the signal gate (too few active days OR too few kept
+ * words) so a thin history never gets a hollow average. Pure; garbage-safe (bad
+ * instants are skipped, never thrown on; empty in → null out).
+ *
+ * @param {object} p
+ * @param {string[]} p.timestamps  ISO instants of kept check-ins (any order)
+ * @param {string} [p.timezone]    IANA zone for day boundaries
+ * @param {number} [p.minDays=TYPICAL_DAY_MIN_DAYS]
+ * @param {number} [p.minTotal=TYPICAL_DAY_MIN_TOTAL]
+ * @returns {{ perDay:number, total:number, days:number } | null}
+ */
+export function typicalKeptPerActiveDay({ timestamps, timezone, minDays = TYPICAL_DAY_MIN_DAYS, minTotal = TYPICAL_DAY_MIN_TOTAL } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const byDay = new Map(); // 'YYYY-MM-DD' -> kept count that local day
+  let total = 0;
+  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
+    const label = localDayInZone(ts, tz);
+    if (label != null) { byDay.set(label, (byDay.get(label) || 0) + 1); total += 1; }
+  }
+  const days = byDay.size;
+  const minD = Number.isFinite(minDays) ? minDays : TYPICAL_DAY_MIN_DAYS;
+  const minT = Number.isFinite(minTotal) ? minTotal : TYPICAL_DAY_MIN_TOTAL;
+  if (days < minD || total < minT) return null;
+  return { perDay: total / days, total, days };
+}

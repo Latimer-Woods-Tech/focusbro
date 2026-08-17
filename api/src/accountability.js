@@ -27,6 +27,7 @@ import {
   allTimeBestDay,
   distinctKeptDays,
   bucketKeptByWeekday, peakKeptWeekday, describeWeekday,
+  typicalKeptPerActiveDay,
   formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
@@ -1695,6 +1696,60 @@ export function powerDayCopy({ peak, persona } = {}) {
     return `📅 ${day}s are your day — that’s where most of your kept words land. Keep stacking them. 💪`;
   }
   return `📅 You’re strongest on ${day}s — that’s the day of the week most of your kept words land. Lean into it. 💪`;
+}
+
+// ── TYPICAL DAY (how much you tend to keep on a day you show up) ──
+// The INTENSITY read beside the count/peak/breadth reads: keptTotalLandmarkCopy
+// counts HOW MANY, bestDayCopy crowns the tallest single day, showedUpDaysCopy
+// names HOW MANY DAYS, powerDayCopy names the strongest weekday — this names the
+// average kept words on a day the person shows up: their rhythm. The math lives in
+// ./momentum.js (typicalKeptPerActiveDay); the warm first-person words live here.
+//
+// DESIGN LAW, by construction: the average is built from a status='kept' history
+// ONLY — both the kept total it divides and the distinct active days it divides by
+// are kept-only, so a quiet day is in neither and can never be averaged in. It can
+// only ever describe the days the person SHOWED UP. No target, no comparison, no
+// "days you kept nothing". It fires only once the history clears the signal gate;
+// and even then, below ~2 words a day it stays silent (that story is already told
+// by "days you showed up"), so it never reads as a hollow "about 1 a day".
+
+/** Minimum rounded words-per-active-day before the typical-day line speaks. Below
+ *  this the read adds nothing beyond "you showed up" (already its own card), so it
+ *  stays silent rather than name a hollow figure. */
+export const TYPICAL_DAY_MIN_PER_DAY = 2;
+
+/** Heading over the person's typical-day intensity read. */
+export function typicalDayHeadingCopy() {
+  return 'Your typical day';
+}
+
+/** Intro under the typical-day heading — first person, kept-days-only by design. */
+export function typicalDayIntroCopy() {
+  return 'About how many words you keep on a day you show up — your rhythm, drawn only from the days you came through. A quiet day is just quiet, never averaged in.';
+}
+
+/**
+ * Warm one-line "typical day" read: names about how many words the person keeps on
+ * a day they show up, from a {@link typicalKeptPerActiveDay} result. Anti-shame by
+ * CONSTRUCTION — the average is drawn from status='kept' days ONLY, so it frames a
+ * rhythm the person keeps, never a deficit, a comparison, or the days they missed.
+ * Rounds to a warm "about N" and stays SILENT below {@link TYPICAL_DAY_MIN_PER_DAY}
+ * (a ~1-a-day average adds nothing past "days you showed up") or when there is no
+ * trustworthy average to name (the gate returned null).
+ * @param {object} p
+ * @param {{ perDay:number, total:number, days:number } | null} p.typical  from {@link typicalKeptPerActiveDay}
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function typicalDayCopy({ typical, persona } = {}) {
+  if (!typical || typeof typical.perDay !== 'number' || !Number.isFinite(typical.perDay)) return '';
+  const n = Math.round(typical.perDay);
+  if (!(n >= TYPICAL_DAY_MIN_PER_DAY)) return '';
+  const wordWord = n === 1 ? 'word' : 'words';
+  if (pickPersona(persona) === 'hype') {
+    return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm. Keep it rolling. 💪`;
+  }
+  return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm, drawn only from the days you came through.`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3838,6 +3893,19 @@ export function registerAccountabilityRoutes(router, ctx) {
         peak: peakKeptWeekday(bucketKeptByWeekday({ timestamps: allKeptTimestamps, timezone: momentumTz })),
       });
 
+      // ── Your typical day (average kept words per active day) ──
+      // The INTENSITY read beside the count/peak/breadth reads: when the person
+      // shows up, about how many words do they keep? Reuses the SAME all-time
+      // status='kept' scan already fetched above (no new query) — both the kept
+      // total it averages and the distinct active days it divides by are drawn from
+      // kept rows ONLY, so a quiet day is in neither and the average can only ever
+      // describe a day they SHOWED UP. DESIGN LAW: status='kept' ONLY; the gate (and
+      // the ~2-a-day floor in the copy) keep a thin or flat history from getting a
+      // hollow figure → '' → the card stays hidden.
+      const typicalDay = typicalDayCopy({
+        typical: typicalKeptPerActiveDay({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+      });
+
       // ── Keeping your word since … (account-level longevity anchor) ──
       // The day the person kept their VERY FIRST word here, across all commitments
       // — the per-word "kept since" read one level up. A dedicated MIN(responded_at)
@@ -3868,6 +3936,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         best_day: bestDay,
         showed_up_days: showedUpDays,
         power_day: powerDay,
+        typical_day: typicalDay,
         keeping_since: keepingSince,
         message: keptLogCopy({ total }),
       }, 200, 'short');
