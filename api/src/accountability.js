@@ -1536,6 +1536,68 @@ export function keptSinceCopy({ firstKeptISO, count, nowISO, timezone, persona }
   return `🌱 You’ve been keeping this one since ${day} — the practice you’ve been building, one kept word at a time.`;
 }
 
+// ── KEEPING YOUR WORD SINCE (the account-level longevity anchor) ──
+// The per-word "kept since" (above) names how long ONE word has been a practice.
+// This is the same longevity read one level up: the day the person kept their
+// VERY FIRST word here, across ALL their commitments — a standing anchor for the
+// whole account, the start of the practice they've been building. Where the
+// lifetime landmark (keptTotalLandmarkCopy) counts HOW MANY and the best day
+// (bestDayCopy) crowns the tallest single day, this names the WHEN it all began.
+//
+// DESIGN LAW, by construction: the route's read is a MIN(responded_at) over
+// status='kept' rows ONLY — no miss is ever read or surfaced — so it can only ever
+// anchor to a day the person SHOWED UP. It is a standing fact that only ages
+// forward: a quiet stretch or a reset never moves the "since" date or erases the
+// practice. It fires ONLY once there's a real practice to name (a floor on the
+// lifetime kept count AND a week or more of history), so a brand-new or thin
+// account returns '' and nothing shows — never a "since today", never a "0 days".
+
+/** Minimum lifetime kept words before the account-level since-anchor speaks. */
+export const ACCOUNT_SINCE_MIN_COUNT = 5;
+/** Minimum span (days) since the first kept word before "since" reads as standing. */
+export const ACCOUNT_SINCE_MIN_DAYS = 7;
+
+/** Heading over the account-level "keeping your word since" anchor. */
+export function keepingSinceHeadingCopy() {
+  return 'Keeping your word';
+}
+
+/** Intro under the keeping-your-word heading — first person, longevity-only by design. */
+export function keepingSinceIntroCopy() {
+  return 'The day you first kept your word here — the start of the practice you’ve been building, one word at a time. It only ever grows from here.';
+}
+
+/**
+ * Warm one-line account-level "you've been keeping your word since …" anchor for
+ * /me/. The person-level twin of {@link keptSinceCopy} (which is per-word): it names
+ * the day of the FIRST kept word across ALL commitments. Anti-shame by CONSTRUCTION
+ * — it reads only the first KEPT instant (the route's MIN is over kept rows — no
+ * miss is ever read) and frames the span as a practice being built, never a lapse,
+ * a gap-since, a comparison, or a miss. Fires ONLY at {@link ACCOUNT_SINCE_MIN_COUNT}+
+ * lifetime kept AND {@link ACCOUNT_SINCE_MIN_DAYS}+ of history (so a young or thin
+ * account shows nothing); returns '' when there's no anchor to name.
+ *
+ * @param {object} p
+ * @param {string} p.firstKeptISO  the earliest status='kept' responded_at, account-wide
+ * @param {number} p.count         the person's lifetime kept count (streak.total_kept)
+ * @param {string} [p.nowISO]      "today" anchor (defaults to now)
+ * @param {string} [p.timezone]    IANA zone the day is resolved in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the account since-anchor line, or '' when there's no practice to name
+ */
+export function keepingSinceCopy({ firstKeptISO, count, nowISO, timezone, persona } = {}) {
+  const n = Number(count) || 0;
+  if (n < ACCOUNT_SINCE_MIN_COUNT) return '';
+  const daysAgo = calendarDaysAgo(firstKeptISO, { nowISO, timezone });
+  if (daysAgo == null || daysAgo < ACCOUNT_SINCE_MIN_DAYS) return '';
+  const day = formatCalendarDay(firstKeptISO, { nowISO, timezone });
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `🌱 You’ve been keeping your word since ${day} — that’s a real practice you built, and it only grows from here. 💪`;
+  }
+  return `🌱 You’ve been keeping your word since ${day} — the practice you’ve been building here, one word at a time.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -3655,6 +3717,27 @@ export function registerAccountabilityRoutes(router, ctx) {
         timezone: momentumTz,
       });
 
+      // ── Keeping your word since … (account-level longevity anchor) ──
+      // The day the person kept their VERY FIRST word here, across all commitments
+      // — the per-word "kept since" read one level up. A dedicated MIN(responded_at)
+      // over status='kept' is correct regardless of the all-time LIMIT above (the
+      // true earliest, even past 5000 rows). Skipped entirely below the count floor
+      // so a thin account never touches the DB for an anchor it won't show. DESIGN
+      // LAW: status='kept' ONLY — the MIN can only ever fall on a day they SHOWED UP.
+      let keepingSince = '';
+      if (total >= ACCOUNT_SINCE_MIN_COUNT) {
+        const firstKeptRow = await env.DB.prepare(
+          `SELECT MIN(responded_at) AS first_kept FROM commitment_checkins
+            WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL`
+        ).bind(auth.userId).first();
+        keepingSince = keepingSinceCopy({
+          firstKeptISO: firstKeptRow && firstKeptRow.first_kept,
+          count: total,
+          nowISO,
+          timezone: momentumTz,
+        });
+      }
+
       return jsonResponse({
         kept: keptList,
         latest_note: latestNote,
@@ -3662,6 +3745,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         momentum,
         power_hours: powerHours,
         best_day: bestDay,
+        keeping_since: keepingSince,
         message: keptLogCopy({ total }),
       }, 200, 'short');
     } catch (err) {

@@ -32,6 +32,9 @@ import {
   bestDayHeadingCopy,
   bestDayIntroCopy,
   bestDayCopy,
+  keepingSinceHeadingCopy,
+  keepingSinceIntroCopy,
+  keepingSinceCopy,
   detailMomentumHeadingCopy,
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
@@ -469,6 +472,11 @@ export function meCopySurface() {
     bestDayCopy({ best: { date: '2026-07-02', count: 7 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
     bestDayCopy({ best: { date: '2026-08-16', count: 3 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
     bestDayCopy({ best: { date: '2026-08-17', count: 5 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    keepingSinceHeadingCopy(),
+    keepingSinceIntroCopy(),
+    keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
+    keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 40, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'hype' }),
+    keepingSinceCopy({ firstKeptISO: '2025-11-20T09:00:00Z', count: 120, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
     latestKeptNoteLabelCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
@@ -607,6 +615,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${bestDayHeadingCopy()}</h2>
     <p class="muted">${bestDayIntroCopy()}</p>
     <p class="bestday" id="bestDay"></p>
+  </div>
+
+  <div class="card hidden" id="keepingSinceCard">
+    <h2>${keepingSinceHeadingCopy()}</h2>
+    <p class="muted">${keepingSinceIntroCopy()}</p>
+    <p class="keepingsince" id="keepingSince"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -936,6 +950,22 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Keeping your word since …: the account-level longevity anchor — the day you
+  // first kept your word here, across all your words. The server sends a non-empty
+  // string ONLY when there's a real practice to name (a lifetime kept floor AND a
+  // week+ of history, design-LAW-scanned, longevity-only); a young or thin account
+  // sends '' and the card simply stays hidden — never a "since today", never a "0
+  // days".
+  function renderKeepingSince(line) {
+    var card = el('keepingSinceCard');
+    var host = el('keepingSince');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -945,6 +975,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderLatestNote(data && data.latest_note);
         renderPowerHours(data && data.power_hours);
         renderBestDay(data && data.best_day);
+        renderKeepingSince(data && data.keeping_since);
       })
       .catch(function () {});
   }
