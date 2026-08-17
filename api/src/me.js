@@ -38,6 +38,9 @@ import {
   powerDayHeadingCopy,
   powerDayIntroCopy,
   powerDayCopy,
+  typicalDayHeadingCopy,
+  typicalDayIntroCopy,
+  typicalDayCopy,
   keepingSinceHeadingCopy,
   keepingSinceIntroCopy,
   keepingSinceCopy,
@@ -489,6 +492,11 @@ export function meCopySurface() {
     powerDayCopy({ peak: { weekday: 2, count: 9 }, persona: 'hype' }),
     powerDayCopy({ peak: { weekday: 5, count: 6 }, persona: 'ally' }),
     powerDayCopy({ peak: { weekday: 6, count: 4 } }),
+    typicalDayHeadingCopy(),
+    typicalDayIntroCopy(),
+    typicalDayCopy({ typical: { perDay: 2, total: 12, days: 6 } }),
+    typicalDayCopy({ typical: { perDay: 3.4, total: 34, days: 10 }, persona: 'hype' }),
+    typicalDayCopy({ typical: { perDay: 5, total: 60, days: 12 }, persona: 'ally' }),
     keepingSinceHeadingCopy(),
     keepingSinceIntroCopy(),
     keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
@@ -650,6 +658,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${powerDayHeadingCopy()}</h2>
     <p class="muted">${powerDayIntroCopy()}</p>
     <p class="powerday" id="powerDay"></p>
+  </div>
+
+  <div class="card hidden" id="typicalDayCard">
+    <h2>${typicalDayHeadingCopy()}</h2>
+    <p class="muted">${typicalDayIntroCopy()}</p>
+    <p class="typicalday" id="typicalDay"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -1026,6 +1040,22 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Your typical day: the warm one-line read of about how many words you keep on a
+  // day you show up — the INTENSITY read beside the count/peak/breadth cards. The
+  // server sends a non-empty string ONLY when there's enough kept history for an
+  // honest average AND it clears the ~2-a-day floor (design-LAW-scanned, kept-days
+  // only); a thin, flat, or ~1-a-day history sends '' and the card stays hidden —
+  // never a blank panel, never a hollow average.
+  function renderTypicalDay(line) {
+    var card = el('typicalDayCard');
+    var host = el('typicalDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -1038,6 +1068,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderKeepingSince(data && data.keeping_since);
         renderShowedUpDays(data && data.showed_up_days);
         renderPowerDay(data && data.power_day);
+        renderTypicalDay(data && data.typical_day);
       })
       .catch(function () {});
   }
