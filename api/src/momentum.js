@@ -148,6 +148,54 @@ export function describePeakDay(dayLabel, { nowISO, timezone } = {}) {
 }
 
 /**
+ * An absolute calendar-day name for a "since"/anchor read: "Jul 8" when the day
+ * falls in the current local year, "Jul 8, 2025" otherwise (so a long-standing
+ * anchor can never read as this year's same date). Distinct from
+ * {@link describePeakDay}, which is RELATIVE ("today"/"yesterday"/weekday) for
+ * recent days; this always names the absolute day, for anchors that may sit far
+ * in the past. Pure; returns '' when the instant can't be placed in the zone.
+ *
+ * @param {string} iso  an ISO instant
+ * @param {object} [p]
+ * @param {string} [p.nowISO]     "this year" anchor (defaults to now)
+ * @param {string} [p.timezone]   IANA zone the day is resolved in
+ * @returns {string}
+ */
+export function formatCalendarDay(iso, { nowISO, timezone } = {}) {
+  const label = localDayInZone(iso, timezone || 'UTC');
+  if (!label) return '';
+  const [y, mo, d] = label.split('-').map(Number);
+  if (!Number.isFinite(mo) || mo < 1 || mo > 12) return '';
+  const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
+  const nowLabel = localDayInZone(anchorISO, timezone || 'UTC');
+  const nowYear = nowLabel ? Number(nowLabel.split('-')[0]) : y;
+  return y === nowYear ? `${MONTH_SHORT[mo - 1]} ${d}` : `${MONTH_SHORT[mo - 1]} ${d}, ${y}`;
+}
+
+/**
+ * Whole local-calendar days between an instant and "today", in a zone:
+ * 0 = today, 1 = yesterday, negative = a future day. Uses calendar-label math
+ * (DST-agnostic — the same trick the momentum axis and {@link describePeakDay}
+ * use), so a DST transition inside the span never miscounts. Pure; null when the
+ * instant can't be placed.
+ *
+ * @param {string} iso
+ * @param {object} [p]
+ * @param {string} [p.nowISO]     "today" anchor (defaults to now)
+ * @param {string} [p.timezone]   IANA zone for day boundaries
+ * @returns {number|null}
+ */
+export function calendarDaysAgo(iso, { nowISO, timezone } = {}) {
+  const label = localDayInZone(iso, timezone || 'UTC');
+  if (!label) return null;
+  const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
+  const today = localDayInZone(anchorISO, timezone || 'UTC');
+  if (!today) return null;
+  const toUTC = (lbl) => { const [y, mo, d] = lbl.split('-').map(Number); return Date.UTC(y, mo - 1, d); };
+  return Math.round((toUTC(today) - toUTC(label)) / 86400000);
+}
+
+/**
  * Assemble a full momentum block from raw kept instants, in a caller-supplied
  * voice. The math (bucketing, totals, peak, sparkline) is fixed and tested; the
  * words are injected so the coach view ("their momentum") and the person's own

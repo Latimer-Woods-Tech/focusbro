@@ -1571,6 +1571,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (cadence) { html += '<div class="when">' + esc(cadence) + '</div>'; }
     if (next) { html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>'; }
     if (d && d.message) { html += '<p class="streakmsg">' + esc(d.message) + '</p>'; }
+    // How long you've been keeping THIS word — the server sends a non-empty line
+    // ONLY once it's a standing practice (kept-only, design-LAW-scanned); a young
+    // or thin word sends '' and nothing shows, never a "since today".
+    if (d && d.kept_since) { html += '<p class="keptsince">' + esc(d.kept_since) + '</p>'; }
     // This word's own momentum — the same shared sparkline as the /me/ card,
     // scoped to this one word. Shown only once it has a kept word, so a
     // never-yet-kept word isn't a chart of nothing.
