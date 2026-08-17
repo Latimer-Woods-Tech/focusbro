@@ -25,6 +25,7 @@ import {
   bucketKeptByHour, peakKeptHour, describeHourBand,
   POWER_HOURS_WINDOW_DAYS,
   allTimeBestDay,
+  distinctKeptDays,
   formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
@@ -1596,6 +1597,58 @@ export function keepingSinceCopy({ firstKeptISO, count, nowISO, timezone, person
     return `🌱 You’ve been keeping your word since ${day} — that’s a real practice you built, and it only grows from here. 💪`;
   }
   return `🌱 You’ve been keeping your word since ${day} — the practice you’ve been building here, one word at a time.`;
+}
+
+// ── DAYS YOU SHOWED UP (lifetime distinct active days) ───────
+// The BREADTH companion to the lifetime kept COUNT: keptTotalLandmarkCopy counts
+// HOW MANY words, bestDayCopy crowns the tallest single day, keepingSinceCopy
+// names WHEN it began — this names HOW MANY DAYS the person showed up at all. Two
+// accounts with the same kept total read very differently if one kept them across
+// six days and the other across thirty-five; this surfaces that spread as a warm,
+// standing number. Anti-shame by CONSTRUCTION: it counts only distinct days that
+// carry a status='kept' word (the route reads kept rows ONLY — no miss is ever
+// read), so it can only ever count days the person SHOWED UP; a quiet day is
+// simply not in the set, never counted and never subtracted, so the number can
+// only climb. No comparison, no target, no "days since".
+
+/** Minimum distinct active days before "days you showed up" reads as a practice. */
+export const SHOWED_UP_DAYS_MIN = 3;
+
+/** Heading over the account-level "days you showed up" breadth read. */
+export function showedUpDaysHeadingCopy() {
+  return 'Days you showed up';
+}
+
+/** Intro under the days-you-showed-up heading — first person, breadth-only by design. */
+export function showedUpDaysIntroCopy() {
+  return 'The number of separate days you’ve kept your word here — every one a day you came through for yourself. It only ever grows.';
+}
+
+/**
+ * Warm one-line "you’ve shown up on N different days" breadth read for /me/. The
+ * BREADTH twin of the lifetime landmark (which counts words): it names the count
+ * of distinct local days the person kept at least one word. Anti-shame by
+ * CONSTRUCTION — the count is derived from status='kept' instants ONLY (no miss is
+ * ever read), so every counted day is a day they showed up; the copy frames it as
+ * days-came-through, never a target, a comparison, a gap, or a miss. Fires ONLY at
+ * {@link SHOWED_UP_DAYS_MIN}+ distinct days (so a barely-started account shows
+ * nothing); returns '' when there’s no real spread to name.
+ *
+ * @param {object} p
+ * @param {number} p.days             the count of distinct active days
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the breadth line, or '' when below the floor
+ */
+export function showedUpDaysCopy({ days, persona } = {}) {
+  const n = Number(days) || 0;
+  if (n < SHOWED_UP_DAYS_MIN) return '';
+  // n is always ≥ SHOWED_UP_DAYS_MIN (≥ 3) here, so the plural is unconditional,
+  // but keep the singular guard so the helper stays honest if the floor ever drops.
+  const dayWord = n === 1 ? 'day' : 'days';
+  if (pickPersona(persona) === 'hype') {
+    return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} times you came through for yourself. Keep stacking them. 💪`;
+  }
+  return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} separate days you came through for yourself.`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3717,6 +3770,17 @@ export function registerAccountabilityRoutes(router, ctx) {
         timezone: momentumTz,
       });
 
+      // ── Days you showed up (lifetime distinct active days) ──
+      // The BREADTH read beside the best day: how many separate local days carry a
+      // kept word. Reuses the SAME all-time status='kept' scan already fetched for
+      // the best day (no new query, same effectively-all-time LIMIT bound), so it
+      // costs nothing extra and stays consistent with the record above it. DESIGN
+      // LAW: status='kept' ONLY → every counted day is a day the person SHOWED UP;
+      // the floor keeps a thin history from getting a hollow "1 day".
+      const showedUpDays = showedUpDaysCopy({
+        days: distinctKeptDays({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+      });
+
       // ── Keeping your word since … (account-level longevity anchor) ──
       // The day the person kept their VERY FIRST word here, across all commitments
       // — the per-word "kept since" read one level up. A dedicated MIN(responded_at)
@@ -3745,6 +3809,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         momentum,
         power_hours: powerHours,
         best_day: bestDay,
+        showed_up_days: showedUpDays,
         keeping_since: keepingSince,
         message: keptLogCopy({ total }),
       }, 200, 'short');

@@ -32,6 +32,9 @@ import {
   bestDayHeadingCopy,
   bestDayIntroCopy,
   bestDayCopy,
+  showedUpDaysHeadingCopy,
+  showedUpDaysIntroCopy,
+  showedUpDaysCopy,
   keepingSinceHeadingCopy,
   keepingSinceIntroCopy,
   keepingSinceCopy,
@@ -472,6 +475,11 @@ export function meCopySurface() {
     bestDayCopy({ best: { date: '2026-07-02', count: 7 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
     bestDayCopy({ best: { date: '2026-08-16', count: 3 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
     bestDayCopy({ best: { date: '2026-08-17', count: 5 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    showedUpDaysHeadingCopy(),
+    showedUpDaysIntroCopy(),
+    showedUpDaysCopy({ days: 3 }),
+    showedUpDaysCopy({ days: 28, persona: 'hype' }),
+    showedUpDaysCopy({ days: 150, persona: 'ally' }),
     keepingSinceHeadingCopy(),
     keepingSinceIntroCopy(),
     keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
@@ -621,6 +629,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${keepingSinceHeadingCopy()}</h2>
     <p class="muted">${keepingSinceIntroCopy()}</p>
     <p class="keepingsince" id="keepingSince"></p>
+  </div>
+
+  <div class="card hidden" id="showedUpDaysCard">
+    <h2>${showedUpDaysHeadingCopy()}</h2>
+    <p class="muted">${showedUpDaysIntroCopy()}</p>
+    <p class="showedupdays" id="showedUpDays"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -966,6 +980,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Days you showed up: the account-level BREADTH read — how many separate days
+  // you've kept your word here. The server sends a non-empty string ONLY when
+  // there's a real spread to name (3+ distinct active days, design-LAW-scanned,
+  // breadth-only); a barely-started account sends '' and the card stays hidden —
+  // never a hollow "1 day", never a zero.
+  function renderShowedUpDays(line) {
+    var card = el('showedUpDaysCard');
+    var host = el('showedUpDays');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -976,6 +1005,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderPowerHours(data && data.power_hours);
         renderBestDay(data && data.best_day);
         renderKeepingSince(data && data.keeping_since);
+        renderShowedUpDays(data && data.showed_up_days);
       })
       .catch(function () {});
   }

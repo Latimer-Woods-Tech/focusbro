@@ -410,3 +410,30 @@ export function allTimeBestDay({ timestamps, timezone, minCount = BEST_DAY_MIN_C
   if (!best || best.count < floor) return null;
   return best;
 }
+
+/**
+ * Count the distinct LOCAL calendar days on which the person kept at least one
+ * word — the BREADTH of the practice, as opposed to its COUNT. Two people with
+ * the same lifetime kept total can differ wildly in how many separate days they
+ * showed up (one batches 40 words across 6 days; another spreads them across 35),
+ * and this names that spread. Pure + DST-correct (buckets each instant by local
+ * calendar date via {@link localDayInZone}, same as {@link allTimeBestDay}).
+ *
+ * Reads ONLY the kept instants the caller passes — a quiet day is simply absent
+ * from the set, never counted and never subtracted — so the number can only ever
+ * grow. Garbage instants are ignored, not thrown on; empty in → 0 out.
+ *
+ * @param {object} p
+ * @param {string[]} p.timestamps  ISO instants of kept check-ins (any order)
+ * @param {string} [p.timezone]    IANA zone for day boundaries
+ * @returns {number} count of distinct local days carrying ≥1 kept word
+ */
+export function distinctKeptDays({ timestamps, timezone } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const days = new Set();
+  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
+    const label = localDayInZone(ts, tz);
+    if (label != null) days.add(label);
+  }
+  return days.size;
+}
