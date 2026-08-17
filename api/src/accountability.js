@@ -25,6 +25,7 @@ import {
   bucketKeptByHour, peakKeptHour, describeHourBand,
   POWER_HOURS_WINDOW_DAYS,
   allTimeBestDay,
+  formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
 
@@ -1485,6 +1486,56 @@ export function bestDayCopy({ best, nowISO, timezone } = {}) {
   return `🌟 Your best day so far: ${when} — ${count} kept ${words} in one day. The most you’ve ever put together at once, and it only ever climbs from here.`;
 }
 
+// ── KEPT SINCE (how long you've been keeping ONE word) ───────
+// The per-word momentum sparkline shows the recent shape and the best-day callout
+// names the peak; neither says how LONG this word has been a practice. This does —
+// it names the day you first kept THIS word, so a long-standing rhythm reads as
+// the practice it is ("keeping this since Jul 8"), not just a raw count. The
+// date math lives in ./momentum.js (formatCalendarDay, calendarDaysAgo); the warm
+// first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads the FIRST status='kept' instant ONLY (the
+// route's MIN is over kept rows — no miss is ever read or surfaced), so it can
+// only ever anchor to a day the person SHOWED UP. It is a standing fact that only
+// ages forward — a quiet stretch or a reset never moves the "since" date or
+// erases the practice. It fires ONLY once the word is a real practice (a floor on
+// the count AND a week or more of history), so a just-started or thin word returns
+// '' and nothing shows — never a "since today", never a "0 days".
+
+/** Minimum kept count before a word is a "practice" worth a since-anchor. */
+export const KEPT_SINCE_MIN_COUNT = 3;
+/** Minimum span (days) before "since" reads as a standing practice, not "today". */
+export const KEPT_SINCE_MIN_DAYS = 7;
+
+/**
+ * Warm one-line "you've been keeping this since …" anchor for a single word's
+ * detail panel. Anti-shame by CONSTRUCTION — it reads only the first KEPT instant
+ * on this word and frames the span as a practice being built, never a lapse, a
+ * gap since, a comparison, or a miss. Fires ONLY at {@link KEPT_SINCE_MIN_COUNT}+
+ * kept AND {@link KEPT_SINCE_MIN_DAYS}+ of history (so a young or thin word shows
+ * nothing); returns '' when there's no anchor to name.
+ *
+ * @param {object} p
+ * @param {string} p.firstKeptISO  the earliest status='kept' responded_at for this word
+ * @param {number} p.count         the word's honest lifetime kept count
+ * @param {string} [p.nowISO]      "today" anchor (defaults to now)
+ * @param {string} [p.timezone]    IANA zone the day is resolved in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the since-anchor line, or '' when there's no practice to name
+ */
+export function keptSinceCopy({ firstKeptISO, count, nowISO, timezone, persona } = {}) {
+  const n = Number(count) || 0;
+  if (n < KEPT_SINCE_MIN_COUNT) return '';
+  const daysAgo = calendarDaysAgo(firstKeptISO, { nowISO, timezone });
+  if (daysAgo == null || daysAgo < KEPT_SINCE_MIN_DAYS) return '';
+  const day = formatCalendarDay(firstKeptISO, { nowISO, timezone });
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `🌱 Keeping this one since ${day} — ${n} and going strong. That’s a real practice you built. 💪`;
+  }
+  return `🌱 You’ve been keeping this one since ${day} — the practice you’ve been building, one kept word at a time.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -2056,6 +2107,8 @@ export function accountabilityCopySurface() {
     add(momentumSelfSummaryCopy({ total: 0 }), momentumSelfSummaryCopy({ total: 5, peak: { count: 3 } }));
     add(detailMomentumSummaryCopy({ total: 0 }), detailMomentumSummaryCopy({ total: 5, peak: { count: 3 } }));
     add(commitmentDetailCopy({ persona, keptCount: 0 }), commitmentDetailCopy({ persona, keptCount: 5 }));
+    // The per-word "kept since" longevity anchor (fires at 3+ kept, a week+ of history).
+    add(keptSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 5, nowISO: when, timezone: 'UTC', persona }));
     add(
       streakSummaryCopy({ persona, streak: { current_streak: 0, longest_streak: 0 } }),
       streakSummaryCopy({ persona, streak: { current_streak: 5, longest_streak: 7 } }),
@@ -2684,6 +2737,27 @@ export function registerAccountabilityRoutes(router, ctx) {
         whenPhrase: describePeakDay(momentum.peak && momentum.peak.date, { nowISO, timezone: momentumTz }),
       });
 
+      // This word's longevity — how long you've been keeping it. Reads the FIRST
+      // kept instant on this word (MIN over status='kept' only — like every read
+      // in this flow, no miss row is ever touched) and, once it's a standing
+      // practice (KEPT_SINCE_MIN_COUNT+ kept, KEPT_SINCE_MIN_DAYS+ of history),
+      // names the day the practice began. DESIGN LAW: kept-only in, a positive
+      // anchor out; keptSinceCopy stays '' for a young or thin word, so a
+      // just-started word shows nothing — never a "since today", never a "0 days".
+      // Skipped entirely for a never-yet-kept word (no first instant to read).
+      let firstKeptISO = null;
+      if (keptCount > 0) {
+        const firstRow = await env.DB.prepare(
+          `SELECT MIN(responded_at) AS first_kept
+             FROM commitment_checkins
+            WHERE commitment_id = ? AND user_id = ? AND status = 'kept'`
+        ).bind(id, auth.userId).first();
+        firstKeptISO = (firstRow && firstRow.first_kept) || null;
+      }
+      const keptSince = keptSinceCopy({
+        firstKeptISO, count: keptCount, nowISO, timezone: momentumTz, persona: commitment.persona,
+      });
+
       return jsonResponse({
         commitment,
         cadence,
@@ -2691,6 +2765,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         kept,
         kept_count: keptCount,
         momentum,
+        kept_since: keptSince,
         message: commitmentDetailCopy({ persona: commitment.persona, keptCount }),
       }, 200, 'short');
     } catch (err) {
