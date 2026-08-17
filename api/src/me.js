@@ -35,6 +35,9 @@ import {
   showedUpDaysHeadingCopy,
   showedUpDaysIntroCopy,
   showedUpDaysCopy,
+  powerDayHeadingCopy,
+  powerDayIntroCopy,
+  powerDayCopy,
   keepingSinceHeadingCopy,
   keepingSinceIntroCopy,
   keepingSinceCopy,
@@ -480,6 +483,12 @@ export function meCopySurface() {
     showedUpDaysCopy({ days: 3 }),
     showedUpDaysCopy({ days: 28, persona: 'hype' }),
     showedUpDaysCopy({ days: 150, persona: 'ally' }),
+    powerDayHeadingCopy(),
+    powerDayIntroCopy(),
+    powerDayCopy({ peak: { weekday: 0, count: 5 } }),
+    powerDayCopy({ peak: { weekday: 2, count: 9 }, persona: 'hype' }),
+    powerDayCopy({ peak: { weekday: 5, count: 6 }, persona: 'ally' }),
+    powerDayCopy({ peak: { weekday: 6, count: 4 } }),
     keepingSinceHeadingCopy(),
     keepingSinceIntroCopy(),
     keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
@@ -635,6 +644,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${showedUpDaysHeadingCopy()}</h2>
     <p class="muted">${showedUpDaysIntroCopy()}</p>
     <p class="showedupdays" id="showedUpDays"></p>
+  </div>
+
+  <div class="card hidden" id="powerDayCard">
+    <h2>${powerDayHeadingCopy()}</h2>
+    <p class="muted">${powerDayIntroCopy()}</p>
+    <p class="powerday" id="powerDay"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -995,6 +1010,22 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Your power day: the warm one-line read of WHICH DAY OF THE WEEK your kept words
+  // most often land — the weekday sibling of power hours. The server sends a
+  // non-empty string ONLY when there's enough kept history to name a trustworthy
+  // peak weekday (design-LAW-scanned, strengths-only); a thin, flat, or tied
+  // history sends '' and the card simply stays hidden — never a blank panel, never
+  // a guess.
+  function renderPowerDay(line) {
+    var card = el('powerDayCard');
+    var host = el('powerDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -1006,6 +1037,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderBestDay(data && data.best_day);
         renderKeepingSince(data && data.keeping_since);
         renderShowedUpDays(data && data.showed_up_days);
+        renderPowerDay(data && data.power_day);
       })
       .catch(function () {});
   }

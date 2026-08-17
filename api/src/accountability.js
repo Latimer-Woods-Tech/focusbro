@@ -26,6 +26,7 @@ import {
   POWER_HOURS_WINDOW_DAYS,
   allTimeBestDay,
   distinctKeptDays,
+  bucketKeptByWeekday, peakKeptWeekday, describeWeekday,
   formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
@@ -1649,6 +1650,51 @@ export function showedUpDaysCopy({ days, persona } = {}) {
     return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} times you came through for yourself. Keep stacking them. 💪`;
   }
   return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} separate days you came through for yourself.`;
+}
+
+// ── POWER DAY (the weekday your kept words most often land) ──
+// The weekday sibling of power hours: powerHoursCopy names the HOUR of day the
+// person is strongest; this names the DAY OF THE WEEK they come through most,
+// across their kept history. The histogram math + the signal gate live in
+// ./momentum.js (bucketKeptByWeekday, peakKeptWeekday); the warm first-person
+// words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever point at a weekday you SHOWED UP — never a "weak day", never a "you
+// never keep words on Mondays". It names a single high point as a strength to lean
+// into, and fires ONLY when peakKeptWeekday clears its signal gate — a thin, flat,
+// or tied history returns null → '' here, never a guess.
+
+/** Heading over the person's power-day read. */
+export function powerDayHeadingCopy() {
+  return 'Your power day';
+}
+
+/** Intro under the power-day heading — first person, strengths-only by design. */
+export function powerDayIntroCopy() {
+  return 'The day of the week your kept words most often land. Only ever your strongest day — a quiet day is just quiet, never counted against you.';
+}
+
+/**
+ * Warm one-line "power day" read: names the weekday the person comes through most,
+ * from a peak-weekday object (see {@link peakKeptWeekday}). Anti-shame by
+ * CONSTRUCTION — it points only at a weekday they kept their word and frames it as
+ * a day to lean into, never a deficit, a comparison, or the days they missed.
+ * Returns '' when there is no trustworthy power day to name (the gate returned null)
+ * or the weekday can't be named.
+ * @param {object} p
+ * @param {{ weekday:number, count:number } | null} p.peak  from {@link peakKeptWeekday}
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function powerDayCopy({ peak, persona } = {}) {
+  if (!peak || typeof peak.weekday !== 'number') return '';
+  const day = describeWeekday(peak.weekday);
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `📅 ${day}s are your day — that’s where most of your kept words land. Keep stacking them. 💪`;
+  }
+  return `📅 You’re strongest on ${day}s — that’s the day of the week most of your kept words land. Lean into it. 💪`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3781,6 +3827,17 @@ export function registerAccountabilityRoutes(router, ctx) {
         days: distinctKeptDays({ timestamps: allKeptTimestamps, timezone: momentumTz }),
       });
 
+      // ── Your power day (the weekday your kept words most often land) ──
+      // The weekday sibling of power hours: instead of the HOUR of day, it names the
+      // DAY OF THE WEEK the person comes through most. Reuses the SAME all-time
+      // status='kept' scan already fetched above (no new query), buckets it by local
+      // weekday, and names the single peak only when peakKeptWeekday clears its
+      // signal gate. DESIGN LAW: status='kept' ONLY → it can only ever name a weekday
+      // the person SHOWED UP; a thin, flat, or tied history returns null → '' here.
+      const powerDay = powerDayCopy({
+        peak: peakKeptWeekday(bucketKeptByWeekday({ timestamps: allKeptTimestamps, timezone: momentumTz })),
+      });
+
       // ── Keeping your word since … (account-level longevity anchor) ──
       // The day the person kept their VERY FIRST word here, across all commitments
       // — the per-word "kept since" read one level up. A dedicated MIN(responded_at)
@@ -3810,6 +3867,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         power_hours: powerHours,
         best_day: bestDay,
         showed_up_days: showedUpDays,
+        power_day: powerDay,
         keeping_since: keepingSince,
         message: keptLogCopy({ total }),
       }, 200, 'short');

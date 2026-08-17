@@ -437,3 +437,98 @@ export function distinctKeptDays({ timestamps, timezone } = {}) {
   }
   return days.size;
 }
+
+// ════════════════════════════════════════════════════════════
+// POWER DAY — the day of the WEEK your kept words tend to land
+// ════════════════════════════════════════════════════════════
+// The weekday sibling of power hours: where power hours asks "WHEN in the day are
+// you strongest?", this asks "which DAY OF THE WEEK do you come through most?" —
+// bucketing the same status='kept' instants by local weekday (Mon/Tue/…) across a
+// person's history and naming the single peak weekday.
+//
+// DESIGN LAW, by construction: like everything in this module it reads KEPT
+// instants ONLY, so it can only ever point at a weekday you SHOWED UP. There is no
+// "your weak day" or "you never keep words on Mondays" surface anywhere here — a
+// low weekday is simply the absence of a win, never surfaced. And it names a peak
+// only when there is enough signal to trust it (see peakKeptWeekday), so a thin or
+// flat history never gets an arbitrary "power day".
+
+/** Minimum kept words across the history before any "power day" is named at all. */
+export const POWER_DAY_MIN_TOTAL = 12;
+
+/** Minimum count the peak weekday itself must hold to be worth naming. */
+export const POWER_DAY_MIN_PEAK = 4;
+
+/**
+ * The recipient-local weekday (0=Sunday … 6=Saturday) of an instant in an IANA
+ * zone. Resolves the local calendar day first (via {@link localDayInZone}, so the
+ * weekday is correct across DST and zone-of-midnight edges) and reads the weekday
+ * off that label with calendar math — never off the raw UTC instant. Pure.
+ * @param {string} iso  an ISO instant
+ * @param {string} [timeZone]
+ * @returns {number|null} 0..6 (0=Sunday), or null if the instant can't be placed
+ */
+export function localWeekdayInZone(iso, timeZone) {
+  const label = localDayInZone(iso, timeZone || 'UTC');
+  if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(label)) return null;
+  const [y, mo, d] = label.split('-').map(Number);
+  const wd = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  return Number.isInteger(wd) && wd >= 0 && wd <= 6 ? wd : null;
+}
+
+/**
+ * Bucket KEPT-word instants into 7 per-local-weekday counts in `timezone`. The
+ * caller passes only kept timestamps; a weekday with no entry is a genuine zero (a
+ * quiet weekday), never a miss. Pure + DST-correct (buckets by local calendar
+ * weekday via {@link localWeekdayInZone}).
+ * @param {object} p
+ * @param {string[]} p.timestamps  ISO instants of kept check-ins
+ * @param {string} [p.timezone]    IANA zone for the weekday boundaries
+ * @returns {Array<{weekday:number, count:number}>} index 0=Sunday..6=Saturday
+ */
+export function bucketKeptByWeekday({ timestamps, timezone } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const axis = Array.from({ length: 7 }, (_, weekday) => ({ weekday, count: 0 }));
+  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
+    const wd = localWeekdayInZone(ts, tz);
+    if (wd != null) axis[wd].count += 1;
+  }
+  return axis;
+}
+
+/**
+ * The single weekday a kept-word histogram peaks — but ONLY when there is enough
+ * signal to trust it: a minimum total of kept words, a peak that itself clears a
+ * floor, AND a strictly-single tallest weekday (a tie for the top means no one
+ * "power day" — we don't invent one). Returns null when the signal is too thin, so
+ * a sparse or flat history never gets an arbitrary peak. Pure. Sibling of
+ * {@link peakKeptHour}.
+ * @param {Array<{weekday:number,count:number}>} buckets
+ * @param {{ minTotal?:number, minPeak?:number }} [opts]
+ * @returns {{ weekday:number, count:number, total:number, share:number } | null}
+ */
+export function peakKeptWeekday(buckets, { minTotal = POWER_DAY_MIN_TOTAL, minPeak = POWER_DAY_MIN_PEAK } = {}) {
+  const list = Array.isArray(buckets) ? buckets : [];
+  let total = 0;
+  let best = null;
+  for (const b of list) {
+    const c = Number(b && b.count) || 0;
+    total += c;
+    if (!best || c > best.count) best = { weekday: Number(b && b.weekday), count: c };
+  }
+  if (!best || !Number.isInteger(best.weekday) || total < minTotal || best.count < minPeak) return null;
+  const tiedAtTop = list.filter((b) => (Number(b && b.count) || 0) === best.count).length;
+  if (tiedAtTop !== 1) return null; // no clear single peak → no power day
+  return { weekday: best.weekday, count: best.count, total, share: best.count / total };
+}
+
+/**
+ * The warm long name of a weekday (0=Sunday..6=Saturday) — "Monday", "Tuesday", …
+ * Pure; '' for a non-weekday. Purely descriptive — carries no judgment.
+ * @param {number} weekday  0..6
+ * @returns {string}
+ */
+export function describeWeekday(weekday) {
+  if (typeof weekday !== 'number' || !Number.isInteger(weekday) || weekday < 0 || weekday > 6) return '';
+  return WEEKDAY_LONG[weekday];
+}
