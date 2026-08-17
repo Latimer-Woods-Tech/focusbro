@@ -29,6 +29,9 @@ import {
   powerHoursHeadingCopy,
   powerHoursIntroCopy,
   powerHoursCopy,
+  bestDayHeadingCopy,
+  bestDayIntroCopy,
+  bestDayCopy,
   detailMomentumHeadingCopy,
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
@@ -461,6 +464,11 @@ export function meCopySurface() {
     powerHoursCopy({ peak: { hour: 22, count: 4 } }),
     powerHoursCopy({ peak: { hour: 0, count: 3 } }),
     powerHoursCopy({ peak: { hour: 12, count: 6 } }),
+    bestDayHeadingCopy(),
+    bestDayIntroCopy(),
+    bestDayCopy({ best: { date: '2026-07-02', count: 7 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestDayCopy({ best: { date: '2026-08-16', count: 3 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestDayCopy({ best: { date: '2026-08-17', count: 5 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
     latestKeptNoteLabelCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
@@ -593,6 +601,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${powerHoursHeadingCopy()}</h2>
     <p class="muted">${powerHoursIntroCopy()}</p>
     <p class="powerhours" id="powerHours"></p>
+  </div>
+
+  <div class="card hidden" id="bestDayCard">
+    <h2>${bestDayHeadingCopy()}</h2>
+    <p class="muted">${bestDayIntroCopy()}</p>
+    <p class="bestday" id="bestDay"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -907,6 +921,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Your best day: the warm one-line read of the most words you ever kept in a
+  // single day — a standing record. The server sends a non-empty string ONLY when
+  // there's a real high-water mark to crown (a day that cleared the floor,
+  // design-LAW-scanned, record-only); a thin history sends '' and the card simply
+  // stays hidden — never a blank panel, never a hollow "best day: 1".
+  function renderBestDay(line) {
+    var card = el('bestDayCard');
+    var host = el('bestDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -915,6 +944,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderMomentum(data && data.momentum);
         renderLatestNote(data && data.latest_note);
         renderPowerHours(data && data.power_hours);
+        renderBestDay(data && data.best_day);
       })
       .catch(function () {});
   }

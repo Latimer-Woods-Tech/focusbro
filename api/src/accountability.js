@@ -24,6 +24,7 @@ import {
   buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS,
   bucketKeptByHour, peakKeptHour, describeHourBand,
   POWER_HOURS_WINDOW_DAYS,
+  allTimeBestDay,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
 
@@ -1435,6 +1436,53 @@ export function powerHoursCopy({ peak } = {}) {
   const when = describeHourBand(peak.hour);
   if (!when) return '';
   return `You’re strongest around ${when} — that’s where most of your kept words land. Lean into it. 💪`;
+}
+
+// ── ALL-TIME BEST DAY ────────────────────────────────────────
+// The person's own high-water mark: the single day they kept the most words
+// EVER. The per-day momentum sparkline shows the last two weeks; the power-hours
+// read shows the time of day; the per-word detail view has its own best day — but
+// nothing said "the most you ever kept across ALL your words in ONE day". This
+// does. The bucketing + record math live in ./momentum.js (allTimeBestDay); the
+// warm first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever crown a day the person SHOWED UP. It is a standing record that only
+// ever climbs (a past kept day never disappears) — never a bar you must clear,
+// never a comparison to today, never a "you were better before". Fires ONLY when
+// allTimeBestDay clears its floor → a thin history returns null → '' here.
+
+/** Heading over the person's all-time best-day record. */
+export function bestDayHeadingCopy() {
+  return 'Your best day';
+}
+
+/** Intro under the best-day heading — first person, record-only by design. */
+export function bestDayIntroCopy() {
+  return 'The most kept words you’ve ever put together in a single day — a high-water mark that’s yours to keep. A quiet day never takes it back.';
+}
+
+/**
+ * Warm one-line all-time best-day read: names the record count and the day it
+ * happened, from an {@link allTimeBestDay} result. Anti-shame by CONSTRUCTION —
+ * it celebrates a peak the person actually hit and frames it as a standing record
+ * that only ever climbs, never a target to clear, a comparison to today, or a
+ * decline. Follows {@link detailPeakDayCopy}'s colon phrasing so a relative day
+ * name ("today"/"yesterday") reads naturally. Returns '' when there is no record
+ * to crown (the engine returned null) or the day can't be named.
+ * @param {object} p
+ * @param {{ date:string, count:number } | null} p.best  from {@link allTimeBestDay}
+ * @param {string} [p.nowISO]     "today" anchor for the warm day name
+ * @param {string} [p.timezone]   IANA zone the record was bucketed in
+ * @returns {string}
+ */
+export function bestDayCopy({ best, nowISO, timezone } = {}) {
+  const count = Number(best && best.count) || 0;
+  if (!best || count < 2) return '';
+  const when = describePeakDay(best.date, { nowISO, timezone });
+  if (!when) return '';
+  const words = count === 1 ? 'word' : 'words';
+  return `🌟 Your best day so far: ${when} — ${count} kept ${words} in one day. The most you’ve ever put together at once, and it only ever climbs from here.`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3511,12 +3559,34 @@ export function registerAccountabilityRoutes(router, ctx) {
       const powerPeak = peakKeptHour(bucketKeptByHour({ timestamps: powerTimestamps, timezone: momentumTz }));
       const powerHours = powerHoursCopy({ peak: powerPeak });
 
+      // ── Your all-time best day (the most kept words ever in a single day) ──
+      // A record needs the WHOLE history, not a trailing window — a best day from
+      // a year ago is still the record — so this reads status='kept' with no date
+      // cutoff (bounded to a generous LIMIT that is effectively all-time for this
+      // product; the record is recomputed each read and only ever climbs as kept
+      // rows accumulate). DESIGN LAW: status='kept' ONLY, so it can only ever
+      // crown a day the person SHOWED UP; the floor keeps a thin history from
+      // getting a hollow "best day".
+      const allKeptRows = await env.DB.prepare(
+        `SELECT responded_at FROM commitment_checkins
+          WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL
+          ORDER BY responded_at DESC
+          LIMIT 5000`
+      ).bind(auth.userId).all();
+      const allKeptTimestamps = ((allKeptRows && allKeptRows.results) || []).map((r) => r.responded_at);
+      const bestDay = bestDayCopy({
+        best: allTimeBestDay({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+        nowISO,
+        timezone: momentumTz,
+      });
+
       return jsonResponse({
         kept: keptList,
         latest_note: latestNote,
         total_kept: total,
         momentum,
         power_hours: powerHours,
+        best_day: bestDay,
         message: keptLogCopy({ total }),
       }, 200, 'short');
     } catch (err) {
