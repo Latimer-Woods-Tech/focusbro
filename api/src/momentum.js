@@ -307,3 +307,58 @@ export function describeHourBand(hour) {
   if (clock === 'midnight' || clock === 'noon') return clock;
   return `${clock}, ${partOfDay(hour)}`;
 }
+
+// ════════════════════════════════════════════════════════════
+// ALL-TIME BEST DAY — the most words you ever kept in a single day
+// ════════════════════════════════════════════════════════════
+// The per-day sparkline shows the last two weeks; power hours shows the time of
+// day. Neither can answer "the most I ever kept in ONE day". This does: it
+// buckets a person's FULL kept-word history by local calendar day and names the
+// single tallest day — a standing high-water mark.
+//
+// DESIGN LAW, by construction: it reads status='kept' instants ONLY, so it can
+// only ever crown a day the person SHOWED UP — there is no "worst day" or "days
+// you kept nothing" anywhere. And because a past kept row never disappears, the
+// number it names can only ever climb: a reset, a miss, or a quiet stretch never
+// lowers it. It is a record, not a comparison to today.
+
+/** Minimum kept words on one day before that day is crowned an all-time "best day". */
+export const BEST_DAY_MIN_COUNT = 2;
+
+/**
+ * The single best day in a kept-word history — the local calendar day on which
+ * the person kept the MOST words, from their full list of status='kept' instants.
+ * Pure + DST-correct (buckets by local calendar date via Intl, same as
+ * {@link bucketKeptByDay}).
+ *
+ * On a TIE for the most-kept count across several days, names the MOST RECENT such
+ * day — the freshest time they hit their high-water mark ("you did it again"),
+ * never an older instance. Returns null when no day clears `minCount` (a lone kept
+ * word isn't a "best day" worth crowning) or the history is empty — so a thin
+ * history gets no record, never a hollow "your best day: 1".
+ *
+ * @param {object} p
+ * @param {string[]} p.timestamps  ISO instants of kept check-ins (any order)
+ * @param {string} [p.timezone]    IANA zone for day boundaries
+ * @param {number} [p.minCount=BEST_DAY_MIN_COUNT]
+ * @returns {{ date: string, count: number } | null}
+ */
+export function allTimeBestDay({ timestamps, timezone, minCount = BEST_DAY_MIN_COUNT } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const floor = Number.isFinite(minCount) ? minCount : BEST_DAY_MIN_COUNT;
+  const counts = new Map(); // 'YYYY-MM-DD' -> kept count that local day
+  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
+    const label = localDayInZone(ts, tz);
+    if (label != null) counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  let best = null;
+  for (const [date, count] of counts) {
+    // A strictly-higher day wins; on a tie the LATER calendar date wins (labels
+    // are 'YYYY-MM-DD', so a lexical `>` is a chronological `>`).
+    if (!best || count > best.count || (count === best.count && date > best.date)) {
+      best = { date, count };
+    }
+  }
+  if (!best || best.count < floor) return null;
+  return best;
+}
