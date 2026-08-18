@@ -1170,6 +1170,59 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('in a few', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads a BARE relative duration ("2 hours", "an hour", "a couple days") as now+duration, not a misread clock', () => {
+    // Regression (defect): a person answering "when?" — or giving a first word,
+    // which resolves through this same parser (R-226) — routinely drops the "in":
+    // "couple hours", "an hour", "2 days". Before this, such a reply didn't fall
+    // to the honest re-ask — the clock branch read the COUNT as a wall-clock hour
+    // and SILENTLY DROPPED the unit: "2 hours" landed at 02:00 (2 AM), "20 min" at
+    // 20:00, "2 days" at 02:00. A WRONG time — the bro showing up at 2 AM when you
+    // said "two hours" — is the worst outcome on the two-way text moat, strictly
+    // worse than the warm re-ask. A bare duration now reads IDENTICALLY to its
+    // "in …" form.
+    expect(parseWhenReply('an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('3 hrs', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('half an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    // day / week units — these are the ones the SMS snooze net does NOT own
+    // (detectCheckinReply never classifies "days"/"weeks" as a hold), so they
+    // reach this parser in EVERY path and used to misread the count as a clock.
+    expect(parseWhenReply('2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('a day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('a week', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T15:00:00.000Z');
+    // couple=2 / few=3 word-quantities in the bare form too.
+    expect(parseWhenReply('couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple of days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // Two weeks is exactly the 14-day reschedule horizon — still in range; past it
+    // falls to the warm re-ask, mirroring the "in 3 weeks" case above.
+    expect(parseWhenReply('2 weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    expect(parseWhenReply('3 weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // DST-correct: a duration is an instant offset, zone-agnostic — "2 hours" is
+    // +2h in America/New_York (EDT) exactly as in UTC.
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-06T17:00:00.000Z');
+  });
+
+  it('does NOT steal a unit-less number or a clock for the bare-duration reading (upgrade-only guard)', () => {
+    // The bare-duration branch REQUIRES an explicit duration unit, so a lone
+    // number stays a clock exactly as before — the guard that keeps "3" meaning
+    // 3 o'clock, never "3 minutes". Removing the unit requirement would turn "3"
+    // into a 3-minute nudge and this assertion red first.
+    expect(parseWhenReply('3', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    // A duration embedded in a dated/weekday/tomorrow reply is NOT matched by the
+    // whole-message bare branch — those keep their own reading.
+    expect(parseWhenReply('tomorrow 2', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    // A genuinely vague quantity-less answer still falls to the warm re-ask.
+    expect(parseWhenReply('a bit', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('soon', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads clock times, rolling to tomorrow when already past', () => {
     expect(parseWhenReply('6pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
     expect(parseWhenReply('18:00', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
