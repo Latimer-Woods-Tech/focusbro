@@ -350,6 +350,55 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     // else: fall through to the part-of-day / tomorrow / weekday branches below.
   }
 
+  // ── Bare relative duration, no "in": "2 hours", "an hour", "20 min", "a
+  // couple days", "few weeks", "half an hour" ── A person answering "when?" —
+  // or giving a first word in the create form, which resolves through this same
+  // parser (R-226) — routinely drops the "in": "couple hours", "an hour", "2
+  // days". Left unread, such a reply didn't just fall to the warm re-ask: the
+  // clock branch below read the COUNT as a wall-clock hour and SILENTLY DROPPED
+  // the unit — "2 hours" landing at 2 AM tomorrow, "20 minutes" at 8 PM, "2
+  // days" at 2 AM, "3 hrs" at 3 PM. A wrong time is the worst outcome on the
+  // two-way text moat (the bro showing up at 2 AM when you said "two hours"),
+  // strictly worse than the honest re-ask. This reads a bare duration IDENTICALLY
+  // to its "in …" form. Guarded tight so it can only ever upgrade, never steal a
+  // clock or a date: an explicit duration UNIT is REQUIRED (a bare "3"/"9" stays
+  // a clock, untouched), and the WHOLE message must be just that duration (± a
+  // trailing "or so"/"ish"/"please"), so a "tomorrow 2 hours"-shaped or dated or
+  // weekday reply is never matched here. In the SMS/in-app check-in paths a bare
+  // "an hour"/"2 hours" is classified a SNOOZE upstream (detectCheckinReply) and
+  // never reaches this parser, so this changes only the create form and the
+  // day/week-unit replies the snooze net doesn't own — always toward the right
+  // instant.
+  {
+    const bare = t
+      .replace(/\bor (?:so|two|more)\b/g, ' ')
+      .replace(/\bish\b/g, ' ')
+      .replace(/\b(please|pls|thanks|thx|thank you)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const unitMins = (n, u) => (
+      /^w/.test(u) ? n * 7 * 24 * 60
+        : /^d/.test(u) ? n * 24 * 60
+        : /^h/.test(u) ? n * 60
+        : n
+    );
+    const U = '(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)';
+    let bareMins = null;
+    if (/^half(\s+an?)?\s+hour$/.test(bare)) bareMins = 30;
+    else if (/^an?\s+hour$/.test(bare)) bareMins = 60;
+    else if (/^an?\s+day$/.test(bare)) bareMins = 24 * 60;
+    else if (/^an?\s+week$/.test(bare)) bareMins = 7 * 24 * 60;
+    else {
+      const dm = bare.match(new RegExp(`^(\\d{1,4})\\s*${U}$`));
+      if (dm) bareMins = unitMins(parseInt(dm[1], 10), dm[2]);
+      else {
+        const wm = bare.match(new RegExp(`^(?:an?\\s+)?(couple|few)\\s+(?:of\\s+)?${U}$`));
+        if (wm) bareMins = unitMins(wm[1] === 'few' ? 3 : 2, wm[2]);
+      }
+    }
+    if (bareMins > 0) return inRange(nowMs + Math.round(bareMins) * MIN_MS);
+  }
+
   // Local calendar anchor for "today" in the recipient's zone.
   const p = tzParts(nowMs, tz);
   if (!p) return null;
