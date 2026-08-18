@@ -1145,6 +1145,31 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('in 5', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:05:00.000Z');
   });
 
+  it('reads casual word-quantities "in a couple / a few <unit>" (couple=2, few=3), never as a nag', () => {
+    // Regression: "in a couple hours" / "in a few days" — among the most natural
+    // ways this audience defers a task ("gimme a couple hours") — used to fall to
+    // the cold "I couldn't read that time" re-ask, a quiet "he didn't get me" on
+    // the two-way text moat. Now shared with the create-flow parser's couple=2 /
+    // few=3 vocabulary.
+    expect(parseWhenReply('in a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a couple of hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a few hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('in a couple minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:02:00.000Z');
+    expect(parseWhenReply('in a few min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:03:00.000Z');
+    expect(parseWhenReply('in a couple days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('in a few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // "a couple weeks" = 2 weeks = exactly the 14-day horizon → still in range.
+    expect(parseWhenReply('in a couple weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    // The optional "a/an" — "in couple hours" reads the same.
+    expect(parseWhenReply('in couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // Past the horizon → unreadable, falls to the warm re-ask (mirrors "in 3 weeks").
+    expect(parseWhenReply('in a few weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A unit is REQUIRED: a bare "in a couple" carries no concrete length, so it
+    // must NOT fire ~2 minutes out (a nag) — it stays a warm re-ask.
+    expect(parseWhenReply('in a couple', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('in a few', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads clock times, rolling to tomorrow when already past', () => {
     expect(parseWhenReply('6pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
     expect(parseWhenReply('18:00', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');

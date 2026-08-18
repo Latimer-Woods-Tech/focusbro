@@ -243,7 +243,8 @@ function clockTo24(m) {
  * that context is what lets a bare "3" safely mean 3 o'clock.
  *
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
- * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
+ * hour", "in a couple hours", "in a few days" (couple=2, few=3, unit required);
+ * "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
  * (soonest future); "tonight", "this afternoon", "this morning", "in the
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
  * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
@@ -312,6 +313,29 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
           : /^d/.test(u) ? n * 24 * 60
           : /^h/.test(u) ? n * 60
           : n;
+      } else {
+        // Casual word-quantity: "in a couple hours", "in a few days", "in a
+        // couple of minutes". `couple`=2, `few`=3 — the SAME numeric meaning
+        // already codified for the create-flow parser's NUMWORD map, now shared
+        // with the reschedule channel. These are among the most natural ways an
+        // ADHD brain defers a task ("gimme a couple hours"), and left unread they
+        // fell to the cold re-ask — a quiet "he didn't get me" on the two-way
+        // text moat that is the whole point while voice is gated, the same gap
+        // "end of day"/"first thing"/"lunch"/"in N days" each closed before.
+        // A unit is REQUIRED: a bare "in a couple" carries no concrete length, so
+        // it stays a warm re-ask rather than firing ~2 minutes out (a nag, the
+        // opposite of the anti-shame LAW). The "a/an" is optional ("in couple
+        // hours") and an "of" is absorbed ("a couple of hours"). ("a"/"an" + a
+        // unit alone — "in an hour", "in a day" — is already read above.)
+        const wm = t.match(/^in\s+(?:an?\s+)?(couple|few)\s+(?:of\s+)?(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)\b/);
+        if (wm) {
+          const n = wm[1] === 'few' ? 3 : 2;
+          const u = wm[2];
+          mins = /^w/.test(u) ? n * 7 * 24 * 60
+            : /^d/.test(u) ? n * 24 * 60
+            : /^h/.test(u) ? n * 60
+            : n;
+        }
       }
     }
     if (mins > 0) return inRange(nowMs + Math.round(mins) * MIN_MS);
