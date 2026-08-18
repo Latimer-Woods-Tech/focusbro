@@ -28,6 +28,7 @@ import {
   distinctKeptDays,
   bucketKeptByWeekday, peakKeptWeekday, describeWeekday,
   typicalKeptPerActiveDay,
+  allTimeBestWeek, describeBestWeek, BEST_WEEK_MIN_COUNT,
   formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
@@ -1750,6 +1751,65 @@ export function typicalDayCopy({ typical, persona } = {}) {
     return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm. Keep it rolling. 💪`;
   }
   return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm, drawn only from the days you came through.`;
+}
+
+// ── BEST WEEK (the biggest week you ever put together) ────────
+// The week-scale peer of bestDayCopy: where the best DAY crowns the tallest single
+// day, this crowns the tallest local WEEK — the seven-day stretch you strung the
+// most kept words together in. The math lives in ./momentum.js (allTimeBestWeek,
+// describeBestWeek); the warm first-person words live here with the API that emits
+// them.
+//
+// DESIGN LAW, by construction: the week is built from a status='kept' history ONLY
+// (allTimeBestWeek buckets kept instants), so it can only ever crown a week the
+// person SHOWED UP. It is a standing record that only ever climbs — a quiet week
+// never takes it back, and there is no "worst week" or week-over-week comparison
+// anywhere. It fires only past the signal floor; and it stays SILENT unless the
+// week beats the person's best single DAY (a week no bigger than one day would only
+// echo the best-day card, adding nothing).
+
+/** Heading over the person's all-time best-week record. */
+export function bestWeekHeadingCopy() {
+  return 'Your best week';
+}
+
+/** Intro under the best-week heading — first person, record-only by design. */
+export function bestWeekIntroCopy() {
+  return 'The most kept words you’ve ever strung together across a single week — a high-water mark that’s yours to keep. A quiet week never takes it back.';
+}
+
+/**
+ * Warm one-line all-time best-week read: names the record count and the week it
+ * happened, from an {@link allTimeBestWeek} result. Anti-shame by CONSTRUCTION — it
+ * celebrates a peak the person actually hit and frames it as a standing record that
+ * only ever climbs, never a target, a week-over-week comparison, or a decline.
+ *
+ * Stays SILENT unless the best week is strictly BIGGER than the best single day
+ * (`bestDayCount`): a "best week" no larger than one already-crowned day would only
+ * echo the best-day card, so it adds nothing and shows nothing. Returns '' when
+ * there is no record to crown (engine returned null / below floor) or the week
+ * can't be named.
+ *
+ * @param {object} p
+ * @param {{ weekStart:string, count:number } | null} p.best  from {@link allTimeBestWeek}
+ * @param {number} [p.bestDayCount=0]  the person's best SINGLE-day count, to gate against echo
+ * @param {string} [p.nowISO]     "this week" anchor for the warm week name
+ * @param {string} [p.timezone]   IANA zone the record was bucketed in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function bestWeekCopy({ best, bestDayCount = 0, nowISO, timezone, persona } = {}) {
+  const count = Number(best && best.count) || 0;
+  if (!best || count < BEST_WEEK_MIN_COUNT) return '';
+  const dayFloor = Number(bestDayCount) || 0;
+  if (count <= dayFloor) return ''; // a week no bigger than one day just echoes best-day
+  const when = describeBestWeek(best.weekStart, { nowISO, timezone });
+  if (!when) return '';
+  const words = count === 1 ? 'word' : 'words';
+  if (pickPersona(persona) === 'hype') {
+    return `🏔️ Biggest week yet: ${when} — ${count} kept ${words} across it. A record only you can beat, and it only ever climbs. 💪`;
+  }
+  return `🏔️ Your best week so far: ${when} — ${count} kept ${words} across it. The most you’ve ever put together in seven days, and it only ever climbs from here.`;
 }
 
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
@@ -3865,8 +3925,24 @@ export function registerAccountabilityRoutes(router, ctx) {
           LIMIT 5000`
       ).bind(auth.userId).all();
       const allKeptTimestamps = ((allKeptRows && allKeptRows.results) || []).map((r) => r.responded_at);
+      const bestDayRaw = allTimeBestDay({ timestamps: allKeptTimestamps, timezone: momentumTz });
       const bestDay = bestDayCopy({
-        best: allTimeBestDay({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+        best: bestDayRaw,
+        nowISO,
+        timezone: momentumTz,
+      });
+
+      // ── Your best week (the most kept words ever across a single week) ──
+      // The week-scale peer of the best-day record: the Monday-anchored local week
+      // the person kept the most words in. Reuses the SAME all-time status='kept'
+      // scan already fetched above (no new query), folds its days into weeks, and
+      // names the peak week only when it clears the floor AND beats the best single
+      // DAY — so it never just echoes the best-day card. DESIGN LAW: status='kept'
+      // ONLY → it can only ever crown a week the person SHOWED UP; a thin history,
+      // or a week no bigger than one day, returns '' → the card stays hidden.
+      const bestWeek = bestWeekCopy({
+        best: allTimeBestWeek({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+        bestDayCount: bestDayRaw ? bestDayRaw.count : 0,
         nowISO,
         timezone: momentumTz,
       });
@@ -3934,6 +4010,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         momentum,
         power_hours: powerHours,
         best_day: bestDay,
+        best_week: bestWeek,
         showed_up_days: showedUpDays,
         power_day: powerDay,
         typical_day: typicalDay,
