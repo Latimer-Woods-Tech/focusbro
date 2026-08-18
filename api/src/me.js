@@ -325,6 +325,32 @@ export function snoozeLengthPromptCopy() {
   return 'On it. How long do you need? (Optional — “20 min”, “an hour”… or just OK and I’ll check back soon.)';
 }
 
+/**
+ * The in-app "when do you want to try again?" prompt — shown when a person taps
+ * "Not yet" on a check-in or "Move it" on an active word. A missed moment is an
+ * opening, never a terminal failure: this asks for the next workable time in the
+ * SAME warm words the SMS reschedule path uses, and the answer rides the one
+ * shared when-parser (R-233). Extracted into a named copy fn so this — the single
+ * most anti-shame-critical string in the product — is swept by `meCopySurface()`
+ * and the design-LAW gate, and can never be edited into a scold unseen.
+ * DESIGN LAW: an open door, never a tally, never "AI", never clinical.
+ */
+export function reschedulePromptCopy() {
+  return `No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})`;
+}
+
+/**
+ * The confirm shown when a person sets a word down — a blameless exit, not a miss.
+ * Setting a word down never touches the kept-word streak, and the copy says so
+ * plainly so the action never reads as a loss. Extracted into a named copy fn so
+ * it is swept by `meCopySurface()` and the design-LAW gate rather than hiding as
+ * an inline client literal.
+ * DESIGN LAW: a calm, on-your-side exit, never a tally, never "AI", never clinical.
+ */
+export function releaseConfirmCopy() {
+  return 'Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.';
+}
+
 /** Suspend a repeating rhythm without ending the word — "life happens." */
 export function pauseActionLabel() {
   return 'Pause';
@@ -452,6 +478,8 @@ export function meCopySurface() {
     releaseActionLabel(),
     snoozeActionLabel(),
     snoozeLengthPromptCopy(),
+    reschedulePromptCopy(),
+    releaseConfirmCopy(),
     pauseActionLabel(),
     resumeActionLabel(),
     editActionLabel(),
@@ -528,6 +556,8 @@ export function renderMePage() {
   const RELEASE = releaseActionLabel();
   const SNOOZE = snoozeActionLabel();
   const SNOOZE_LEN_PROMPT = snoozeLengthPromptCopy();
+  const RESCHEDULE_PROMPT = reschedulePromptCopy();
+  const RELEASE_CONFIRM = releaseConfirmCopy();
   const PAUSE = pauseActionLabel();
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
@@ -1796,17 +1826,17 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (act === 'missed') {
       // “Not yet” is an opening, never a terminal failure state. Ask for the
       // next workable moment and use the same warm reschedule path as “Move it.”
-      var notYetWhen = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
+      var notYetWhen = prompt(${JSON.stringify(RESCHEDULE_PROMPT)});
       if (!notYetWhen || !notYetWhen.trim()) return;
       resolve(id, 'reschedule', { when_text: notYetWhen.trim() });
       return;
     }
     if (act === 'release') {
-      if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }
+      if (window.confirm(${JSON.stringify(RELEASE_CONFIRM)})) { release(id); }
       return;
     }
     if (act === 'reschedule') {
-      var when = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
+      var when = prompt(${JSON.stringify(RESCHEDULE_PROMPT)});
       if (!when || !when.trim()) return;
       // Send the words as typed — the server reads them with the SAME parser as a
       // text reply, so a relative offset, a clock time, a weekday, and a date all
