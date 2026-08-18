@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD, scanDesignLaw } from '../design-law.js';
 import {
   COMMITMENT_STATUSES,
   statusPresentation,
@@ -22,6 +22,8 @@ import {
   keptWithNoteActionLabel,
   keptNotePromptCopy,
   snoozeLengthPromptCopy,
+  reschedulePromptCopy,
+  releaseConfirmCopy,
   keptLogHeadingCopy,
   keptLogEmptyCopy,
   latestKeptNoteLabelCopy,
@@ -331,6 +333,59 @@ describe('the optional snooze-length prompt is warm and design-LAW clean', () =>
     for (const pat of [/\btreat(s|ment|ing)?\b/i, /\bADHD\b/i, /\bdiagnos/i]) {
       expect(pat.test(copy)).toBe(false);
     }
+  });
+});
+
+describe('the reschedule + release client prompts are swept by the design-LAW gate', () => {
+  // R-354: these three client-script literals — the "when do you want to try
+  // again?" prompt (shared by the "Not yet" check-in reply and the "Move it"
+  // reschedule) and the "set this word down?" release confirm — are the single
+  // most anti-shame-critical moment in the product, yet they were hardcoded
+  // inline in the /me/ client script and emitted by NO copy fn, so they never
+  // reached `meCopySurface()` and were never swept by the scanner. A scold
+  // edited into them would have left every test green. These pin the fix.
+
+  it('the reschedule prompt is an open door — warm, design-LAW clean, in the surface', () => {
+    const copy = reschedulePromptCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(copy.toLowerCase()).toContain('try again');
+    expect(copy).toContain(inAppWhenExamplesText()); // advertises the real when-parser vocabulary
+    expect(scanDesignLaw(copy, { allowAdhd: false })).toEqual([]);
+    // Membership in the swept surface is the enforcement — assert it so the copy
+    // can never drift back out of the gate's reach.
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('the release confirm is a blameless exit — the streak is never framed as a loss', () => {
+    const copy = releaseConfirmCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(copy.toLowerCase()).toContain('streak stays'); // the streak is explicitly untouched
+    expect(scanDesignLaw(copy, { allowAdhd: false })).toEqual([]);
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('renders both into the client script via JSON.stringify, not as raw literals', () => {
+    const html = renderMePage();
+    // The prompts reach the client as embedded JS string literals (the same
+    // pattern as the snooze-length prompt), so a person sees the exact swept copy.
+    expect(html).toContain(`prompt(${JSON.stringify(reschedulePromptCopy())})`);
+    expect(html).toContain(`window.confirm(${JSON.stringify(releaseConfirmCopy())})`);
+    // The old un-swept inline literal must be gone — no bare single-quoted prompt.
+    expect(html).not.toContain("prompt('No problem — when do you want to try again?");
+    expect(html).not.toContain("window.confirm('Set this word down?");
+  });
+
+  it('PROOF-OF-REJECTION: the gate catches a scold edited into either prompt', () => {
+    // Drop these copy fns out of meCopySurface() — or reword them into a scold —
+    // and the scanner must fire. If any of these came back clean, the gate on the
+    // most anti-shame-critical strings in the product would be a no-op.
+    const rescheduleScold = 'You failed again — why do you keep missing this?';
+    const releaseScold = 'Giving up? You broke your streak and let yourself down.';
+    expect(scanDesignLaw(rescheduleScold).length).toBeGreaterThan(0);
+    expect(scanDesignLaw(releaseScold).length).toBeGreaterThan(0);
+    // And each real prompt, run through the SAME gate, stays clean.
+    expect(scanDesignLaw(reschedulePromptCopy())).toEqual([]);
+    expect(scanDesignLaw(releaseConfirmCopy())).toEqual([]);
   });
 });
 
