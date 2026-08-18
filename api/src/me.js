@@ -41,6 +41,9 @@ import {
   typicalDayHeadingCopy,
   typicalDayIntroCopy,
   typicalDayCopy,
+  bestWeekHeadingCopy,
+  bestWeekIntroCopy,
+  bestWeekCopy,
   keepingSinceHeadingCopy,
   keepingSinceIntroCopy,
   keepingSinceCopy,
@@ -497,6 +500,11 @@ export function meCopySurface() {
     typicalDayCopy({ typical: { perDay: 2, total: 12, days: 6 } }),
     typicalDayCopy({ typical: { perDay: 3.4, total: 34, days: 10 }, persona: 'hype' }),
     typicalDayCopy({ typical: { perDay: 5, total: 60, days: 12 }, persona: 'ally' }),
+    bestWeekHeadingCopy(),
+    bestWeekIntroCopy(),
+    bestWeekCopy({ best: { weekStart: '2026-06-29', count: 18 }, bestDayCount: 7, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestWeekCopy({ best: { weekStart: '2026-08-10', count: 9 }, bestDayCount: 3, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'hype' }),
+    bestWeekCopy({ best: { weekStart: '2026-08-17', count: 6 }, bestDayCount: 4, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
     keepingSinceHeadingCopy(),
     keepingSinceIntroCopy(),
     keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
@@ -664,6 +672,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <h2>${typicalDayHeadingCopy()}</h2>
     <p class="muted">${typicalDayIntroCopy()}</p>
     <p class="typicalday" id="typicalDay"></p>
+  </div>
+
+  <div class="card hidden" id="bestWeekCard">
+    <h2>${bestWeekHeadingCopy()}</h2>
+    <p class="muted">${bestWeekIntroCopy()}</p>
+    <p class="bestweek" id="bestWeek"></p>
   </div>
 
   <div class="card" id="keptLog">
@@ -1056,6 +1070,22 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     card.classList.remove('hidden');
   }
 
+  // Your best week: the warm one-line read of the biggest week you ever put
+  // together — the week-scale peer of the best-day record. The server sends a
+  // non-empty string ONLY when there's a real record to crown (past the floor AND
+  // strictly bigger than your best single day, design-LAW-scanned, record-only); a
+  // thin history, or a week no larger than one day, sends '' and the card simply
+  // stays hidden — never a blank panel, never an echo of the best-day card.
+  function renderBestWeek(line) {
+    var card = el('bestWeekCard');
+    var host = el('bestWeek');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -1069,6 +1099,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         renderShowedUpDays(data && data.showed_up_days);
         renderPowerDay(data && data.power_day);
         renderTypicalDay(data && data.typical_day);
+        renderBestWeek(data && data.best_week);
       })
       .catch(function () {});
   }

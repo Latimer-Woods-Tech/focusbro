@@ -588,3 +588,109 @@ export function typicalKeptPerActiveDay({ timestamps, timezone, minDays = TYPICA
   if (days < minD || total < minT) return null;
   return { perDay: total / days, total, days };
 }
+
+// ════════════════════════════════════════════════════════════
+// BEST WEEK — the most words you ever kept across a single week
+// ════════════════════════════════════════════════════════════
+// The week-scale peer of allTimeBestDay: where the best day crowns the tallest
+// SINGLE local day, this crowns the tallest local WEEK (Monday-anchored, ISO-8601
+// style) — the seven-day stretch you strung the most kept words together in. A
+// bigger canvas that can tell a different story: a steady week spread across many
+// days can crown a week no single one of those days would.
+//
+// DESIGN LAW, by construction: it buckets status='kept' instants ONLY, so it can
+// only ever crown a week you SHOWED UP. It is a standing record that only ever
+// climbs — a quiet week never takes it back, and there is no "worst week" or
+// week-over-week comparison anywhere here. A floor keeps a thin history from
+// getting a hollow "best week".
+
+/** Minimum kept words in the peak week before a "best week" is worth crowning. */
+export const BEST_WEEK_MIN_COUNT = 4;
+
+/**
+ * The Monday-anchored week label (the 'YYYY-MM-DD' of that week's Monday) for a
+ * local calendar-day label. ISO-8601 weeks start on Monday. Pure calendar-label
+ * math (the same DST-agnostic trick the momentum axis uses): reads the weekday off
+ * the label and steps back to Monday. Returns null for a malformed label.
+ * @param {string} dayLabel  a 'YYYY-MM-DD' local calendar label
+ * @returns {string|null} the Monday-of-that-week label, or null
+ */
+export function weekStartLabel(dayLabel) {
+  if (typeof dayLabel !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dayLabel)) return null;
+  const [y, mo, d] = dayLabel.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay(); // 0=Sun … 6=Sat
+  const backToMonday = (dow + 6) % 7; // Mon→0 … Sun→6
+  return shiftDayLabel(dayLabel, -backToMonday);
+}
+
+/**
+ * The single best WEEK in a kept-word history — the Monday-anchored local week in
+ * which the person kept the MOST words, from their full list of status='kept'
+ * instants. Pure + DST-correct (buckets each instant by local calendar day via
+ * {@link localDayInZone}, then folds days into their Monday-anchored week via
+ * {@link weekStartLabel}).
+ *
+ * On a TIE for the most-kept count across several weeks, names the MOST RECENT such
+ * week (the freshest time the high-water mark was hit), never an older one. Returns
+ * null when no week clears `minCount` or the history is empty — so a thin history
+ * gets no record, never a hollow "your best week: 1".
+ *
+ * @param {object} p
+ * @param {string[]} p.timestamps  ISO instants of kept check-ins (any order)
+ * @param {string} [p.timezone]    IANA zone for day/week boundaries
+ * @param {number} [p.minCount=BEST_WEEK_MIN_COUNT]
+ * @returns {{ weekStart: string, count: number } | null}
+ */
+export function allTimeBestWeek({ timestamps, timezone, minCount = BEST_WEEK_MIN_COUNT } = {}) {
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const floor = Number.isFinite(minCount) ? minCount : BEST_WEEK_MIN_COUNT;
+  const counts = new Map(); // Monday 'YYYY-MM-DD' -> kept count that local week
+  for (const ts of Array.isArray(timestamps) ? timestamps : []) {
+    const day = localDayInZone(ts, tz);
+    const week = day != null ? weekStartLabel(day) : null;
+    if (week != null) counts.set(week, (counts.get(week) || 0) + 1);
+  }
+  let best = null;
+  for (const [weekStart, count] of counts) {
+    // A strictly-higher week wins; on a tie the LATER Monday wins (labels are
+    // 'YYYY-MM-DD', so a lexical `>` is a chronological `>`).
+    if (!best || count > best.count || (count === best.count && weekStart > best.weekStart)) {
+      best = { weekStart, count };
+    }
+  }
+  if (!best || best.count < floor) return null;
+  return best;
+}
+
+/**
+ * A warm, relative-aware name for a best-week Monday label: "this week" / "last
+ * week" for the current and prior local weeks, else "the week of Jul 7" (absolute,
+ * and year-qualified past a year rollover so an old record can't read as this
+ * year's same date). Pure; returns '' for a malformed label. The week distance is
+ * whole-week calendar-label math (DST-agnostic — the same trick describePeakDay
+ * uses for days).
+ * @param {string} weekStart  a Monday 'YYYY-MM-DD' label (from {@link allTimeBestWeek})
+ * @param {object} [p]
+ * @param {string} [p.nowISO]     "this week" anchor (defaults to now)
+ * @param {string} [p.timezone]   IANA zone the week was bucketed in
+ * @returns {string}
+ */
+export function describeBestWeek(weekStart, { nowISO, timezone } = {}) {
+  if (typeof weekStart !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return '';
+  const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
+  const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
+  const todayLabel = localDayInZone(anchorISO, tz);
+  const thisWeek = todayLabel ? weekStartLabel(todayLabel) : null;
+  if (thisWeek) {
+    const toUTC = (lbl) => { const [y, mo, d] = lbl.split('-').map(Number); return Date.UTC(y, mo - 1, d); };
+    const weeksAgo = Math.round((toUTC(thisWeek) - toUTC(weekStart)) / (7 * 86400000));
+    if (weeksAgo === 0) return 'this week';
+    if (weeksAgo === 1) return 'last week';
+  }
+  // Older (or no usable anchor): name the Monday date; qualify the year past a rollover.
+  const [y, mo, d] = weekStart.split('-').map(Number);
+  if (!Number.isFinite(mo) || mo < 1 || mo > 12) return '';
+  const nowYear = thisWeek ? Number(thisWeek.split('-')[0]) : y;
+  const base = `the week of ${MONTH_SHORT[mo - 1]} ${d}`;
+  return y === nowYear ? base : `${base}, ${y}`;
+}
