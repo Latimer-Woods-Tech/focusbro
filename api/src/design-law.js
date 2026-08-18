@@ -59,6 +59,24 @@ export const SHAME_PATTERNS = Object.freeze([
   // silently unguarded until it was promoted here.)
   /\bagain\?!/i,
   /\bmiss(ed|es|ing)?\b/i, // no miss tally in what the person reads
+  // A second wave of shame FRAMINGS the first lexicon let through — each one a
+  // way of naming a miss as a personal failing rather than a moment that passed.
+  // Every pattern here was verified to catch its shame form while leaving warm,
+  // on-brand copy untouched (no hit across the whole curated copy corpus): the
+  // reflexive "let yourself down" is caught, but the bro's promise "I won't let
+  // you down" is not; "cut yourself some slack" and "never give up on yourself"
+  // stay clean. These matter most on the coach-authored check-in script, which is
+  // validated by this same scanner before it can ever open a call to a person.
+  /\bflak(e|ed|es|ing|y)\b/i, // "don't flake on me", "you flaked again" — a miss recast as a character trait
+  /\bdrop(s|ped|ping)? the ball\b/i, // "you dropped the ball"
+  /\blet (yourself|themselves|himself|herself) down\b/i, // reflexive "let yourself down" is always self-blame
+  /\byou(?:'ve| have)? let (me|us|them|him|her|everyone|people)(?: all)? down\b/i, // the accusation "you let me down" (NOT the warm promise "I won't let you down")
+  /\bback to (zero|square one)\b/i, // no "you're back to zero" reset-shame — a quiet stretch never erases kept words
+  /\bbroke (your|the|a|my) streak\b/i, // the streak is a kept-word record that only climbs; it is never "broken"
+  /\bbroken streak\b/i,
+  /\bstreak (broke|is broken|was broken|ended|is (gone|over|dead)|reset|lost)\b/i,
+  /\blost (your|the|my|a) streak\b/i,
+  /\bno[-\s]?shows?\b/i, // a person who didn't pick up is not a "no-show"
 ]);
 
 /**
