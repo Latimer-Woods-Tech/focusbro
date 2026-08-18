@@ -130,6 +130,60 @@ describe('scanDesignLaw — proof it rejects real violations', () => {
       expect(scanDesignLaw(ok), `unexpected violation in: ${ok}`).toEqual([]);
     }
   });
+
+  // Proof-of-rejection (Standing Law #1) for the SECOND shame-framing wave added
+  // this run. The first lexicon caught the blunt shame words (fail / lazy / miss /
+  // slipping / behind), but a whole class of framings — a miss recast as a
+  // character trait ("you flaked"), a broken-record framing of the kept-word
+  // streak, the reset-shame "back to zero", and "no-show" — sailed straight
+  // through. These reach a person most dangerously through a COACH-authored
+  // check-in script, which is validated by this exact scanner before it can open a
+  // call. Each assertion below FAILS if its pattern is dropped or loosened.
+  it('flags the second wave: flake / dropped-the-ball / let-you-down / back-to-zero / broken-streak / no-show', () => {
+    for (const bad of [
+      "Don't flake on me this time.",
+      'You flaked on the taxes again.',
+      'You keep dropping the ball.',
+      'You dropped the ball on this one.',
+      'You let yourself down today.',
+      'You let me down.',
+      "You've let everyone down.",
+      "You're back to zero now.",
+      'Back to square one.',
+      'You broke your streak.',
+      'That was a broken streak.',
+      'Your streak is gone.',
+      'Your streak ended.',
+      'Your streak reset.',
+      'You lost your streak.',
+      'Another no-show.',
+      'You were a no show.',
+    ]) {
+      const v = scanDesignLaw(bad);
+      expect(v.some((x) => x.kind === 'shame'), `expected shame in: ${bad}`).toBe(true);
+    }
+  });
+
+  // The precision half of the same wave: the warm forms these patterns sit right
+  // next to MUST stay clean, or the law would start rejecting on-brand copy. The
+  // bro's promise "I won't let you down" is not the accusation "you let me down";
+  // "cut yourself some slack" and "never give up on yourself" are the voice, not a
+  // violation; a growing streak is the whole point. If a pattern is widened until
+  // it swallows one of these, this test goes red before the copy ever ships.
+  it('does not false-positive on the warm neighbours of the second wave', () => {
+    for (const ok of [
+      "I won't let you down.",
+      'You never gave up on yourself.',
+      'Cut yourself some slack — plans change.',
+      'Never give up on yourself.',
+      'Your kept-word streak is growing.',
+      'Your streak is going strong.',
+      'Back to it — give your word.',
+      "Let's wind down for the night.",
+    ]) {
+      expect(scanDesignLaw(ok), `unexpected violation in: ${ok}`).toEqual([]);
+    }
+  });
 });
 
 /**
