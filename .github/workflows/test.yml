@@ -57,6 +57,7 @@ jobs:
 
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
 
@@ -78,8 +79,30 @@ jobs:
     - name: Build HTML module
       run: node create-html-module.js
 
+    - name: Cache Playwright browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('api/package-lock.json') }}
+        restore-keys: |
+          playwright-${{ runner.os }}-
+
     - name: Install Playwright (chromium)
-      run: cd api && npx playwright install --with-deps chromium
+      timeout-minutes: 10
+      run: |
+        cd api
+        for attempt in 1 2 3; do
+          echo "::group::Playwright install attempt $attempt"
+          if timeout 240 npx playwright install --with-deps chromium; then
+            echo "::endgroup::"
+            exit 0
+          fi
+          echo "::endgroup::"
+          echo "Playwright install attempt $attempt stalled or failed; retrying in 10s..."
+          sleep 10
+        done
+        echo "Playwright install failed after 3 attempts"
+        exit 1
 
     - name: Client smoke (Playwright)
       run: cd api && npm run test:smoke
