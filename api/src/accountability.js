@@ -363,19 +363,46 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // to its "in …" form. Guarded tight so it can only ever upgrade, never steal a
   // clock or a date: an explicit duration UNIT is REQUIRED (a bare "3"/"9" stays
   // a clock, untouched), and the WHOLE message must be just that duration (± a
-  // trailing "or so"/"ish"/"please"), so a "tomorrow 2 hours"-shaped or dated or
-  // weekday reply is never matched here. In the SMS/in-app check-in paths a bare
+  // leading/trailing hedge — "maybe"/"like"/"i think" — or an "or so"/"ish"/
+  // "please"), so a "tomorrow 2 hours"-shaped or dated or weekday reply is never
+  // matched here. In the SMS/in-app check-in paths a bare
   // "an hour"/"2 hours" is classified a SNOOZE upstream (detectCheckinReply) and
   // never reaches this parser, so this changes only the create form and the
   // day/week-unit replies the snooze net doesn't own — always toward the right
   // instant.
+  //
+  // Hedge tolerance: this audience rarely answers a bare duration flat — it comes
+  // wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "an hour i
+  // think", "prob a couple days"). The whole-message match below is what keeps
+  // this branch from ever stealing a clock or a date, but a leading/trailing
+  // hedge word broke that match, so the reply fell PAST it into the clock branch
+  // and hit the exact wrong-time bug this branch exists to kill — "like 20
+  // minutes" landing at 8 PM, "prob 2 days" at 2 PM, "2 hours i think" at 2 PM,
+  // the unit silently dropped and the count read as a wall-clock hour (the worst
+  // outcome on the moat: the bro showing up hours off from what you said). So the
+  // same fillers are stripped from BOTH ends before matching. This stays strictly
+  // upgrade-only: an explicit duration UNIT is still required and the message must
+  // STILL be nothing but that duration once the hedge is peeled, so a hedged clock
+  // or weekday ("maybe 3", "maybe 3pm", "like saturday") carries no unit / isn't a
+  // duration and falls through UNCHANGED to the branches that already read it.
   {
-    const bare = t
+    // Uncertainty fillers this audience wraps a duration in. Peeled off the FRONT
+    // and BACK only (a hedge sitting INSIDE — "2 maybe hours" — is left alone, so
+    // the middle of a reply is never silently reshaped into a duration it wasn't).
+    const HEDGE = 'maybe|perhaps|possibly|prob|probably|like|say|lets say|let\'s say|how about|what about|how bout|i guess|guess|i think|i reckon|idk|dunno|hmm+|uh+|um+|erm?|well';
+    const HEDGE_LEAD = new RegExp(`^(?:${HEDGE})\\b\\s*`);
+    const HEDGE_TRAIL = new RegExp(`\\s*\\b(?:${HEDGE})$`);
+    let bare = t
       .replace(/\bor (?:so|two|more)\b/g, ' ')
       .replace(/\bish\b/g, ' ')
       .replace(/\b(please|pls|thanks|thx|thank you)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    let prev;
+    do {
+      prev = bare;
+      bare = bare.replace(HEDGE_LEAD, '').replace(HEDGE_TRAIL, '').replace(/\s+/g, ' ').trim();
+    } while (bare !== prev);
     const unitMins = (n, u) => (
       /^w/.test(u) ? n * 7 * 24 * 60
         : /^d/.test(u) ? n * 24 * 60

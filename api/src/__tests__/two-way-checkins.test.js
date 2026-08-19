@@ -1223,6 +1223,53 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('soon', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads a HEDGED bare duration ("maybe 2 hours", "like 20 min", "an hour i think") — the hedge never turns it into a misread clock', () => {
+    // Regression (defect): this audience rarely answers a bare duration flat — it
+    // comes wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "prob a
+    // couple days", "an hour i think"). A leading/trailing hedge word broke the
+    // whole-message bare-duration match, so the reply fell PAST it into the clock
+    // branch and hit the exact wrong-time bug the bare branch exists to kill: the
+    // unit silently dropped, the count read as a wall-clock hour — "like 20
+    // minutes" landing at 20:00 (8 PM), "prob 2 days" at 02:00, "2 hours i think"
+    // at 02:00. A wrong time is the worst outcome on the two-way text moat. The
+    // hedge is now peeled off BOTH ends before matching, so a hedged duration reads
+    // IDENTICALLY to its flat form. (Before the fix these were the WRONG clock:
+    // "like 20 minutes" → 20:00, "prob 2 days" → 02:00, "2 hours i think" → 02:00.)
+    expect(parseWhenReply('maybe 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('like 20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('say an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('prob 2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('perhaps a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('how about 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('well 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // trailing hedge, and a hedge peeled from BOTH ends of one reply.
+    expect(parseWhenReply('2 hours i think', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('an hour maybe', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('couple days probably', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('maybe an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('umm 20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+  });
+
+  it('a hedge never fabricates a duration, and never steals a hedged clock/weekday (hedged upgrade-only guard)', () => {
+    // The hedged reading is STILL gated on an explicit duration unit and a
+    // whole-message match, so peeling the hedge can only ever upgrade a real
+    // duration — never invent one, never reshape a clock or a date.
+    // A hedged bare NUMBER carries no unit → stays the warm re-ask (never a
+    // 3-minute nudge), exactly as the un-hedged "maybe 3" would.
+    expect(parseWhenReply('maybe 3', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A hedged CLOCK / weekday / tomorrow is read by its OWN branch, unchanged —
+    // the hedge peel leaves a value that carries no duration unit, so the
+    // bare-duration branch never claims it.
+    expect(parseWhenReply('maybe 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('like saturday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('maybe tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // A hedge sitting INSIDE the reply is left alone — only the ends are peeled —
+    // so a mangled "2 maybe hours" is never silently reshaped into a duration.
+    expect(parseWhenReply('2 maybe hours', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A pure hedge with no time at all still falls to the warm re-ask.
+    expect(parseWhenReply('idk maybe', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
   it('reads clock times, rolling to tomorrow when already past', () => {
     expect(parseWhenReply('6pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
     expect(parseWhenReply('18:00', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
