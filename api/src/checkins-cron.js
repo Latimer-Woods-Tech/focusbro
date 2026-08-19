@@ -121,7 +121,13 @@ export async function deliverCheckin(env, row) {
   const persona = coach ? mapCoachPersona(coach.voice_persona) : row.persona;
   const opener = coach ? safeCoachOpener(coach.script) : '';
 
-  const nudge = checkinPromptCopy({ title: row.title, persona });
+  // Seed the nudge on the per-occurrence check-in id so a recurring commitment
+  // rotates its wording across days (never the same wallpaper line twice running)
+  // while a retry of THIS occurrence always reads identically. Falls back to the
+  // commitment id if the row somehow lacks a check-in id.
+  const nudge = checkinPromptCopy({
+    title: row.title, persona, seed: row.checkin_id ?? row.commitment_id,
+  });
   const message = opener ? `${opener}\n\n${nudge}` : nudge;
   const channel = row.channel === 'text' ? 'text' : 'push';
 
