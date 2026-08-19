@@ -1041,12 +1041,68 @@ export function computeStreakAfter(prev, outcome, today) {
 // no clinical claim. Persona shifts the energy (calm vs. hype), never the care.
 
 /** The nudge sent at check-in time: "you said, I'm here, let's go." */
-export function checkinPromptCopy({ title, persona } = {}) {
-  const what = (title || 'the thing').toString();
-  if (pickPersona(persona) === 'hype') {
-    return `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`;
+/**
+ * Pick a stable, non-negative index in [0, n) from an optional `seed`.
+ * A number seed is used directly (mod n); a string seed is hashed. An absent /
+ * empty seed always returns 0 — so an unseeded caller gets the canonical variant
+ * unchanged, and every existing snapshot holds. Deterministic and pure: the same
+ * seed always maps to the same index, so a redelivered/retried check-in reads
+ * IDENTICALLY (never a different message on a retry), while different occurrences
+ * of a recurring commitment rotate.
+ * @param {number|string|null|undefined} seed
+ * @param {number} n  number of variants (>0)
+ * @returns {number}
+ */
+function seedIndex(seed, n) {
+  if (!(n > 0)) return 0;
+  if (seed === undefined || seed === null || seed === '') return 0;
+  if (typeof seed === 'number' && Number.isFinite(seed)) {
+    return ((Math.trunc(seed) % n) + n) % n;
   }
-  return `You said you’d ${startsWithVerbish(what) ? '' : 'do '}${what}. I’m here — ready to go? We’ve got this.`;
+  const s = String(seed);
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return ((h % n) + n) % n;
+}
+
+/**
+ * The outbound check-in nudge — the bro showing up at the moment the person said.
+ *
+ * This is the OTHER half of the two-way text moat (the inbound reply parser is
+ * the first). A recurring commitment fires this on every occurrence, so a single
+ * fixed line means an ADHD brain reads the EXACT same text every day — and a
+ * message that never changes becomes wallpaper the brain filters out, which is
+ * precisely how a nudge decays into a swipe-away and the moat quietly erodes. So
+ * the copy rotates across a small set of warm, tone-identical variants, selected
+ * deterministically from `seed` (the caller passes the per-occurrence check-in
+ * id, stable across retries — see `deliverCheckin`). Every variant obeys THE
+ * DESIGN LAW: an ally glad you showed up, never a boss, never a tally. `seed`
+ * omitted → variant 0 (the canonical line, unchanged) so previews and unseeded
+ * callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
+ */
+export function checkinPromptCopy({ title, persona, seed } = {}) {
+  const what = (title || 'the thing').toString();
+  const doWhat = `${startsWithVerbish(what) ? '' : 'do '}${what}`;
+  if (pickPersona(persona) === 'hype') {
+    // Every hype variant carries an unmistakable hype marker (Yo / 🔥) — the
+    // coach-checkin-delivery contract asserts it.
+    const v = [
+      `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`,
+      `Yo, it’s go time — ${doWhat}! I’m right here with you. Let’s move. 🔥`,
+      `Let’s GO — time to ${doWhat}. 🔥 I’m in your corner; one step and we’re rolling.`,
+      `Yo — ready to ${doWhat}? 🔥 I’m right beside you. One tiny start and we’re off. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
+  }
+  const v = [
+    `You said you’d ${doWhat}. I’m here — ready to go? We’ve got this.`,
+    `You’re up: time to ${doWhat}. No pressure — I’m right here with you.`,
+    `Ready to ${doWhat}? I’ve got your back. One small start and we’re moving.`,
+    `Let’s ${doWhat} together. I’m right here whenever you’re set to begin.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
