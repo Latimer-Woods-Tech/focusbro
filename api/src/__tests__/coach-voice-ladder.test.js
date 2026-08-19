@@ -35,8 +35,13 @@ const TELNYX_ENV = { TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550001111' };
 const GRANTED = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'UTC' };
 
 // Copy markers (from accountability.js escalationCopy / returnNudgeCopy).
-const ESC_HYPE = /One tiny step together\? 🔥/;   // hype voice
-const ESC_ALLY = /No rush — I’m still here/;       // calm ally voice
+// escalationCopy rotates across warm, tone-identical variants per persona
+// (anti-wallpaper, seeded by the check-in id), so the stable persona
+// discriminator is the hype flame: every hype variant carries 🔥, no ally
+// variant does. These tests assert WHICH voice speaks, so 🔥-presence is the
+// exact signal — robust to which rotated variant a given check-in id selects.
+const ESC_HYPE = /🔥/;                        // hype voice
+const ESC_ALLY = /^(?![\s\S]*🔥)[\s\S]*$/;    // calm ally voice = no hype flame
 const RET_HYPE = /just in your corner\. 💪/;       // hype voice
 const RET_ALLY = /no pressure at all/;             // calm ally voice
 

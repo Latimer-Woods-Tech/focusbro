@@ -1125,13 +1125,40 @@ export function checkinReplyHint(persona) {
  * through hardest here — an escalation is an ally knocking once more, never a
  * scold, never a tally, and it always offers the warm exit ("pick a better
  * time") as readily as the start.
+ *
+ * Like `checkinPromptCopy`, this rotates across warm, tone-identical variants
+ * seeded deterministically from `seed` (the caller passes the per-occurrence
+ * check-in id — see `runEscalations`). A recurring commitment that goes quiet
+ * each day would otherwise get the IDENTICAL escalation text every time — the
+ * same wallpaper decay one rung down the ladder — so a daily miss reads as the
+ * bro finding a fresh way to say "still here", not a form letter. Every variant
+ * offers a way in (a tiny step), the warm exit ("pick a better time") recurs
+ * through the rotation so a person who needs to defer always sees it, and none
+ * tallies. `seed` omitted → variant 0 (the canonical line, unchanged) so
+ * previews and unseeded callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function escalationCopy({ title, persona } = {}) {
+export function escalationCopy({ title, persona, seed } = {}) {
   const what = (title || 'the thing').toString();
   if (pickPersona(persona) === 'hype') {
-    return `Still right here — ${what} is ready when you are. One tiny step together? 🔥`;
+    // Every hype variant carries a hype marker (🔥 / Yo) and offers both a tiny
+    // step now and the warm exit — an ally knocking once more, never a scold.
+    const v = [
+      `Still right here — ${what} is ready when you are. One tiny step together? 🔥`,
+      `Yo — still in your corner on ${what}. One small step now, or grab a better time — either way I’ve got you. 🔥`,
+      `No stress — I’m still here for ${what}. 🔥 Want to knock out one little piece together, or pick a time that fits better?`,
+      `Still here, still with you — ${what} whenever you’re ready. 🔥 One tiny start together, or line up a better time?`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`;
+  const v = [
+    `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`,
+    `Still here about ${what} — no pressure at all. We can take one tiny step together, or find a time that works better.`,
+    `I’m right here whenever you’re ready for ${what}. Want to ease in with one small start, or pick a better time?`,
+    `No rush at all — ${what} is still here for you. One little step together, or shall we line up a better time?`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
@@ -2522,7 +2549,10 @@ export function accountabilityCopySurface() {
     // The outbound nudges + hints — what actually reaches the phone.
     add(checkinPromptCopy({ title, persona }));
     add(checkinReplyHint(persona));
-    add(escalationCopy({ title, persona }));
+    // Sweep EVERY escalation variant (8 seeds > 4 variants covers wraparound),
+    // so a shame word edited into any rotated line fails the build, not just
+    // the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(escalationCopy({ title, persona, seed }));
     add(returnNudgeCopy({ persona }));
     // Resolution confirmations across every streak / progress / schedule arm.
     add(keptCopy({ persona, streak: 0 }), keptCopy({ persona, streak: 1 }), keptCopy({ persona, streak: 5 }));
