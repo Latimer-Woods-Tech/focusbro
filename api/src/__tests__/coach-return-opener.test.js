@@ -42,9 +42,12 @@ import { returnNudgeCopy } from '../accountability.js';
 const TELNYX_ENV = { TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550001111' };
 const GRANTED = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'UTC' };
 
-// Standard-copy markers (from accountability.js returnNudgeCopy).
-const RET_ALLY = /no pressure at all/;       // calm ally voice
-const RET_HYPE = /just in your corner\. 💪/;  // hype voice
+// Standard-copy markers (from accountability.js returnNudgeCopy). The return
+// copy rotates across warm, tone-identical variants (seeded per dormancy
+// episode), so the stable persona discriminator is the hype 💪 — every hype
+// variant carries it, no ally variant does (mirrors escalationCopy's flame).
+const RET_ALLY = /^(?![\s\S]*💪)[\s\S]*$/;    // calm ally voice = no hype 💪
+const RET_HYPE = /💪/;                        // hype voice
 
 // A distinctive coach greeting — matched verbatim so we know the AUTHORED line
 // (not just the voice) reached the wire.
@@ -134,6 +137,10 @@ function makeEscDB({ esc = [], phone = '+15550002222', consent = GRANTED, coach 
 const NOW_RET = '2026-07-14T15:00:00.000Z'; // inside the return-nudge daytime window
 const NOW_ESC = '2026-07-06T14:00:00.000Z';
 const cand = (over = {}) => ({ user_id: 'u9', last_event_at: '2026-07-01T09:00:00.000Z', ...over });
+// runReturnNudges seeds the return copy per dormancy episode on `user_id:last_event_at`.
+// For the default cand() that is this exact string, so "the standard copy for THIS
+// delivery" is the variant this seed selects (byte-for-byte, no opener).
+const RET_SEED = 'u9:2026-07-01T09:00:00.000Z';
 const escRow = (over = {}) => ({
   checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
   delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ceiling: 'text', ...over,
@@ -170,7 +177,7 @@ describe('the coach’s authored line greets a returning client', () => {
   it('a self-directed user is byte-for-byte the standard return copy — no opener', async () => {
     const db = makeReturnDB({ candidates: [cand()], pref: { persona: 'ally', timezone: 'UTC' }, coach: {} });
     const { body } = await sentBody(runReturnNudges, { DB: db, ...TELNYX_ENV }, { now: NOW_RET });
-    expect(body).toBe(returnNudgeCopy({ persona: 'ally' })); // nothing added, nothing led with
+    expect(body).toBe(returnNudgeCopy({ persona: 'ally', seed: RET_SEED })); // nothing added, nothing led with
   });
 
   it('a PENDING coach link lends neither voice nor opener (consent by construction)', async () => {
@@ -178,7 +185,7 @@ describe('the coach’s authored line greets a returning client', () => {
     setup.links[0].status = 'pending';
     const db = makeReturnDB({ candidates: [cand()], pref: { persona: 'ally', timezone: 'UTC' }, coach: setup });
     const { body } = await sentBody(runReturnNudges, { DB: db, ...TELNYX_ENV }, { now: NOW_RET });
-    expect(body).toBe(returnNudgeCopy({ persona: 'ally' })); // falls fully back — no line, own tone
+    expect(body).toBe(returnNudgeCopy({ persona: 'ally', seed: RET_SEED })); // falls fully back — no line, own tone
     expect(body).not.toContain(COACH_LINE);
   });
 
@@ -189,7 +196,7 @@ describe('the coach’s authored line greets a returning client', () => {
       coach: coachedSetup({ voice_persona: 'calm_ally', script: 'You failed again — get it together.' }),
     });
     const { body } = await sentBody(runReturnNudges, { DB: db, ...TELNYX_ENV }, { now: NOW_RET });
-    expect(body).toBe(returnNudgeCopy({ persona: 'ally' })); // opener dropped at read, warm nudge stands
+    expect(body).toBe(returnNudgeCopy({ persona: 'ally', seed: RET_SEED })); // opener dropped at read, warm nudge stands
     expect(body).not.toMatch(/\bfail/i);
   });
 

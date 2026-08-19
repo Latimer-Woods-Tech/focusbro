@@ -42,8 +42,12 @@ const GRANTED = { status: 'granted', quiet_start: null, quiet_end: null, timezon
 // exact signal — robust to which rotated variant a given check-in id selects.
 const ESC_HYPE = /🔥/;                        // hype voice
 const ESC_ALLY = /^(?![\s\S]*🔥)[\s\S]*$/;    // calm ally voice = no hype flame
-const RET_HYPE = /just in your corner\. 💪/;       // hype voice
-const RET_ALLY = /no pressure at all/;             // calm ally voice
+// returnNudgeCopy now rotates across warm, tone-identical variants too (seeded
+// per dormancy episode), so — exactly as with the escalation flame above — the
+// stable persona discriminator is the hype 💪: every hype variant carries it, no
+// ally variant does. Robust to whichever rotated variant an episode's seed picks.
+const RET_HYPE = /💪/;                        // hype voice
+const RET_ALLY = /^(?![\s\S]*💪)[\s\S]*$/;    // calm ally voice = no hype 💪
 
 // Shared coach-linkage resolver: active-only, earliest-link-wins — the exact
 // semantics resolveCoachCheckin's SQL applies, so the resolver is exercised, not

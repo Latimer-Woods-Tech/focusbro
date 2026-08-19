@@ -827,7 +827,13 @@ export async function runReturnNudges(env, opts = {}) {
       continue;
     }
 
-    const nudge = returnNudgeCopy({ persona });
+    // Seed the return copy on this dormancy EPISODE: the user id + the activity
+    // timestamp that anchors it (`last_event_at`). Stable while they stay quiet
+    // (one nudge per episode reads consistently), but different next episode
+    // (their return advances `last_event_at`), so a repeat-returner never meets
+    // the identical welcome-back line — the re-entry greeting sheds wallpaper
+    // decay the same way the nudge and knock already do down the ladder.
+    const nudge = returnNudgeCopy({ persona, seed: `${userId}:${row.last_event_at}` });
     const message = opener ? `${opener}\n\n${nudge}` : nudge;
     let outcome;
     if (channel === 'push') {
