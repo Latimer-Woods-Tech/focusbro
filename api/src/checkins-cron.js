@@ -500,7 +500,12 @@ export async function runEscalations(env, opts = {}) {
           // the same conversation's second knock, so it must not switch voices
           // mid-ladder. Self-directed clients are unchanged (own persona).
           const persona = await checkinVoice(env, row.user_id, row.persona);
-          const message = `${escalationCopy({ title: row.title, persona })}\n\n${checkinReplyHint(persona)}`;
+          // Seed on the per-occurrence check-in id so a recurring commitment that
+          // goes quiet each day rotates its escalation wording across days (never
+          // the same wallpaper knock twice running), while this occurrence always
+          // reads identically. Falls back to the commitment id if a check-in id is
+          // somehow absent — mirrors deliverCheckin's nudge seeding.
+          const message = `${escalationCopy({ title: row.title, persona, seed: row.checkin_id ?? row.commitment_id })}\n\n${checkinReplyHint(persona)}`;
           outcome = await deliverText(env, row, message);
         } catch (err) {
           outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
