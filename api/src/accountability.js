@@ -1171,12 +1171,43 @@ export function escalationCopy({ title, persona, seed } = {}) {
  * names the absence, never a streak-at-risk, never a "you missed" — it is an ally
  * glad they exist, holding the door open. Opt-in by channel (push is subscribed;
  * text is TCPA consent-gated). Persona shifts the energy, never the care.
+ *
+ * Like `checkinPromptCopy` and `escalationCopy`, this rotates across warm,
+ * tone-identical variants seeded deterministically from `seed` (the caller passes
+ * a per-dormancy-EPISODE identifier — see `runReturnNudges`, which seeds on the
+ * user id + the activity timestamp that anchors this episode). A person who goes
+ * quiet, returns, and goes quiet again would otherwise get the IDENTICAL welcome
+ * back each time — the same wallpaper decay the nudge and the knock already shed
+ * one and two rungs down the ladder, and at the single most delicate moment on
+ * the channel: a re-entry after silence. So a repeat-returner meets the bro
+ * finding a fresh way to hold the door open, never a form letter. Every variant
+ * still holds zero agenda, names no absence, and ends with the same open-door way
+ * in ("give a word for today?"); every hype variant carries the 💪 hype marker
+ * and no ally variant does (the calm-vs-hype discriminator). `seed` omitted →
+ * variant 0 (the canonical line, unchanged) so previews and unseeded callers are
+ * byte-for-byte untouched.
+ * @param {{ persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function returnNudgeCopy({ persona } = {}) {
+export function returnNudgeCopy({ persona, seed } = {}) {
   if (pickPersona(persona) === 'hype') {
-    return 'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?';
+    // Every hype variant carries the 💪 hype marker and holds the door open with
+    // zero agenda — an ally glad you exist, never a word about the silence.
+    const v = [
+      'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?',
+      'Yo — no agenda, just hyped you’re here. 💪 Whenever you want to line something up, I’m right beside you. Want to give a word for today?',
+      'Yo — good to see you. 💪 No pressure, no catch — whenever you’re ready to line something up, I’m right here for it. Want to give a word for today?',
+      'Yo — I’m in your corner, no agenda at all. 💪 Whenever you feel like starting something fresh, I’ve got you. Want to give a word for today?',
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return 'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?';
+  const v = [
+    'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?',
+    'Hey — no agenda here, just glad you’re around. Whenever you feel like lining something up, I’m right here. Want to give a word for today?',
+    'Hey there — the door’s wide open, no pressure at all. Whenever you’re ready to pick something up, I’ve got you. Want to give a word for today?',
+    'Hey — good to see you. No rush and nothing owed; I’m still right here whenever you want to start fresh. Want to give a word for today?',
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** After a kept word: celebrate the person, name the streak, mean it. */
@@ -2553,7 +2584,10 @@ export function accountabilityCopySurface() {
     // so a shame word edited into any rotated line fails the build, not just
     // the canonical one.
     for (let seed = 0; seed < 8; seed += 1) add(escalationCopy({ title, persona, seed }));
-    add(returnNudgeCopy({ persona }));
+    // Sweep EVERY return-nudge variant too (the re-entry greeting also rotates,
+    // seeded per dormancy episode), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(returnNudgeCopy({ persona, seed }));
     // Resolution confirmations across every streak / progress / schedule arm.
     add(keptCopy({ persona, streak: 0 }), keptCopy({ persona, streak: 1 }), keptCopy({ persona, streak: 5 }));
     add(missRescheduleCopy({ persona }));
