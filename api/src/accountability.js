@@ -2498,17 +2498,52 @@ export function smsAskWhenCopy({ persona } = {}) {
  * (a snooze that holds the time, a reschedule that sets a new one) read the same.
  * A reschedule with no movement reported leaves `progress` false and keeps the
  * generic warm confirm.
+ *
+ * Like `checkinPromptCopy`, `escalationCopy`, and `returnNudgeCopy`, this rotates
+ * across warm, tone-identical variants seeded deterministically from `seed` (the
+ * SMS reply path passes the per-OCCURRENCE `open.checkin_id` — a recurring
+ * commitment materializes a new check-in row per occurrence, so the seed advances
+ * day to day while a retry of the SAME occurrence reads identically). A person on
+ * a recurring commitment who reschedules regularly would otherwise get the
+ * IDENTICAL confirmation every time — the same wallpaper decay the outbound nudge,
+ * escalation knock, and return nudge already shed, now on the reply family, on the
+ * two-way channel the whole thesis rests on. Every variant still names the new
+ * time, keeps the word/streak safe (a reschedule protects the chain — never a
+ * miss, never a tally), and never scolds; every hype variant carries the 💪 hype
+ * marker and no ally variant does (the calm-vs-hype discriminator). `seed` omitted
+ * → variant 0 (the canonical line, unchanged) on every (persona × progress) arm,
+ * so previews and unseeded callers are byte-for-byte untouched.
  */
-export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false } = {}) {
+export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false, seed } = {}) {
   const at = when ? formatWhenLocal(when, timezone, nowISO) : 'then';
   if (pickPersona(persona) === 'hype') {
-    return progress
-      ? `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`
-      : `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
+    // Every hype variant carries the 💪 marker, names the new time, and keeps the
+    // word/streak safe — an ally rolling on, never a scold.
+    const v = progress ? [
+      `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Love that you got some done — that’s real momentum! New time’s locked: I’ll check back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Yesss, you moved on it — momentum! I’ll swing back ${at}. Your word still counts and your streak’s safe; we just roll on. 💪`,
+      `That’s the good stuff — you got moving! I’ll check back ${at}. Your word still counts, your streak’s safe, we keep going. 💪`,
+    ] : [
+      `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Locked in — I’ll check back ${at}. Your word still counts and your streak’s safe; we just go again. 💪`,
+      `You got it — new time’s set: I’ll swing back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Done — I’ll be right here ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return progress
-    ? `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`
-    : `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
+  const v = progress ? [
+    `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Love that you made some headway — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Glad you got moving on it — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Nice, you got a bit done — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+  ] : [
+    `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `All set — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Got the new time — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Noted — I’ll be right here ${at}. Your word still counts, and your streak stays right where it is.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
@@ -2615,7 +2650,13 @@ export function accountabilityCopySurface() {
     add(smsAmbiguousReplyCopy({ persona }));
     add(smsStartHelpCopy({ persona }));
     add(smsAskWhenCopy({ persona }));
-    add(smsRescheduledCopy({ persona, when }), smsRescheduledCopy({ persona, when, progress: true }));
+    // Sweep EVERY reschedule-confirmation variant (both progress arms; 8 seeds >
+    // 4 variants covers wraparound), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) {
+      add(smsRescheduledCopy({ persona, when, seed }));
+      add(smsRescheduledCopy({ persona, when, progress: true, seed }));
+    }
     add(smsWhenUnclearCopy({ persona }));
   }
   // Persona-independent momentum headings/intros + peak/best/milestone marks.

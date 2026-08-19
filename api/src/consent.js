@@ -761,7 +761,7 @@ export function registerConsentRoutes(router, ctx) {
         // If they reported movement in the same breath as the new time ("made good
         // progress, tomorrow 9am"), meet it by name — parity with the snooze path,
         // which already acknowledges progress. Still a reschedule: streak untouched.
-        await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text), seed: open.checkin_id }));
         return finish({ ok: true, action: 'rescheduled', scheduled_for: whenISO });
       }
 
@@ -837,7 +837,7 @@ export function registerConsentRoutes(router, ctx) {
         });
         // Same as the awaiting-time branch: a time given with reported progress
         // ("chipping away, make it 3pm") is met by name. Still a reschedule.
-        await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text), seed: open.checkin_id }));
         return finish({ ok: true, action: 'rescheduled', scheduled_for: directWhenISO });
       }
 
