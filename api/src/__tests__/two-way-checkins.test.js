@@ -750,7 +750,10 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     // the warm read-back confirmation went out (not the "I didn't catch that" copy)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the invariant every
+    // variant carries (word/streak safe — a reschedule protects the chain),
+    // which the "I didn't catch that" copy never does.
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
     expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|pick a new time/);
   });
 
@@ -1013,7 +1016,9 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the word/streak-safe
+    // invariant every variant carries (a reschedule protects the chain).
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
   });
 
   it('a late "done" while awaiting a time is still honored as KEPT', async () => {
