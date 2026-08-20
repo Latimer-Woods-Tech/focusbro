@@ -549,15 +549,20 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // ("let's do saturday"). Bare form = the soonest future occurrence of that
   // day; "next X" forces the following week. Time-of-day reuses the SAME clock /
   // part-of-day / default-time reading as the tomorrow branch, so "mon 3" and
-  // "tomorrow 3" behave alike. "weekend" reads as Saturday.
+  // "tomorrow 3" behave alike. "weekend" reads as Saturday; "wknd" is its
+  // SMS-native spelling — the two-way text channel that is the moat while voice
+  // is gated receives the texted shorthand ("lets do it this wknd", "nxt wknd"),
+  // and left unread it fell to the cold "I couldn't read that time" re-ask — a
+  // quiet "he didn't get me" at the exact moment the anti-shame design LAW
+  // matters. `wknd` shares the Saturday anchor "weekend" already uses.
   const wdMatch = t.match(
-    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|wknd|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/
   );
   if (wdMatch) {
     const WD = {
       sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tues: 2, tue: 2,
       wednesday: 3, weds: 3, wed: 3, thursday: 4, thurs: 4, thur: 4, thu: 4,
-      friday: 5, fri: 5, saturday: 6, sat: 6, weekend: 6,
+      friday: 5, fri: 5, saturday: 6, sat: 6, weekend: 6, wknd: 6,
     };
     const WD_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const targetWd = WD[wdMatch[1]];
@@ -575,7 +580,11 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
 
     const base = (targetWd - todayWd + 7) % 7; // 0..6 days ahead (0 = today)
-    const offsets = /\bnext\b/.test(t) ? [base + 7] : [base, base + 7];
+    // "next friday"/"next wknd" forces the following week; `nxt` is the texted
+    // spelling of "next" the SMS-native audience uses ("nxt fri", "nxt wknd"),
+    // read alongside it so the shorthand lands the following-week occurrence
+    // instead of falling to the cold re-ask.
+    const offsets = /\b(next|nxt)\b/.test(t) ? [base + 7] : [base, base + 7];
     const cands = [];
     for (const off of offsets) {
       const [yy, mm2, dd] = addDay(y0, mo0, d0, off);

@@ -1548,6 +1548,19 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('thurs', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-09T08:40:00.000Z');
   });
 
+  it('reads the texted shorthand "wknd" and "nxt" (NOW is Monday 2026-07-06)', () => {
+    // "wknd" is the SMS-native spelling of "weekend" — same Saturday anchor.
+    expect(parseWhenReply('wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('this wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // A clock time rides the shorthand exactly as it does the full word.
+    expect(parseWhenReply('wknd 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T15:00:00.000Z');
+    // "nxt" is the texted spelling of "next" — forces the following week's
+    // occurrence, matching "next weekend" / "next friday".
+    expect(parseWhenReply('nxt wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-18T09:00:00.000Z');
+    expect(parseWhenReply('nxt fri', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-17T09:00:00.000Z');
+    expect(parseWhenReply('nxt weds at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-15T14:00:00.000Z');
+  });
+
   it('reads an explicit calendar date within the horizon (NOW is Monday 2026-07-06 15:00Z)', () => {
     // Month + day, both orders, long and short forms — all at the default time.
     expect(parseWhenReply('jul 8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
