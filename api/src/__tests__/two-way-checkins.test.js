@@ -1175,6 +1175,29 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('in a few', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
+  it('reads the texting spellings of "tonight" ("tonite"/"2nite"/"tnite") — the SMS moat gets shorthand', () => {
+    // Regression: the tomorrow matcher already read "tmrw"/"tmr", but tonight read
+    // only its full spelling — so "2nite"/"tonite", among the most common ways this
+    // texting-native audience defers to later today, fell to the cold "I couldn't
+    // read that time" re-ask on the two-way text channel that is the moat while
+    // voice is gated. Same 20:00 anchor as "tonight".
+    expect(parseWhenReply('tonite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('tnite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // Casual framings a person actually texts, and case-insensitive.
+    expect(parseWhenReply('lets do it 2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2NITE', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // "2nite" carries no clock — the "2" must NOT be read as 2 o'clock (there is no
+    // word boundary before "nite"), so it lands at tonight's 20:00, not 02:00.
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).not.toBe('2026-07-07T02:00:00.000Z');
+    // Never-past, exactly like "tonight": once 20:00 has passed it rolls to tomorrow
+    // night rather than returning a past instant or a null.
+    const LATE = '2026-07-06T21:00:00.000Z';
+    expect(parseWhenReply('tonite', { nowISO: LATE, timezone: 'UTC' })).toBe('2026-07-07T20:00:00.000Z');
+    // Regression guard: the full spelling is unchanged.
+    expect(parseWhenReply('tonight', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+  });
+
   it('reads a BARE relative duration ("2 hours", "an hour", "a couple days") as now+duration, not a misread clock', () => {
     // Regression (defect): a person answering "when?" — or giving a first word,
     // which resolves through this same parser (R-226) — routinely drops the "in":

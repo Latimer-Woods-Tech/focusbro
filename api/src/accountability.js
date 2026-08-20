@@ -245,7 +245,8 @@ function clockTo24(m) {
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
  * hour", "in a couple hours", "in a few days" (couple=2, few=3, unit required);
  * "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
- * (soonest future); "tonight", "this afternoon", "this morning", "in the
+ * (soonest future); "tonight" (and its texting spellings "tonite"/"2nite"/
+ * "tnite"), "this afternoon", "this morning", "in the
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
  * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
  * (09:00, the start of the working day), "lunch"/"lunchtime"/"after lunch"
@@ -449,7 +450,16 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // the opposite of the anti-shame design LAW).
   const wantsDayAfterTomorrow = /\bday after (tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTomorrow = /\b(tomorrow|tmrw|tmr)\b/.test(t);
-  const wantsTonight = /\b(tonight|this evening)\b/.test(t);
+  // "tonite" / "2nite" / "tnite" — the texting spellings of "tonight". This is
+  // the SMS reschedule channel that is the moat while voice is gated, and it
+  // receives shorthand: the tomorrow matcher above already reads "tmrw"/"tmr",
+  // but tonight read only its full spelling — an asymmetry that dropped the most
+  // common casual "later today" answer this audience texts ("lets do it 2nite")
+  // to the cold "I couldn't read that time" re-ask, a quiet "he didn't get me"
+  // at the exact moment the design LAW matters. Same 20:00 anchor as "tonight";
+  // "2nite" carries no clock (the "2" has no word boundary before "nite", so the
+  // clock matcher below never reads it as 2 o'clock), so it composes cleanly.
+  const wantsTonight = /\b(tonight|tonite|2nite|tnite|this evening)\b/.test(t);
   // "end of day" / "eod" / "cob" — the conventional close of the working day, a
   // concrete 17:00 anchor that sits distinctly between "afternoon" (14:00) and
   // "evening" (19:00). A very common, unambiguous reschedule answer ("I'll get to
