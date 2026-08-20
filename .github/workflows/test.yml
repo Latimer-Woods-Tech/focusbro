@@ -57,6 +57,7 @@ jobs:
 
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
 
@@ -78,8 +79,45 @@ jobs:
     - name: Build HTML module
       run: node create-html-module.js
 
+    - name: Cache Playwright browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('api/package-lock.json') }}
+        restore-keys: |
+          playwright-${{ runner.os }}-
+
     - name: Install Playwright (chromium)
-      run: cd api && npx playwright install --with-deps chromium
+      timeout-minutes: 15
+      run: |
+        cd api
+        # `--with-deps` runs apt-get to install system libs. When a slow Ubuntu
+        # mirror makes attempt 1 exceed the per-attempt `timeout`, apt-get is
+        # killed mid-transaction and orphaned, leaving its lock held — so every
+        # subsequent retry fails INSTANTLY with "Could not get lock" and the
+        # whole retry loop is defeated by its own first attempt (observed on run
+        # 32297223772). Clear any stale apt process + lock before each attempt so
+        # a retry is a genuine retry against a (usually recovered) mirror. All
+        # cleanup is best-effort and never fails the step; the happy path (lock
+        # already free, nothing to kill) is unaffected.
+        clear_apt() {
+          sudo pkill -9 -f 'apt-get|dpkg' 2>/dev/null || true
+          sudo rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock 2>/dev/null || true
+          sudo dpkg --configure -a 2>/dev/null || true
+        }
+        for attempt in 1 2 3; do
+          echo "::group::Playwright install attempt $attempt"
+          clear_apt
+          if timeout 240 npx playwright install --with-deps chromium; then
+            echo "::endgroup::"
+            exit 0
+          fi
+          echo "::endgroup::"
+          echo "Playwright install attempt $attempt stalled or failed; clearing apt lock and retrying in 10s..."
+          sleep 10
+        done
+        echo "Playwright install failed after 3 attempts"
+        exit 1
 
     - name: Client smoke (Playwright)
       run: cd api && npm run test:smoke

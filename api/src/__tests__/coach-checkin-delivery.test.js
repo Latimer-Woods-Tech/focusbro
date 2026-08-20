@@ -30,6 +30,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deliverCheckin, runDueCheckins } from '../checkins-cron.js';
 import { mapCoachPersona } from '../coach-onboarding.js';
+import { checkinPromptCopy } from '../accountability.js';
+
+// The delivery path seeds the outbound nudge on the per-occurrence check-in id so
+// a recurring commitment rotates its wording (never the same wallpaper line two
+// days running). textRow() uses checkin_id 'ci1', so the standard self-directed
+// nudge these tests expect is exactly this variant. Asserting against it (rather
+// than the pre-rotation variant-0 literal) keeps each test's intent — "the warm
+// standard nudge was delivered, not a coach line or a broken message" — while
+// staying correct under rotation.
+const STANDARD_NUDGE = checkinPromptCopy({ title: 'start the taxes', persona: 'ally', seed: 'ci1' });
 
 const TELNYX_ENV = { TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550001111' };
 
@@ -135,7 +145,7 @@ describe('self-directed users are untouched', () => {
   it('a user with no coach link gets the plain standard nudge, own persona', async () => {
     const { out, body } = await sentTextBody({ DB: makeDB({ links: [] }), ...TELNYX_ENV }, textRow({ persona: 'ally' }));
     expect(out.status).toBe('sent');
-    expect(body.startsWith('You said you’d')).toBe(true);
+    expect(body.startsWith(STANDARD_NUDGE)).toBe(true);
     expect(body).not.toContain('Sam');
   });
 
@@ -144,7 +154,7 @@ describe('self-directed users are untouched', () => {
     setup.links[0].status = 'pending';
     const { body } = await sentTextBody({ DB: makeDB(setup), ...TELNYX_ENV }, textRow());
     expect(body).not.toContain('Sam');
-    expect(body.startsWith('You said you’d')).toBe(true);
+    expect(body.startsWith(STANDARD_NUDGE)).toBe(true);
   });
 });
 
@@ -157,7 +167,7 @@ describe('THE DESIGN LAW — a shaming stored line never reaches a person', () =
     expect(out.status).toBe('sent');
     expect(body).not.toMatch(/fail|lazy/i);
     // Falls back to the warm standard nudge, not a broken/empty message.
-    expect(body.startsWith('You said you’d')).toBe(true);
+    expect(body.startsWith(STANDARD_NUDGE)).toBe(true);
   });
 });
 

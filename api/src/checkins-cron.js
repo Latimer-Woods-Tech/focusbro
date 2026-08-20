@@ -121,7 +121,13 @@ export async function deliverCheckin(env, row) {
   const persona = coach ? mapCoachPersona(coach.voice_persona) : row.persona;
   const opener = coach ? safeCoachOpener(coach.script) : '';
 
-  const nudge = checkinPromptCopy({ title: row.title, persona });
+  // Seed the nudge on the per-occurrence check-in id so a recurring commitment
+  // rotates its wording across days (never the same wallpaper line twice running)
+  // while a retry of THIS occurrence always reads identically. Falls back to the
+  // commitment id if the row somehow lacks a check-in id.
+  const nudge = checkinPromptCopy({
+    title: row.title, persona, seed: row.checkin_id ?? row.commitment_id,
+  });
   const message = opener ? `${opener}\n\n${nudge}` : nudge;
   const channel = row.channel === 'text' ? 'text' : 'push';
 
@@ -494,7 +500,12 @@ export async function runEscalations(env, opts = {}) {
           // the same conversation's second knock, so it must not switch voices
           // mid-ladder. Self-directed clients are unchanged (own persona).
           const persona = await checkinVoice(env, row.user_id, row.persona);
-          const message = `${escalationCopy({ title: row.title, persona })}\n\n${checkinReplyHint(persona)}`;
+          // Seed on the per-occurrence check-in id so a recurring commitment that
+          // goes quiet each day rotates its escalation wording across days (never
+          // the same wallpaper knock twice running), while this occurrence always
+          // reads identically. Falls back to the commitment id if a check-in id is
+          // somehow absent — mirrors deliverCheckin's nudge seeding.
+          const message = `${escalationCopy({ title: row.title, persona, seed: row.checkin_id ?? row.commitment_id })}\n\n${checkinReplyHint(persona)}`;
           outcome = await deliverText(env, row, message);
         } catch (err) {
           outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
@@ -816,7 +827,13 @@ export async function runReturnNudges(env, opts = {}) {
       continue;
     }
 
-    const nudge = returnNudgeCopy({ persona });
+    // Seed the return copy on this dormancy EPISODE: the user id + the activity
+    // timestamp that anchors it (`last_event_at`). Stable while they stay quiet
+    // (one nudge per episode reads consistently), but different next episode
+    // (their return advances `last_event_at`), so a repeat-returner never meets
+    // the identical welcome-back line — the re-entry greeting sheds wallpaper
+    // decay the same way the nudge and knock already do down the ladder.
+    const nudge = returnNudgeCopy({ persona, seed: `${userId}:${row.last_event_at}` });
     const message = opener ? `${opener}\n\n${nudge}` : nudge;
     let outcome;
     if (channel === 'push') {

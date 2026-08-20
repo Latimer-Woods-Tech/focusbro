@@ -351,6 +351,82 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     // else: fall through to the part-of-day / tomorrow / weekday branches below.
   }
 
+  // ── Bare relative duration, no "in": "2 hours", "an hour", "20 min", "a
+  // couple days", "few weeks", "half an hour" ── A person answering "when?" —
+  // or giving a first word in the create form, which resolves through this same
+  // parser (R-226) — routinely drops the "in": "couple hours", "an hour", "2
+  // days". Left unread, such a reply didn't just fall to the warm re-ask: the
+  // clock branch below read the COUNT as a wall-clock hour and SILENTLY DROPPED
+  // the unit — "2 hours" landing at 2 AM tomorrow, "20 minutes" at 8 PM, "2
+  // days" at 2 AM, "3 hrs" at 3 PM. A wrong time is the worst outcome on the
+  // two-way text moat (the bro showing up at 2 AM when you said "two hours"),
+  // strictly worse than the honest re-ask. This reads a bare duration IDENTICALLY
+  // to its "in …" form. Guarded tight so it can only ever upgrade, never steal a
+  // clock or a date: an explicit duration UNIT is REQUIRED (a bare "3"/"9" stays
+  // a clock, untouched), and the WHOLE message must be just that duration (± a
+  // leading/trailing hedge — "maybe"/"like"/"i think" — or an "or so"/"ish"/
+  // "please"), so a "tomorrow 2 hours"-shaped or dated or weekday reply is never
+  // matched here. In the SMS/in-app check-in paths a bare
+  // "an hour"/"2 hours" is classified a SNOOZE upstream (detectCheckinReply) and
+  // never reaches this parser, so this changes only the create form and the
+  // day/week-unit replies the snooze net doesn't own — always toward the right
+  // instant.
+  //
+  // Hedge tolerance: this audience rarely answers a bare duration flat — it comes
+  // wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "an hour i
+  // think", "prob a couple days"). The whole-message match below is what keeps
+  // this branch from ever stealing a clock or a date, but a leading/trailing
+  // hedge word broke that match, so the reply fell PAST it into the clock branch
+  // and hit the exact wrong-time bug this branch exists to kill — "like 20
+  // minutes" landing at 8 PM, "prob 2 days" at 2 PM, "2 hours i think" at 2 PM,
+  // the unit silently dropped and the count read as a wall-clock hour (the worst
+  // outcome on the moat: the bro showing up hours off from what you said). So the
+  // same fillers are stripped from BOTH ends before matching. This stays strictly
+  // upgrade-only: an explicit duration UNIT is still required and the message must
+  // STILL be nothing but that duration once the hedge is peeled, so a hedged clock
+  // or weekday ("maybe 3", "maybe 3pm", "like saturday") carries no unit / isn't a
+  // duration and falls through UNCHANGED to the branches that already read it.
+  {
+    // Uncertainty fillers this audience wraps a duration in. Peeled off the FRONT
+    // and BACK only (a hedge sitting INSIDE — "2 maybe hours" — is left alone, so
+    // the middle of a reply is never silently reshaped into a duration it wasn't).
+    const HEDGE = 'maybe|perhaps|possibly|prob|probably|like|say|lets say|let\'s say|how about|what about|how bout|i guess|guess|i think|i reckon|idk|dunno|hmm+|uh+|um+|erm?|well';
+    const HEDGE_LEAD = new RegExp(`^(?:${HEDGE})\\b\\s*`);
+    const HEDGE_TRAIL = new RegExp(`\\s*\\b(?:${HEDGE})$`);
+    let bare = t
+      .replace(/\bor (?:so|two|more)\b/g, ' ')
+      .replace(/\bish\b/g, ' ')
+      .replace(/\b(please|pls|thanks|thx|thank you)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    let prev;
+    do {
+      prev = bare;
+      bare = bare.replace(HEDGE_LEAD, '').replace(HEDGE_TRAIL, '').replace(/\s+/g, ' ').trim();
+    } while (bare !== prev);
+    const unitMins = (n, u) => (
+      /^w/.test(u) ? n * 7 * 24 * 60
+        : /^d/.test(u) ? n * 24 * 60
+        : /^h/.test(u) ? n * 60
+        : n
+    );
+    const U = '(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)';
+    let bareMins = null;
+    if (/^half(\s+an?)?\s+hour$/.test(bare)) bareMins = 30;
+    else if (/^an?\s+hour$/.test(bare)) bareMins = 60;
+    else if (/^an?\s+day$/.test(bare)) bareMins = 24 * 60;
+    else if (/^an?\s+week$/.test(bare)) bareMins = 7 * 24 * 60;
+    else {
+      const dm = bare.match(new RegExp(`^(\\d{1,4})\\s*${U}$`));
+      if (dm) bareMins = unitMins(parseInt(dm[1], 10), dm[2]);
+      else {
+        const wm = bare.match(new RegExp(`^(?:an?\\s+)?(couple|few)\\s+(?:of\\s+)?${U}$`));
+        if (wm) bareMins = unitMins(wm[1] === 'few' ? 3 : 2, wm[2]);
+      }
+    }
+    if (bareMins > 0) return inRange(nowMs + Math.round(bareMins) * MIN_MS);
+  }
+
   // Local calendar anchor for "today" in the recipient's zone.
   const p = tzParts(nowMs, tz);
   if (!p) return null;
@@ -975,12 +1051,68 @@ export function computeStreakAfter(prev, outcome, today) {
 // no clinical claim. Persona shifts the energy (calm vs. hype), never the care.
 
 /** The nudge sent at check-in time: "you said, I'm here, let's go." */
-export function checkinPromptCopy({ title, persona } = {}) {
-  const what = (title || 'the thing').toString();
-  if (pickPersona(persona) === 'hype') {
-    return `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`;
+/**
+ * Pick a stable, non-negative index in [0, n) from an optional `seed`.
+ * A number seed is used directly (mod n); a string seed is hashed. An absent /
+ * empty seed always returns 0 — so an unseeded caller gets the canonical variant
+ * unchanged, and every existing snapshot holds. Deterministic and pure: the same
+ * seed always maps to the same index, so a redelivered/retried check-in reads
+ * IDENTICALLY (never a different message on a retry), while different occurrences
+ * of a recurring commitment rotate.
+ * @param {number|string|null|undefined} seed
+ * @param {number} n  number of variants (>0)
+ * @returns {number}
+ */
+function seedIndex(seed, n) {
+  if (!(n > 0)) return 0;
+  if (seed === undefined || seed === null || seed === '') return 0;
+  if (typeof seed === 'number' && Number.isFinite(seed)) {
+    return ((Math.trunc(seed) % n) + n) % n;
   }
-  return `You said you’d ${startsWithVerbish(what) ? '' : 'do '}${what}. I’m here — ready to go? We’ve got this.`;
+  const s = String(seed);
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return ((h % n) + n) % n;
+}
+
+/**
+ * The outbound check-in nudge — the bro showing up at the moment the person said.
+ *
+ * This is the OTHER half of the two-way text moat (the inbound reply parser is
+ * the first). A recurring commitment fires this on every occurrence, so a single
+ * fixed line means an ADHD brain reads the EXACT same text every day — and a
+ * message that never changes becomes wallpaper the brain filters out, which is
+ * precisely how a nudge decays into a swipe-away and the moat quietly erodes. So
+ * the copy rotates across a small set of warm, tone-identical variants, selected
+ * deterministically from `seed` (the caller passes the per-occurrence check-in
+ * id, stable across retries — see `deliverCheckin`). Every variant obeys THE
+ * DESIGN LAW: an ally glad you showed up, never a boss, never a tally. `seed`
+ * omitted → variant 0 (the canonical line, unchanged) so previews and unseeded
+ * callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
+ */
+export function checkinPromptCopy({ title, persona, seed } = {}) {
+  const what = (title || 'the thing').toString();
+  const doWhat = `${startsWithVerbish(what) ? '' : 'do '}${what}`;
+  if (pickPersona(persona) === 'hype') {
+    // Every hype variant carries an unmistakable hype marker (Yo / 🔥) — the
+    // coach-checkin-delivery contract asserts it.
+    const v = [
+      `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`,
+      `Yo, it’s go time — ${doWhat}! I’m right here with you. Let’s move. 🔥`,
+      `Let’s GO — time to ${doWhat}. 🔥 I’m in your corner; one step and we’re rolling.`,
+      `Yo — ready to ${doWhat}? 🔥 I’m right beside you. One tiny start and we’re off. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
+  }
+  const v = [
+    `You said you’d ${doWhat}. I’m here — ready to go? We’ve got this.`,
+    `You’re up: time to ${doWhat}. No pressure — I’m right here with you.`,
+    `Ready to ${doWhat}? I’ve got your back. One small start and we’re moving.`,
+    `Let’s ${doWhat} together. I’m right here whenever you’re set to begin.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
@@ -1003,13 +1135,40 @@ export function checkinReplyHint(persona) {
  * through hardest here — an escalation is an ally knocking once more, never a
  * scold, never a tally, and it always offers the warm exit ("pick a better
  * time") as readily as the start.
+ *
+ * Like `checkinPromptCopy`, this rotates across warm, tone-identical variants
+ * seeded deterministically from `seed` (the caller passes the per-occurrence
+ * check-in id — see `runEscalations`). A recurring commitment that goes quiet
+ * each day would otherwise get the IDENTICAL escalation text every time — the
+ * same wallpaper decay one rung down the ladder — so a daily miss reads as the
+ * bro finding a fresh way to say "still here", not a form letter. Every variant
+ * offers a way in (a tiny step), the warm exit ("pick a better time") recurs
+ * through the rotation so a person who needs to defer always sees it, and none
+ * tallies. `seed` omitted → variant 0 (the canonical line, unchanged) so
+ * previews and unseeded callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function escalationCopy({ title, persona } = {}) {
+export function escalationCopy({ title, persona, seed } = {}) {
   const what = (title || 'the thing').toString();
   if (pickPersona(persona) === 'hype') {
-    return `Still right here — ${what} is ready when you are. One tiny step together? 🔥`;
+    // Every hype variant carries a hype marker (🔥 / Yo) and offers both a tiny
+    // step now and the warm exit — an ally knocking once more, never a scold.
+    const v = [
+      `Still right here — ${what} is ready when you are. One tiny step together? 🔥`,
+      `Yo — still in your corner on ${what}. One small step now, or grab a better time — either way I’ve got you. 🔥`,
+      `No stress — I’m still here for ${what}. 🔥 Want to knock out one little piece together, or pick a time that fits better?`,
+      `Still here, still with you — ${what} whenever you’re ready. 🔥 One tiny start together, or line up a better time?`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`;
+  const v = [
+    `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`,
+    `Still here about ${what} — no pressure at all. We can take one tiny step together, or find a time that works better.`,
+    `I’m right here whenever you’re ready for ${what}. Want to ease in with one small start, or pick a better time?`,
+    `No rush at all — ${what} is still here for you. One little step together, or shall we line up a better time?`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
@@ -1022,12 +1181,43 @@ export function escalationCopy({ title, persona } = {}) {
  * names the absence, never a streak-at-risk, never a "you missed" — it is an ally
  * glad they exist, holding the door open. Opt-in by channel (push is subscribed;
  * text is TCPA consent-gated). Persona shifts the energy, never the care.
+ *
+ * Like `checkinPromptCopy` and `escalationCopy`, this rotates across warm,
+ * tone-identical variants seeded deterministically from `seed` (the caller passes
+ * a per-dormancy-EPISODE identifier — see `runReturnNudges`, which seeds on the
+ * user id + the activity timestamp that anchors this episode). A person who goes
+ * quiet, returns, and goes quiet again would otherwise get the IDENTICAL welcome
+ * back each time — the same wallpaper decay the nudge and the knock already shed
+ * one and two rungs down the ladder, and at the single most delicate moment on
+ * the channel: a re-entry after silence. So a repeat-returner meets the bro
+ * finding a fresh way to hold the door open, never a form letter. Every variant
+ * still holds zero agenda, names no absence, and ends with the same open-door way
+ * in ("give a word for today?"); every hype variant carries the 💪 hype marker
+ * and no ally variant does (the calm-vs-hype discriminator). `seed` omitted →
+ * variant 0 (the canonical line, unchanged) so previews and unseeded callers are
+ * byte-for-byte untouched.
+ * @param {{ persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function returnNudgeCopy({ persona } = {}) {
+export function returnNudgeCopy({ persona, seed } = {}) {
   if (pickPersona(persona) === 'hype') {
-    return 'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?';
+    // Every hype variant carries the 💪 hype marker and holds the door open with
+    // zero agenda — an ally glad you exist, never a word about the silence.
+    const v = [
+      'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?',
+      'Yo — no agenda, just hyped you’re here. 💪 Whenever you want to line something up, I’m right beside you. Want to give a word for today?',
+      'Yo — good to see you. 💪 No pressure, no catch — whenever you’re ready to line something up, I’m right here for it. Want to give a word for today?',
+      'Yo — I’m in your corner, no agenda at all. 💪 Whenever you feel like starting something fresh, I’ve got you. Want to give a word for today?',
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return 'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?';
+  const v = [
+    'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?',
+    'Hey — no agenda here, just glad you’re around. Whenever you feel like lining something up, I’m right here. Want to give a word for today?',
+    'Hey there — the door’s wide open, no pressure at all. Whenever you’re ready to pick something up, I’ve got you. Want to give a word for today?',
+    'Hey — good to see you. No rush and nothing owed; I’m still right here whenever you want to start fresh. Want to give a word for today?',
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** After a kept word: celebrate the person, name the streak, mean it. */
@@ -2318,17 +2508,52 @@ export function smsAskWhenCopy({ persona } = {}) {
  * (a snooze that holds the time, a reschedule that sets a new one) read the same.
  * A reschedule with no movement reported leaves `progress` false and keeps the
  * generic warm confirm.
+ *
+ * Like `checkinPromptCopy`, `escalationCopy`, and `returnNudgeCopy`, this rotates
+ * across warm, tone-identical variants seeded deterministically from `seed` (the
+ * SMS reply path passes the per-OCCURRENCE `open.checkin_id` — a recurring
+ * commitment materializes a new check-in row per occurrence, so the seed advances
+ * day to day while a retry of the SAME occurrence reads identically). A person on
+ * a recurring commitment who reschedules regularly would otherwise get the
+ * IDENTICAL confirmation every time — the same wallpaper decay the outbound nudge,
+ * escalation knock, and return nudge already shed, now on the reply family, on the
+ * two-way channel the whole thesis rests on. Every variant still names the new
+ * time, keeps the word/streak safe (a reschedule protects the chain — never a
+ * miss, never a tally), and never scolds; every hype variant carries the 💪 hype
+ * marker and no ally variant does (the calm-vs-hype discriminator). `seed` omitted
+ * → variant 0 (the canonical line, unchanged) on every (persona × progress) arm,
+ * so previews and unseeded callers are byte-for-byte untouched.
  */
-export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false } = {}) {
+export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false, seed } = {}) {
   const at = when ? formatWhenLocal(when, timezone, nowISO) : 'then';
   if (pickPersona(persona) === 'hype') {
-    return progress
-      ? `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`
-      : `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
+    // Every hype variant carries the 💪 marker, names the new time, and keeps the
+    // word/streak safe — an ally rolling on, never a scold.
+    const v = progress ? [
+      `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Love that you got some done — that’s real momentum! New time’s locked: I’ll check back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Yesss, you moved on it — momentum! I’ll swing back ${at}. Your word still counts and your streak’s safe; we just roll on. 💪`,
+      `That’s the good stuff — you got moving! I’ll check back ${at}. Your word still counts, your streak’s safe, we keep going. 💪`,
+    ] : [
+      `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Locked in — I’ll check back ${at}. Your word still counts and your streak’s safe; we just go again. 💪`,
+      `You got it — new time’s set: I’ll swing back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Done — I’ll be right here ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return progress
-    ? `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`
-    : `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
+  const v = progress ? [
+    `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Love that you made some headway — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Glad you got moving on it — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Nice, you got a bit done — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+  ] : [
+    `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `All set — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Got the new time — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Noted — I’ll be right here ${at}. Your word still counts, and your streak stays right where it is.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
@@ -2400,8 +2625,14 @@ export function accountabilityCopySurface() {
     // The outbound nudges + hints — what actually reaches the phone.
     add(checkinPromptCopy({ title, persona }));
     add(checkinReplyHint(persona));
-    add(escalationCopy({ title, persona }));
-    add(returnNudgeCopy({ persona }));
+    // Sweep EVERY escalation variant (8 seeds > 4 variants covers wraparound),
+    // so a shame word edited into any rotated line fails the build, not just
+    // the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(escalationCopy({ title, persona, seed }));
+    // Sweep EVERY return-nudge variant too (the re-entry greeting also rotates,
+    // seeded per dormancy episode), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(returnNudgeCopy({ persona, seed }));
     // Resolution confirmations across every streak / progress / schedule arm.
     add(keptCopy({ persona, streak: 0 }), keptCopy({ persona, streak: 1 }), keptCopy({ persona, streak: 5 }));
     add(missRescheduleCopy({ persona }));
@@ -2429,7 +2660,13 @@ export function accountabilityCopySurface() {
     add(smsAmbiguousReplyCopy({ persona }));
     add(smsStartHelpCopy({ persona }));
     add(smsAskWhenCopy({ persona }));
-    add(smsRescheduledCopy({ persona, when }), smsRescheduledCopy({ persona, when, progress: true }));
+    // Sweep EVERY reschedule-confirmation variant (both progress arms; 8 seeds >
+    // 4 variants covers wraparound), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) {
+      add(smsRescheduledCopy({ persona, when, seed }));
+      add(smsRescheduledCopy({ persona, when, progress: true, seed }));
+    }
     add(smsWhenUnclearCopy({ persona }));
   }
   // Persona-independent momentum headings/intros + peak/best/milestone marks.
