@@ -57,7 +57,7 @@ const ctx = {
 // In-memory D1 double. The commitments list query returns `commitments`; the
 // grouped outstanding-check-in query returns `outstanding` rows shaped
 // { commitment_id, next_checkin }.
-function makeDB({ commitments = [], outstanding = [] } = {}) {
+function makeDB({ commitments = [], outstanding = [], unreachable = [] } = {}) {
   const queries = [];
   const db = {
     queries,
@@ -69,6 +69,9 @@ function makeDB({ commitments = [], outstanding = [] } = {}) {
         async all() {
           if (/FROM commitments\b/.test(sql)) return { results: commitments };
           if (/FROM commitment_checkins/.test(sql) && /GROUP BY commitment_id/.test(sql)) {
+            // Two grouped check-in queries share the shape; the in-app fallback
+            // one is the only one that filters skipped rows by last_error.
+            if (/status = 'skipped'/.test(sql)) return { results: unreachable };
             return { results: outstanding };
           }
           return { results: [] };
@@ -132,20 +135,86 @@ describe('GET /api/commitments — next check-in attached to active words (R-233
     expect(body.commitments[0].next_checkin).toBeNull();
   });
 
-  it('uses ONE grouped query for outstanding check-ins (no N+1 per commitment)', async () => {
+  it('reads check-ins with grouped queries only (no N+1 per commitment)', async () => {
     const db = makeDB({
       commitments: [ACTIVE, RECUR],
       outstanding: [{ commitment_id: 'c-active', next_checkin: '2026-07-12T15:00:00Z' }],
     });
     await buildRouter(db)('GET', '/api/commitments');
-    const grouped = db.queries.filter((q) => /FROM commitment_checkins/.test(q) && /GROUP BY commitment_id/.test(q));
-    expect(grouped.length).toBe(1);
+    // The outstanding read is a single grouped query; the in-app fallback adds AT
+    // MOST one more grouped query (only when a word is left unfilled) — the total
+    // never scales with the number of commitments.
+    const outstandingQ = db.queries.filter((q) => /FROM commitment_checkins/.test(q) && /GROUP BY commitment_id/.test(q) && !/status = 'skipped'/.test(q));
+    const fallbackQ = db.queries.filter((q) => /FROM commitment_checkins/.test(q) && /status = 'skipped'/.test(q));
+    expect(outstandingQ.length).toBe(1);
+    expect(fallbackQ.length).toBeLessThanOrEqual(1);
   });
 
   it('requires auth', async () => {
     const db = makeDB({ commitments: [ACTIVE] });
     const res = await buildRouter(db)('GET', '/api/commitments', { token: null });
     expect(res.status).toBe(401);
+  });
+});
+
+// ── in-app fallback: the bro shows up even when we could not reach the person ──
+// A one-shot word whose only check-in was parked `skipped` for a MISSING DELIVERY
+// CHANNEL (no push subscription / push or text not configured / no number) never
+// reached the person: no push, no SMS. It has no next occurrence, so it silently
+// vanished from /me/ — the ONE place the bro could still hold the door. This slice
+// surfaces its most recent unreachable check-in as `next_checkin` (a past moment →
+// the warm "still here" open door), never a miss. An aged-out `stale` skip is NOT
+// resurfaced, and a word with anything genuinely outstanding is untouched.
+describe('GET /api/commitments — in-app fallback for a check-in the bro could not deliver', () => {
+  it('surfaces an unreachable one-shot skip as the (past) next_checkin open door', async () => {
+    const db = makeDB({
+      commitments: [ACTIVE],
+      outstanding: [], // nothing pending/sent/deferred/awaiting — the one-shot was skipped
+      unreachable: [{ commitment_id: 'c-active', next_checkin: '2026-07-12T14:00:00Z' }],
+    });
+    const res = await buildRouter(db)('GET', '/api/commitments');
+    const body = await res.json();
+    expect(body.commitments[0].next_checkin).toBe('2026-07-12T14:00:00Z');
+    // It reads as the warm already-past open door: the scheduled moment is in the past.
+    expect(new Date(body.commitments[0].next_checkin).getTime()).toBeLessThan(Date.now());
+  });
+
+  it('the fallback query targets ONLY no-channel skips, never an aged-out `stale` one', async () => {
+    const db = makeDB({ commitments: [ACTIVE], outstanding: [], unreachable: [] });
+    await buildRouter(db)('GET', '/api/commitments');
+    const fallback = db.queries.find((q) => /FROM commitment_checkins/.test(q) && /status = 'skipped'/.test(q));
+    expect(fallback, 'the fallback query should run when a word is unfilled').toBeTruthy();
+    // Precisely the four "we had no way to reach them" details, and no more.
+    for (const detail of ['no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured']) {
+      expect(fallback).toContain(detail);
+    }
+    // The aged-out skip is deliberately excluded — it never haunts the list.
+    expect(fallback).not.toContain('stale');
+  });
+
+  it('an outstanding check-in always wins over the fallback (no override of a live moment)', async () => {
+    const db = makeDB({
+      commitments: [ACTIVE],
+      outstanding: [{ commitment_id: 'c-active', next_checkin: '2026-07-12T15:00:00Z' }],
+      unreachable: [{ commitment_id: 'c-active', next_checkin: '2026-07-12T14:00:00Z' }],
+    });
+    const res = await buildRouter(db)('GET', '/api/commitments');
+    const body = await res.json();
+    expect(body.commitments[0].next_checkin).toBe('2026-07-12T15:00:00Z');
+    // And the extra grouped query is skipped entirely when nothing is unfilled.
+    const fallback = db.queries.filter((q) => /FROM commitment_checkins/.test(q) && /status = 'skipped'/.test(q));
+    expect(fallback.length).toBe(0);
+  });
+
+  it('never resurrects an unreachable skip onto a non-active (kept/moved) word', async () => {
+    const db = makeDB({
+      commitments: [KEPT],
+      outstanding: [],
+      unreachable: [{ commitment_id: 'c-kept', next_checkin: '2026-07-10T09:00:00Z' }],
+    });
+    const res = await buildRouter(db)('GET', '/api/commitments');
+    const body = await res.json();
+    expect(body.commitments[0].next_checkin).toBeNull();
   });
 });
 

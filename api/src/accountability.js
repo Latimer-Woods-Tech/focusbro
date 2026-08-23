@@ -3184,6 +3184,38 @@ export function registerAccountabilityRoutes(router, ctx) {
         c.next_checkin = c.status === 'active' ? (nextByCommitment[c.id] || null) : null;
       }
 
+      // In-app fallback — the bro still shows up when we could not reach the
+      // person at all. A check-in the cron parked `skipped` PURELY for a missing
+      // delivery channel (no push subscription, push/text not configured, or no
+      // number on file) never reached them — unlike a `stale` skip, which aged
+      // out on purpose and whose recurring word already rolled to a fresh
+      // occurrence. For that unreachable case, opening the app is the ONLY place
+      // the bro can still hold the door: for any ACTIVE word left with nothing
+      // outstanding (a one-shot with no next occurrence — otherwise it silently
+      // shows nothing), surface its most recent unreachable check-in as the same
+      // warm, already-past "still here" open door (never a miss, never a scold).
+      // Guarded so the extra grouped query only runs when a gap actually exists,
+      // and still one query (no N+1).
+      const anyUnfilled = commitments.some((c) => c.status === 'active' && !c.next_checkin);
+      if (anyUnfilled) {
+        const unreachable = await env.DB.prepare(
+          `SELECT commitment_id, MAX(scheduled_for) AS next_checkin
+             FROM commitment_checkins
+            WHERE user_id = ? AND status = 'skipped'
+              AND last_error IN ('no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured')
+            GROUP BY commitment_id`
+        ).bind(auth.userId).all();
+        const unreachableByCommitment = {};
+        for (const row of (unreachable && unreachable.results) || []) {
+          unreachableByCommitment[row.commitment_id] = row.next_checkin;
+        }
+        for (const c of commitments) {
+          if (c.status === 'active' && !c.next_checkin && unreachableByCommitment[c.id]) {
+            c.next_checkin = unreachableByCommitment[c.id];
+          }
+        }
+      }
+
       return jsonResponse({ commitments }, 200, 'short');
     } catch (err) {
       console.error('[accountability] list error:', err && err.message);
