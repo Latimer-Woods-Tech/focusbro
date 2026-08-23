@@ -1300,6 +1300,22 @@ export function alreadySettledCopy({ persona } = {}) {
 }
 
 /**
+ * Warm reply when a resolve arrives for a word that IS still active but whose
+ * current occurrence is already logged — a double-tap, a stale card, a second
+ * device — or when the only thing open is a future day's not-yet-due check-in.
+ * Unlike {@link alreadySettledCopy} it never says "give a new word": the word is
+ * a live rhythm still rolling on its own, so the copy simply confirms this one is
+ * already counted and gets out of the way. No second streak credit, no shame, no
+ * count — the design LAW holds.
+ */
+export function alreadyLoggedCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Already logged this one — you’re covered. 🙌 Nothing else waiting right now; I’ll catch you at the next one.';
+  }
+  return 'Got this one already — you’re all set, no need to log it twice. Nothing else is waiting on you right now; I’ll be here at the next check-in.';
+}
+
+/**
  * Confirming a snooze ("I'm on it"): the person is mid-thing and wants the bro
  * to check back shortly — not a resolution, not a reschedule, not a miss. The
  * copy is glad they're on it and promises to come back, never "don't forget,"
@@ -3577,17 +3593,61 @@ export function registerAccountabilityRoutes(router, ctx) {
       // materialized `pending` row (the R-284 wrong-row/orphan defect, one
       // substate over), crediting the streak for a day that has not happened and
       // orphaning the delivered occurrence into a false "still here" nudge.
-      await env.DB.prepare(
+      // Resolve the soonest OPEN occurrence — but only one that is genuinely DUE:
+      // already delivered (sent / deferred / awaiting_time), or a `pending` row
+      // scheduled no later than the end of today in the recipient's zone (an early
+      // completion of today's not-yet-delivered word — "did it before you even
+      // pinged me"). A FUTURE day's `pending` occurrence is deliberately excluded.
+      //
+      // R-284 fixed the CRON-ordering twin of this defect (today `sent` + tomorrow
+      // `pending` both open → resolve today's, not tomorrow's). This closes the
+      // DOUBLE-RESOLVE twin: once today's occurrence is resolved, the only open row
+      // for a recurring word is tomorrow's freshly-materialized `pending` one, so a
+      // SECOND resolve — a double-tap, a stale card, a second device — would stamp
+      // IT, crediting the kept-word streak for a day that hasn't happened AND
+      // swallowing tomorrow's check-in so the bro never shows up tomorrow. Both are
+      // defects under the design LAW: an inflated count the coach pitch rests on,
+      // and a silently-dropped nudge on the exact channel that IS the product.
+      // "Today's occurrence" is a local-calendar-day boundary, not a fixed offset —
+      // only that distinguishes tomorrow's 9am nudge when it's now 11pm (~10h out)
+      // from today's 9am word when it's now 4am (~5h out).
+      const resolveTz = commitment.timezone || 'UTC';
+      const resolveTp = tzParts(Date.now(), resolveTz);
+      let dueBefore;
+      if (resolveTp) {
+        // Midnight tonight → the first instant of tomorrow, in the recipient's zone.
+        const tmr = new Date(Date.UTC(+resolveTp.year, +resolveTp.month - 1, +resolveTp.day) + 24 * 60 * 60 * 1000);
+        dueBefore = new Date(
+          zonedWallToUtcMs(tmr.getUTCFullYear(), tmr.getUTCMonth() + 1, tmr.getUTCDate(), 0, 0, resolveTz),
+        ).toISOString();
+      } else {
+        dueBefore = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      }
+
+      const resolveRes = await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
           WHERE user_id = ? AND commitment_id = ?
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-                 AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
+                 AND ( status IN ('sent', 'deferred', 'awaiting_time')
+                       OR (status = 'pending' AND scheduled_for < ?) )
                ORDER BY scheduled_for ASC LIMIT 1
             )`
-      ).bind(outcome, note, auth.userId, id, id, auth.userId).run();
+      ).bind(outcome, note, auth.userId, id, id, auth.userId, dueBefore).run();
+
+      // Nothing due was waiting: the current occurrence is already logged (a
+      // double-tap / stale card / second device), or the only open row is a future
+      // day's not-yet-due one. Resolve NOTHING — no second streak credit for one
+      // word, no swallowed future check-in, no duplicate kept event. Reply warm and
+      // blameless; the rhythm keeps rolling on its own. 200 (nothing failed).
+      if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {
+        return jsonResponse({
+          status: commitment.status,
+          message: alreadyLoggedCopy({ persona }),
+        }, 200);
+      }
 
       await env.DB.prepare(
         `UPDATE commitments SET status = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
