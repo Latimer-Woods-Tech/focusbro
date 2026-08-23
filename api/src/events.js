@@ -44,6 +44,47 @@ export const EVENTS = Object.freeze({
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
 });
 
+/**
+ * Event types the BRO initiates — the product reaching out, not the person
+ * acting. A delivered nudge, an escalation knock, or a return nudge is the bro
+ * showing up; it is NOT proof the person came back. These must therefore never
+ * count as user "activity" in a retention, active-user, or returning-user
+ * measure — counting them would inflate exactly the numbers L1 exists to prove
+ * honest ("prove the accountability loop retains", docs/IMPROVEMENT_PLAN.md).
+ * This is the same reasoning that already records `return_nudge_sent` with a
+ * NULL user_id ("recording it as the user's OWN activity would reset the very
+ * dormancy this detects, and would inflate active-user/retention counts",
+ * checkins-cron.js) — extended to the two events that DO carry a real user_id
+ * because delivery/response and coach-roster queries legitimately attribute a
+ * showing-up to the person. Those rows keep their user_id; this list only
+ * removes them from the *definition of the person being active*.
+ *
+ * NOT here (genuine user activity, correctly counted): `return_welcome_shown`
+ * fires only when the person actually re-opens the app ("their own activity",
+ * accountability.js), `checkin_responded` / `checkin_start_help` are their
+ * replies, every `commitment_*` is their action, and `session_complete` (free
+ * timer) is their usage.
+ */
+export const OUTREACH_EVENT_TYPES = Object.freeze([
+  EVENTS.CHECKIN_DELIVERED,
+  EVENTS.CHECKIN_ESCALATED,
+  EVENTS.RETURN_NUDGE_SENT, // already NULL-user; listed for completeness + defence in depth
+]);
+
+/**
+ * A SQL predicate that keeps only USER-INITIATED events — the person acting,
+ * never the bro reaching out. Built from OUTREACH_EVENT_TYPES so the definition
+ * can never drift between the queries that share it. The values are our own
+ * hardcoded constants (never user input), so inlining them is injection-safe.
+ *
+ * @param {string} [prefix] table alias prefix, e.g. `'e.'`; '' for an unaliased column.
+ * @returns {string} `<prefix>event_type NOT IN ('checkin_delivered', ...)`
+ */
+export function userActivityPredicate(prefix = '') {
+  const list = OUTREACH_EVENT_TYPES.map((t) => `'${t}'`).join(', ');
+  return `${prefix}event_type NOT IN (${list})`;
+}
+
 /** Keep acquisition context useful without accepting arbitrary analytics data. */
 export function sanitizeAttribution(value) {
   const out = {};
@@ -214,7 +255,7 @@ export async function computeReturnCohorts(env, opts = {}) {
     `WITH firsts AS (
        SELECT user_id, MIN(substr(created_at, 1, 10)) AS first_day
          FROM analytics_events
-        WHERE user_id IS NOT NULL
+        WHERE user_id IS NOT NULL AND ${userActivityPredicate()}
         GROUP BY user_id
      ),
      rets AS (
@@ -226,7 +267,7 @@ export async function computeReturnCohorts(env, opts = {}) {
                    AND substr(e.created_at, 1, 10) <= date(f.first_day, '+7 day')
                   THEN 1 ELSE 0 END) AS ret_d7
          FROM firsts f
-         JOIN analytics_events e ON e.user_id = f.user_id
+         JOIN analytics_events e ON e.user_id = f.user_id AND ${userActivityPredicate('e.')}
         GROUP BY f.user_id, f.first_day
      )
      SELECT
@@ -618,20 +659,24 @@ export async function computeLoopMetrics(env, opts = {}) {
   const kept_word_rate = resolved > 0 ? round2(totals.commitments_kept / resolved) : null;
   const reschedule_rate = resolved > 0 ? round2(totals.commitments_reschedule / resolved) : null;
 
-  // Distinct active users in the window.
+  // Distinct active users in the window — the person acting, never the bro
+  // reaching out (see userActivityPredicate), so a purely-passive recipient of
+  // delivered check-ins is not counted as "active".
   const activeRow = await env.DB.prepare(
     `SELECT COUNT(DISTINCT user_id) AS n
        FROM analytics_events
-      WHERE created_at >= ? AND user_id IS NOT NULL`
+      WHERE created_at >= ? AND user_id IS NOT NULL AND ${userActivityPredicate()}`
   ).bind(sinceSQL).first();
   const active_users = (activeRow && Number(activeRow.n)) || 0;
 
-  // Returning users: seen on ≥2 distinct UTC days in the window.
+  // Returning users: seen on ≥2 distinct UTC days in the window, counting only
+  // the person's OWN activity — a second day made up purely of a bro-delivered
+  // nudge is the bro showing up, not the person coming back.
   const returningRow = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM (
        SELECT user_id
          FROM analytics_events
-        WHERE created_at >= ? AND user_id IS NOT NULL
+        WHERE created_at >= ? AND user_id IS NOT NULL AND ${userActivityPredicate()}
         GROUP BY user_id
        HAVING COUNT(DISTINCT substr(created_at, 1, 10)) >= 2
      )`
