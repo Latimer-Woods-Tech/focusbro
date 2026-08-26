@@ -171,6 +171,77 @@ export function reportKeptNoteLabelCopy() {
   return 'The last word you kept, in your own words';
 }
 
+/**
+ * The /me/report page's intro line — the first thing a person reads on the
+ * reading surface, and the JS fallback when the fetch is still in flight. A
+ * kept-word framing, never a scorecard. Extracted (parity with me.js's
+ * `mePageIntroCopy`) so the one static line the page shows before any number is
+ * a named copy path the design LAW sweeps, not an inline literal that escapes it.
+ * @returns {string}
+ */
+export function reportPageIntroCopy() {
+  return 'Your week, in the words you kept.';
+}
+
+/**
+ * The /me/report page footnote — the tone the reader leaves the page on. States
+ * the module's kept-word-only law in the person's language: a quiet day is just
+ * quiet, we only ever count the wins. Extracted (parity with me.js's
+ * `mePageFootnoteCopy`) so this static, tone-bearing line is a named copy path
+ * the design LAW sweeps rather than an inline literal.
+ * @returns {string}
+ */
+export function reportPageFootnoteCopy() {
+  return 'Kept-word only, always. A quiet day is just quiet — we only ever count the wins. FocusBro is built by Latimer Woods Tech.';
+}
+
+/**
+ * Every user-facing copy string this module can emit, across every branch of
+ * every copy path — the report's single design-LAW surface (parity with
+ * `meCopySurface` / `roomCopySurface` / the coach surfaces). It is swept through
+ * the one `scanDesignLaw` source of truth by both `design-law.test.js` (the
+ * central every-surface sweep) and `report.test.js`, so the weekly report — the
+ * coach-shareable artifact, and the surface where a week is most tempting to
+ * score as a tally of misses — is held to the identical anti-shame / no-"AI" /
+ * no-clinical-claim bar as every other surface, with no hand-rolled per-surface
+ * lexicon left to drift out of sync.
+ * @returns {string[]} non-empty copy strings (every entry is user-visible)
+ */
+export function reportCopySurface() {
+  return [
+    reportIntroCopy(),
+    // Headline across its three branches: a fresh (quiet) week, a kept week not
+    // on a run, and a kept week mid-run.
+    reportHeadlineCopy({ keptThisWeek: 0, current: 0 }),
+    reportHeadlineCopy({ keptThisWeek: 1, current: 0 }),
+    reportHeadlineCopy({ keptThisWeek: 5, current: 3 }),
+    // The single tiny next step across its three branches (no rhythms yet; rhythms
+    // but a quiet week; rhythms and a kept week).
+    nextStepCopy({ keptThisWeek: 0, activeCount: 0, current: 0 }),
+    nextStepCopy({ keptThisWeek: 0, activeCount: 2, current: 0 }),
+    nextStepCopy({ keptThisWeek: 4, activeCount: 2, current: 4 }),
+    // The ally-showed-up line (the empty <=0 branch renders nothing, so it is
+    // intentionally not part of the surface).
+    showedUpCopy({ showedUp: 1 }),
+    showedUpCopy({ showedUp: 6 }),
+    // Rhythms intro: nothing on the books vs. an active rhythm.
+    rhythmsIntroCopy(0),
+    rhythmsIntroCopy(3),
+    // The per-rhythm "next up" line across its three branches: no time, a moment
+    // already open (still-here), and a genuinely future moment.
+    rhythmNextCopy({ iso: null }),
+    rhythmNextCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-14T12:00:00Z' }),
+    rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-14T12:00:00Z' }),
+    // The momentum peak-day anchor (celebrates a standout only; the sub-2 branch
+    // returns '' and is not part of the surface).
+    reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }),
+    reportPeakDayCopy({ count: 2, whenPhrase: 'today' }),
+    reportKeptNoteLabelCopy(),
+    reportPageIntroCopy(),
+    reportPageFootnoteCopy(),
+  ];
+}
+
 // ── REPORT BUILDER ───────────────────────────────────────────
 
 /**
@@ -504,7 +575,7 @@ export function renderReportPage() {
 <body>
 ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, { href: '/coach/', label: 'Coach view' }])}
 <h1>Weekly report</h1>
-<p class="intro" id="intro">Your week, in the words you kept.</p>
+<p class="intro" id="intro">${reportPageIntroCopy()}</p>
 
 <div id="signin" class="card hidden">
   <p class="muted">Sign in on <a href="/me/">your words</a> first, then come back for your report.</p>
@@ -541,7 +612,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
 </div>
 
 <p class="err hidden" id="err"></p>
-<p class="footnote">Kept-word only, always. A quiet day is just quiet — we only ever count the wins. FocusBro is built by Latimer Woods Tech.</p>
+<p class="footnote">${reportPageFootnoteCopy()}</p>
 
 <script>
 (function () {
@@ -562,7 +633,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
       if (!rep) throw new Error('load');
       reportText = (data && data.text) || '';
 
-      el('intro').textContent = rep.intro || 'Your week, in the words you kept.';
+      el('intro').textContent = rep.intro || ${JSON.stringify(reportPageIntroCopy())};
       el('headline').textContent = rep.headline || '';
       el('s-week').textContent = String(rep.kept_this_week || 0);
       el('s-run').textContent = String((rep.streak && rep.streak.current_streak) || 0);

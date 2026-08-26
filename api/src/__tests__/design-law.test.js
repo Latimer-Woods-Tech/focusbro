@@ -13,6 +13,7 @@ import { consentCopySurface } from '../consent.js';
 import { coachOnboardingCopySurface } from '../coach-onboarding.js';
 import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
 import { accountabilityCopySurface } from '../accountability.js';
+import { reportCopySurface } from '../report.js';
 
 /**
  * THE DESIGN LAW, enforced once for every user-facing copy surface.
@@ -35,6 +36,11 @@ const SURFACES = [
   // consumer voice, so bare ADHD is banned here the same as the other consumer
   // surfaces.
   { label: 'accountabilityCopySurface', strings: accountabilityCopySurface(), allowAdhd: false },
+  // The weekly report (/me/report) — a consumer reading surface AND the artifact a
+  // person copies/shares with their coach. The most tally-prone surface there is:
+  // a week is most tempting to score as a wall of misses exactly here. Consumer
+  // voice, so bare ADHD is banned the same as the other consumer surfaces.
+  { label: 'reportCopySurface', strings: reportCopySurface(), allowAdhd: false },
   // Coach-facing pitch/onboarding + operator roster: ADHD may be named in the
   // pitch, but shame / treatment claims / "AI" are banned the same as anywhere.
   { label: 'coachOnboardingCopySurface', strings: coachOnboardingCopySurface(), allowAdhd: true },

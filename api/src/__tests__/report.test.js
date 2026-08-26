@@ -11,17 +11,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { SHAME_PATTERNS, TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
+import { scanDesignLaw, assertDesignLawClean } from '../design-law.js';
 import {
   WEEKLY_WINDOW_DAYS,
-  reportIntroCopy,
-  reportHeadlineCopy,
-  nextStepCopy,
   showedUpCopy,
-  rhythmsIntroCopy,
   rhythmNextCopy,
   reportPeakDayCopy,
   reportKeptNoteLabelCopy,
+  reportCopySurface,
   buildWeeklyReport,
   renderReportText,
 } from '../report.js';
@@ -364,64 +361,36 @@ describe('own-voice note (R-266) — the person\'s last kept word rides in the r
 });
 
 describe('copy law — a weekly report never reads shame, "AI", or a clinical claim', () => {
-  // Shame guard sourced from the one frozen lexicon (design-law.js), not a local
-  // copy — `slipping` and the (now-fixed) `again?!` this surface used to carry
-  // live there. No report-specific extras remain.
-  const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
-  const AI_WORD = /\bAI\b/;
+  // The report is swept through the ONE design-LAW source of truth (`scanDesignLaw`),
+  // exactly like every other surface in design-law.test.js — no hand-rolled local
+  // lexicon (the old block carried its own `AI_WORD = /\bAI\b/` and re-listed the
+  // clinical patterns, which is precisely the per-surface drift the consolidation
+  // exists to kill). `reportCopySurface()` is the module's own canonical list of
+  // every user-facing copy path, so a new copy path added to report.js is swept
+  // automatically instead of silently escaping a hand-maintained `samples` array.
+  const surface = reportCopySurface();
 
-  const samples = [
-    reportIntroCopy(),
-    reportHeadlineCopy({ keptThisWeek: 0, current: 0 }),
-    reportHeadlineCopy({ keptThisWeek: 1, current: 0 }),
-    reportHeadlineCopy({ keptThisWeek: 5, current: 3 }),
-    nextStepCopy({ keptThisWeek: 0, activeCount: 0, current: 0 }),
-    nextStepCopy({ keptThisWeek: 0, activeCount: 2, current: 0 }),
-    nextStepCopy({ keptThisWeek: 4, activeCount: 2, current: 4 }),
-    showedUpCopy({ showedUp: 1 }),
-    showedUpCopy({ showedUp: 6 }),
-    rhythmsIntroCopy(0),
-    rhythmsIntroCopy(3),
-    rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: NOW }),
-    rhythmNextCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: NOW }),
-    rhythmNextCopy({ iso: null }),
-    // R-257 milestone line, at every milestone value — it ships in the report.
-    ...STREAK_MILESTONES.map((m) => milestoneCopy({ streak: { current_streak: m } })),
-    // The peak-day anchor for the momentum shape — celebrates a high point only.
-    reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }),
-    reportPeakDayCopy({ count: 2, whenPhrase: 'today' }),
-    // The own-voice note frame (R-266): the label the copy-law gate scans; the
-    // person's note text rides beside it verbatim and is never scanned.
-    reportKeptNoteLabelCopy(),
-  ];
-
-  it('produces non-empty strings for every report copy path', () => {
-    for (const s of samples) {
+  it('produces a broad, non-empty surface (every copy path present, no stub)', () => {
+    expect(Array.isArray(surface)).toBe(true);
+    // intro + 3 headline + 3 next-step + 2 showed-up + 2 rhythms-intro + 3
+    // rhythm-next + 2 peak-day + note label + page intro + page footnote.
+    expect(surface.length).toBeGreaterThanOrEqual(18);
+    for (const s of surface) {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it('never emits a shaming word', () => {
-    for (const s of samples) {
-      for (const pat of SHAME_PATTERNS) {
-        expect(pat.test(s), `shaming report copy: "${s}" matched ${pat}`).toBe(false);
-      }
+  it('every report copy path is design-LAW clean (consumer voice: no bare ADHD)', () => {
+    for (const s of surface) {
+      const violations = scanDesignLaw(s, { allowAdhd: false });
+      expect(
+        violations,
+        violations.length ? `report copy: ${JSON.stringify(s)} → ${violations.map((v) => `${v.kind}(${v.pattern})`).join(', ')}` : '',
+      ).toEqual([]);
     }
-  });
-
-  it('never emits the word "AI"', () => {
-    for (const s of samples) {
-      expect(AI_WORD.test(s), `"AI" leaked into report copy: "${s}"`).toBe(false);
-    }
-  });
-
-  it('never makes a clinical or treatment claim', () => {
-    for (const s of samples) {
-      for (const pat of CLINICAL_PATTERNS) {
-        expect(pat.test(s), `clinical claim in report copy: "${s}" matched ${pat}`).toBe(false);
-      }
-    }
+    // And the surface passes the same one-shot assertion the central sweep uses.
+    expect(() => assertDesignLawClean(surface, { allowAdhd: false, label: 'reportCopySurface' })).not.toThrow();
   });
 
   it('the full rendered report text is also clean', () => {
@@ -434,8 +403,17 @@ describe('copy law — a weekly report never reads shame, "AI", or a clinical cl
       nowISO: NOW,
     });
     const text = renderReportText(rep);
-    for (const pat of [...SHAME_PATTERNS, ...CLINICAL_PATTERNS, AI_WORD]) {
-      expect(pat.test(text), `rendered report text matched ${pat}`).toBe(false);
-    }
+    const violations = scanDesignLaw(text, { allowAdhd: false });
+    expect(violations, violations.length ? `rendered report text → ${violations.map((v) => v.kind).join(', ')}` : '').toEqual([]);
+  });
+
+  // Proof-of-rejection (Factory Standing Law #1) for this surface: the sweep is
+  // only real if it would FAIL on a shame / "AI" leak in a report line. A guard
+  // that has never rejected anything is presumed broken.
+  it('the sweep would catch a shame or "AI" leak in a report line', () => {
+    const shamingHeadline = 'You missed 4 words this week — back to zero.';
+    const aiBrandedIntro = 'Your AI coach summarised your week.';
+    expect(() => assertDesignLawClean([shamingHeadline], { label: 'reportCopySurface' })).toThrow(/shame/);
+    expect(() => assertDesignLawClean([aiBrandedIntro], { label: 'reportCopySurface' })).toThrow(/ai-branding/);
   });
 });
