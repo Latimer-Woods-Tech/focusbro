@@ -282,6 +282,25 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   if (!t) return null;
   t = t.replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim(); // "at 3pm" → "3pm"
 
+  // "-ish", the softener this audience leans on hardest, glued straight onto the
+  // time it hedges — "5ish", "noonish", "8ish tonight", "5:30ish". The
+  // separator-stripping pass above already lets the SPACED/HYPHENATED form through
+  // ("3-ish" → "3 ish", read cleanly as 3:00), but the GLUED form the same texter
+  // is at least as likely to send stayed welded to its anchor: "5ish" never
+  // reached the clock branch, "noonish" never matched `\bnoon\b`, and both fell to
+  // the cold re-ask — a quiet "he didn't get me" on the two-way text moat at the
+  // exact moment the anti-shame LAW matters most (voice still gated). Peel a glued
+  // "ish" off a digit or a named clock-word so it reads identically to its spaced
+  // twin. Anchored TIGHT so it can never gut an ordinary word that merely ends in
+  // "ish": only a DIGIT ("5ish" → "5", "5:30ish" → "5:30") or one of the specific
+  // clock words below sheds it — "finish", "wish", "polish", "spanish" are all
+  // left untouched.
+  t = t
+    .replace(/(\d)ish\b/g, '$1')
+    .replace(/\b(noon|midnight|tonight|tonite|tomorrow|tmrw|morning|afternoon|evening)ish\b/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   // A second, separator-preserving normalization: the pass above strips "/" and
   // "-" (so "7/20" collapses to "7 20"), but a numeric MM/DD date needs the
   // separator to be readable. Keep it here for the numeric-date branch only.
