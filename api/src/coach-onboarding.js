@@ -106,6 +106,62 @@ export function validateCheckinScript(text) {
   return { ok: true, value: t };
 }
 
+// The coach's PRACTICE (display) name is the FIRST coach-authored string in the
+// same onboarding handler, and — unlike the brand name and support email beside
+// it — it is REQUIRED. It is rendered back on the coach dashboard
+// (GET /api/coach/onboarding) and derives the operator slug, yet it rode into
+// `svc.createOperator` guarded by a presence + length check ONLY: the sibling
+// drift hole R-327/R-328 left after routing the OPTIONAL brand name and support
+// email through the canonical scanner. So the one required identity field was
+// held to a WEAKER bar than the two optional strings next to it — a practice
+// named "AI Accountability" or "ADHD Cure Coaching" ("cure" is a treatment claim)
+// passed the length check and reached the store and the dashboard unscanned. It
+// is now held to the SAME ONE canonical design LAW, before any operator is
+// created. `allowAdhd: true`, mirroring the brand: a practice name IS the coach
+// pitch, the one place the guardrail permits naming ADHD ("ADHD lives in SEO and
+// the coach pitch"), while shame, "AI", and clinical/treatment claims stay
+// banned. The warm presence + length copy is preserved verbatim from the inline
+// check it replaces.
+
+/**
+ * Warm, banned-word-free feedback per violation kind for a rejected practice
+ * (display) name. Each string must itself pass the design LAW.
+ */
+const DISPLAY_NAME_REASON = Object.freeze({
+  shame: 'Pick a name that stays on their side — no blame in it.',
+  treatment: 'Keep the name everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — your practice reads warm and human here.',
+});
+
+/**
+ * Validate a coach-authored practice (display) name. Returns `{ ok: true, value }`
+ * for a clean, trimmed name, or `{ ok: false, reason }` (a warm, banned-word-free
+ * explanation) for an empty/over-long one or one that shames, brands "AI", or
+ * makes a clinical claim — enforced through the canonical `scanDesignLaw` so this
+ * write boundary can never drift weaker than the brand-name guard beside it.
+ * `allowAdhd: true`: a practice name is the coach pitch, where naming ADHD is
+ * permitted.
+ * @param {unknown} text
+ */
+export function validateDisplayName(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'What should we call your coaching practice?' };
+  }
+  const t = text.trim();
+  if (t.length > MAX_DISPLAY_NAME) {
+    return { ok: false, reason: `Keep the name under ${MAX_DISPLAY_NAME} characters.` };
+  }
+  const violations = scanDesignLaw(t, { allowAdhd: true });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: DISPLAY_NAME_REASON[kind] || DISPLAY_NAME_REASON.shame,
+    };
+  }
+  return { ok: true, value: t };
+}
+
 // The white-label brand name is the OTHER coach-authored, client-facing string:
 // it's the name the person sees on their accountability space. Like the opening
 // line (validateCheckinScript), it must pass the ONE canonical design LAW — a
@@ -241,6 +297,12 @@ export function coachOnboardingCopySurface() {
     ...COACH_VOICE_PERSONAS.map(personaLabel),
     ...COACH_VOICE_PERSONAS.map(personaDescription),
     scriptFieldHelpCopy(),
+    // Practice (display) name validation feedback (must themselves be warm + banned-word-free):
+    validateDisplayName('').reason,
+    validateDisplayName('x'.repeat(MAX_DISPLAY_NAME + 1)).reason,
+    validateDisplayName('Lazy No More Coaching').reason,
+    validateDisplayName('ADHD Cure Coaching').reason,
+    validateDisplayName('AI Accountability').reason,
     // Validation feedback lines (must themselves be warm + banned-word-free):
     validateCheckinScript('').reason,
     validateCheckinScript('x'.repeat(MAX_SCRIPT + 1)).reason,
@@ -352,13 +414,18 @@ export function registerCoachOnboardingRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = null; }
-      const displayName = body && typeof body.displayName === 'string' ? body.displayName.trim() : '';
-      if (!displayName) {
-        return jsonResponse({ error: 'What should we call your coaching practice?' }, 400);
+      // THE DESIGN LAW at the write boundary, on the coach's REQUIRED practice
+      // name — the same canonical scanner the brand name and support email ride,
+      // so this identity field can never be held to a weaker bar than the optional
+      // strings beside it. Presence + length feedback is unchanged; a shaming /
+      // "AI" / clinical practice name is now rejected here too, before any operator
+      // is created. (`allowAdhd: true` inside the validator — a practice name is
+      // the coach pitch.)
+      const displayNameCheck = validateDisplayName(body && body.displayName);
+      if (!displayNameCheck.ok) {
+        return jsonResponse({ error: displayNameCheck.reason }, 400);
       }
-      if (displayName.length > MAX_DISPLAY_NAME) {
-        return jsonResponse({ error: `Keep the name under ${MAX_DISPLAY_NAME} characters.` }, 400);
-      }
+      const displayName = displayNameCheck.value;
 
       // THE DESIGN LAW at the write boundary: a shaming / "AI" / clinical brand
       // name — or support email — is rejected up front, before any operator is
