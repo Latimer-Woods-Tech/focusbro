@@ -166,17 +166,39 @@ export function isWithinQuietHours(nowISO, timezone, start, end) {
 
 // ── ONE-WORD KEYWORDS (CTIA standard) ────────────────────────
 
+/**
+ * Reduce an inbound message to the bare keyword token CTIA matching runs on:
+ * trim, then shed any punctuation / emoji / whitespace clinging to EITHER END.
+ * A real texter almost never sends a naked "STOP" — it lands as "STOP.",
+ * "Stop!", "(stop)", "🛑 STOP" (autocorrect appends the period; a thumb adds
+ * the emoji). The raw `^stop$` match rejected every one of those, so the
+ * opt-out fell straight through to the two-way check-in reply parser and the
+ * person who just told us to stop kept getting texts — a TCPA/R-212 miss AND
+ * the sharpest design-LAW break there is: ignoring someone asking us to leave.
+ * Edge-stripping ONLY — an interior space is preserved, so a genuinely
+ * multi-word message ("please stop texting", "stop the taxes at 3") still
+ * fails the one-word match below and is never mistaken for an opt-out; the
+ * existing false-positive guard is kept exactly. The interior hyphen of
+ * "opt-out" / "opt-in" sits between letters, never at an edge, so it survives.
+ */
+export function keywordToken(t) {
+  return String(t == null ? '' : t)
+    .trim()
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/[^\p{L}\p{N}]+$/u, '');
+}
+
 /** Standard opt-out keywords — honored instantly and durably. */
 export function isStopKeyword(t) {
-  return /^(stop|stopall|unsubscribe|cancel|end|quit|optout|opt-out)$/i.test(String(t == null ? '' : t).trim());
+  return /^(stop|stopall|unsubscribe|cancel|end|quit|optout|opt-out)$/i.test(keywordToken(t));
 }
 /** Standard opt-in / resume keywords. */
 export function isStartKeyword(t) {
-  return /^(start|unstop|yes|optin|opt-in)$/i.test(String(t == null ? '' : t).trim());
+  return /^(start|unstop|yes|optin|opt-in)$/i.test(keywordToken(t));
 }
 /** Standard help keyword. */
 export function isHelpKeyword(t) {
-  return /^(help|info)$/i.test(String(t == null ? '' : t).trim());
+  return /^(help|info)$/i.test(keywordToken(t));
 }
 
 // ── PHONE ────────────────────────────────────────────────────

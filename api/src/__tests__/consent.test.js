@@ -98,12 +98,38 @@ describe('one-word keywords (CTIA)', () => {
     expect(isStopKeyword('please stop texting')).toBe(false); // one-word only
     expect(isStopKeyword('')).toBe(false);
   });
+  // A real texter's opt-out arrives dressed in punctuation/emoji ("STOP.",
+  // "Stop!", autocorrect's trailing period, a thumb's 🛑). The bare `^stop$`
+  // match dropped every one of these to the check-in parser and kept texting
+  // someone who asked us to stop — a TCPA/R-212 + design-LAW miss. These fail
+  // WITHOUT the edge-stripping keywordToken (proof-of-rejection).
+  it('honors a lone STOP wrapped in punctuation / emoji, but still not multi-word', () => {
+    for (const w of ['STOP.', 'Stop!', 'stop...', '(stop)', 'STOP - ', '🛑 STOP', 'unsubscribe.', 'opt-out!', 'CANCEL.']) {
+      expect(isStopKeyword(w), w).toBe(true);
+    }
+    // The one-word-only false-positive guard is preserved: a real sentence that
+    // merely contains "stop" is never an opt-out (an interior space survives).
+    for (const w of ['please stop texting', 'stop the taxes at 3', "don't stop", 'stop it', '...', '   ', '']) {
+      expect(isStopKeyword(w), w).toBe(false);
+    }
+  });
   it('detects START and HELP', () => {
     expect(isStartKeyword('START')).toBe(true);
     expect(isStartKeyword('unstop')).toBe(true);
     expect(isHelpKeyword('help')).toBe(true);
     expect(isHelpKeyword('INFO')).toBe(true);
     expect(isHelpKeyword('helpme')).toBe(false);
+  });
+  it('honors START / HELP wrapped in punctuation too', () => {
+    for (const w of ['START!', 'yes.', 'UNSTOP.', 'opt-in!']) {
+      expect(isStartKeyword(w), w).toBe(true);
+    }
+    for (const w of ['HELP!', 'info.', 'help?']) {
+      expect(isHelpKeyword(w), w).toBe(true);
+    }
+    // Still one-word-only: a sentence is not a keyword.
+    expect(isStartKeyword('yes i did it')).toBe(false);
+    expect(isHelpKeyword('help me start the taxes')).toBe(false);
   });
 });
 
