@@ -458,9 +458,17 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   const [ty, tm, td] = addDay(y0, mo0, d0, 1);
 
   if (/\bmidnight\b/.test(t)) return inRange(at(ty, tm, td, 0, 0));
-  if (/\bnoon\b/.test(t) && !/\btomorrow\b/.test(t)) {
-    return inRange(at(y0, mo0, d0, 12, 0)) || inRange(at(ty, tm, td, 12, 0));
-  }
+  // "noon" is modelled as a part-of-day anchor (see the `partOfDay` ladder below)
+  // so it COMPOSES with every day branch — "tomorrow noon", "saturday noon",
+  // "the 12th at noon" — exactly like "morning"/"afternoon"/"lunch". It used to
+  // sit here as a standalone branch that read only today/tomorrow, which produced
+  // two wrong-time outputs on the two-way text moat (the exact worst outcome the
+  // design LAW guards): the `&& !/\btomorrow\b/` guard skipped "tomorrow noon"
+  // and, with "noon" absent from the ladder, that branch fell to the 09:00
+  // default — silently DROPPING noon; and any other day-qualified "noon"
+  // ("saturday noon", "the 12th at noon") fired here and returned today/tomorrow
+  // noon, IGNORING the day and landing the reschedule days early. Bare "noon"
+  // still lands via the bare part-of-day branch below, unchanged.
 
   // "day after tomorrow" CONTAINS "tomorrow" but means +2 days. Detect it first
   // so the tomorrow branch below can land it two days out instead of one — a
@@ -535,6 +543,7 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     : /\bfirst thing\b/.test(t) ? [9, 0]
     : /\bmid[\s-]?morning\b/.test(t) ? [10, 30]
     : /\bmorning\b/.test(t) ? [9, 0]
+    : /\bnoon\b/.test(t) ? [12, 0]
     : /\blunch(?:\s?time)?\b/.test(t) ? [13, 0]
     : /\bmid[\s-]?afternoon\b/.test(t) ? [15, 30]
     : /\bafternoon\b/.test(t) ? [14, 0]
