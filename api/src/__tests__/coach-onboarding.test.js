@@ -28,6 +28,7 @@ import { D1OperatorStore } from '../operator-store.js';
 import {
   registerCoachOnboardingRoutes,
   validateCheckinScript,
+  validateDisplayName,
   validateBrandName,
   validateSupportEmail,
   deriveOperatorSlug,
@@ -209,6 +210,53 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
     // one pass). The old local list here was the WEAKEST of the four — its
     // CLINICAL regexes omitted `cure`, `therapy`, AND `medication`, and its SHAME
     // list omitted `disappoint`/`pathetic`/`worthless`/`unrespons`/`slipping`.
+    for (const s of reasons) {
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+describe('validateDisplayName — the design LAW on the coach\'s required practice name', () => {
+  it('accepts a clean practice name and trims it', () => {
+    const r = validateDisplayName('  Steady Wins Coaching  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('Steady Wins Coaching');
+  });
+
+  it('allows "ADHD" in a practice name — the name IS the coach pitch', () => {
+    // Guardrail: "ADHD lives in SEO and the coach pitch, not a clinical promise."
+    // A coaching business legitimately named for its market must not be rejected.
+    expect(validateDisplayName('ADHD Focus Coaching').ok).toBe(true);
+  });
+
+  it('rejects an empty, over-long, or shaming practice name', () => {
+    expect(validateDisplayName('').ok).toBe(false);
+    expect(validateDisplayName('   ').ok).toBe(false);
+    expect(validateDisplayName(undefined).ok).toBe(false);
+    expect(validateDisplayName('x'.repeat(121)).ok).toBe(false);
+    expect(validateDisplayName('Lazy No More Coaching').ok).toBe(false);
+    expect(validateDisplayName('No More Excuses').ok).toBe(false);
+  });
+
+  it('rejects a clinical/treatment claim and the "AI" brand in the practice name', () => {
+    // The exact drift this fix closes: these passed the old presence+length-only
+    // check and reached the store + coach dashboard as a treatment/"AI" claim on a
+    // FocusBro-served surface. "cure" is a treatment claim even beside "ADHD".
+    expect(validateDisplayName('ADHD Cure Coaching').ok).toBe(false);
+    expect(validateDisplayName('Therapy Practice').ok).toBe(false);
+    expect(validateDisplayName('AI Accountability').ok).toBe(false);
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateDisplayName('').reason,
+      validateDisplayName('x'.repeat(121)).reason,
+      validateDisplayName('Lazy No More Coaching').reason,
+      validateDisplayName('ADHD Cure Coaching').reason,
+      validateDisplayName('AI Accountability').reason,
+    ];
+    // Held to the SAME ONE canonical bar as the surfaces the rest of the suite
+    // guards — the rejection copy can never itself shame or go clinical.
     for (const s of reasons) {
       expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
     }
