@@ -2458,6 +2458,42 @@ function isSoftNo(t) {
   return SOFT_NO_TAIL.test(t);                // "yeah nah" / "yeah no" / "yeah nope"
 }
 
+// The soft-NEGATIVE hedge — the gentlest partial "no" an ADHD user texts back to
+// "did you do it?": "not really", "not so much" (and any reply carrying one:
+// "meh not really", "not really tbh", "no not really"). It carries no self-blame
+// (SHAME_MISS misses it), no "life got in the way" phrase (CIRCUMSTANTIAL_MISS
+// misses it), no negation contraction and no adjacent "not done"/"not yet"
+// (RESCHEDULE's net misses it), and it isn't the single-token "n"/"no"/"not" the
+// last-pass net reads — so it fell clean through the whole classifier to a bare
+// `null`, the cold "reply DONE or LATER" re-prompt, delivered to someone gently
+// saying they didn't get to it: the exact scold the ONE design LAW ("never
+// shame") forbids, on the live two-way moat while voice is gated.
+//
+// The net is deliberately narrow — only the two unambiguous soft-no idioms
+// ("not really", "not so much"). Bare "not much" is left out on purpose: "not
+// much left" is a near-done engaged reply, not a miss, and must never be read as
+// one. `isSoftNegMiss` is consulted LAST in `detectCheckinReply` (after
+// RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW, hold-length, SHAME_MISS and
+// CIRCUMSTANTIAL_MISS have each returned), so — exactly like SHAME_MISS and
+// CIRCUMSTANTIAL_MISS — it can only ever change a reply that would otherwise have
+// gone cold; it is streak-safe and regression-safe by construction. The single
+// guard is a clean-completion veto: a real win that happens to carry the hedge
+// ("not really feeling it but knocked it out" — a completion KEPT's list does not
+// carry) is left alone rather than wrongly rescheduled.
+const SOFT_NEG_HEDGE = /\bnot (?:really|so much)\b/;
+/**
+ * True when a reply is a bare soft-negative hedge ("not really" / "not so much")
+ * whose operative sentiment is a gentle miss — with no clean completion riding
+ * along to override it. Read-only; never touches the streak. Routes the family to
+ * the no-shame reschedule instead of the cold null.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNegMiss(t) {
+  if (hasCleanCompletion(t)) return false; // "not really feeling it but knocked it out" is a win
+  return SOFT_NEG_HEDGE.test(t);
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
@@ -2596,6 +2632,14 @@ export function detectCheckinReply(text) {
   // reaches here. Read it as the no-shame RESCHEDULE, never the cold null.
   // Streak-safe: a reschedule never resets.
   if (CIRCUMSTANTIAL_MISS.test(t)) return 'reschedule';
+  // A bare soft-negative hedge ("not really", "not so much", "meh not really") —
+  // the gentlest partial "no", carrying no self-blame, no "life got in the way"
+  // phrase, no negation contraction and no marker word, so every net above left
+  // it as a stone-cold `null`. Everything that could be a completion, an engaged
+  // snooze, or a "later"/date reschedule has already returned, so this only ever
+  // rescues a reply otherwise headed for the cold re-prompt. Read it as the
+  // no-shame RESCHEDULE. Streak-safe: a reschedule never resets.
+  if (isSoftNegMiss(t)) return 'reschedule';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
