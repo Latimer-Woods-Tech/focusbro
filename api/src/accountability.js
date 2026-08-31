@@ -457,7 +457,33 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   const at = (y, mo, d, h, mi) => zonedWallToUtcMs(y, mo, d, h, mi, tz);
   const [ty, tm, td] = addDay(y0, mo0, d0, 1);
 
-  if (/\bmidnight\b/.test(t)) return inRange(at(ty, tm, td, 0, 0));
+  // "midnight" (00:00) is the ONE time-of-day anchor we deliberately do NOT
+  // compose onto a named day the way "noon"/"morning"/"evening" do, because a
+  // day-qualified midnight is genuinely ambiguous: "saturday midnight" is either
+  // the midnight that STARTS Saturday or the one that ENDS it (most texters mean
+  // the latter, some the former), and "tomorrow midnight" the start or end of
+  // tomorrow. On the two-way text moat (voice still gated) a GUESSED wrong-day /
+  // wrong-side reschedule is the worst outcome the anti-shame design LAW guards
+  // against — strictly worse than a warm "which day did you mean?" re-ask. So
+  // bare "midnight" (and "tonight/tonite at midnight", the same instant) lands
+  // the next 00:00 = the start of tomorrow, unchanged; but a midnight carrying
+  // ANY other day/date token (a weekday, a calendar date, "tomorrow") returns
+  // null so the honest re-ask fires — instead of the prior branch that ignored
+  // the qualifier entirely and silently landed tomorrow 00:00 (the wrong day for
+  // "saturday midnight" / "the 12th at midnight", a day early for "tomorrow
+  // midnight"). Never a guessed wrong-day reschedule. The qualifier probes mirror
+  // the weekday / named-date / numeric-date branches below exactly so this reads
+  // "qualified" for precisely the inputs those branches would otherwise consume.
+  if (/\bmidnight\b/.test(t)) {
+    const midnightDayQualified =
+      /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|wknd|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/.test(t)
+      || /\b(tomorrow|tmrw|tmr)\b/.test(t)
+      || /\b(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\b/.test(t)
+      || /\b(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*\s+\d{1,2}/.test(t)
+      || /\b\d{1,2}(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*\b/.test(t)
+      || /\b\d{1,2}\s*[/-]\s*\d{1,2}\b/.test(tSep);
+    return midnightDayQualified ? null : inRange(at(ty, tm, td, 0, 0));
+  }
   // "noon" is modelled as a part-of-day anchor (see the `partOfDay` ladder below)
   // so it COMPOSES with every day branch — "tomorrow noon", "saturday noon",
   // "the 12th at noon" — exactly like "morning"/"afternoon"/"lunch". It used to
