@@ -2192,6 +2192,28 @@ const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| t
 // case, tomorrow" (already a reschedule) or "the point is done" (already kept)
 // can never reach or trip them.
 const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|hopeless)\b/;
+// The circumstantial cousin of SHAME_MISS: a plain "life got in the way" miss —
+// "forgot", "slipped my mind", "ran out of time", "no time today", "not today",
+// "not happening", "swamped", "too busy". No self-blame, so SHAME_MISS never
+// touches it; and — the part that made it fall through — no negation CONTRACTION
+// either, so RESCHEDULE's net (which reads "didn't"/"couldn't"/"can't"/"haven't",
+// hence "didn't have time" / "couldn't get to it") never caught these bare forms.
+// They landed on a stone-cold `null` = the "I didn't catch that, reply DONE or
+// LATER" re-prompt — delivered to the ADHD user confessing they just forgot, the
+// exact person the ONE design LAW ("never shame") most protects. Read the family
+// as the no-shame RESCHEDULE — the warm "no problem, when do you want to try
+// again?" that keeps the streak safe (a reschedule never resets). Streak-safe AND
+// regression-safe BY CONSTRUCTION: like SHAME_MISS this net is consulted only in
+// detectCheckinReply AFTER RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the
+// hold-length nets have each already returned, so a real completion that merely
+// mentions time ("did it, almost forgot to say", "finished, ran out of time to
+// clean up but it's done") stays KEPT, and an engaged "on it, lost track of time"
+// stays a SNOOZE — the only reply this net can change is one that would otherwise
+// have gone cold. "no time" REQUIRES a qualifier (today/left/for it) so the
+// enthusiastic "no time to lose" (a start, not a miss) is never grabbed; the
+// completion-colliding slang ("slammed it", "spaced on it") is deliberately left
+// out so it can never steal a kept word.
+const CIRCUMSTANTIAL_MISS = /\b(forgot|slipped my mind|lost track of (?:the )?time|ran out of time|out of time|no time (?:today|left|for (?:it|this|that))|not today|not happening|never got (?:to it|around to it)|got swamped|swamped|too busy|no bandwidth)\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
@@ -2515,6 +2537,15 @@ export function detectCheckinReply(text) {
   // cold `null` re-prompt — that cold branch aimed at this reply is the exact
   // scold the design LAW forbids. Streak-safe: a reschedule never resets.
   if (SHAME_MISS.test(t)) return 'reschedule';
+  // A circumstantial "life got in the way" miss ("forgot", "ran out of time", "no
+  // time today", "not today", "not happening", "swamped", "too busy") — no
+  // self-blame (so SHAME_MISS misses it) and no negation contraction (so
+  // RESCHEDULE's "didn't"/"couldn't" net misses it), which left it going cold.
+  // Everything that could be a completion, an engaged snooze, or a "later"/date
+  // reschedule has already returned above, so only a residual bare confession
+  // reaches here. Read it as the no-shame RESCHEDULE, never the cold null.
+  // Streak-safe: a reschedule never resets.
+  if (CIRCUMSTANTIAL_MISS.test(t)) return 'reschedule';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
