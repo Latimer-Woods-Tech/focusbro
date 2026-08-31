@@ -2494,6 +2494,41 @@ function isSoftNegMiss(t) {
   return SOFT_NEG_HEDGE.test(t);
 }
 
+// The ONE soft-negative hedge that does NOT go cold — it goes WRONG. The late
+// isSoftNegMiss net above rescues the bare hedge ("not really") from a cold
+// `null`, but a hedge that drags a bare completion ADJECTIVE right behind it —
+// "not really done", "not so much finished", "not really complete" — never
+// reaches that late net: its negated completion word slips past RESCHEDULE (whose
+// net needs the adjacent "not done"/"not finished", and "really"/"so much" sits
+// between) and past the grateful-completion intercept (no CLEAN completion), then
+// trips KEPT's bare `\bdone\b`/`finished`/`complete` and is over-credited as a
+// resolved word — a FALSE STREAK TICK. That is a streak-INTEGRITY break on the
+// moat where kept-word honesty IS the product: a person gently saying they
+// didn't really finish is silently logged as having kept their word. This net
+// reads exactly that overlap — the hedge IMMEDIATELY negating a bare completion
+// adjective (only [\s,]* between, so a real appended completion CLAUSE like "not
+// really, did it" / "not really got it done" keeps its word, matching the
+// existing verb-clause precedent) — so `detectCheckinReply` can intercept it
+// AHEAD of KEPT. Deliberately mirrors ONLY the adjective forms KEPT reads bare
+// (done/finished/complete[d]); the verb-phrase completions (did it, got it done,
+// nailed it) are left to KEPT as completion claims, exactly as "not really, did
+// it" is today.
+const SOFT_NEG_DONE_TRIP = /\bnot (?:really|so much)\b[\s,]*(?:done|finished|complete[d]?)\b/;
+/**
+ * True when a reply is a soft-negative hedge that directly negates a bare
+ * completion adjective — "not really done", "not so much finished", "not really
+ * complete" — i.e. a gentle MISS that would otherwise trip KEPT's bare
+ * `done`/`finished`/`complete` and tick the streak. Guarded by the clean-completion
+ * veto so a real win riding along ("not really done yet but nailed it") is never
+ * wrongly rescheduled. Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNegDoneTrip(t) {
+  if (hasCleanCompletion(t)) return false; // a real completion elsewhere wins
+  return SOFT_NEG_DONE_TRIP.test(t);
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
@@ -2597,6 +2632,20 @@ export function detectCheckinReply(text) {
   // soft-YES) so it can never steal a real win. Route it to the no-shame
   // RESCHEDULE — never the false 'kept' and never the cold null on a bare "nah".
   if (isSoftNo(t)) return 'reschedule';
+  // A soft-negative hedge that directly negates a bare completion adjective —
+  // "not really done", "not so much finished", "not really complete" — is a
+  // gentle MISS, but its bare `done`/`finished`/`complete` trips KEPT below and
+  // is over-credited as a resolved word: a false streak tick, a streak-INTEGRITY
+  // break on the moat where kept-word honesty IS the product (the same class the
+  // soft-"no" and grateful-completion intercepts guard). It reaches this point
+  // un-rerouted because its completion word is negated (so the grateful-completion
+  // intercept and RESCHEDULE's adjacency net both miss it) yet KEPT's word-boundary
+  // `done` needs no adjacency. Intercept ONLY that exact overlap ahead of KEPT and
+  // route it to the no-shame reschedule; `isSoftNegDoneTrip` vetoes a clean
+  // completion, and it fires only on the ADJECTIVE forms so an appended completion
+  // CLAUSE ("not really, did it") keeps its word. The bare hedge without a
+  // completion trip still flows to its streak-safe late net untouched.
+  if (isSoftNegDoneTrip(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
