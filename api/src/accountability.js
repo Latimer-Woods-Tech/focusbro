@@ -2415,6 +2415,49 @@ function hasCleanCompletion(t) {
   return false;
 }
 
+// The casual soft "no" — a MISS said gently: bare "nah"/"naw", or a yes-hedged
+// "yeah nah" / "ya no". Two cold spots on the live two-way moat today:
+//  - bare "nah"/"naw" carry no marker word, no negation contraction, and aren't
+//    the single-letter "n"/"no"/"not" the last-pass net reads, so they fell to
+//    the stone-cold null "I didn't catch that" — the exact scold the design LAW
+//    forbids, delivered to someone gently saying they didn't get to it;
+//  - "yeah nah" / "yeah no" trip KEPT's elongated-yes net on the LEADING "yeah"
+//    and get over-credited as a resolved word — a false streak tick, a
+//    streak-INTEGRITY bug, on the moat where kept-word honesty is the product.
+// The operative token in a yes+no hedge is the LAST one, exactly as in speech:
+// "yeah nah" = no, "nah yeah" = yes. This helper reads the soft-no family so
+// `detectCheckinReply` can route it to the no-shame RESCHEDULE. Read-only; never
+// touches the streak. Guarded so it can never steal a real win:
+//  - a clean (un-negated) completion anywhere ("nah, did it") vetoes it;
+//  - a soft-no immediately answered by a yes ("nah yeah", "no yes") is a
+//    soft-YES → returns false, left for KEPT to read as kept;
+//  - RESCHEDULE already runs first, so "nope"/"nah not yet" are unaffected.
+const SOFT_NO_YES = '(?:yea+h*|ye+s+|yep+|yup+|yah+|ya|ok|okay)';
+const SOFT_NO_BARE = /\b(?:nah+|naw+)\b/;
+// A negative directly answered by a yes → soft-YES ("nah yeah", "no yes"): the
+// terminal yes is operative, so this is NOT a soft-no.
+const SOFT_NO_YES_TAIL = new RegExp(`\\b(?:nah+|naw+|nope+|no)\\b[\\s',]*\\b${SOFT_NO_YES}\\b`);
+// A yes hedged by a TERMINAL soft-no ("yeah nah", "ya no", "yep nope"): the
+// leading yes is overridden by the negative → soft-no. Requires the yes prefix
+// on purpose — a bare "no"/"nope" is already read as a reschedule by the
+// last-pass net, and a bare leading "no <positive word>" ("no worries") must NOT
+// be swept in here; only the yes+no HEDGE that would otherwise trip KEPT is.
+const SOFT_NO_TAIL = new RegExp(`\\b${SOFT_NO_YES}\\b[\\s',]*\\b(?:nah+|naw+|nope+|no)\\b`);
+/**
+ * True when a reply is a casual soft "no" whose operative sentiment is negative —
+ * bare "nah"/"naw", or a yes hedged by a terminal "nah"/"no"/"nope". Read-only;
+ * never touches the streak. Used to route the soft-no family to the no-shame
+ * reschedule instead of a false 'kept' or a cold null.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNo(t) {
+  if (hasCleanCompletion(t)) return false;   // "nah, did it" is a win
+  if (SOFT_NO_YES_TAIL.test(t)) return false; // "nah yeah" is a soft YES
+  if (SOFT_NO_BARE.test(t)) return true;      // bare / leading "nah"/"naw"
+  return SOFT_NO_TAIL.test(t);                // "yeah nah" / "yeah no" / "yeah nope"
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
@@ -2511,6 +2554,13 @@ export function detectCheckinReply(text) {
   if (hasCleanCompletion(t) && GRATEFUL_COMPLETION_IDIOM.test(t) && !RESCHEDULE_INTENT.test(t)) return 'kept';
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (PARTIAL_DONE.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
+  // A casual soft "no" — bare "nah"/"naw" or a yes-hedged "yeah nah" / "yeah no"
+  // — is a gentle MISS, not a kept word. Runs BEFORE KEPT so the leading "yeah"
+  // in "yeah nah" can't be over-credited as a resolved word (a false streak
+  // tick); `isSoftNo` is guarded (clean completion vetoes, "nah yeah" reads as a
+  // soft-YES) so it can never steal a real win. Route it to the no-shame
+  // RESCHEDULE — never the false 'kept' and never the cold null on a bare "nah".
+  if (isSoftNo(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
