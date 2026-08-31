@@ -12,7 +12,7 @@ import { roomCopySurface } from '../room.js';
 import { consentCopySurface } from '../consent.js';
 import { coachOnboardingCopySurface } from '../coach-onboarding.js';
 import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
-import { accountabilityCopySurface } from '../accountability.js';
+import { accountabilityCopySurface, alreadyLoggedCopy } from '../accountability.js';
 import { reportCopySurface } from '../report.js';
 
 /**
@@ -219,6 +219,31 @@ describe('accountabilityCopySurface — the bro voice is swept and the sweep bit
     expect(() =>
       assertDesignLawClean(accountabilityCopySurface(), { allowAdhd: false, label: 'accountabilityCopySurface' }),
     ).not.toThrow();
+  });
+
+  // Enrollment guard (Standing Law #1): `alreadyLoggedCopy` is a REAL outbound
+  // API reply on the resolve path ("you already logged this one — you're covered")
+  // that had escaped every design-LAW surface and every test. It is now enrolled
+  // in accountabilityCopySurface(). This pins the enrollment so it can't silently
+  // regress: both persona renderings must appear in the swept surface, AND a
+  // shaming counterfeit of that exact reply must be caught by the same guard. If a
+  // future edit drops the enrollment, the membership assertion goes red; if the
+  // guard is loosened, the counterfeit assertion goes red.
+  it('the already-logged reply is enrolled in the swept surface and the sweep bites it', () => {
+    const surface = accountabilityCopySurface();
+    for (const persona of ['ally', 'hype']) {
+      expect(
+        surface.includes(alreadyLoggedCopy({ persona })),
+        `alreadyLoggedCopy(${persona}) is not enrolled in accountabilityCopySurface()`,
+      ).toBe(true);
+      // The real copy is clean at the consumer bar…
+      expect(scanDesignLaw(alreadyLoggedCopy({ persona }), { allowAdhd: false })).toEqual([]);
+    }
+    // …and a counterfeit of that reply that tallies misses is rejected.
+    const shamingAlreadyLogged = 'Already logged — but you missed the last three, back to zero.';
+    expect(() =>
+      assertDesignLawClean([shamingAlreadyLogged], { label: 'accountabilityCopySurface' }),
+    ).toThrow(/shame/);
   });
 });
 
