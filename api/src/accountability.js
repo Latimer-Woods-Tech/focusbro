@@ -2892,6 +2892,12 @@ export function accountabilityCopySurface() {
     add(rescheduleConfirmCopy({ persona, when }), rescheduleConfirmCopy({ persona, when, progress: true }));
     add(releaseConfirmCopy({ persona }));
     add(alreadySettledCopy({ persona }));
+    // The "you already logged this one" reply — a real outbound API response on
+    // the resolve path (see `alreadyLoggedCopy` at the check-in route) that had
+    // escaped EVERY design-LAW surface and every test: a shame word, "AI", or a
+    // clinical claim edited into it would have shipped silently. Enroll it here so
+    // the one sweep that guards the rest of the bro's voice covers it too.
+    add(alreadyLoggedCopy({ persona }));
     add(snoozeConfirmCopy({ persona, minutes: 10 }), snoozeConfirmCopy({ persona, minutes: 10, progress: true }));
     add(pauseConfirmCopy({ persona }));
     add(resumeConfirmCopy({ persona, when }));
