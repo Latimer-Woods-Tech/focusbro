@@ -862,6 +862,76 @@ export function buildMomentum({ timestamps, days = MOMENTUM_WINDOW_DAYS, nowISO,
   });
 }
 
+/**
+ * The design-LAW copy surface for the WHOLE coach/operator voice.
+ *
+ * Every coach-facing string this module can render, enumerated in one place so it
+ * can be swept through the single `scanDesignLaw` source of truth (design-law.js)
+ * exactly like `meCopySurface`, `reportCopySurface`, and the other consumer
+ * surfaces — the same bar, no hand-rolled per-surface banned-word list. This is a
+ * coach-PITCH surface, so callers sweep it with `allowAdhd: true` (guardrail:
+ * "ADHD lives in SEO and the coach pitch, not in a clinical promise"); shame,
+ * treatment claims, and "AI" branding are still banned here the same as anywhere.
+ *
+ * Test-only enumeration: it renders each copy helper on its NON-empty branch
+ * (and, where a helper has distinct copy per branch — a milestone count, a
+ * momentum peak, a quiet vs. active week — a representative sample of each) so the
+ * sweep is not vacuously clean. Every `*Copy` export in this file is referenced
+ * below by construction; the design-LAW test pins that completeness so a future
+ * coach copy helper cannot ship swept by nothing (Factory Standing Law #1).
+ *
+ * @returns {string[]} every coach-facing copy string, non-empty branches.
+ */
+export function coachCopySurface() {
+  const strings = [
+    dashboardIntroCopy(),
+    rosterEmptyCopy(),
+    invitePendingCopy(),
+    inviteSentCopy({ email: 'coach@example.com' }),
+    inviteSentCopy({}),
+    rhythmIntroCopy(),
+    rhythmEmptyCopy(),
+    rosterNextCheckinWaitingCopy(),
+    nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: null }),
+    reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
+    reachOutCueCopy({ quietDays: 30 }),
+    backAfterReachCopy({ back: true }),
+    coachWelcomedBackCopy({ welcomed: true }),
+    clientSharesReflectionsCopy({ shares: true }),
+    clientRosterEngagedCopy({ engaged: true }),
+    clientMovingThisWeekCopy({ moving: true }),
+    clientWeeklyKeptCopy({ keptThisWeek: 0 }),
+    clientWeeklyKeptCopy({ keptThisWeek: 4 }),
+    clientWeeklyShowedUpCopy({ showedUp: 3 }),
+    clientWeeklyEngagedCopy({ snoozedThisWeek: 2 }),
+    clientNoteKeptCopy({ keptThisWeek: 0 }),
+    clientNoteKeptCopy({ keptThisWeek: 5 }),
+    clientNotePeakDayCopy({ count: 4, whenPhrase: 'Wednesday' }),
+    clientNoteOwnWordsLabelCopy(),
+    homecomingDigestIntroCopy(),
+    homecomingDigestSummaryCopy({ count: 0 }),
+    homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
+    homecomingDigestSummaryCopy({ count: 3, names: ['Sam', 'Ari', 'Jo'] }),
+    homecomingOwnWordsLabelCopy(),
+    momentumIntroCopy(),
+    momentumSummaryCopy({ total: 0, days: MOMENTUM_WINDOW_DAYS }),
+    momentumSummaryCopy({ total: 1, days: MOMENTUM_WINDOW_DAYS, peak: { count: 1 } }),
+    momentumSummaryCopy({ total: 9, days: MOMENTUM_WINDOW_DAYS, peak: { count: 3 } }),
+    // clientStatusLine is a copy helper (roster status voice) though not *Copy-named.
+    clientStatusLine({ streak: { current_streak: 0, longest_streak: 0 } }),
+    clientStatusLine({ streak: { current_streak: 1, longest_streak: 1 } }),
+    clientStatusLine({ streak: { current_streak: 12, longest_streak: 20 } }),
+  ];
+  // Every milestone rung of the roster celebration cue (returns '' off-milestone).
+  for (const cur of STREAK_MILESTONES) {
+    strings.push(clientMilestoneCopy({ streak: { current_streak: cur } }));
+  }
+  // Drop the neutral-default '' renders; the sweep only judges what a coach reads.
+  return strings.filter((s) => typeof s === 'string' && s.length > 0);
+}
+
 // ── ROUTES ───────────────────────────────────────────────────
 // Registered from index.js so the module-private helpers (getAuthToken,
 // verifyToken, jsonResponse, generateUUID) stay in one scope.
