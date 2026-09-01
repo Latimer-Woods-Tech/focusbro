@@ -119,7 +119,7 @@ function makeReturnDB({ candidates = [], pref = { persona: 'ally', timezone: 'UT
           if (/FROM coach_clients cc/.test(sql)) return resolveCoach(params[0]);
           if (/FROM commitments/.test(sql)) return pref;
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return null; // force text channel
-          if (/SELECT 1 FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { 1: 1 } : null;
+          if (/SELECT timezone FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { timezone: textConsent.timezone ?? null } : null;
           if (/SELECT status.*FROM contact_consent/s.test(sql)) return textConsent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
