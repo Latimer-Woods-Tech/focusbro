@@ -14,6 +14,9 @@ import { coachOnboardingCopySurface } from '../coach-onboarding.js';
 import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
 import { accountabilityCopySurface, alreadyLoggedCopy } from '../accountability.js';
 import { reportCopySurface } from '../report.js';
+import { coachCopySurface } from '../coach.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /**
  * THE DESIGN LAW, enforced once for every user-facing copy surface.
@@ -45,6 +48,14 @@ const SURFACES = [
   // pitch, but shame / treatment claims / "AI" are banned the same as anywhere.
   { label: 'coachOnboardingCopySurface', strings: coachOnboardingCopySurface(), allowAdhd: true },
   { label: 'coachOperatorRosterCopySurface', strings: coachOperatorRosterCopySurface(), allowAdhd: true },
+  // The whole coach/operator voice — the dashboard intro, invite, rhythm,
+  // momentum, weekly snapshot, homecoming digest, and reach-out/celebration cues
+  // that a coach reads about their clients. Previously this file's copy family was
+  // guarded only by a hand-rolled banned-word loop over a hand-maintained sample
+  // list in coach.test.js — the exact per-surface drift design-law.js exists to
+  // end. Now swept through the one source of truth like every other surface.
+  // Coach-pitch voice, so bare ADHD is permitted; shame / treatment / "AI" are not.
+  { label: 'coachCopySurface', strings: coachCopySurface(), allowAdhd: true },
 ];
 
 describe('THE DESIGN LAW — every copy surface, one source of truth', () => {
@@ -244,6 +255,63 @@ describe('accountabilityCopySurface — the bro voice is swept and the sweep bit
     expect(() =>
       assertDesignLawClean([shamingAlreadyLogged], { label: 'accountabilityCopySurface' }),
     ).toThrow(/shame/);
+  });
+});
+
+/**
+ * Completeness guard for the coach voice (Factory Standing Law #1 — a gate that
+ * can never fail is presumed broken). `coachCopySurface()` is only a real design-
+ * LAW gate if it enumerates EVERY coach-facing copy helper — otherwise a future
+ * `coachSomethingCopy()` could ship shame / "AI" / a clinical claim swept by
+ * nothing, exactly the silent hole this whole module exists to close. This reads
+ * coach.js at source, extracts every exported `*Copy` helper, and pins that the
+ * surface enumerator references each one. Add a coach copy helper and forget to
+ * enroll it → this goes red before it can reach a coach.
+ */
+describe('coachCopySurface — provably complete over the coach voice, and the sweep bites', () => {
+  const coachSrc = readFileSync(fileURLToPath(new URL('../coach.js', import.meta.url)), 'utf8');
+  const exportedCopyFns = [
+    ...coachSrc.matchAll(/export function (\w+Copy)\s*\(/g),
+  ]
+    .map((m) => m[1])
+    .filter((name) => name !== 'coachCopySurface');
+  // The enumerator's own body, with line comments stripped so a commented-out
+  // (dead) enrollment can't satisfy the guard — we require a live `name(` call.
+  const surfaceBody = (() => {
+    const start = coachSrc.indexOf('export function coachCopySurface(');
+    const raw = coachSrc.slice(start, start + 4000);
+    return raw
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n');
+  })();
+
+  it('invokes every exported coach *Copy helper (no silent escape, no dead ref)', () => {
+    expect(exportedCopyFns.length).toBeGreaterThan(15); // sanity: the family is broad
+    // Require a live call `name(`, not just the bare token, so a commented-out or
+    // otherwise dead reference cannot make the surface look complete.
+    const missing = exportedCopyFns.filter((name) => !surfaceBody.includes(`${name}(`));
+    expect(missing, `coach copy helpers not invoked in coachCopySurface(): ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('enumerates a broad, non-empty surface (not a stub)', () => {
+    const strings = coachCopySurface();
+    expect(Array.isArray(strings)).toBe(true);
+    expect(strings.length).toBeGreaterThan(20);
+    expect(strings.every((s) => typeof s === 'string' && s.length > 0)).toBe(true);
+  });
+
+  it('the sweep would catch shame / "AI" / a clinical claim leaking into the coach view', () => {
+    // Hand-authored counterfeits of a coach line — the roster is exactly where a
+    // miss is most tempting to tally into "who's slipping".
+    const shamingRosterLine = "Here's who's slipping this week — they keep missing their words.";
+    const aiBrandedLine = 'Your AI assistant flagged these clients.';
+    const clinicalLine = 'This client needs treatment for their disorder.';
+    expect(() => assertDesignLawClean([shamingRosterLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/shame/);
+    expect(() => assertDesignLawClean([aiBrandedLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/ai-branding/);
+    expect(() => assertDesignLawClean([clinicalLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/treatment/);
+    // And the real surface, swept at the coach-pitch bar, is clean.
+    expect(() => assertDesignLawClean(coachCopySurface(), { allowAdhd: true, label: 'coachCopySurface' })).not.toThrow();
   });
 });
 
