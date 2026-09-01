@@ -830,17 +830,21 @@ export async function runReturnNudges(env, opts = {}) {
     const timezone = (pref && pref.timezone) || 'UTC';
 
     // Pick a reachable channel: push first (subscribed, no TCPA), else text if
-    // consent was granted. No channel at all → nothing to reach them on.
+    // consent was granted. No channel at all → nothing to reach them on. For a
+    // text we also carry the consent row's timezone — the phone's jurisdiction —
+    // because that, not the commitment zone, is the clock that locates the
+    // recipient for the night guard below.
     let channel = null;
+    let consentTimezone = null;
     const sub = await env.DB.prepare(
       `SELECT 1 FROM push_subscriptions WHERE user_id = ? AND is_active = 1 LIMIT 1`
     ).bind(userId).first();
     if (sub) channel = 'push';
     else {
       const consented = await env.DB.prepare(
-        `SELECT 1 FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
+        `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
       ).bind(userId).first();
-      if (consented) channel = 'text';
+      if (consented) { channel = 'text'; consentTimezone = consented.timezone || null; }
     }
 
     if (!channel) {
@@ -869,7 +873,17 @@ export async function runReturnNudges(env, opts = {}) {
     // So gate BOTH channels on the daytime window first; outside it, defer without
     // latching (eligible for a later daytime tick). Text still passes its own TCPA
     // quiet-hours gate below as an additional, user-configurable narrowing.
-    if (!withinReturnDaytime(now, timezone)) { summary.deferred++; continue; }
+    //
+    // The night guard has to read the clock that actually locates the RECIPIENT.
+    // For push that's the person's commitment timezone (a device they carry). For
+    // text it's the phone's jurisdiction on the consent row — the SAME zone the
+    // TCPA quiet-hours gate below uses — so the structural floor and the legal one
+    // can never disagree on "night". Using the commitment zone for a text let a
+    // consent-tz-3am SMS through whenever the two zones differed and quiet hours
+    // were unset. Consent tz missing → fall back to the commitment zone (then UTC
+    // inside withinReturnDaytime).
+    const guardTimezone = channel === 'text' ? (consentTimezone || timezone) : timezone;
+    if (!withinReturnDaytime(now, guardTimezone)) { summary.deferred++; continue; }
     if (channel === 'push') {
       try {
         outcome = await deliverReturnPush(env, userId, message);

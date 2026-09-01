@@ -45,7 +45,7 @@ function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, 
         async first() {
           if (/FROM commitments/.test(sql)) return pref;
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return pushSub ? { 1: 1 } : null;
-          if (/SELECT 1 FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { 1: 1 } : null;
+          if (/SELECT timezone FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { timezone: textConsent.timezone ?? null } : null;
           if (/SELECT status.*FROM contact_consent/s.test(sql)) return textConsent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
@@ -207,6 +207,53 @@ describe('runReturnNudges — respectful channel handling', () => {
     expect(s.nudged).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();                       // no 3am SMS on the wire
     expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined();    // still eligible for a daytime tick
+  });
+
+  it('reads the daytime floor for a text in the CONSENT timezone, not the commitment zone — so a phone at 3am is spared even when the commitment zone is daytime', async () => {
+    // Proof-of-rejection (Standing Law #1): the night guard must locate the
+    // RECIPIENT. Here the commitment zone (UTC) reads 10:00 = daytime, but the
+    // phone's consent zone (America/Los_Angeles) reads 03:00, and quiet hours are
+    // unset (so the TCPA gate can't help). Keying the floor off the commitment
+    // zone fired a 3am SMS; keying it off the consent zone DEFERS with no latch.
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const kv = makeKV();
+    const now = '2026-07-14T10:00:00.000Z'; // 10:00 UTC = daytime in UTC, 03:00 in LA (PDT, UTC-7)
+    const laConsent = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'America/Los_Angeles' };
+    const db = makeDB({
+      candidates: [cand()],
+      pushSub: false,
+      pref: { persona: 'ally', timezone: 'UTC' }, // commitment zone reads daytime
+      textConsent: laConsent,                      // phone zone reads 3am
+      phone: '+15557654321',
+    });
+    const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now });
+    expect(s.deferred).toBe(1);
+    expect(s.nudged).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();                    // no 3am (recipient-local) SMS on the wire
+    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined(); // still eligible for a later daytime tick
+  });
+
+  it('still SENDS a daytime text when the consent zone reads daytime even though the commitment zone reads night', async () => {
+    // The mirror of the guard: the recipient's own clock is what counts. Consent
+    // zone (Tokyo) reads 19:00 = daytime → deliver; the commitment zone (UTC)
+    // reading 10:00 is irrelevant to where the phone actually is.
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const kv = makeKV();
+    const now = '2026-07-14T10:00:00.000Z'; // 19:00 in Tokyo (UTC+9) — daytime for the phone
+    const tokyoConsent = { status: 'granted', quiet_start: null, quiet_end: null, timezone: 'Asia/Tokyo' };
+    const db = makeDB({
+      candidates: [cand()],
+      pushSub: false,
+      pref: { persona: 'ally', timezone: 'UTC' },
+      textConsent: tokyoConsent,
+      phone: '+15557654321',
+    });
+    const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now });
+    expect(s.nudged).toBe(1);
+    expect(s.deferred).toBe(0);
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   it('skips text (latched) when consent was revoked', async () => {
