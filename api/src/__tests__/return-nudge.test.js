@@ -190,6 +190,25 @@ describe('runReturnNudges — respectful channel handling', () => {
     expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined();
   });
 
+  it('DEFERS an un-scheduled text nudge at night even when NO quiet hours are set — and does NOT latch', async () => {
+    // Proof-of-rejection (Standing Law #1): the TCPA quiet-hours gate is opt-in,
+    // so a text-consented user who never set a window (quiet_start === quiet_end
+    // === null) clears it at any hour. Without the structural daytime floor this
+    // fires a 3am SMS — the exact intrusion the design LAW forbids and that the
+    // push path has always been protected from. It must DEFER, send nothing, and
+    // leave the user eligible for a later daytime tick (no latch).
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const kv = makeKV();
+    const night = '2026-07-14T04:00:00.000Z'; // 04:00 UTC, outside 08–21 — and GRANTED has no quiet hours
+    const db = makeDB({ candidates: [cand()], pushSub: false, textConsent: GRANTED, phone: '+15557654321' });
+    const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now: night });
+    expect(s.deferred).toBe(1);
+    expect(s.nudged).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();                       // no 3am SMS on the wire
+    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined();    // still eligible for a daytime tick
+  });
+
   it('skips text (latched) when consent was revoked', async () => {
     const kv = makeKV();
     const db = makeDB({ candidates: [cand()], pushSub: false, textConsent: { status: 'revoked' } });

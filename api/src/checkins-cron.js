@@ -859,10 +859,18 @@ export async function runReturnNudges(env, opts = {}) {
     const nudge = returnNudgeCopy({ persona, seed: `${userId}:${row.last_event_at}` });
     const message = opener ? `${opener}\n\n${nudge}` : nudge;
     let outcome;
+    // An UNSCHEDULED return outreach must never land in the middle of the night —
+    // on ANY channel. This is the one moment the person didn't ask for (unlike a
+    // scheduled check-in at their chosen local_time), so a 3am buzz is exactly the
+    // trust-breaking intrusion the design LAW forbids. Push has always had this
+    // structural floor; a text at 3am is even more intrusive, and the TCPA
+    // quiet-hours gate below cannot be the only night guard because it is opt-in
+    // (a text-consented user who never set a window has s === e → no quiet hours).
+    // So gate BOTH channels on the daytime window first; outside it, defer without
+    // latching (eligible for a later daytime tick). Text still passes its own TCPA
+    // quiet-hours gate below as an additional, user-configurable narrowing.
+    if (!withinReturnDaytime(now, timezone)) { summary.deferred++; continue; }
     if (channel === 'push') {
-      // Never buzz an un-scheduled push in the middle of the night. Outside the
-      // window: leave eligible for a later (daytime) tick — do NOT latch.
-      if (!withinReturnDaytime(now, timezone)) { summary.deferred++; continue; }
       try {
         outcome = await deliverReturnPush(env, userId, message);
       } catch (err) {
