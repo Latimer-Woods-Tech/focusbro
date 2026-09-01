@@ -434,6 +434,21 @@ export async function runDueCheckins(env, opts = {}) {
 /** Minutes a delivered push check-in stays quiet before the one SMS follow-up. */
 export const ESCALATION_DELAY_MIN = 15;
 
+/**
+ * The oldest a quiet push check-in may be and still earn its SMS escalation.
+ * The escalation is the second, MORE intrusive knock on the same moment, so the
+ * same "a passed moment is gone" logic that retires a late nudge
+ * (`MAX_CHECKIN_LATENESS_MIN`, R-290) must bound the escalation too — otherwise a
+ * recovered escalation-cron outage (the #74 crons-death class) would fire "still
+ * haven't started the taxes you said you'd do at 2?" hours or days after the
+ * moment passed: a stale nag, the exact opposite of the on-time ally the design
+ * LAW requires. Deliberately mirrors the nudge threshold (independently tunable
+ * here should the product later want a tighter escalation window); measured from
+ * `delivered_at`, since the escalation's timeliness is relative to when the push
+ * that it follows up actually landed.
+ */
+export const MAX_ESCALATION_LATENESS_MIN = MAX_CHECKIN_LATENESS_MIN;
+
 /** Max escalations examined per cron tick. */
 const ESCALATION_LIMIT = 50;
 
@@ -453,6 +468,13 @@ export async function runEscalations(env, opts = {}) {
   const summary = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
 
   const cutoff = new Date(new Date(now).getTime() - ESCALATION_DELAY_MIN * 60 * 1000).toISOString();
+  // The far edge of the window: a push that has been quiet longer than this has
+  // aged out — knocking now would nag about a gone moment (see
+  // MAX_ESCALATION_LATENESS_MIN). It simply falls out of the scan and is never
+  // escalated (it only gets older, so it can never re-enter the window), which
+  // is the same silent, no-shame retirement a stale nudge gets — no latch or
+  // failure count needed.
+  const staleCutoff = new Date(new Date(now).getTime() - MAX_ESCALATION_LATENESS_MIN * 60 * 1000).toISOString();
 
   const quiet = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
@@ -463,10 +485,11 @@ export async function runEscalations(env, opts = {}) {
       WHERE c.status = 'sent' AND c.channel = 'push'
         AND c.responded_at IS NULL AND c.escalated_at IS NULL
         AND c.delivered_at <= ?
+        AND c.delivered_at >= ?
         AND m.status = 'active'
       ORDER BY c.delivered_at ASC
       LIMIT ?`
-  ).bind(cutoff, limit).all();
+  ).bind(cutoff, staleCutoff, limit).all();
 
   const rows = (quiet && quiet.results) || [];
   for (const row of rows) {
