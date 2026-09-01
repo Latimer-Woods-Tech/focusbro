@@ -2529,6 +2529,48 @@ function isSoftNegDoneTrip(t) {
   return SOFT_NEG_DONE_TRIP.test(t);
 }
 
+// The WISHFUL / counterfactual "almost-yes" — a completion word wrapped in a wish
+// that puts it out of reach: "wish I could say yes", "wish I'd done it", "if only
+// I'd done it", "I'd love to say yes", "was gonna say yes but no", "almost said
+// done". Every one of these MEANS I did NOT do it — the affirmation is
+// hypothetical — yet the embedded `yes`/`done`/`did it`/`finished` trips KEPT and
+// is over-credited as a resolved word: a FALSE STREAK TICK, the same
+// streak-INTEGRITY break the soft-"no" and soft-negative-done intercepts guard,
+// on the moat where kept-word honesty IS the product. It slips past every earlier
+// net — RESCHEDULE needs a "later"/"tomorrow"/negation-contraction it doesn't
+// carry, and the grateful-completion intercept needs a gratitude idiom — then
+// lands on KEPT's bare affirmation word.
+//
+// The scoping is what makes a wish counterfactual: the completion word falls
+// AFTER the wishful lead-in ("wish … yes"), so it is inside the wish, never a
+// reported fact. A REAL win that merely trails a wish states the completion FIRST
+// ("did it, wish I'd started sooner") — so the clean-completion veto reads only
+// the text BEFORE the lead-in and leaves that win alone. Guarded three ways so it
+// can never steal a real win: (1) a clean completion before the wish vetoes it;
+// (2) the affirmation must sit after the lead-in to count as wished-for; (3) a
+// bare "wish me luck" / "I wish" with no affirmation after it never matches and
+// falls through to the warm ask, exactly as before. Read-only; never touches the
+// streak — it only routes the outcome to the no-shame RESCHEDULE, never the false
+// 'kept'.
+const WISHFUL_LEADIN = /\b(?:wish(?:ed|ing)?|if only|would love to|i'd love to|love to say|hop(?:ed|ing) to|wanted to say|meant to say|(?:was )?(?:gonna|going to) say|about to say|almost said)\b/;
+const WISHFUL_AFFIRM = /\b(?:yes+|yea+h*|yep+|yup+|done|did (?:it|that)|didit|finished|complete[d]?|nailed it|crushed it|got it done|all done|handled)\b/;
+/**
+ * True when a reply is a wishful / counterfactual "almost-yes" — a completion or
+ * affirmation word scoped by a preceding wish ("wish I could say yes", "if only
+ * I'd done it", "almost said done") — i.e. a gentle MISS that would otherwise
+ * trip KEPT and tick the streak. The clean-completion veto looks ONLY at the text
+ * before the wishful lead-in, so a real win that trails a wish ("did it, wish I'd
+ * started sooner") keeps its word. Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isWishfulNotDone(t) {
+  const m = WISHFUL_LEADIN.exec(t);
+  if (!m) return false;
+  if (hasCleanCompletion(t.slice(0, m.index))) return false; // a completion stated before the wish is a real win
+  return WISHFUL_AFFIRM.test(t.slice(m.index));
+}
+
 /**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
@@ -2646,6 +2688,13 @@ export function detectCheckinReply(text) {
   // CLAUSE ("not really, did it") keeps its word. The bare hedge without a
   // completion trip still flows to its streak-safe late net untouched.
   if (isSoftNegDoneTrip(t)) return 'reschedule';
+  // A wishful / counterfactual "almost-yes" — "wish I could say yes", "if only
+  // I'd done it", "almost said done" — is a gentle MISS whose embedded
+  // affirmation would otherwise trip KEPT below and tick a false streak. Intercept
+  // it AHEAD of KEPT and route to the no-shame RESCHEDULE; `isWishfulNotDone`
+  // reads the completion only when it sits INSIDE the wish, so a real win trailing
+  // a wish ("did it, wish I'd started sooner") keeps its word.
+  if (isWishfulNotDone(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
