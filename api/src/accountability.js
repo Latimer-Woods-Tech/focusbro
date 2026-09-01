@@ -2211,9 +2211,31 @@ const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so
 // stays a SNOOZE — the only reply this net can change is one that would otherwise
 // have gone cold. "no time" REQUIRES a qualifier (today/left/for it) so the
 // enthusiastic "no time to lose" (a start, not a miss) is never grabbed; the
-// completion-colliding slang ("slammed it", "spaced on it") is deliberately left
-// out so it can never steal a kept word.
-const CIRCUMSTANTIAL_MISS = /\b(forgot|slipped my mind|lost track of (?:the )?time|ran out of time|out of time|no time (?:today|left|for (?:it|this|that))|not today|not happening|never got (?:to it|around to it)|got swamped|swamped|too busy|no bandwidth)\b/;
+// KEPT-colliding completion slang ("slammed it") is deliberately left out so it can
+// never steal a kept word (the SNOOZE-colliding forgot slang — "spaced on it",
+// "blanked on it" — is handled by its own early net, FORGOT_SLANG_MISS, so it beats
+// the "on it" marker before it can be mis-read as a check-back).
+// The family also covers the low-state / distraction / decline confessions that
+// carry no self-blame and no negation contraction, so they slipped every net the
+// same way "forgot" did and landed cold: "sidetracked", "something came up", "no
+// energy", "too tired", "exhausted", "wiped out", and a bare "pass" (a decline).
+// "pass" is `\b`-anchored so "passed"/"passing"/"password"/"compass" never match,
+// and every low-state word is a residual last-resort read — a completion, engaged
+// snooze, or dated reschedule has already returned above — so it can only ever
+// rescue a reply otherwise headed for the cold re-prompt.
+const CIRCUMSTANTIAL_MISS = /\b(forgot|slipped my mind|lost track of (?:the )?time|ran out of time|out of time|no time (?:today|left|for (?:it|this|that))|not today|not happening|never got (?:to it|around to it)|got sidetracked|sidetracked|(?:something(?:'s)?|stuff|things?) (?:came|come|coming) up|got swamped|swamped|too busy|no bandwidth|no energy|zero energy|low energy|no motivation|(?:too|so|dead) tired|exhausted|wiped out|worn out|burnt out|burned out|pass)\b/;
+// The SNOOZE-colliding forgot slang: "spaced on it", "blanked on it" (and the bare
+// "spaced" / "spaced out" / "blanked" / "drew a blank"). These MEAN the person
+// forgot / blanked — a gentle miss — but "spaced ON IT" and "blanked ON IT" carry
+// the "on it" marker the SNOOZE net reads as actively-doing-it, so the family was
+// mis-read as a check-back instead of the miss it is; the bare forms went cold.
+// Because it collides with SNOOZE, this net must be consulted in detectCheckinReply
+// BEFORE the SNOOZE/PARTIAL nets (unlike CIRCUMSTANTIAL_MISS, which runs last) —
+// but AFTER KEPT and under a clean-completion veto, so "did it, then spaced on the
+// email" keeps its word. Deliberately excludes "zoned out" (pinned to the honest
+// warm re-ask — an ambiguous state, not a stated miss). Read-only; never touches
+// the streak — a reschedule never resets.
+const FORGOT_SLANG_MISS = /\b(spaced(?: on it| out)?|blanked(?: on it| out)?|drew a blank)\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
@@ -2596,7 +2618,7 @@ export function detectCheckinReply(text) {
   // "did it" / "got it done" / "all done" → kept. Check the reschedule forms
   // first — especially the NEGATED ones — so "not done" / "haven't yet" is never
   // misread as "done".
-  const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
+  const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|not this time|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
   // The yes-family alternatives are elongation-tolerant on purpose: a casual
   // "yesss", "yaas", "yea", "yah" is a near-universal "done", but the plain
   // `yes|yeah|ya` forms only matched the un-stretched spelling — so an excited
@@ -2696,6 +2718,15 @@ export function detectCheckinReply(text) {
   // a wish ("did it, wish I'd started sooner") keeps its word.
   if (isWishfulNotDone(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
+  // "spaced on it" / "blanked on it" (and bare "spaced" / "spaced out" / "blanked"
+  // / "drew a blank") — a FORGOT-family miss whose slang collides with the engaged
+  // SNOOZE net: "spaced ON IT" and "blanked ON IT" carry the "on it" marker SNOOZE
+  // reads as actively-doing-it, so they were mis-read as a check-back instead of the
+  // gentle miss they are; the bare forms went cold. Intercept the family AHEAD of
+  // the SNOOZE/PARTIAL nets and route to the no-shame RESCHEDULE. Runs after KEPT
+  // (so a real "done" wins) and is vetoed by a clean completion, so "did it, then
+  // spaced on the email" keeps its word. Read-only; a reschedule never resets.
+  if (!hasCleanCompletion(t) && FORGOT_SLANG_MISS.test(t)) return 'reschedule';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
   // Flow-state slang ("in the zone", "locked in", "grinding", "on a roll") — the
