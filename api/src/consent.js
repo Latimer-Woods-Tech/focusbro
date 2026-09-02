@@ -803,26 +803,50 @@ export function registerConsentRoutes(router, ctx) {
       // resolution and not a miss, by construction. On the next return they can
       // still say DONE or LATER. Runs before the direct-time/ambiguous fallbacks.
       if (reply === 'snooze') {
-        // Honor a stated hold-length ("on it, give me 20", "still working, check
-        // back in an hour"); no named interval keeps the default. Clamped, streak-safe.
-        const minutes = parseSnoozeMinutes(text) ?? SNOOZE_DEFAULT_MIN;
-        const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(snoozedUntil, open.checkin_id, user.id).run();
-        await recordEvent(env, {
-          userId: user.id,
-          type: EVENTS.COMMITMENT_SNOOZE,
-          data: {
-            commitment_id: open.commitment_id,
-            is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
-            channel: 'text',
-          },
+        // An engaged reply that also names a concrete return TIME ("on it — check
+        // back at 3pm", "still working, come back at 4") is not a bounded hold: the
+        // person told us exactly when to return. `parseSnoozeMinutes` returns null
+        // for a clock time by construction (a clock time is "a reschedule TARGET,
+        // never a hold length"), so the old path silently DROPPED the 3pm and fell to
+        // the default ~15-min snooze — re-nudging on top of someone who is actively
+        // working and just told us when to come back, the exact nag the design LAW
+        // forbids. When a clock/date target is present AND no bounded duration was
+        // stated, let it fall through to the direct-time reschedule branch below,
+        // which re-pends this check-in to that exact time and names it back. A bare
+        // "on it" or a DURATION ("give me 20", "in an hour") is a true, bounded snooze
+        // and stays here. The duration guard is load-bearing: `parseWhenReply`
+        // misreads a bare "give me 20" as 20:00, so `statedMinutes == null` — not mere
+        // `parseWhenReply` truthiness — is what isolates a real named clock target.
+        const statedMinutes = parseSnoozeMinutes(text);
+        const snoozeTargetISO = parseWhenReply(text, {
+          nowISO, timezone: open.timezone, defaultTime: open.local_time,
         });
-        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
-        return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
+        const namesReturnTime = Boolean(snoozeTargetISO) && statedMinutes == null;
+        if (!namesReturnTime) {
+          // Honor a stated hold-length ("on it, give me 20", "still working, check
+          // back in an hour"); no named interval keeps the default. Clamped, streak-safe.
+          const minutes = statedMinutes ?? SNOOZE_DEFAULT_MIN;
+          const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
+          await env.DB.prepare(
+            `UPDATE commitment_checkins
+                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+              WHERE id = ? AND user_id = ?`
+          ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await recordEvent(env, {
+            userId: user.id,
+            type: EVENTS.COMMITMENT_SNOOZE,
+            data: {
+              commitment_id: open.commitment_id,
+              is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+              channel: 'text',
+            },
+          });
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
+          return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
+        }
+        // else: an "on it, at 3pm"-style engaged reply that named a concrete return
+        // time — fall through to the direct-time reschedule branch below, which honors
+        // that exact time (streak untouched, a reschedule protects the chain).
       }
 
       // ── Answered directly with a new TIME? Reschedule in one step ──
