@@ -478,7 +478,8 @@ export async function runEscalations(env, opts = {}) {
 
   const quiet = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
-            m.title, m.persona, COALESCE(ep.ceiling, 'text') AS ceiling
+            m.title, m.persona, m.timezone AS commitment_timezone,
+            COALESCE(ep.ceiling, 'text') AS ceiling
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
        LEFT JOIN escalation_prefs ep ON ep.user_id = c.user_id
@@ -502,6 +503,32 @@ export async function runEscalations(env, opts = {}) {
       // rescanned. A chosen ceiling is not a failure — it counts as skipped.
       outcome = { status: 'skipped', detail: 'ceiling_none' };
     } else {
+      // NIGHT GUARD (R-291) — the escalation is UNSCHEDULED, MORE intrusive
+      // outreach: a second knock on a moment the person did NOT pick for this
+      // instant (unlike the scheduled check-in at their chosen local_time). So,
+      // exactly like the return nudge, it must be held out of the middle of the
+      // night BY CONSTRUCTION. The TCPA quiet-hours gate below cannot be the only
+      // night guard: it is opt-in, and a text-consented user who never set a
+      // window has quiet_start === quiet_end → NO quiet hours — so a recovered
+      // escalation-cron outage (the #74 crons-death class this file keeps citing)
+      // could otherwise fire a 3am "still waiting on you" knock, the exact
+      // trust-breaking intrusion the LAW forbids. Read the phone's jurisdiction
+      // (the consent-row timezone — the SAME clock the quiet-hours gate uses) so
+      // the structural and legal night guards can never disagree on "night"; fall
+      // back to the commitment zone, then UTC. Outside the daytime window → defer
+      // WITHOUT latching (escalated_at stays NULL) → eligible for a later daytime
+      // tick, exactly like a quiet-hours defer and like the return nudge.
+      let guardTz;
+      try {
+        const tzRow = await env.DB.prepare(
+          `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
+        ).bind(row.user_id).first();
+        guardTz = (tzRow && tzRow.timezone) || row.commitment_timezone || 'UTC';
+      } catch {
+        guardTz = row.commitment_timezone || 'UTC';
+      }
+      if (!withinUnscheduledDaytime(now, guardTz)) { summary.deferred++; continue; }
+
       // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
       // TCPA gate as a text check-in. No granted consent → this user simply has
       // no escalation ladder (latch the row so it's never rescanned). Inside
@@ -721,6 +748,16 @@ export function withinReturnDaytime(nowISO, timezone) {
   if (h === null) return true;
   return h >= RETURN_NUDGE_DAY_START && h < RETURN_NUDGE_DAY_END;
 }
+
+/**
+ * The escalation ladder's night guard reuses the SAME structural daytime window
+ * as the return nudge. Both are UNSCHEDULED outreach the person did not ask for
+ * at this instant (unlike a scheduled check-in at their chosen local_time), so
+ * both must be held out of the middle of the night BY CONSTRUCTION — never left
+ * to the opt-in TCPA quiet-hours gate alone. An alias, not a second copy, so the
+ * two guards can never drift apart.
+ */
+export const withinUnscheduledDaytime = withinReturnDaytime;
 
 /** Best-effort per-user latch write — a KV blip never aborts the pass. */
 async function latchReturnNudge(kv, userId, nowISO) {
