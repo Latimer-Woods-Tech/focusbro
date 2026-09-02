@@ -825,6 +825,43 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(sent.text).toContain('45 minutes');
   });
 
+  it('"on it, check back at 3pm" honors the NAMED return time — a reschedule to 3pm, not a silent 15-min default snooze', async () => {
+    // The trap: an engaged reply that also names a concrete return TIME classifies
+    // as SNOOZE ("on it"), but a clock time is a reschedule TARGET, not a bounded
+    // hold — parseSnoozeMinutes returns null for it by construction. The old path
+    // then fell to the ~15-min default and re-nudged at :15, on top of someone who
+    // is actively working and told us exactly when to come back (the design-LAW
+    // nag). Now a named clock/date target with NO stated duration is routed to the
+    // direct-time reschedule branch, which honors that exact time. A bare "on it"
+    // and a DURATION ("give me 45 min") are still true snoozes (tests above).
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it, check back at 3pm'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    // routed to the reschedule branch, NOT the default-snooze branch
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    // re-pended directly at the chosen time — never parked awaiting_time
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    // the named 3pm was actually honored — the scheduled time lands on the 15:00 UTC
+    // clock target (today or, if already past, tomorrow — never-past), which a
+    // ~15-min-from-now default snooze would essentially never do
+    expect(new Date(body.scheduled_for).getUTCHours()).toBe(15);
+    expect(new Date(body.scheduled_for).getUTCMinutes()).toBe(0);
+    // recorded as a RESCHEDULE, never a snooze — the person deferred to a set time
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_snooze'))).toBe(false);
+    // streak is NEVER touched — a reschedule protects the chain by construction
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // the warm reschedule read-back went out — the invariant every rotated variant
+    // carries — not the default-snooze copy and not "I didn't catch that"
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
+    expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|when do you want to try again/);
+  });
+
   it('"on it, check back in an hour" while awaiting a time SNOOZES for the stated hour', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
