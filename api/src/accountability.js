@@ -2198,7 +2198,18 @@ const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| t
 // so it slipped every net and landed on the cold `null` re-prompt. Fold it into
 // the self-blame family so it routes to the no-shame RESCHEDULE. KEPT runs first,
 // so "done, dropped the ball on the email" still keeps its word.
-const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|dropp?(?:ed|ing)? the ball|hopeless)\b/;
+// "let (myself|you|everyone|the team|my family) down" is the SAME self-blame
+// confession — and the single heaviest one an ADHD brain carries: "I let you
+// down", "I let myself down". It named itself in the #332 follow-up: no self-frame
+// "i'm ..." word, no negation contraction, no "life got in the way" phrase, so it
+// slipped EVERY net to the cold `null` re-prompt — the design-LAW scold aimed at
+// the person confessing they feel they let someone down, the exact reply "never
+// shame" most protects. Fold it into the self-blame family. The pattern is anchored
+// to `let <person> down` so the engaged/positive "down" replies never trip it —
+// "i'm down", "down for it", "let's go" (no whitespace after "let") stay untouched,
+// and "let it go" / "let it slide" (object not a person) stay their existing verdict.
+// KEPT runs first, so "did it, was worried i'd let you down" still keeps its word.
+const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|dropp?(?:ed|ing)? the ball|let(?:ting)?\s+(?:my ?self|me|you(?: all)?|us|them|him|her|everyone|everybody|the \w+|my \w+|our \w+)\s+down|hopeless)\b/;
 // The circumstantial cousin of SHAME_MISS: a plain "life got in the way" miss —
 // "forgot", "slipped my mind", "ran out of time", "no time today", "not today",
 // "not happening", "swamped", "too busy". No self-blame, so SHAME_MISS never
