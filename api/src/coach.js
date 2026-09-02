@@ -318,6 +318,50 @@ export function clientMilestoneCopy({ streak } = {}) {
   return `🎯 ${cur} kept words in a row — a milestone just landed. A great moment to send a word.`;
 }
 
+// ── "NEW PERSONAL BEST" CUE (the coach twin of the person-side best-run badge) ─
+// The person's own /me/ streak card shows a "you're at your best" badge the moment
+// their CURRENT kept-word run becomes the longest they've ever kept going
+// (`personalBestCopy`, cur >= 2 && cur === longest). This is its operator mirror:
+// when a client is setting a fresh all-time record right now, the roster surfaces a
+// warm coach-voice cue so the coach can send a word at the peak — the single
+// highest-value moment to reach out. It reads the streak already loaded for the
+// card (current + longest) — no extra query, no schema change.
+//
+// PURELY ADDITIVE, by construction: it fires ONLY when the record run is NOT itself
+// on a fixed milestone rung (3/7/14/30/100). Those exact counts are already
+// celebrated by `clientMilestoneCopy`, so this cue can never stack a second
+// celebration on the same card — it fills only the BETWEEN-milestone records
+// (5, 6, 8, 9, 11, …) that the milestone cue leaves silent. The two are exact
+// complements: at any all-time-best moment exactly one of them speaks, and every
+// such moment is now covered.
+//
+// DESIGN LAW, by construction: this reads `current_streak` / `longest_streak`
+// (kept words ONLY), fires exactly at an all-time-best moment, and names only the
+// record reached and the invitation to celebrate — never a gap, a distance to the
+// next mark, a "not there yet", or anything owed. It returns '' everywhere else,
+// so between records the card carries nothing and it is never a "this one is
+// slipping" prompt. Independent of the milestone / return / moving cues — a
+// personal best is its own good news and can sit beside any of them.
+
+/**
+ * The warm coach-voice cue for an active client whose CURRENT kept-word run is a
+ * fresh all-time best ({@link personalBestCopy}'s condition: `cur >= 2 &&
+ * cur === longest`) that is NOT already a fixed milestone rung
+ * ({@link STREAK_MILESTONES}, celebrated by {@link clientMilestoneCopy}). Returns
+ * '' unless that holds, so a card carries it ONLY at a genuine between-milestone
+ * record and never doubles up with the milestone cue. Purely a celebration and an
+ * invitation to send a word; it names the record reached and nothing about a gap.
+ * @param {object} p { streak } — the client streak row ({ current_streak, longest_streak })
+ * @returns {string} the cue, or '' when the run is not a between-milestone all-time best
+ */
+export function clientPersonalBestCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  const best = Number(streak?.longest_streak) || 0;
+  if (cur < 2 || cur !== best) return '';
+  if (STREAK_MILESTONES.includes(cur)) return ''; // the milestone cue already owns this moment
+  return `🏆 A new personal best — ${cur} kept words in a row, the most they’ve ever strung together. A perfect moment to send a word.`;
+}
+
 // ── "SHARES THEIR REFLECTIONS" INDICATOR (client-controlled, opt-in) ─────────
 // R-267 lets a client choose to share their OWN WORDS — the free-text they leave
 // on a kept word — with their coach (default OFF; the client toggles it from
@@ -928,6 +972,12 @@ export function coachCopySurface() {
   for (const cur of STREAK_MILESTONES) {
     strings.push(clientMilestoneCopy({ streak: { current_streak: cur } }));
   }
+  // The between-milestone all-time-best cue at a few record counts (returns ''
+  // at milestones and when not a fresh best), so a shame word edited into it
+  // fails the build.
+  for (const cur of [2, 5, 6, 8, 9, 42]) {
+    strings.push(clientPersonalBestCopy({ streak: { current_streak: cur, longest_streak: cur } }));
+  }
   // Drop the neutral-default '' renders; the sweep only judges what a coach reads.
   return strings.filter((s) => typeof s === 'string' && s.length > 0);
 }
@@ -1066,6 +1116,12 @@ export function registerCoachRoutes(router, ctx) {
           // count. Reads the streak already loaded above — no extra query. ''
           // between milestones, so it is never a nag.
           entry.milestone_line = clientMilestoneCopy({ streak });
+          // Coach twin of the person-side "you're at your best" badge: a warm cue
+          // exactly when this client's current run is a fresh all-time best that
+          // isn't already a milestone rung (those are owned by milestone_line
+          // above). Reads the same already-loaded streak — no extra query. ''
+          // between records and at milestones, so the two cues never double up.
+          entry.personal_best_line = clientPersonalBestCopy({ streak });
         } else {
           entry.status_line = invitePendingCopy();
         }
