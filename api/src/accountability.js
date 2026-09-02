@@ -2191,7 +2191,14 @@ const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| t
 // identity phrases are anchored to the "i'm ..." self-frame so a stray "worst
 // case, tomorrow" (already a reschedule) or "the point is done" (already kept)
 // can never reach or trip them.
-const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|hopeless)\b/;
+// "dropped the ball" / "drop(ping) the ball" is the same self-blame confession
+// said as an idiom — a person owning the miss ("I totally dropped the ball"),
+// the exact reply the ONE design LAW most protects. It carries no self-frame
+// "i'm ..." word, no negation contraction, and no "life got in the way" phrase,
+// so it slipped every net and landed on the cold `null` re-prompt. Fold it into
+// the self-blame family so it routes to the no-shame RESCHEDULE. KEPT runs first,
+// so "done, dropped the ball on the email" still keeps its word.
+const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|dropp?(?:ed|ing)? the ball|hopeless)\b/;
 // The circumstantial cousin of SHAME_MISS: a plain "life got in the way" miss —
 // "forgot", "slipped my mind", "ran out of time", "no time today", "not today",
 // "not happening", "swamped", "too busy". No self-blame, so SHAME_MISS never
@@ -2236,6 +2243,16 @@ const CIRCUMSTANTIAL_MISS = /\b(forgot|slipped my mind|lost track of (?:the )?ti
 // warm re-ask — an ambiguous state, not a stated miss). Read-only; never touches
 // the streak — a reschedule never resets.
 const FORGOT_SLANG_MISS = /\b(spaced(?: on it| out)?|blanked(?: on it| out)?|drew a blank)\b/;
+// The SNOOZE-colliding DECLINE: "pass on it" / "passing on it" / "passed on it".
+// A bare "pass" is a decline already read as the no-shame RESCHEDULE by
+// CIRCUMSTANTIAL_MISS — but the "pass on it" phrasing carries the "on it" marker
+// the SNOOZE net reads as actively-doing-it, so a person BOWING OUT was cheerfully
+// told the bro would "swing back" (the same collision "spaced on it" hit, in the
+// decline direction). Anchored to "on it/this/that/today" so "pass me the notes"
+// (engaged) and "pass" mid-completion never match. Consulted BEFORE the
+// SNOOZE/PARTIAL nets, AFTER KEPT and under a clean-completion veto, so "did it,
+// gonna pass on it" keeps its word. Read-only; a reschedule never resets.
+const DECLINE_ON_IT = /\bpass(?:ing|ed)? on (?:it|this|that|today)\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
@@ -2726,7 +2743,7 @@ export function detectCheckinReply(text) {
   // the SNOOZE/PARTIAL nets and route to the no-shame RESCHEDULE. Runs after KEPT
   // (so a real "done" wins) and is vetoed by a clean completion, so "did it, then
   // spaced on the email" keeps its word. Read-only; a reschedule never resets.
-  if (!hasCleanCompletion(t) && FORGOT_SLANG_MISS.test(t)) return 'reschedule';
+  if (!hasCleanCompletion(t) && (FORGOT_SLANG_MISS.test(t) || DECLINE_ON_IT.test(t))) return 'reschedule';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
   // Flow-state slang ("in the zone", "locked in", "grinding", "on a roll") — the
