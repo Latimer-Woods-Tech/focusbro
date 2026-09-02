@@ -109,6 +109,7 @@ import {
   rosterEmptyCopy,
   clientStatusLine,
   clientMilestoneCopy,
+  clientPersonalBestCopy,
   coachWelcomedBackCopy,
   WELCOMED_BACK_WINDOW_DAYS,
   momentumMovingThisWeek,
@@ -429,6 +430,10 @@ export async function buildOperatorRoster(env, svc, operatorId, { nowISO } = {})
       active_commitments: Number(activeCount && activeCount.n) || 0,
       status_line: clientStatusLine({ streak }),
       milestone_line: clientMilestoneCopy({ streak }),
+      // Coach twin of the person-side "you're at your best" badge — a fresh
+      // all-time record that isn't a milestone rung (those are milestone_line's).
+      // '' at milestones and off-record, so the two celebration cues never stack.
+      personal_best_line: clientPersonalBestCopy({ streak }),
       // The bro's just-fired return-nudge outreach, surfaced for the coach to
       // add their own touch to. `recent` gates the card cue; `at` is the
       // outreach instant (internal). Copy is '' when there is nothing live.
@@ -488,6 +493,8 @@ export function coachOperatorRosterCopySurface() {
     clientStatusLine({ streak: { current_streak: 5, longest_streak: 9 } }),
     clientMilestoneCopy({ streak: { current_streak: 7 } }),
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
+    clientPersonalBestCopy({ streak: { current_streak: 5, longest_streak: 5 } }),
+    clientPersonalBestCopy({ streak: { current_streak: 9, longest_streak: 9 } }),
     coachWelcomedBackCopy({ welcomed: true }),
     clientMovingThisWeekCopy({ moving: true }),
     clientSharesReflectionsCopy({ shares: true }),
