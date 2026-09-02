@@ -2264,6 +2264,34 @@ const FORGOT_SLANG_MISS = /\b(spaced(?: on it| out)?|blanked(?: on it| out)?|dre
 // SNOOZE/PARTIAL nets, AFTER KEPT and under a clean-completion veto, so "did it,
 // gonna pass on it" keeps its word. Read-only; a reschedule never resets.
 const DECLINE_ON_IT = /\bpass(?:ing|ed)? on (?:it|this|that|today)\b/;
+// The AVOIDANCE / procrastination confession: "been procrastinating", "keep
+// putting it off", "avoiding it", "dreading it", "dragging my feet", "stalling",
+// "dodging it". This is the most ADHD-real reply of all — the person owning that
+// they're circling the task without touching it — and it is shame-adjacent by
+// nature. Yet it carries NO self-blame "i'm ..." identity phrase (so SHAME_MISS
+// misses it), NO circumstantial excuse word — forgot/swamped/out-of-time (so
+// CIRCUMSTANTIAL_MISS misses it), and NO negation contraction (so RESCHEDULE's
+// "didn't"/"can't" net misses it). So the whole family fell through to the
+// stone-cold `null` re-prompt ("I didn't catch that, reply DONE or LATER") —
+// aimed squarely at the person confessing they can't make themselves start, the
+// exact reply the ONE design LAW ("never shame") most protects. Read the family
+// as the no-shame RESCHEDULE — the warm "no problem, when do you want to try
+// again?" that keeps the streak safe (a reschedule never resets it).
+//
+// Streak-safe AND regression-safe BY CONSTRUCTION: like SHAME_MISS and
+// CIRCUMSTANTIAL_MISS this net is consulted only in detectCheckinReply AFTER
+// RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the hold-length nets have each
+// already returned, so a real completion that merely mentions the dread ("did it,
+// was dreading it all week") stays KEPT, an engaged "on it, been putting it off
+// but here now" stays a SNOOZE, and a "later, still avoiding it" stays a plain
+// RESCHEDULE — every existing verdict is untouched. The only reply this net can
+// ever change is one that would otherwise have gone cold. The postpone forms
+// REQUIRE the word "off" ("put/putting … off"), so an engaged "putting it on my
+// calendar for 3pm" (planning, no "off") is never grabbed; "avoiding"/"dreading"
+// require the -ing confession form and an it/this/that/doing object, so the
+// positive "can't avoid it, on it" (bare "avoid", and caught as a snooze upstream
+// anyway) never trips them.
+const AVOIDANCE_MISS = /\b(procrastinat(?:e|es|ed|ing|ion)|(?:put|putting) (?:it |this |that )?off|avoiding (?:it|this|that|doing)|dreading (?:it|this|that|doing)|dragging my (?:feet|heels)|stalling|dodging (?:it|this|that))\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
@@ -2789,6 +2817,16 @@ export function detectCheckinReply(text) {
   // reaches here. Read it as the no-shame RESCHEDULE, never the cold null.
   // Streak-safe: a reschedule never resets.
   if (CIRCUMSTANTIAL_MISS.test(t)) return 'reschedule';
+  // An avoidance / procrastination confession ("been procrastinating", "keep
+  // putting it off", "avoiding it", "dreading it", "dragging my feet", "stalling",
+  // "dodging it") — the person circling the task without touching it. No self-blame
+  // (SHAME_MISS misses it), no circumstantial excuse word (CIRCUMSTANTIAL_MISS
+  // misses it), no negation contraction (RESCHEDULE misses it), so it went cold.
+  // Everything that could be a completion, an engaged snooze/flow, or a
+  // "later"/date reschedule has already returned above, so only a residual
+  // avoidance confession reaches here. Read it as the no-shame RESCHEDULE, never
+  // the cold null. Streak-safe: a reschedule never resets.
+  if (AVOIDANCE_MISS.test(t)) return 'reschedule';
   // A bare soft-negative hedge ("not really", "not so much", "meh not really") —
   // the gentlest partial "no", carrying no self-blame, no "life got in the way"
   // phrase, no negation contraction and no marker word, so every net above left
