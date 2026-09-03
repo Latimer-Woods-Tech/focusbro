@@ -917,10 +917,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     }
   }
 
+  // Pre-select the person's remembered companion tone (calm ally vs. hype) once,
+  // on first load, so a returning person doesn't re-pick their voice every time —
+  // the vision's "persona ... per user." Applied a single time so it never fights
+  // a mid-session change; the form still overrides per word, and an unset default
+  // simply leaves the standing calm ally selected.
+  var personaHydrated = false;
+  function applyDefaultPersona(data) {
+    if (personaHydrated) return;
+    var sel = el('persona');
+    var pref = data && data.default_persona;
+    if (sel && (pref === 'ally' || pref === 'hype')) { sel.value = pref; }
+    personaHydrated = true;
+  }
   function loadStreak() {
     fetch('/api/accountability/streak', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(renderStreak)
+      .then(function (data) { applyDefaultPersona(data); renderStreak(data); })
       .catch(function () {});
   }
 
