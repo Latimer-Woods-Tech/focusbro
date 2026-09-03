@@ -652,6 +652,14 @@ async function initializeDatabase(env) {
       `ALTER TABLE commitment_checkins ADD COLUMN escalated_at DATETIME`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_escalation
          ON commitment_checkins(status, delivered_at)`,
+      // ── PER-USER DEFAULT COMPANION TONE (Contender #10, Phase A) ──
+      // The vision names persona "configurable ... per user," but tone lived only
+      // per-word — a returning person had to re-pick their preferred voice (calm
+      // ally vs. hype) on every commitment. This remembers the last tone a person
+      // chose on the existing per-user prefs row, so /me/ pre-selects it. Nullable
+      // and override-preserving: a word still carries its own persona, and an
+      // unset default simply leaves the calm ally as the standing default.
+      `ALTER TABLE escalation_prefs ADD COLUMN default_persona TEXT`,
       // ── FREE-TIER TIMER → RETENTION SPINE (Contender #10, R-239 follow-up) ──
       // On the EXISTING production analytics_events table the column above
       // (CREATE TABLE) is not applied, so add it here (silent no-op if present).

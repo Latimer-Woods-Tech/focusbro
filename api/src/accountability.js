@@ -3510,6 +3510,21 @@ export function registerAccountabilityRoutes(router, ctx) {
          VALUES (?, ?, ?, ?, ?, 'pending')`
       ).bind(checkinId, id, auth.userId, v.checkinAt, v.channel).run();
 
+      // Remember this tone as the person's standing default (the vision's
+      // "persona ... per user"), so /me/ pre-selects it next time instead of
+      // resetting to the calm ally. Upserts ONLY default_persona on the existing
+      // per-user prefs row — never touches the escalation ceiling. Non-fatal: a
+      // pref write must never sink a saved word.
+      try {
+        await env.DB.prepare(
+          `INSERT INTO escalation_prefs (user_id, default_persona, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(user_id) DO UPDATE SET default_persona = excluded.default_persona, updated_at = CURRENT_TIMESTAMP`
+        ).bind(auth.userId, v.persona).run();
+      } catch (prefErr) {
+        console.error('[accountability] default-persona save note:', prefErr && prefErr.message);
+      }
+
       // Instrument "a word given" (non-fatal; IMPROVEMENT_PLAN L1).
       await recordEvent(env, {
         userId: auth.userId, type: EVENTS.COMMITMENT_CREATED,
@@ -4532,8 +4547,22 @@ export function registerAccountabilityRoutes(router, ctx) {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
       const streak = await loadStreak(env, auth.userId);
+      // The person's remembered companion tone (calm ally vs. hype), so /me/
+      // pre-selects it on load. Null when they have never chosen — the form then
+      // keeps its own standing default (the calm ally). Non-fatal: a read miss
+      // never blocks the streak.
+      let defaultPersona = null;
+      try {
+        const pref = await env.DB.prepare(
+          `SELECT default_persona FROM escalation_prefs WHERE user_id = ?`
+        ).bind(auth.userId).first();
+        if (pref && pref.default_persona) defaultPersona = pickPersona(pref.default_persona);
+      } catch (prefErr) {
+        console.error('[accountability] default-persona read note:', prefErr && prefErr.message);
+      }
       return jsonResponse({
         streak,
+        default_persona: defaultPersona,
         message: streakSummaryCopy({ streak }),
         best: personalBestCopy({ streak }),
         milestone: milestoneCopy({ streak }),

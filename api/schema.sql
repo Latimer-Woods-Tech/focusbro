@@ -208,6 +208,7 @@ CREATE TABLE IF NOT EXISTS notification_prefs (
 CREATE TABLE IF NOT EXISTS escalation_prefs (
   user_id TEXT PRIMARY KEY,
   ceiling TEXT DEFAULT 'text',
+  default_persona TEXT,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
