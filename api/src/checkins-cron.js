@@ -334,6 +334,36 @@ export async function runDueCheckins(env, opts = {}) {
       }
     }
 
+    // NIGHT GUARD (R-291, extended to the FIRST rung) — a scheduled text is
+    // delivered at the person's CHOSEN local_time on time, so it needs no
+    // structural night floor (unlike the UNSCHEDULED escalation / return nudge).
+    // But a recovered-cron backlog, a stuck gate, or a provider backlog can slip
+    // that delivery hours late — and the ONLY night guards left on this path are
+    // the opt-in TCPA quiet-hours gate (a no-op for a text-consented user who
+    // never set a window: quiet_start === quiet_end → NO quiet hours) and a 24h
+    // staleness cap far too wide to stop a 3am landing. So a check-in the person
+    // scheduled for a DAYTIME hour could still buzz at 3am the exact way #335's
+    // escalation once could — the trust-breaking intrusion the LAW forbids. When
+    // the night landing is purely an artifact of LATENESS (its chosen local hour
+    // was daytime, but delivery would land at night NOW), defer to a later
+    // daytime tick — leave it pending, no attempt bump, exactly like a
+    // quiet-hours defer. A person who deliberately scheduled a NIGHT check-in
+    // (scheduled_for's own local hour is at night) is honored, untouched — the
+    // guard narrows nothing they chose. Text only: push is silent app UX, not a
+    // ring that wakes anyone. Read the SAME recipient clock the TCPA gate uses.
+    // Checked AFTER the stale retire above, so a genuinely stale (>24h) night
+    // check-in is parked no-shame, not deferred toward forever.
+    if (!outcome && row.channel === 'text') {
+      const guardTz = await nightGuardTimezone(env, row.user_id, row.timezone);
+      const schedHour = localHour(row.scheduled_for, guardTz);
+      const schedWasDaytime =
+        schedHour !== null && schedHour >= RETURN_NUDGE_DAY_START && schedHour < RETURN_NUDGE_DAY_END;
+      if (schedWasDaytime && !withinUnscheduledDaytime(now, guardTz)) {
+        summary.deferred++;
+        continue;
+      }
+    }
+
     if (!outcome) {
       try {
         outcome = await deliverCheckin(env, row);
@@ -518,15 +548,7 @@ export async function runEscalations(env, opts = {}) {
       // back to the commitment zone, then UTC. Outside the daytime window → defer
       // WITHOUT latching (escalated_at stays NULL) → eligible for a later daytime
       // tick, exactly like a quiet-hours defer and like the return nudge.
-      let guardTz;
-      try {
-        const tzRow = await env.DB.prepare(
-          `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
-        ).bind(row.user_id).first();
-        guardTz = (tzRow && tzRow.timezone) || row.commitment_timezone || 'UTC';
-      } catch {
-        guardTz = row.commitment_timezone || 'UTC';
-      }
+      const guardTz = await nightGuardTimezone(env, row.user_id, row.commitment_timezone);
       if (!withinUnscheduledDaytime(now, guardTz)) { summary.deferred++; continue; }
 
       // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
@@ -758,6 +780,29 @@ export function withinReturnDaytime(nowISO, timezone) {
  * two guards can never drift apart.
  */
 export const withinUnscheduledDaytime = withinReturnDaytime;
+
+/**
+ * The timezone whose civil clock every night guard reads — the SAME clock the
+ * TCPA quiet-hours gate uses, so the structural and legal night guards can never
+ * disagree on what "night" is. The user's granted text-consent row wins (that IS
+ * the phone's jurisdiction); fall back to the commitment's own zone, then UTC.
+ * Best-effort: any DB error falls back to the commitment zone. One source for
+ * both the escalation guard and the late-check-in guard so they never drift.
+ * @param {object} env
+ * @param {string} userId
+ * @param {string} [commitmentTz]
+ * @returns {Promise<string>}
+ */
+async function nightGuardTimezone(env, userId, commitmentTz) {
+  try {
+    const tzRow = await env.DB.prepare(
+      `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`,
+    ).bind(userId).first();
+    return (tzRow && tzRow.timezone) || commitmentTz || 'UTC';
+  } catch {
+    return commitmentTz || 'UTC';
+  }
+}
 
 /** Best-effort per-user latch write — a KV blip never aborts the pass. */
 async function latchReturnNudge(kv, userId, nowISO) {
