@@ -186,6 +186,39 @@ export function rosterNextCheckinLine({ iso, timezone, nowISO } = {}) {
   return nextCheckinCopy({ iso, timezone, nowISO });
 }
 
+/**
+ * The next-check-in label for a single active commitment on the coach's
+ * client-DETAIL rhythm panel (GET /api/coach/clients/:id → active_commitments,
+ * rendered by index.js renderRhythm). The drill-in twin of the person's own
+ * per-word detail line (me.js `renderDetail`): the caller passes the soonest
+ * OUTSTANDING check-in (pending/sent/deferred/awaiting_time), which — because a
+ * slipped, quiet-hours-, or night-deferred delivery is left pending with its
+ * `scheduled_for` UNCHANGED (in the past) — CAN already be past. When it is,
+ * this reads as the warm "still here whenever they're ready" (the door held
+ * open), NEVER a stale past time that would read as the ally having no-showed on
+ * that word — exactly the reliability-undermining signal THE DESIGN LAW forbids.
+ * A future moment is still named outright; nothing queued falls to
+ * nextCheckinCopy's "lining up" line.
+ *
+ * Reuses rosterNextCheckinWaitingCopy() (the passed-but-open line) and
+ * nextCheckinCopy() (the future / nothing-queued lines) verbatim so the coach
+ * ROSTER (rosterNextCheckinLine), this DETAIL label, and the person's own detail
+ * panel can never diverge on how a held-open check-in reads — one source of
+ * truth per THE DESIGN LAW (Contender #10, Phase A). Unlike rosterNextCheckinLine
+ * (which returns '' when nothing is queued so the at-a-glance card stays clean),
+ * the detail panel keeps the warm "Next check-in lining up." for a commitment the
+ * cron is about to re-arm.
+ * @param {object} p { iso, timezone, nowISO }
+ * @returns {string}
+ */
+export function detailNextCheckinCopy({ iso, timezone, nowISO } = {}) {
+  if (iso && !Number.isNaN(Date.parse(iso))) {
+    const now = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
+    if (Date.parse(iso) <= now) return rosterNextCheckinWaitingCopy();
+  }
+  return nextCheckinCopy({ iso, timezone, nowISO });
+}
+
 // ── RE-ENGAGEMENT CUE (the operator-side twin of the return nudge) ─
 // The product already reaches out to a person who has gone quiet across the
 // whole app on its own (the return nudge — Wingspan W4 / #40). A human coach
@@ -939,6 +972,11 @@ export function coachCopySurface() {
     nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
     nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
     nextCheckinCopy({ iso: null }),
+    // The coach client-DETAIL next-check-in label — its three branches:
+    // future→named, passed-but-open→warm waiting line, nothing-queued→lining up.
+    detailNextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    detailNextCheckinCopy({ iso: '2026-07-11T09:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    detailNextCheckinCopy({ iso: null }),
     reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
     reachOutCueCopy({ quietDays: 30 }),
     backAfterReachCopy({ back: true }),
@@ -1512,7 +1550,14 @@ export function registerCoachRoutes(router, ctx) {
           timezone: c.timezone || 'UTC',
           cadence: describeCadence({ recurrence: c.recurrence, localTime: c.local_time }),
           next_checkin: nextCheckin,
-          next_checkin_label: nextCheckinCopy({ iso: nextCheckin, timezone: c.timezone || 'UTC', nowISO }),
+          // A passed-but-open outstanding check-in (a slipped / quiet-hours- /
+          // night-deferred delivery left pending with `scheduled_for` in the
+          // past — see the MIN(scheduled_for) query above) must read as the warm
+          // "still here", never a stale "Next up <time already gone>" that reads
+          // as the ally no-showing. detailNextCheckinCopy branches passed→warm /
+          // future→named / none→lining-up, matching the roster and the person's
+          // own detail panel (one source of truth). THE DESIGN LAW.
+          next_checkin_label: detailNextCheckinCopy({ iso: nextCheckin, timezone: c.timezone || 'UTC', nowISO }),
         };
       });
 
