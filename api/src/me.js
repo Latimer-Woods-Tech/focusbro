@@ -486,6 +486,8 @@ export function meCopySurface() {
     detailActionLabel(),
     detailKeptHeadingCopy(),
     detailNextLabelCopy(),
+    listNextCheckinLabelCopy(),
+    listNextCheckinWaitingCopy(),
     detailMomentumHeadingCopy(),
     detailMomentumIntroCopy(),
     detailMomentumSummaryCopy({ total: 0, days: 14 }),
@@ -1733,6 +1735,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // The API returns kept check-ins only, so there is never a miss list here.
   var DETAIL_KEPT_HEADING = ${JSON.stringify(detailKeptHeadingCopy())};
   var DETAIL_NEXT_LABEL = ${JSON.stringify(detailNextLabelCopy())};
+  // Same warm "the door is still held" line the /me/ list card uses (R-233) —
+  // reused verbatim so the list and this detail panel can never diverge on how a
+  // passed-but-open check-in reads. NEVER "late"/"overdue".
+  var DETAIL_NEXT_WAITING = ${JSON.stringify(listNextCheckinWaitingCopy())};
   var DETAIL_MOMENTUM_HEADING = ${JSON.stringify(detailMomentumHeadingCopy())};
   function openDetail(id) {
     var host = document.querySelector('[data-detail="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
@@ -1754,7 +1760,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var kept = (d && d.kept) || [];
     var html = '<div class="detailbody">';
     if (cadence) { html += '<div class="when">' + esc(cadence) + '</div>'; }
-    if (next) { html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>'; }
+    // The next moment the bro shows up on THIS word. If that moment has already
+    // passed but the check-in is still open (a slipped, quiet-hours- or
+    // night-deferred delivery — the row stays pending, the door held), NEVER show
+    // a stale past time that reads as a no-show: fall to the same warm "still
+    // here" line the /me/ list card, coach roster, and report already use. A
+    // future moment is still named outright. (Matches nextCheckinLineHTML.)
+    if (next) {
+      var nt = new Date(next).getTime();
+      if (!isNaN(nt) && nt <= Date.now()) {
+        html += '<div class="when waiting">' + esc(DETAIL_NEXT_WAITING) + '</div>';
+      } else {
+        html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>';
+      }
+    }
     if (d && d.message) { html += '<p class="streakmsg">' + esc(d.message) + '</p>'; }
     // How long you've been keeping THIS word — the server sends a non-empty line
     // ONLY once it's a standing practice (kept-only, design-LAW-scanned); a young
