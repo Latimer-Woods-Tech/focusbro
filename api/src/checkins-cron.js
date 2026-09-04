@@ -646,6 +646,9 @@ export const CRON_HEALTH_KEYS = Object.freeze({
   lastTick: 'cron:last_tick',
   failStreak: 'cron:delivery_fail_streak',
   lastSummary: 'cron:last_summary',
+  // the newest APPLIED migration, read from d1_migrations on the tick (the
+  // cron already touches D1) so /health can report it without touching D1
+  schemaApplied: 'cron:schema_applied',
 });
 
 /**
@@ -657,7 +660,7 @@ export const CRON_HEALTH_KEYS = Object.freeze({
  * or aborts the caller. Returns the new fail streak (for logging/tests).
  * @returns {Promise<number>} the fail streak after this tick
  */
-export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {} } = {}) {
+export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {}, schemaApplied = null } = {}) {
   const kv = env && env.KV_CACHE;
   const now = nowISO || new Date().toISOString();
   let streak = 0;
@@ -673,6 +676,7 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
   try {
     await kv.put(CRON_HEALTH_KEYS.lastSummary, JSON.stringify({ at: now, delivery, escalation }));
   } catch { /* best-effort */ }
+  if (schemaApplied) { try { await kv.put(CRON_HEALTH_KEYS.schemaApplied, String(schemaApplied)); } catch { /* best-effort */ } }
   return streak;
 }
 
@@ -687,8 +691,9 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
 export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
   const kv = env && env.KV_CACHE;
   const at = typeof nowMs === 'number' ? nowMs : Date.now();
-  let lastTick = null, failStreak = 0, lastSummary = null;
+  let lastTick = null, failStreak = 0, lastSummary = null, schemaApplied = null;
   try { lastTick = kv ? await kv.get(CRON_HEALTH_KEYS.lastTick) : null; } catch { /* best-effort */ }
+  try { schemaApplied = kv ? (await kv.get(CRON_HEALTH_KEYS.schemaApplied)) || null : null; } catch { /* best-effort */ }
   try { failStreak = kv ? (Number(await kv.get(CRON_HEALTH_KEYS.failStreak)) || 0) : 0; } catch { /* best-effort */ }
   try {
     const raw = kv ? await kv.get(CRON_HEALTH_KEYS.lastSummary) : null;
@@ -707,6 +712,7 @@ export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
     delivery_degraded: failStreak >= DELIVERY_DEGRADED_STREAK,
     degraded_streak_threshold: DELIVERY_DEGRADED_STREAK,
     last_summary: lastSummary,
+    schema_applied: schemaApplied,
   };
 }
 

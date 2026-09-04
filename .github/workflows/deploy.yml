@@ -78,7 +78,7 @@ jobs:
           echo "waiting for the edge to serve $GITHUB_SHA…"; sleep 5
         done
         echo "edge serves $GITHUB_SHA"
-        for s in /guides/view.js /guides/caffeine.js /guides/breath.js; do
+        for s in /guides/view.js /guides/caffeine.js /guides/breath.js /sw.js; do
           ok=0
           for attempt in $(seq 1 12); do
             url="https://focusbro.net${s}?v=${GITHUB_SHA}"
