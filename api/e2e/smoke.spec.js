@@ -54,17 +54,32 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors, `page errors:\n${pageErrors.join('\n')}`).toEqual([]);
   });
 
-  test('carries a founder challenge through account creation into a first word', async ({ page }) => {
+  test('carries a founder challenge straight into a first word — no password before the word', async ({ page }) => {
+    // The door, after 2026-09-04: a visitor arriving with a task sees the form,
+    // prefilled. Giving the word creates a guest account on THAT gesture, the
+    // word is saved against it, push is asked for on the same gesture, and the
+    // claim card appears. No email, no password, until the person wants them.
     const commitmentBodies = [];
-    await page.route('**/auth/register', async (route) => {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ user: { id: 'u1' } }) });
+    const guestStarts = [];
+    const syncEvents = [];
+    await page.route('**/auth/guest', async (route) => {
+      guestStarts.push(route.request().method());
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, user_id: 'g1', guest: true, session_id: 's1' }) });
     });
+    await page.route('**/auth/session', async (route) => {
+      await route.fulfill({ status: guestStarts.length ? 200 : 401, contentType: 'application/json', body: JSON.stringify(guestStarts.length ? { authenticated: true, user_id: 'g1', guest: true, email: null } : { authenticated: false }) });
+    });
+    await page.route('**/sync/events', async (route) => {
+      syncEvents.push(...(route.request().postDataJSON().events || []));
+      await route.fulfill({ contentType: 'application/json', body: '{"success":true,"synced":1}' });
+    });
+    await page.route('**/vapid/public-key', async (route) => { await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Push notifications not configured"}' }); });
     await page.route('**/api/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
       if (path === '/api/commitments' && request.method() === 'POST') {
-        commitmentBodies.push(request.postDataJSON());
-        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ message: "Got it — I'll check in." }) });
+        commitmentBodies.push({ body: request.postDataJSON(), afterGuest: guestStarts.length > 0 });
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ message: "Got it — I'll check in." }) });
         return;
       }
       if (path === '/api/commitments') {
@@ -75,22 +90,31 @@ test.describe('FocusBro client smoke', () => {
     });
 
     await page.goto('/me/?task=open%20the%20tax%20document&when=in%2010%20minutes&source=tiktok&campaign=founder-cohort-01');
-    await expect(page.getByRole('heading', { name: 'Create an account' })).toBeVisible();
-    await page.locator('#email').fill('founder@example.com');
-    await page.locator('#password').fill('safe-password-123');
-    await page.locator('#signinForm').getByRole('button', { name: 'Create account' }).click();
-
     await expect(page.locator('#app')).toBeVisible();
+    await expect(page.locator('#signin')).toBeHidden();                 // no password wall
+    await expect(page.locator('#anonNote')).toBeVisible();
+    await expect(page.locator('#claimCard')).toBeHidden();               // nothing to claim yet
     await expect(page.locator('#title')).toHaveValue('open the tax document');
     await expect(page.locator('#startAt')).toHaveValue('in 10 minutes');
+    expect(guestStarts).toEqual([]);                                     // never on load
     await page.locator('#commitForm').getByRole('button', { name: 'Give my word' }).click();
     await expect(page.locator('#commitMsg')).toContainText("Got it — I'll check in.");
-
-    expect(commitmentBodies).toEqual([expect.objectContaining({
+    expect(guestStarts).toEqual(['POST']);                               // exactly once, on the gesture
+    expect(commitmentBodies).toEqual([{ afterGuest: true, body: expect.objectContaining({
       title: 'open the tax document',
       when_text: 'in 10 minutes',
+      channel: 'push',
       attribution: { source: 'tiktok', campaign: 'founder-cohort-01' },
-    })]);
+    }) }]);
+    // the guest is offered the account, and the sign-in link is gone
+    await expect(page.locator('#claimCard')).toBeVisible();
+    await expect(page.locator('#anonNote')).toBeHidden();
+    // push was asked for on the same gesture and the browser's answer recorded
+    await expect.poll(() => syncEvents.filter((e) => e.type === 'push_permission').length, { timeout: 5000 }).toBe(1);
+    expect(['unsupported', 'denied', 'dismissed', 'not_configured', 'failed', 'granted']).toContain(syncEvents.find((e) => e.type === 'push_permission').result);
+    // a returning person can still reach sign-in in one tap
+    await page.reload();
+    await expect(page.locator('#claimCard')).toBeVisible();              // the session says guest
   });
 
   test('turns an honest “not yet” into a warm reschedule instead of a dead end', async ({ page }) => {

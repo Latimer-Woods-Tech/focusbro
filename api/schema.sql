@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   last_login DATETIME,
   email_verified_at DATETIME,
   subscription_tier TEXT DEFAULT 'free',
-  is_active BOOLEAN DEFAULT 1
+  is_active BOOLEAN DEFAULT 1,
+  is_guest INTEGER DEFAULT 0
 );
 
 -- ── USER DATA BACKUPS (for version history) ──

@@ -44,6 +44,12 @@ export const EVENTS = Object.freeze({
   CHECKIN_START_HELP: 'checkin_start_help',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
+  // The activation funnel (docs/IMPROVEMENT_PLAN.md decision tree): a guest
+  // account created on the first word, that account later claimed with an
+  // email, and what the browser said when asked to deliver check-ins.
+  GUEST_STARTED: 'guest_started',
+  ACCOUNT_CLAIMED: 'account_claimed',
+  PUSH_PERMISSION: 'push_permission',
 });
 
 /**
