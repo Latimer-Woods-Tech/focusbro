@@ -240,6 +240,40 @@ test.describe('FocusBro client smoke', () => {
     expect(await page.evaluate(() => Object.keys(activeSounds).sort())).toEqual(['cafe', 'rain']);
   });
 
+  test('the caffeine calculator computes the cited arithmetic in a real browser', async ({ page }) => {
+    // 200 mg at 15:00, bedtime 23:00, half-life 5 h → 200 · 0.5^(8/5) ≈ 66 mg.
+    // Deterministic: every input is set explicitly, so "now" never leaks in.
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto('/guides/caffeine-timing-and-focus.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#caffeine-calculator')).toBeVisible();
+    await page.locator('#cafDose').fill('200');
+    await page.locator('#cafTaken').fill('15:00');
+    await page.locator('#cafBed').fill('23:00');
+    await page.locator('#cafHalf').fill('5');
+    await page.locator('#caffeineCalc button[type="submit"]').click();
+    await expect(page.locator('#cafResult')).toContainText('about 66 mg of the 200 mg');
+    await expect(page.locator('#cafResult')).toContainText('(33%)');
+    // half gone by 20:00, a quarter left by 01:00
+    await expect(page.locator('#cafResult')).toContainText('Half of it is gone by 20:00');
+    await expect(page.locator('#cafResult')).toContainText('a quarter is left by 01:00');
+    // the curve was drawn, with bedtime marked
+    expect(await page.locator('#cafChart path.tool-curve').count()).toBe(1);
+    expect(await page.locator('#cafChart circle.tool-beddot').count()).toBe(1);
+    // and using the instrument was recorded, once, anonymously. sendBeacon()
+    // is invisible to Playwright's request hooks, so ask the smoke server what
+    // it actually received.
+    await expect.poll(async () => {
+      const views = await (await page.request.get('/__smoke/views')).json();
+      return views.filter((v) => v.tool === 'caffeine-calculator');
+    }, { timeout: 5000 }).toEqual([{ slug: 'caffeine-timing-and-focus', tool: 'caffeine-calculator' }]);
+    // a preset fills the dose from the FDA figure
+    await page.locator('#cafPreset').selectOption('71');
+    await expect(page.locator('#cafDose')).toHaveValue('71');
+    await expect(page.locator('#cafResult')).toContainText('of the 71 mg');
+    expect(pageErrors).toEqual([]);
+  });
+
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
     await page.goto('/');

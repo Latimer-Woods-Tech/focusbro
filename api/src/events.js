@@ -31,6 +31,7 @@
 export const EVENTS = Object.freeze({
   ACQUISITION_VISIT: 'acquisition_visit',
   GUIDE_VIEW: 'guide_view',
+  GUIDE_TOOL_USE: 'guide_tool_use',
   COMMITMENT_CREATED: 'commitment_created',
   COMMITMENT_KEPT: 'commitment_kept',
   COMMITMENT_RESCHEDULE: 'commitment_reschedule',
@@ -107,8 +108,12 @@ export function sanitizeAttribution(value) {
  * visit: the slug only — no visitor id, no referrer, no user agent. This is
  * what turns "content live" into "content read" (docs/content-ledger.md).
  */
-export async function recordGuideView(env, slug) {
+export async function recordGuideView(env, slug, tool = null) {
   if (typeof slug !== 'string' || !/^[a-z0-9-]{1,80}$/.test(slug)) return false;
+  if (tool !== null) {
+    if (typeof tool !== 'string' || !/^[a-z0-9-]{1,40}$/.test(tool)) return false;
+    return recordEvent(env, { type: EVENTS.GUIDE_TOOL_USE, data: { slug, tool } });
+  }
   return recordEvent(env, { type: EVENTS.GUIDE_VIEW, data: { slug } });
 }
 

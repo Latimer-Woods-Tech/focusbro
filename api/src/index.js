@@ -6,6 +6,7 @@
 import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
+import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT } from './guides/scripts.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
@@ -2388,41 +2389,22 @@ router.post('/api/acquisition/visit', async (request, env) => {
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
-// ── GUIDE VIEW BEACON (first-party script; the page itself stays inline-free) ──
-// Reads its slug from the script tag's data attribute, sends one anonymous
-// view per tab session, and can never break the page.
-const GUIDE_VIEW_SCRIPT = `(function () {
-  try {
-    var el = document.currentScript || document.querySelector('script[data-slug]');
-    var slug = el && el.getAttribute('data-slug');
-    if (!slug) return;
-    var key = 'focusbro_guide_view:' + slug;
-    if (sessionStorage.getItem(key)) return;
-    var body = JSON.stringify({ slug: slug });
-    var sent = false;
-    if (navigator.sendBeacon) {
-      try { sent = navigator.sendBeacon('/api/content/view', new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
-    }
-    if (!sent) {
-      fetch('/api/content/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
-        .catch(function () {});
-    }
-    sessionStorage.setItem(key, '1');
-  } catch (e) {}
-})();
-`;
-router.get('/guides/view.js', () => new Response(GUIDE_VIEW_SCRIPT, {
-  headers: {
-    'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'public, max-age=86400',
-  },
-}));
+// ── GUIDE SCRIPTS (first-party; a guide page never runs inline code) ──
+// The bytes come from guides/scripts.js so the e2e smoke server serves exactly
+// what production serves. A day of cache; the URL is stable, the content rarely
+// changes, and a stale day of a beacon or a calculator costs nothing.
+const scriptResponse = (body) => new Response(body, {
+  headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+});
+router.get('/guides/view.js', () => scriptResponse(GUIDE_VIEW_SCRIPT));
+router.get('/guides/caffeine.js', () => scriptResponse(CAFFEINE_SCRIPT));
 
 // ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
 // The same guards as the landing visit: JSON only, small, same-origin. The slug
 // is validated against the guides that actually exist, so the ledger can never
 // be padded with junk. Anonymous by design — the slug is the whole payload.
 const GUIDE_SLUGS = new Set(guides.map((g) => g.slug));
+const GUIDE_TOOLS = new Set(['caffeine-calculator']);
 router.post('/api/content/view', async (request, env) => {
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.toLowerCase().startsWith('application/json')) {
@@ -2439,7 +2421,11 @@ router.post('/api/content/view', async (request, env) => {
   try { body = await request.json(); } catch { body = null; }
   const slug = body && typeof body.slug === 'string' ? body.slug : '';
   if (!GUIDE_SLUGS.has(slug)) return jsonResponse({ error: 'Unknown guide' }, 404);
-  const recorded = await recordGuideView(env, slug);
+  // An optional `tool` names an instrument on the page (allowlisted) — "was the
+  // calculator used", the outcome measure behind building instruments at all.
+  const tool = body && typeof body.tool === 'string' ? body.tool : null;
+  if (tool !== null && !GUIDE_TOOLS.has(tool)) return jsonResponse({ error: 'Unknown tool' }, 404);
+  const recorded = await recordGuideView(env, slug, tool);
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 

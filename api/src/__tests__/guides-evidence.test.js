@@ -24,7 +24,7 @@ describe('the source registry', () => {
     for (const [key, src] of Object.entries(SOURCES)) {
       expect(SOURCE_TYPES[src.type], `${key}: unknown type ${src.type}`).toBeTruthy();
       if (src.doi) expect(src.doi, `${key}: malformed DOI`).toMatch(DOI);
-      if (['study', 'meta', 'review'].includes(src.type)) {
+      if (['study', 'meta', 'review', 'report'].includes(src.type)) {
         expect(src.doi, `${key}: a ${src.type} must be DOI-linked, or typed honestly as something else`).toMatch(DOI);
       }
       expect(src.authors && src.title && src.venue, `${key}: incomplete`).toBeTruthy();
@@ -35,7 +35,9 @@ describe('the source registry', () => {
     for (const [key, src] of Object.entries(SOURCES)) {
       if (['book', 'essay', 'guidance'].includes(src.type)) {
         expect(src.doi, `${key}`).toBeUndefined();
-        expect(sourceUrl(src)).toBeNull();
+        // guidance may link to the publishing body's own page; nothing else links at all
+        if (src.type === 'guidance' && src.url) expect(sourceUrl(src)).toBe(src.url);
+        else expect(sourceUrl(src)).toBeNull();
       }
     }
   });

@@ -24,6 +24,7 @@ export const SOURCE_TYPES = Object.freeze({
   book: 'Book',
   essay: 'Essay',
   guidance: 'Professional guidance',
+  report: 'Report',
 });
 
 export const AUTHOR = Object.freeze({
@@ -35,6 +36,9 @@ export const AUTHOR = Object.freeze({
 const doi = (id) => `https://doi.org/${id}`;
 
 export const SOURCES = Object.freeze({
+  iom2001: { type: 'report', authors: 'Institute of Medicine, Committee on Military Nutrition Research', year: 2001, title: 'Caffeine for the Sustainment of Mental Task Performance: Formulations for Military Operations', venue: 'National Academies Press', doi: '10.17226/10219', note: 'Puts the mean plasma half-life of caffeine at about 5 hours in healthy adults, with a range of roughly 1.5 to 9.5 hours; smoking shortens it, pregnancy and oral contraceptives lengthen it. The calculator on this page uses these figures.' },
+  fredholm1999: { type: 'review', authors: 'Fredholm BB, Bättig K, Holmén J, Nehlig A, Zvartau EE', year: 1999, title: 'Actions of caffeine in the brain with special reference to factors that contribute to its widespread use', venue: 'Pharmacological Reviews 51:83–133', doi: '10.1016/s0031-6997(24)01396-6', note: 'The standard pharmacology review — adenosine-receptor antagonism and the wide individual variation in elimination.' },
+  fda_caffeine: { type: 'guidance', authors: 'U.S. Food and Drug Administration', year: null, title: 'Spilling the Beans: How Much Caffeine is Too Much?', venue: 'FDA Consumer Update', url: 'https://www.fda.gov/consumers/consumer-updates/spilling-beans-how-much-caffeine-too-much', note: 'The per-drink caffeine figures the calculator presets use (per 12 fl oz: brewed coffee 113–247 mg, black tea 71, green tea 37, soft drink 23–83, energy drink 41–246) and the 400 mg/day figure it cites as not generally associated with negative effects in healthy adults.' },
   ariga2011: { type: 'study', authors: 'Ariga A, Lleras A', year: 2011, title: 'Brief and rare mental "breaks" keep you focused: Deactivation and reactivation of task goals preempt vigilance decrements', venue: 'Cognition 118:439–443', doi: '10.1016/j.cognition.2010.12.007', note: 'Single lab study.' },
   kleitman1982: { type: 'review', authors: 'Kleitman N', year: 1982, title: 'Basic rest-activity cycle — 22 years later', venue: 'Sleep 5:311–317', doi: '10.1093/sleep/5.4.311', note: 'The author reviewing his own hypothesis. The waking-hours version of the cycle is a hypothesis, not an established finding.' },
   aoa_20_20_20: { type: 'guidance', authors: 'American Optometric Association; American Academy of Ophthalmology', year: null, title: 'The 20-20-20 rule for digital eye strain', venue: 'Professional guidance', note: 'A practical recommendation from professional bodies, not a controlled trial of the rule itself.' },
@@ -82,7 +86,10 @@ export const SOURCES = Object.freeze({
   csikszentmihalyi1990: { type: 'book', authors: 'Csikszentmihalyi M', year: 1990, title: 'Flow: The Psychology of Optimal Experience', venue: 'Harper & Row', note: 'The originating account of flow; largely descriptive.' },
 });
 
-/** The link for a source: its DOI when verified, otherwise nothing. */
+/** The link for a source: its DOI when verified; a verified URL for guidance; otherwise nothing. */
 export function sourceUrl(src) {
-  return src && src.doi ? doi(src.doi) : null;
+  if (!src) return null;
+  if (src.doi) return doi(src.doi);
+  if (src.type === 'guidance' && src.url) return src.url;
+  return null;
 }
