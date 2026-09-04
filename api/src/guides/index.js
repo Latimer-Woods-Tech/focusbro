@@ -13,7 +13,7 @@ import { renderBreathPacer } from './breath-pacer.js';
 const AD_CLIENT_SCRIPT =
   '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>';
 
-const SHELL_CSS = `
+export const SHELL_CSS = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -98,6 +98,17 @@ const SHELL_CSS = `
   .tool-beddot { fill: #dc2626; }
   .tool-label { font-size: 10px; fill: #6b7280; }
   .tool-note { font-size: 13px; color: #6b7280; margin: 12px 0 0; }
+  .figures { margin: 20px 0 24px; padding: 18px 20px; border: 1px solid #dbeafe; background: #f8fbff; border-radius: 12px; }
+  .figures h2 { margin-top: 0; }
+  .figures-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; }
+  @media (max-width: 520px) { .figures-list { grid-template-columns: 1fr; } }
+  .figures-list dt { font-size: 13px; color: #374151; }
+  .figures-list dd { margin: 2px 0 0; font-size: 26px; font-weight: 600; color: #111827; }
+  .figures-n { font-size: 13px; font-weight: 400; color: #6b7280; }
+  .figures-note { font-size: 13px; color: #6b7280; margin: 14px 0 0; }
+  .figures-stamp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #6b7280; margin: 8px 0 0; }
+  .definitions dt { font-weight: 600; margin-top: 12px; }
+  .definitions dd { margin: 4px 0 0; }
   .tool-btn-secondary { background: #e5e7eb; color: #111827; }
   .tool-btn-secondary:hover { background: #d1d5db; }
   .pacer-check label { display: flex; gap: 8px; align-items: flex-start; margin-top: 22px; }
@@ -116,15 +127,15 @@ const SHELL_CSS = `
   @media (prefers-reduced-motion: reduce) { .pacer-orb { transform: scale(0.8) !important; } }
 `;
 
-const SITE_HEADER = `<header class="site">
+export const SITE_HEADER = `<header class="site">
   <span class="brand"><a href="/">FocusBro</a></span>
   <nav><a href="/">App</a> &nbsp;·&nbsp; <a href="/guides/">Guides</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a></nav>
 </header>`;
 
-const SITE_FOOTER = `<footer class="site">
+export const SITE_FOOTER = `<footer class="site">
   FocusBro is a browser-based focus and wellness toolkit by Latimer Woods Tech.
   These guides are for general education and are not medical advice.
-  &nbsp;·&nbsp; <a href="/guides/">All guides</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a>
+  &nbsp;·&nbsp; <a href="/guides/">All guides</a> &nbsp;·&nbsp; <a href="/follow-through-index.html">Follow-Through Index</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a>
 </footer>`;
 
 /**
@@ -156,15 +167,21 @@ const slugifyHeading = (text = '') =>
  * @param {string} body article inner HTML
  * @returns {{body:string, toc:string}}
  */
-function withHeadingAnchors(body) {
+export function withHeadingAnchors(body) {
   const items = [];
   const seen = new Set();
+  // Ids the body already carries (a `<section id="sources">` wrapping its own
+  // `<h2>Sources</h2>`, for instance). A heading whose slug is taken gets NO id
+  // of its own — the TOC points at the existing element, which is the same
+  // place on the page — so a document never carries the same id twice.
+  const existing = new Set([...body.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   const newBody = body.replace(/<h2>([\s\S]*?)<\/h2>/g, (match, inner) => {
     const label = stripTags(inner);
     if (/^keep reading$/i.test(label)) return match;
     let id = slugifyHeading(inner);
-    while (id && seen.has(id)) id += '-x';
     if (!id) return match;
+    if (existing.has(id)) { if (!seen.has(id)) { seen.add(id); items.push({ id, label }); } return match; }
+    while (seen.has(id)) id += '-x';
     seen.add(id);
     items.push({ id, label });
     return `<h2 id="${id}">${inner}</h2>`;

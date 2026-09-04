@@ -349,6 +349,23 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('the Follow-Through Index page states its floors and never prints a rate it has not earned', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto('/follow-through-index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('h1')).toHaveText('The Follow-Through Index');
+    await expect(page.locator('#current-figures')).toContainText('unavailable');
+    expect(await page.locator('#current-figures').textContent()).not.toMatch(/\d+%/);
+    // the published state, from the same renderer with known figures
+    await page.goto('/follow-through-index.html?fixture=published', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#current-figures')).toContainText('Kept-word rate');
+    await expect(page.locator('#current-figures')).toContainText('64%');
+    await expect(page.locator('#current-figures')).toContainText('Generated:');
+    // script-free by design: nothing to execute, nothing to break
+    expect(await page.locator('script:not([type="application/ld+json"])').count()).toBe(0);
+    expect(pageErrors).toEqual([]);
+  });
+
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
     await page.goto('/');
