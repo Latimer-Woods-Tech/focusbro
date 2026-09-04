@@ -647,8 +647,12 @@
     font-weight: 600;
   }
 
+  .sound-share { width: 100%; margin-top: 8px; }
+  .sound-share[disabled] { opacity: 0.45; cursor: default; }
+
   .sound-now-playing {
     font-size: 11px;
+    overflow-wrap: anywhere;
     color: var(--text-dim);
     margin-top: 8px;
     min-height: 14px;
@@ -2247,6 +2251,7 @@
           <label>Vol</label>
           <input type="range" min="0" max="100" value="50" id="soundVolume" aria-label="Ambient volume" oninput="updateVolume(this.value)" />
         </div>
+        <button class="btn btn-sm sound-share" id="soundShare" onclick="shareMix()" disabled aria-describedby="soundNowPlaying">🔗 Share this mix</button>
         <div class="sound-now-playing" id="soundNowPlaying" role="status" aria-live="polite">Nothing playing</div>
       </div>
       <div class="card">
@@ -4267,6 +4272,8 @@ function paintSoundButton(name, on) {
     const names = Object.keys(activeSounds);
     live.textContent = names.length ? 'Playing: ' + names.map(prettySoundName).join(' + ') : 'Nothing playing';
   }
+  const share = document.getElementById('soundShare');
+  if (share) share.disabled = Object.keys(activeSounds).length === 0;
   updateMediaSession();
 }
 
@@ -4366,6 +4373,64 @@ function recordSoundEvent(type, reason, extra) {
   } catch (e) { console.warn('recordSoundEvent failed (non-fatal):', e && e.message); }
 }
 
+// `?sound=rain:0.7,cafe:0.5,wind` — a shared mix names its layers and,
+// optionally, each layer's level (0.05–1; omitted = 1). Unknown names and
+// unparseable levels are dropped, never guessed, so a link can only ever
+// name textures the palette has.
+function parseMixParam(soundList) {
+  const mix = {};
+  String(soundList || '').toLowerCase().split(',').forEach(function (part) {
+    const bits = part.trim().split(':');
+    const name = bits[0];
+    if (!name || !SOUND_BUILDERS[name]) return;
+    let level = bits.length > 1 ? Number(bits[1]) : 1;
+    if (!(level > 0) || !isFinite(level)) level = 1;
+    mix[name] = Math.min(1, Math.max(0.05, Math.round(level * 100) / 100));
+  });
+  return mix;
+}
+
+// The link for what is playing right now. A preset shares as the preset (its
+// levels are the app's); anything else shares as the layers with their levels,
+// omitting a level of 1. Always the branded origin — a link that opens on
+// someone else's phone must never carry a workers.dev host.
+const SHARE_ORIGIN = 'https://focusbro.net';
+function shareMixUrl() {
+  const names = Object.keys(activeSounds);
+  if (!names.length) return null;
+  if (activePresetKey && SOUND_PRESETS[activePresetKey]) return SHARE_ORIGIN + '/?tool=sounds&preset=' + activePresetKey;
+  const parts = names.slice().sort().map(function (n) {
+    const level = Math.round((activeSounds[n].mix || 1) * 100) / 100;
+    return level === 1 ? n : n + ':' + level;
+  });
+  return SHARE_ORIGIN + '/?tool=sounds&sound=' + parts.join(',');
+}
+
+// Share what is playing: the native share sheet where there is one, else the
+// clipboard, else the link shown in the status line to copy by hand. Only the
+// person's own gesture reaches here; nothing is sent anywhere by this page.
+function shareMix() {
+  const url = shareMixUrl();
+  const live = document.getElementById('soundNowPlaying');
+  if (!url) { if (live) live.textContent = 'Start a sound first, then share it.'; return; }
+  const names = Object.keys(activeSounds).map(prettySoundName).join(' + ');
+  const done = function (how) {
+    if (live) live.textContent = (how === 'shared' ? 'Shared: ' : 'Link copied: ') + names;
+    recordSoundEvent('sound_share', how);
+  };
+  const byHand = function () { if (live) live.textContent = 'Copy this link: ' + url; };
+  const copy = function () {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { done('copied'); }).catch(byHand);
+    } else { byHand(); }
+  };
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ url: url }))) {
+    navigator.share({ title: 'FocusBro sounds: ' + names, url: url })
+      .then(function () { done('shared'); })
+      .catch(function (e) { if (!(e && e.name === 'AbortError')) copy(); });   // closing the sheet is not an error
+  } else { copy(); }
+}
+
 // A link can name a sound, but a browser will not start audio without a
 // gesture, and unrequested sound is a hostile way to open a page. So a link
 // ARMS the mix: the card rings and the resume button becomes one tap.
@@ -4379,9 +4444,9 @@ function armSoundscape(presetKey, soundList) {
     btn.dataset.preset = key;
     label = SOUND_PRESETS[key].label;
   } else if (soundList) {
-    const names = String(soundList).toLowerCase().split(',').map(function (n) { return n.trim(); }).filter(function (n) { return !!SOUND_BUILDERS[n]; });
+    const mix = parseMixParam(soundList);
+    const names = Object.keys(mix);
     if (!names.length) return false;
-    const mix = {}; names.forEach(function (n) { mix[n] = 1; });
     btn.dataset.mix = JSON.stringify(mix);
     label = names.map(prettySoundName).join(' + ');
   } else {

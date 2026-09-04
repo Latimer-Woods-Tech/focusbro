@@ -240,6 +240,29 @@ test.describe('FocusBro client smoke', () => {
     expect(await page.evaluate(() => Object.keys(activeSounds).sort())).toEqual(['cafe', 'rain']);
   });
 
+  test('a mix can be shared as a link that arms the same layers at the same levels', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/?tool=sounds', { waitUntil: 'domcontentloaded' });
+    const share = page.locator('#soundShare');
+    await expect(share).toBeDisabled();                       // nothing playing, nothing to share
+    await page.getByRole('button', { name: 'Play the Rainy café blend' }).click();
+    await expect(share).toBeEnabled();
+    await share.click();
+    await expect(page.locator('#soundNowPlaying')).toContainText('Link copied: Rain + Café');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://focusbro.net/?tool=sounds&preset=rainycafe');
+    // add a layer — it is the person's own mix now, shared with its levels
+    await page.locator('.sound-btn[data-sound="wind"]').click();
+    await share.click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://focusbro.net/?tool=sounds&sound=cafe:0.5,rain:0.7,wind');
+    // that link arms exactly those layers at those levels — one tap, never autoplay
+    await page.goto('/?tool=sounds&sound=cafe:0.5,rain:0.7,wind', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#soundResume')).toHaveText('▶ Start Café + Rain + Wind');
+    expect(await page.evaluate(() => Object.keys(activeSounds))).toEqual([]);
+    await page.locator('#soundResume').click();
+    expect(await page.evaluate(() => Object.keys(activeSounds).sort().map((n) => [n, activeSounds[n].mix]))).toEqual([['cafe', 0.5], ['rain', 0.7], ['wind', 1]]);
+    await expect(share).toBeEnabled();
+  });
+
   test('the caffeine calculator computes the cited arithmetic in a real browser', async ({ page }) => {
     // 200 mg at 15:00, bedtime 23:00, half-life 5 h → 200 · 0.5^(8/5) ≈ 66 mg.
     // Deterministic: every input is set explicitly, so "now" never leaks in.
