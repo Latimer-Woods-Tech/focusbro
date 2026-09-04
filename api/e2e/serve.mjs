@@ -7,6 +7,7 @@ import htmlContent from '../src/html.js';
 import { renderMePage } from '../src/me.js';
 import { guides, renderGuidePage } from '../src/guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from '../src/guides/scripts.js';
+import { renderFollowThroughPage, SAMPLE_FIGURES } from '../src/guides/follow-through.js';
 
 const port = Number(process.env.PORT) || 4173;
 const receivedViews = [];
@@ -25,6 +26,13 @@ http
       // smoke exercises real first-party scripts, not a stub.
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
       res.end(path.endsWith('caffeine.js') ? CAFFEINE_SCRIPT : path.endsWith('breath.js') ? BREATH_SCRIPT : GUIDE_VIEW_SCRIPT);
+    } else if (path === '/follow-through-index.html') {
+      // No D1 here: the page renders its "unavailable" state, or the published
+      // sample when the smoke asks for it (?fixture=published) — the same
+      // renderer production uses, fed known figures.
+      const fixture = (req.url || '').includes('fixture=published');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderFollowThroughPage(fixture ? SAMPLE_FIGURES : { available: false, generated_at: new Date().toISOString() }));
     } else if (/^\/guides\/[a-z0-9-]+\.html$/.test(path)) {
       const slug = path.slice('/guides/'.length, -'.html'.length);
       const guide = guides.find((g) => g.slug === slug);

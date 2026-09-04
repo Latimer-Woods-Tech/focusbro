@@ -7,6 +7,7 @@ import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
+import { FOLLOW_THROUGH, followThroughFigures, renderFollowThroughPage } from './guides/follow-through.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
@@ -2793,6 +2794,26 @@ router.get('/about.html', async () => {
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 });
 
+// ── THE FOLLOW-THROUGH INDEX (methodology + current figures) ──
+// A public, dated measure of whether people who give their word actually
+// start, computed from the same first-party ledger computeLoopMetrics reads.
+// The page is script-free and cacheable; the figures are aggregates only,
+// published at or above a sample floor, and never a per-person record.
+router.get(FOLLOW_THROUGH.path, async (request, env) => {
+  const figures = await followThroughFigures(env);
+  return new Response(renderFollowThroughPage(figures, { version: (env && env.BUILD_SHA) || 'development' }), {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': `public, max-age=${FOLLOW_THROUGH.cacheSeconds}` },
+  });
+});
+router.get('/api/public/follow-through', async (request, env) => {
+  const figures = await followThroughFigures(env);
+  return new Response(JSON.stringify(figures), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${FOLLOW_THROUGH.cacheSeconds}`, 'Access-Control-Allow-Origin': '*' },
+  });
+});
+
 router.get('/contact.html', async () => {
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -3304,6 +3325,7 @@ router.get('/sitemap.xml', async () => {
   <url><loc>https://focusbro.net/privacy.html</loc></url>
   <url><loc>https://focusbro.net/terms.html</loc></url>
   <url><loc>https://focusbro.net/about.html</loc></url>
+  <url><loc>https://focusbro.net${FOLLOW_THROUGH.path}</loc><lastmod>${FOLLOW_THROUGH.lastmod}</lastmod></url>
   <url><loc>https://focusbro.net/contact.html</loc></url>
   <url><loc>https://focusbro.net/guides/</loc></url>
 ${guideUrls}
