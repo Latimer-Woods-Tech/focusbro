@@ -603,6 +603,65 @@
   .break-rule { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   /* ── AMBIENT SOUNDS ── */
+  .sound-need-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 4px 0 8px;
+  }
+
+  .sound-group-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    margin: 12px 0 6px;
+  }
+
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .preset-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-card-hover, var(--bg));
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .preset-btn:hover { border-color: var(--accent); }
+
+  .preset-btn.active {
+    background: var(--blue-dim);
+    border-color: rgba(59,130,246,0.35);
+    color: var(--blue);
+  }
+
+  .sound-resume { width: 100%; margin: 2px 0 4px; }
+
+  .sound-resume[hidden] { display: none; }
+
+  .sound-now-playing {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    min-height: 14px;
+  }
+
   .sounds-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -2123,33 +2182,65 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title"><span class="icon">🎧</span> Ambient Sounds</div>
+          <button class="btn btn-sm" onclick="stopAllSounds()">Stop all</button>
         </div>
+
+        <div class="sound-need-label">Start with what you need</div>
+        <div class="preset-grid">
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Deep work blend" onclick="playPreset('deepwork', this)"><span class="sound-icon">🎯</span> Deep work</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Block it out blend" onclick="playPreset('masking', this)"><span class="sound-icon">🔇</span> Block it out</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Wind down blend" onclick="playPreset('winddown', this)"><span class="sound-icon">🌙</span> Wind down</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Not alone blend" onclick="playPreset('notalone', this)"><span class="sound-icon">👥</span> Not alone</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Rainy café blend" onclick="playPreset('rainycafe', this)"><span class="sound-icon">🌦️</span> Rainy café</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Sleep blend" onclick="playPreset('sleep', this)"><span class="sound-icon">😴</span> Sleep</button>
+        </div>
+
+        <button class="btn btn-sm sound-resume" id="soundResume" hidden onclick="restoreLastMix(this); this.hidden = true;">Resume last mix</button>
+
+        <div class="sound-need-label">Or build your own — they layer</div>
+
+        <div class="sound-group-label">Steady</div>
         <div class="sounds-grid">
-          <button class="sound-btn" aria-pressed="false" aria-label="Play Rain ambient sound" onclick="toggleSound('rain', this)">
-            <span class="sound-icon">🌧️</span> Rain
-          </button>
-          <button class="sound-btn" aria-pressed="false" aria-label="Play Café ambient sound" onclick="toggleSound('cafe', this)">
-            <span class="sound-icon">☕</span> Café
-          </button>
-          <button class="sound-btn" aria-pressed="false" aria-label="Play White Noise ambient sound" onclick="toggleSound('whitenoise', this)">
-            <span class="sound-icon">📻</span> White Noise
-          </button>
-          <button class="sound-btn" aria-pressed="false" aria-label="Play Fireplace ambient sound" onclick="toggleSound('fireplace', this)">
-            <span class="sound-icon">🔥</span> Fireplace
-          </button>
-          <button class="sound-btn" aria-pressed="false" aria-label="Play Forest ambient sound" onclick="toggleSound('forest', this)">
-            <span class="sound-icon">🌲</span> Forest
-          </button>
-          <button class="sound-btn" aria-pressed="false" aria-label="Play Ocean ambient sound" onclick="toggleSound('ocean', this)">
-            <span class="sound-icon">🌊</span> Ocean
-          </button>
+          <button class="sound-btn" data-sound="brown" aria-pressed="false" aria-label="Play Deep hush ambient sound" onclick="toggleSound('brown', this)"><span class="sound-icon">🟤</span> Deep hush</button>
+          <button class="sound-btn" data-sound="pink" aria-pressed="false" aria-label="Play Soft hush ambient sound" onclick="toggleSound('pink', this)"><span class="sound-icon">🌸</span> Soft hush</button>
+          <button class="sound-btn" data-sound="white" aria-pressed="false" aria-label="Play Bright hush ambient sound" onclick="toggleSound('white', this)"><span class="sound-icon">📻</span> Bright hush</button>
         </div>
+
+        <div class="sound-group-label">Outside</div>
+        <div class="sounds-grid">
+          <button class="sound-btn" data-sound="rain" aria-pressed="false" aria-label="Play Rain ambient sound" onclick="toggleSound('rain', this)"><span class="sound-icon">🌧️</span> Rain</button>
+          <button class="sound-btn" data-sound="ocean" aria-pressed="false" aria-label="Play Ocean ambient sound" onclick="toggleSound('ocean', this)"><span class="sound-icon">🌊</span> Ocean</button>
+          <button class="sound-btn" data-sound="forest" aria-pressed="false" aria-label="Play Forest ambient sound" onclick="toggleSound('forest', this)"><span class="sound-icon">🌲</span> Forest</button>
+          <button class="sound-btn" data-sound="stream" aria-pressed="false" aria-label="Play Stream ambient sound" onclick="toggleSound('stream', this)"><span class="sound-icon">🏞️</span> Stream</button>
+          <button class="sound-btn" data-sound="night" aria-pressed="false" aria-label="Play Night ambient sound" onclick="toggleSound('night', this)"><span class="sound-icon">🦗</span> Night</button>
+          <button class="sound-btn" data-sound="wind" aria-pressed="false" aria-label="Play Wind ambient sound" onclick="toggleSound('wind', this)"><span class="sound-icon">🍃</span> Wind</button>
+        </div>
+
+        <div class="sound-group-label">People</div>
+        <div class="sounds-grid">
+          <button class="sound-btn" data-sound="cafe" aria-pressed="false" aria-label="Play Café ambient sound" onclick="toggleSound('cafe', this)"><span class="sound-icon">☕</span> Café</button>
+          <button class="sound-btn" data-sound="fire" aria-pressed="false" aria-label="Play Fireplace ambient sound" onclick="toggleSound('fire', this)"><span class="sound-icon">🔥</span> Fireplace</button>
+          <button class="sound-btn" data-sound="keyboard" aria-pressed="false" aria-label="Play Keyboard ambient sound" onclick="toggleSound('keyboard', this)"><span class="sound-icon">⌨️</span> Keys</button>
+        </div>
+
+        <div class="sound-group-label">Hum</div>
+        <div class="sounds-grid">
+          <button class="sound-btn" data-sound="fan" aria-pressed="false" aria-label="Play Fan ambient sound" onclick="toggleSound('fan', this)"><span class="sound-icon">💨</span> Fan</button>
+          <button class="sound-btn" data-sound="train" aria-pressed="false" aria-label="Play Train ambient sound" onclick="toggleSound('train', this)"><span class="sound-icon">🚋</span> Train</button>
+          <button class="sound-btn" data-sound="drone" aria-pressed="false" aria-label="Play Drone ambient sound" onclick="toggleSound('drone', this)"><span class="sound-icon">🌌</span> Drone</button>
+        </div>
+
+        <div class="sound-group-label">Still</div>
+        <div class="sounds-grid">
+          <button class="sound-btn" data-sound="bowl" aria-pressed="false" aria-label="Play Singing bowl ambient sound" onclick="toggleSound('bowl', this)"><span class="sound-icon">🔔</span> Bowl</button>
+        </div>
+
         <div class="sound-volume">
           <label>Vol</label>
           <input type="range" min="0" max="100" value="50" id="soundVolume" aria-label="Ambient volume" oninput="updateVolume(this.value)" />
         </div>
+        <div class="sound-now-playing" id="soundNowPlaying" role="status" aria-live="polite">Nothing playing</div>
       </div>
-
       <div class="card">
         <div class="card-header">
           <div class="card-title"><span class="icon">👁️</span> Break Reminder</div>
@@ -3506,92 +3597,584 @@ function clearNotes() {
 }
 
 // ══════════════════════════════════════
-// AMBIENT SOUNDS (Web Audio API)
+// SOUNDSCAPE ENGINE (Web Audio API)
 // ══════════════════════════════════════
-let audioCtx = null;
-let activeSounds = {};
+// Every texture here is SYNTHESISED — no audio files, and nothing loops back on
+// itself in a way the ear can learn. That is the point. A short looped bed
+// becomes wallpaper the brain stops hearing, which is the same reason the
+// check-in text rotates instead of repeating (see checkin-prompt-rotation).
+// The old version was six labels over three signals: rain, fireplace and ocean
+// were one brown-noise buffer at three filter cutoffs, so they genuinely did
+// all sound the same. Each source below now has its own structure — a bed plus
+// the events that make it that place: droplets, crackle, swell, murmur, birds.
+// Layers combine freely, so the palette is a mix, not a menu.
 
-const soundConfigs = {
-  rain:       { type: 'brown',  filterFreq: 800 },
-  cafe:       { type: 'pink',   filterFreq: 2000 },
-  whitenoise: { type: 'white',  filterFreq: 8000 },
-  fireplace:  { type: 'brown',  filterFreq: 400 },
-  forest:     { type: 'pink',   filterFreq: 1200 },
-  ocean:      { type: 'brown',  filterFreq: 600 }
-};
+let audioCtx = null;
+let masterBus = null;
+let activeSounds = {};
+const noiseCache = {};
+let schedulerId = null;
+let schedJobs = [];
+const SCHED_LOOKAHEAD = 0.4;   // seconds of events queued on the audio clock
+const SCHED_TICK = 120;        // ms between scheduler wakeups
+const NOISE_SECONDS = 30;      // long enough that the bed never sounds periodic
 
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
 
-function createNoise(type) {
+// A brick-wall safety limiter. Layering six beds must never clip or hurt —
+// this is hearing protection, not tone.
+function getMaster() {
   const ctx = getAudioCtx();
-  const bufferSize = 2 * ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
+  if (!masterBus) {
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -8;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.25;
+    limiter.connect(ctx.destination);
+    masterBus = limiter;
+  }
+  return masterBus;
+}
 
-  let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
-
-  for (let i = 0; i < bufferSize; i++) {
-    const white = Math.random() * 2 - 1;
-    if (type === 'white') {
-      data[i] = white * 0.5;
-    } else if (type === 'pink') {
-      b0 = 0.99886*b0 + white*0.0555179;
-      b1 = 0.99332*b1 + white*0.0750759;
-      b2 = 0.96900*b2 + white*0.1538520;
-      b3 = 0.86650*b3 + white*0.3104856;
-      b4 = 0.55000*b4 + white*0.5329522;
-      b5 = -0.7616*b5 - white*0.0168980;
-      data[i] = (b0+b1+b2+b3+b4+b5+b6+white*0.5362) * 0.11;
-      b6 = white * 0.115926;
-    } else { // brown
-      data[i] = (b0 = (b0 + (0.02 * white)) / 1.02) * 3.5;
+function noiseBuffer(colour) {
+  if (noiseCache[colour]) return noiseCache[colour];
+  const ctx = getAudioCtx();
+  const len = NOISE_SECONDS * ctx.sampleRate;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, last = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    if (colour === 'white') {
+      d[i] = w * 0.5;
+    } else if (colour === 'pink') {
+      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
+      b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
+      b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+      b6 = w * 0.115926;
+    } else {
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.5;
     }
   }
+  noiseCache[colour] = buf;
+  return buf;
+}
 
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  return source;
+// Each layer takes its own random slice of the shared buffer, so two beds
+// running together never correlate into an audible pattern.
+function noiseSource(colour, rate) {
+  const ctx = getAudioCtx();
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(colour);
+  src.loop = true;
+  src.playbackRate.value = rate || 1;
+  src.start(ctx.currentTime, Math.random() * NOISE_SECONDS);
+  return src;
+}
+
+function filt(type, freq, q) {
+  const f = getAudioCtx().createBiquadFilter();
+  f.type = type;
+  f.frequency.value = freq;
+  if (q != null) f.Q.value = q;
+  return f;
+}
+
+// A slow oscillator driving an AudioParam — swell, breeze, blade wobble.
+function lfo(rate, depth, param, base) {
+  const ctx = getAudioCtx();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.frequency.value = rate;
+  g.gain.value = depth;
+  param.value = base;
+  o.connect(g);
+  g.connect(param);
+  o.start();
+  return o;
+}
+
+// ── event primitives ──────────────────────────────────────────────
+// Short filtered noise transient: a droplet, a crackle, a cup, a keypress.
+function burst(out, at, dur, freq, q, level, colour) {
+  const ctx = getAudioCtx();
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(colour || 'white');
+  src.loop = true;
+  src.playbackRate.value = 0.8 + Math.random() * 0.4;
+  const bp = filt('bandpass', freq, q == null ? 6 : q);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(Math.max(level, 0.0002), at + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(bp); bp.connect(g); g.connect(out);
+  src.start(at, Math.random() * NOISE_SECONDS);
+  src.stop(at + dur + 0.05);
+}
+
+// A swept sine — birdsong, a bubble rising, a cricket's rasp.
+function chirp(out, at, f0, f1, dur, level) {
+  const ctx = getAudioCtx();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(f0, at);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), at + dur);
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(level, at + dur * 0.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.connect(g); g.connect(out);
+  o.start(at); o.stop(at + dur + 0.05);
+}
+
+// A struck resonator with inharmonic partials — a bowl, a chime.
+function struck(out, at, root, partials, dur, level) {
+  const ctx = getAudioCtx();
+  partials.forEach(function (mult, idx) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const lv = level / (idx + 1.6);
+    o.type = 'sine';
+    o.frequency.value = root * mult * (1 + (Math.random() - 0.5) * 0.004);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(lv, at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur * (1 - idx * 0.12));
+    o.connect(g); g.connect(out);
+    o.start(at); o.stop(at + dur + 0.1);
+  });
+}
+
+// ── scheduler ─────────────────────────────────────────────────────
+// Events are placed on the AUDIO clock ahead of time, not fired by setInterval.
+// setInterval jitters by tens of milliseconds, which is audible on a crackle.
+function addJob(name, minGap, maxGap, fn, atOnce) {
+  // A sparse texture (a bowl every 20s, crickets every 2s) must be audible the
+  // moment it is switched on. Waiting out the first random gap reads as broken.
+  const ctx = getAudioCtx();
+  const first = atOnce ? ctx.currentTime + 0.08 : ctx.currentTime + Math.random() * maxGap;
+  schedJobs.push({ name: name, next: first, min: minGap, max: maxGap, fn: fn });
+  startScheduler();
+}
+
+function startScheduler() {
+  if (schedulerId) return;
+  schedulerId = setInterval(function () {
+    const ctx = getAudioCtx();
+    const horizon = ctx.currentTime + SCHED_LOOKAHEAD;
+    for (let i = 0; i < schedJobs.length; i++) {
+      const j = schedJobs[i];
+      while (j.next < horizon) {
+        try { j.fn(Math.max(j.next, ctx.currentTime + 0.01)); } catch (e) { console.warn('soundscape job:', e.message); }
+        j.next += j.min + Math.random() * (j.max - j.min);
+      }
+    }
+  }, SCHED_TICK);
+}
+
+function stopScheduler() {
+  if (schedulerId && schedJobs.length === 0) { clearInterval(schedulerId); schedulerId = null; }
+}
+
+// ── the sources ───────────────────────────────────────────────────
+// Each builder returns { out, extra, level }. `out` is the node that carries
+// the layer; `level` normalises perceived loudness so stacking stays balanced.
+const SOUND_BUILDERS = {
+
+  // — steady beds: masking, no events to catch the ear —
+  brown: function () { const s = noiseSource('brown'); const f = filt('lowpass', 900); s.connect(f); return { out: f, level: 0.85 }; },
+  pink:  function () { const s = noiseSource('pink');  const f = filt('lowpass', 3200); s.connect(f); return { out: f, level: 0.7 }; },
+  white: function () { const s = noiseSource('white'); const f = filt('lowpass', 9000); s.connect(f); return { out: f, level: 0.45 }; },
+
+  fan: function () {
+    const s = noiseSource('brown');
+    const f = filt('lowpass', 1400);
+    const am = getAudioCtx().createGain();
+    s.connect(f); f.connect(am);
+    // Blade rate — a slow wobble is what separates a fan from plain noise.
+    const o = lfo(6.2, 0.07, am.gain, 0.93);
+    const hum = getAudioCtx().createOscillator();
+    const hg = getAudioCtx().createGain();
+    hum.frequency.value = 62; hg.gain.value = 0.05;
+    hum.connect(hg); hg.connect(am); hum.start();
+    return { out: am, level: 0.8, extra: [o, hum] };
+  },
+
+  // — rain: a bed is not rain. Droplets are rain. —
+  rain: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('pink');
+    const f = filt('lowpass', 1900);
+    const bus = ctx.createGain();
+    s.connect(f); f.connect(bus);
+    bus.gain.value = 0.55;
+    addJob('rain', 0.012, 0.055, function (at) {
+      burst(bus, at, 0.02 + Math.random() * 0.03, 1200 + Math.random() * 4200, 9, 0.05 + Math.random() * 0.06);
+    });
+    addJob('rain', 40, 110, function (at) {   // distant thunder, rare
+      const ts = noiseSource('brown');
+      const lp = filt('lowpass', 160);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.5, at + 0.7);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 4.5);
+      ts.connect(lp); lp.connect(g); g.connect(bus);
+      ts.stop(at + 5);
+    });
+    return { out: bus, level: 0.9, jobs: ['rain'] };
+  },
+
+  // — ocean: the swell IS the sound. Gain and cutoff ride one slow LFO. —
+  ocean: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('brown');
+    const f = filt('lowpass', 500);
+    const swell = ctx.createGain();
+    s.connect(f); f.connect(swell);
+    const period = 9 + Math.random() * 5;               // one wave every 9-14s
+    const a = lfo(1 / period, 0.42, swell.gain, 0.5);
+    const b = lfo(1 / period, 260, f.frequency, 520);
+    const foamSrc = noiseSource('white');               // foam rides the crest
+    const hp = filt('highpass', 2400);
+    const fg = ctx.createGain();
+    fg.gain.value = 0.0;
+    foamSrc.connect(hp); hp.connect(fg); fg.connect(swell);
+    const c = lfo(1 / period, 0.05, fg.gain, 0.05);
+    return { out: swell, level: 0.95, extra: [a, b, c] };
+  },
+
+  fire: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('brown');
+    const f = filt('lowpass', 480);
+    const bus = ctx.createGain();
+    s.connect(f); f.connect(bus);
+    bus.gain.value = 0.6;
+    addJob('fire', 0.05, 0.42, function (at) {          // crackle
+      burst(bus, at, 0.012 + Math.random() * 0.05, 700 + Math.random() * 3600, 12, 0.08 + Math.random() * 0.22);
+    });
+    addJob('fire', 3, 11, function (at) {               // a log settling
+      burst(bus, at, 0.18, 220 + Math.random() * 400, 4, 0.16, 'brown');
+    });
+    return { out: bus, level: 0.9, jobs: ['fire'] };
+  },
+
+  // — company: human-adjacent texture, for when alone is the problem —
+  cafe: function () {
+    const ctx = getAudioCtx();
+    const bus = ctx.createGain();
+    const s = noiseSource('pink');
+    const f = filt('lowpass', 900);
+    const bed = ctx.createGain(); bed.gain.value = 0.35;
+    s.connect(f); f.connect(bed); bed.connect(bus);
+    // Murmur: band-passed formants drifting slowly = voices without words.
+    const mods = [];
+    [320, 620, 1150, 1900].forEach(function (hz, i) {
+      const ms = noiseSource('pink', 0.9 + i * 0.05);
+      const bp = filt('bandpass', hz, 3.5);
+      const g = ctx.createGain();
+      ms.connect(bp); bp.connect(g); g.connect(bus);
+      mods.push(lfo(0.07 + Math.random() * 0.16, 0.16, g.gain, 0.2));
+    });
+    addJob('cafe', 4, 15, function (at) {               // a cup, a spoon
+      burst(bus, at, 0.09, 2600 + Math.random() * 3500, 18, 0.1);
+    }, true);
+    return { out: bus, level: 0.75, extra: mods, jobs: ['cafe'] };
+  },
+
+  keyboard: function () {
+    const ctx = getAudioCtx();
+    const bus = ctx.createGain();
+    bus.gain.value = 1;
+    // A room someone else is working in still has a room. Keys over pure
+    // silence reads as a glitch, not as company.
+    const room = noiseSource('pink');
+    const rf = filt('bandpass', 700, 0.8);
+    const rg = ctx.createGain(); rg.gain.value = 0.16;
+    room.connect(rf); rf.connect(rg); rg.connect(bus);
+    // Irregular typing: bursts of keys, then a pause to think.
+    let inBurst = true, left = 6;
+    addJob('keyboard', 0.07, 0.16, function (at) {
+      if (left-- <= 0) { inBurst = !inBurst; left = inBurst ? 4 + Math.random() * 14 : 3 + Math.random() * 10; }
+      if (!inBurst) return;
+      burst(bus, at, 0.02, 1800 + Math.random() * 3200, 10, 0.08 + Math.random() * 0.07);
+    }, true);
+    return { out: bus, level: 0.55, jobs: ['keyboard'] };
+  },
+
+  train: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('brown');
+    const f = filt('lowpass', 170);
+    const bus = ctx.createGain();
+    s.connect(f); f.connect(bus);
+    bus.gain.value = 0.95;
+    const sway = lfo(0.14, 0.16, bus.gain, 0.95);
+    addJob('train', 1.55, 1.75, function (at) {         // rail joints, in pairs
+      burst(bus, at, 0.05, 150, 5, 0.2, 'brown');
+      burst(bus, at + 0.19, 0.05, 140, 5, 0.16, 'brown');
+    }, true);
+    return { out: bus, level: 0.85, extra: [sway], jobs: ['train'] };
+  },
+
+  // — nature: attention restoration, per our own guide —
+  forest: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('pink');
+    const f = filt('bandpass', 1500, 0.7);
+    const bus = ctx.createGain();
+    const leaves = ctx.createGain();
+    s.connect(f); f.connect(leaves); leaves.connect(bus);
+    const breeze = lfo(0.09, 0.14, leaves.gain, 0.26);
+    addJob('forest', 2.5, 9, function (at) {            // birdsong, sparse
+      const n = 1 + Math.floor(Math.random() * 3);
+      const base = 2200 + Math.random() * 2600;
+      for (let i = 0; i < n; i++) {
+        const t = at + i * (0.09 + Math.random() * 0.1);
+        chirp(bus, t, base, base * (0.6 + Math.random() * 0.9), 0.07 + Math.random() * 0.09, 0.05);
+      }
+    }, true);
+    return { out: bus, level: 0.85, extra: [breeze], jobs: ['forest'] };
+  },
+
+  stream: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('white');
+    const f = filt('bandpass', 2600, 0.6);
+    const bus = ctx.createGain();
+    const bed = ctx.createGain(); bed.gain.value = 0.32;
+    s.connect(f); f.connect(bed); bed.connect(bus);
+    const churn = lfo(0.23, 0.06, bed.gain, 0.32);
+    addJob('stream', 0.06, 0.3, function (at) {         // bubbles
+      const f0 = 500 + Math.random() * 900;
+      chirp(bus, at, f0, f0 * (1.6 + Math.random()), 0.05 + Math.random() * 0.05, 0.035);
+    });
+    return { out: bus, level: 0.75, extra: [churn], jobs: ['stream'] };
+  },
+
+  night: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('brown');
+    const f = filt('lowpass', 220);
+    const bus = ctx.createGain();
+    const bed = ctx.createGain(); bed.gain.value = 0.3;
+    s.connect(f); f.connect(bed); bed.connect(bus);
+    // The high shimmer is what makes a night sound like a night rather than a
+    // low rumble — without it this was indistinguishable from the train bed.
+    const air = noiseSource('white');
+    const hp = filt('bandpass', 6200, 1.1);
+    const ag = ctx.createGain(); ag.gain.value = 0.1;
+    air.connect(hp); hp.connect(ag); ag.connect(bus);
+    const shimmer = lfo(0.13, 0.04, ag.gain, 0.1);
+    addJob('night', 0.9, 2.6, function (at) {           // crickets, in clusters
+      const reps = 3 + Math.floor(Math.random() * 4);
+      const hz = 3900 + Math.random() * 900;
+      for (let i = 0; i < reps; i++) burst(bus, at + i * 0.075, 0.03, hz, 26, 0.06);
+    }, true);
+    return { out: bus, level: 0.8, extra: [shimmer], jobs: ['night'] };
+  },
+
+  wind: function () {
+    const ctx = getAudioCtx();
+    const s = noiseSource('pink');
+    const bp = filt('bandpass', 420, 1.6);
+    const bus = ctx.createGain();
+    s.connect(bp); bp.connect(bus);
+    bus.gain.value = 0.6;
+    // A random walk on the resonance is what makes wind read as wind rather
+    // than as a filter setting.
+    addJob('wind', 1.2, 3.4, function (at) {
+      const target = 240 + Math.random() * 900;
+      bp.frequency.cancelScheduledValues(at);
+      bp.frequency.setValueAtTime(bp.frequency.value, at);
+      bp.frequency.linearRampToValueAtTime(target, at + 1.6 + Math.random() * 2.2);
+      bus.gain.cancelScheduledValues(at);
+      bus.gain.setValueAtTime(bus.gain.value, at);
+      bus.gain.linearRampToValueAtTime(0.35 + Math.random() * 0.5, at + 1.4 + Math.random() * 2);
+    }, true);
+    return { out: bus, level: 0.9, jobs: ['wind'] };
+  },
+
+  // — calm: slow, low-information, nothing that grabs attention —
+  drone: function () {
+    const ctx = getAudioCtx();
+    const bus = ctx.createGain();
+    const oscs = [];
+    [55, 82.5, 110, 164.8].forEach(function (hz, i) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = hz * (1 + (Math.random() - 0.5) * 0.008); // slow beating
+      g.gain.value = 0.16 / (i * 0.7 + 1);
+      o.connect(g); g.connect(bus); o.start();
+      oscs.push(o);
+    });
+    const breathe = lfo(0.05, 0.18, bus.gain, 0.62);
+    return { out: bus, level: 0.8, extra: oscs.concat([breathe]) };
+  },
+
+  bowl: function () {
+    const ctx = getAudioCtx();
+    const bus = ctx.createGain();
+    bus.gain.value = 1;
+    addJob('bowl', 11, 26, function (at) {
+      const root = 180 + Math.random() * 140;
+      struck(bus, at, root, [1, 2.76, 5.4, 8.9], 9 + Math.random() * 5, 0.22);
+    }, true);
+    return { out: bus, level: 0.7, jobs: ['bowl'] };
+  }
+};
+
+// Named blends. The point of the palette is not fifteen buttons — it is that
+// a person can say what they need rather than guess which texture delivers it.
+const SOUND_PRESETS = {
+  deepwork:  { label: 'Deep work',   icon: '🎯', mix: { brown: 0.9, wind: 0.35 } },
+  masking:   { label: 'Block it out', icon: '🔇', mix: { pink: 0.8, fan: 0.55 } },
+  winddown:  { label: 'Wind down',   icon: '🌙', mix: { ocean: 0.9, drone: 0.3 } },
+  notalone:  { label: 'Not alone',   icon: '👥', mix: { cafe: 0.75, keyboard: 0.4 } },
+  rainycafe: { label: 'Rainy café',  icon: '🌦️', mix: { rain: 0.7, cafe: 0.5 } },
+  sleep:     { label: 'Sleep',       icon: '😴', mix: { brown: 0.55, night: 0.5, bowl: 0.3 } }
+};
+
+// ── control ───────────────────────────────────────────────────────
+const FADE = 0.45;   // seconds — never start or stop a layer with a click
+
+function masterVolume() {
+  const el = document.getElementById('soundVolume');
+  return el ? el.value / 100 : 0.5;
+}
+
+function startSound(name, mixLevel) {
+  if (activeSounds[name]) return;
+  const builder = SOUND_BUILDERS[name];
+  if (!builder) { console.warn('unknown soundscape:', name); return; }
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume().catch(function (e) { console.warn('audio resume:', e.message); });
+  const built = builder();
+  const gain = ctx.createGain();
+  const target = built.level * (mixLevel == null ? 1 : mixLevel) * masterVolume();
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(Math.max(target, 0.0001), ctx.currentTime + FADE);
+  built.out.connect(gain);
+  gain.connect(getMaster());
+  activeSounds[name] = { gain: gain, built: built, mix: mixLevel == null ? 1 : mixLevel };
+  paintSoundButton(name, true);
+}
+
+function stopSound(name) {
+  const s = activeSounds[name];
+  if (!s) return;
+  const ctx = getAudioCtx();
+  const g = s.gain.gain;
+  g.cancelScheduledValues(ctx.currentTime);
+  g.setValueAtTime(Math.max(g.value, 0.0001), ctx.currentTime);
+  g.exponentialRampToValueAtTime(0.0001, ctx.currentTime + FADE);
+  schedJobs = schedJobs.filter(function (j) { return j.name !== name; });
+  delete activeSounds[name];
+  const built = s.built;
+  setTimeout(function () {
+    try {
+      s.gain.disconnect();
+      if (built.extra) built.extra.forEach(function (n) { try { n.stop(); } catch (e) { /* already stopped */ } });
+      built.out.disconnect();
+    } catch (e) { console.warn('soundscape teardown:', e.message); }
+  }, (FADE + 0.1) * 1000);
+  paintSoundButton(name, false);
+  stopScheduler();
 }
 
 function toggleSound(name, btn) {
-  if (activeSounds[name]) {
-    activeSounds[name].gain.disconnect();
-    activeSounds[name].source.stop();
-    delete activeSounds[name];
-    btn.classList.remove('active');
-    try { btn.setAttribute('aria-pressed', 'false'); } catch(e) { console.warn('aria-pressed:', e.message); }
-  } else {
-    const ctx = getAudioCtx();
-    const config = soundConfigs[name];
-    const source = createNoise(config.type);
+  if (activeSounds[name]) stopSound(name); else startSound(name);
+  clearPresetHighlight();
+  persistMix();
+}
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = config.filterFreq;
+function playPreset(key, btn) {
+  const preset = SOUND_PRESETS[key];
+  if (!preset) return;
+  const already = btn && btn.classList.contains('active');
+  stopAllSounds(true);
+  if (already) { persistMix(); return; }        // tapping the active preset stops it
+  Object.keys(preset.mix).forEach(function (name) { startSound(name, preset.mix[name]); });
+  clearPresetHighlight();
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); }
+  persistMix();
+}
 
-    const gain = ctx.createGain();
-    gain.gain.value = document.getElementById('soundVolume').value / 100;
+function stopAllSounds(keepQuiet) {
+  Object.keys(activeSounds).forEach(stopSound);
+  clearPresetHighlight();
+  if (!keepQuiet) persistMix();
+}
 
-    source.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    source.start();
+function clearPresetHighlight() {
+  const nodes = document.querySelectorAll('.preset-btn');
+  for (let i = 0; i < nodes.length; i++) {
+    nodes[i].classList.remove('active');
+    nodes[i].setAttribute('aria-pressed', 'false');
+  }
+}
 
-    activeSounds[name] = { source, gain, filter };
-    btn.classList.add('active');
-    try { btn.setAttribute('aria-pressed', 'true'); } catch(e) { console.warn('aria-pressed:', e.message); }
+function paintSoundButton(name, on) {
+  const btn = document.querySelector('.sound-btn[data-sound="' + name + '"]');
+  if (!btn) return;
+  btn.classList.toggle('active', !!on);
+  try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (e) { console.warn('aria-pressed:', e.message); }
+  const live = document.getElementById('soundNowPlaying');
+  if (live) {
+    const names = Object.keys(activeSounds);
+    live.textContent = names.length ? 'Playing: ' + names.join(' + ') : 'Nothing playing';
   }
 }
 
 function updateVolume(val) {
   const v = val / 100;
-  Object.values(activeSounds).forEach(s => s.gain.gain.value = v);
+  const ctx = getAudioCtx();
+  Object.keys(activeSounds).forEach(function (name) {
+    const s = activeSounds[name];
+    const target = Math.max(s.built.level * s.mix * v, 0.0001);
+    s.gain.gain.cancelScheduledValues(ctx.currentTime);
+    s.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.05);
+  });
+  try { localStorage.setItem('fb_sound_volume', String(val)); } catch (e) { /* private mode */ }
 }
 
+// The mix is remembered, but never auto-started: browsers block audio without
+// a gesture, and unrequested sound is a hostile way to open a page.
+function persistMix() {
+  try {
+    const mix = {};
+    Object.keys(activeSounds).forEach(function (n) { mix[n] = activeSounds[n].mix; });
+    localStorage.setItem('fb_sound_mix', JSON.stringify(mix));
+  } catch (e) { /* private mode */ }
+}
+
+function restoreLastMix(btn) {
+  let mix = null;
+  try { mix = JSON.parse(localStorage.getItem('fb_sound_mix') || 'null'); } catch (e) { mix = null; }
+  if (!mix || !Object.keys(mix).length) return;
+  Object.keys(mix).forEach(function (n) { if (SOUND_BUILDERS[n]) startSound(n, mix[n]); });
+}
+
+function initSoundscapes() {
+  try {
+    const v = localStorage.getItem('fb_sound_volume');
+    const el = document.getElementById('soundVolume');
+    if (v && el) el.value = v;
+    const saved = JSON.parse(localStorage.getItem('fb_sound_mix') || 'null');
+    const resume = document.getElementById('soundResume');
+    if (resume && saved && Object.keys(saved).length) {
+      resume.hidden = false;
+      resume.textContent = 'Resume ' + Object.keys(saved).join(' + ');
+    }
+  } catch (e) { /* private mode — defaults are fine */ }
+}
 // ══════════════════════════════════════
 // BREAK REMINDER
 // ══════════════════════════════════════
@@ -3830,6 +4413,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') parkDistraction();
     if (e.key === 'Escape') closeDistractionOverlay();
   });
+  initSoundscapes();
 });
 
 // ══════════════════════════════════════
@@ -5047,39 +5631,6 @@ function copyFocusReport() {
 
 function closeSocialModal() {
   document.getElementById('socialModal').style.display = 'none';
-}
-
-// ══════════════════════════════════════
-// AUDIO PLAYBACK HELPERS
-// ══════════════════════════════════════
-let ambientAudioPlayers = {};
-
-function playAmbientAudio(type) {
-  try {
-    if (ambientAudioPlayers[type]) {
-      ambientAudioPlayers[type].play().catch(e => console.warn('Audio play failed:', e));
-    } else {
-      // Fallback: try to load from /audio directory
-      const audio = new Audio(`/audio/${type}.mp3`);
-      audio.loop = true;
-      audio.volume = 0.3;
-      audio.play().catch(e => console.warn('Could not play audio:', e.message));
-      ambientAudioPlayers[type] = audio;
-    }
-  } catch(e) {
-    console.warn('Ambient audio setup failed:', e.message);
-  }
-}
-
-function stopAmbientAudio(type) {
-  try {
-    if (ambientAudioPlayers[type]) {
-      ambientAudioPlayers[type].pause();
-      ambientAudioPlayers[type].currentTime = 0;
-    }
-  } catch(e) {
-    console.warn('Failed to stop audio:', e.message);
-  }
 }
 
 // ══════════════════════════════════════
