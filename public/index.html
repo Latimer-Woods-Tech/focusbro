@@ -640,6 +640,13 @@
 
   .sound-resume[hidden] { display: none; }
 
+  .sound-resume.armed {
+    background: var(--blue-dim);
+    border-color: rgba(59,130,246,0.35);
+    color: var(--blue);
+    font-weight: 600;
+  }
+
   .sound-now-playing {
     font-size: 11px;
     color: var(--text-dim);
@@ -824,15 +831,21 @@
   }
   .task-check.pop { animation: taskPop 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
-  /* ── POMODORO SESSION FOCUS MODE ── */
-  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard) {
+  /* ── POMODORO SESSION FOCUS MODE ──
+     Dim what is not the session so the timer leads. Dimmed is NOT disabled:
+     this used to set `pointer-events: none` and hand control back on :hover,
+     which works with a mouse and never on a phone — a tap has no hover, so on
+     mobile every card below was dead for the whole focus block, including
+     "Stop all" on the sounds. A dimmed card answers a tap or a keyboard focus.
+     The sounds card is exempt outright: sound is part of the session, the same
+     way the wake lock is. */
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard) {
     opacity: 0.28;
     transition: opacity 0.5s ease;
-    pointer-events: none;
   }
-  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):hover {
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):hover,
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):focus-within {
     opacity: 0.65;
-    pointer-events: auto;
   }
   body.session-active .top-row:has(#pomoCard) { order: -1; }
   #pomoCard { transition: box-shadow 0.4s ease, border-color 0.4s ease; }
@@ -2171,7 +2184,7 @@
 
     <!-- AMBIENT SOUNDS + BREAK REMINDER -->
     <div class="top-row" data-views="home,rest">
-      <div class="card">
+      <div class="card" id="soundsCard">
         <div class="card-header">
           <div class="card-title"><span class="icon">🎧</span> Ambient Sounds</div>
           <button class="btn btn-sm" onclick="stopAllSounds()">Stop all</button>
@@ -2187,7 +2200,10 @@
           <button class="preset-btn" aria-pressed="false" aria-label="Play the Sleep blend" onclick="playPreset('sleep', this)"><span class="sound-icon">😴</span> Sleep</button>
         </div>
 
-        <button class="btn btn-sm sound-resume" id="soundResume" hidden onclick="restoreLastMix(this); this.hidden = true;">Resume last mix</button>
+        <button class="btn btn-sm sound-resume" id="soundResume" hidden onclick="resumeOrArmed(this)">Resume last mix</button>
+        <!-- The master bus plays through this element so a phone treats the
+             soundscape as media (lock-screen controls, background playback). -->
+        <audio id="soundscapeOut" playsinline preload="none" aria-hidden="true"></audio>
 
         <div class="sound-need-label">Or build your own — they layer</div>
 
@@ -3154,17 +3170,17 @@ function fbTelemetryWrite(queue) {
 
 // Record a completed focus/wellness session for signed-in users. No-op (local
 // only) when signed out — honors "your core focus data stays in your browser".
-function recordSessionComplete(tool, durationSeconds) {
+function recordSessionComplete(tool, durationSeconds, extra) {
   try {
     if (!fbAuthenticated) return; // signed-in only
     const queue = fbTelemetryRead();
-    queue.push({
+    queue.push(Object.assign({
       id: fbEventId(),
       type: 'session_complete',
       tool: tool || 'pomodoro',
       duration_seconds: typeof durationSeconds === 'number' ? durationSeconds : null,
       at: new Date().toISOString(),
-    });
+    }, extra || {}));
     fbTelemetryWrite(queue);
     fbFlushTelemetry();
   } catch (e) {
@@ -3317,6 +3333,7 @@ function startPomodoro() {
   document.body.classList.add('session-active');
   pomoInterval = setInterval(tickPomodoro, 1000);
   focusRoomStart(); // join the room — show who's focusing alongside you
+  if (pomoState.phase === 'work') soundscapeOnFocusStart(); // the ritual: the mix the bell stopped comes back
 }
 
 function pausePomodoro() {
@@ -3351,7 +3368,10 @@ function pomoComplete() {
     pomoState.session++;
     document.getElementById('statPomos').textContent = pomoState.completed;
     saveStats();
-    recordSessionComplete('pomodoro', POMO_WORK); // signed-in only; feeds retention spine
+    // Which textures the person kept their word under — the one dataset nobody
+    // else has. Snapshot BEFORE the bell fades the mix.
+    recordSessionComplete('pomodoro', POMO_WORK, soundscapeSnapshot()); // signed-in only; feeds retention spine
+    soundscapeOnBreak(); // the bell: fade out, remember, resume on the next block
     offerWordBridge(); // #76: warm, once-per-session offer to carry this win into a kept word
 
 
@@ -3385,6 +3405,7 @@ function pomoComplete() {
 
 function resetPomodoro() {
   clearInterval(pomoInterval);
+  soundscapeOnAbandon(); // the block was abandoned — do not chase it into the next one
   pomoState = { running: false, seconds: POMO_WORK, phase: 'work', session: 0, completed: pomoState.completed };
   document.body.classList.remove('session-active');
   renderPomodoro();
@@ -3627,11 +3648,112 @@ function getMaster() {
     limiter.ratio.value = 20;
     limiter.attack.value = 0.003;
     limiter.release.value = 0.25;
-    limiter.connect(ctx.destination);
+    routeOutput(limiter);
     masterBus = limiter;
   }
   return masterBus;
 }
+
+// ── output: a real media element, so a phone treats this as media ────────
+// Web Audio on its own gets no lock-screen controls, no headphone-button
+// control, and iOS suspends it the moment the screen locks. Routing the master
+// bus into an <audio> element makes the browser treat the soundscape as playing
+// media: background playback, Control Center / lock-screen controls, and the
+// Media Session actions below. If the route is refused it falls back to the
+// plain destination — never to silence, and never to both (that would double).
+let outputRoute = null;
+let outputElement = null;
+let userPaused = false;
+let activePresetKey = null;
+
+function routeOutput(limiter) {
+  const ctx = getAudioCtx();
+  const direct = function () { limiter.connect(ctx.destination); outputRoute = 'direct'; };
+  try {
+    if (typeof ctx.createMediaStreamDestination !== 'function') throw new Error('no MediaStreamDestination');
+    const el = document.getElementById('soundscapeOut');
+    if (!el) throw new Error('no output element');
+    const dest = ctx.createMediaStreamDestination();
+    el.srcObject = dest.stream;
+    limiter.connect(dest);
+    outputElement = el;
+    outputRoute = 'element';
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function (e) {
+        console.warn('soundscape: media element refused, using direct output:', e && e.message);
+        try { limiter.disconnect(dest); } catch (e2) { /* not connected */ }
+        outputElement = null;
+        direct();
+      });
+    }
+  } catch (e) {
+    direct();
+  }
+}
+
+// The button's label without its icon — for "Now playing", the armed resume
+// button, and the lock-screen title. "Rain + Café", not "🌧️ Rain + ☕ Café".
+function prettySoundName(n) {
+  const btn = document.querySelector('.sound-btn[data-sound="' + n + '"]');
+  if (!btn) return n;
+  let text = '';
+  for (let i = 0; i < btn.childNodes.length; i++) {
+    const node = btn.childNodes[i];
+    if (node.nodeType === 3) text += node.textContent;
+  }
+  return text.trim() || n;
+}
+
+function mixLabel() {
+  if (activePresetKey && SOUND_PRESETS[activePresetKey]) return SOUND_PRESETS[activePresetKey].label;
+  return Object.keys(activeSounds).map(prettySoundName).join(' + ');
+}
+
+function updateMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    if (!Object.keys(activeSounds).length) { navigator.mediaSession.playbackState = 'none'; return; }
+    navigator.mediaSession.metadata = new MediaMetadata({ title: mixLabel(), artist: 'FocusBro', album: 'Ambient sounds' });
+    navigator.mediaSession.playbackState = userPaused ? 'paused' : 'playing';
+  } catch (e) { console.warn('mediaSession:', e && e.message); }
+}
+
+function installMediaSession() {
+  if (installMediaSession.done || !('mediaSession' in navigator)) return;
+  installMediaSession.done = true;
+  const set = function (action, fn) {
+    try { navigator.mediaSession.setActionHandler(action, fn); } catch (e) { /* action unsupported here */ }
+  };
+  set('pause', pauseSoundscape);
+  set('play', resumeSoundscape);
+  set('stop', function () { stopAllSounds(); });
+}
+
+// Pause keeps the graph intact and suspends the clock, so resume is instant and
+// the mix is exactly what it was — a lock-screen pause is not "stop all".
+function pauseSoundscape() {
+  userPaused = true;
+  getAudioCtx().suspend().catch(function (e) { console.warn('suspend:', e && e.message); });
+  updateMediaSession();
+}
+
+function resumeSoundscape() {
+  userPaused = false;
+  getAudioCtx().resume().catch(function (e) { console.warn('resume:', e && e.message); });
+  if (outputElement && outputElement.paused) outputElement.play().catch(function () { /* needs a gesture */ });
+  if (!Object.keys(activeSounds).length) restoreLastMix();
+  updateMediaSession();
+}
+
+// iOS suspends the context when the screen locks or the app is backgrounded and
+// never resumes it by itself. Honour an explicit pause; otherwise bring it back.
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible') return;
+  if (userPaused || !audioCtx || !Object.keys(activeSounds).length) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(function () { /* no gesture yet */ });
+  if (outputElement && outputElement.paused) outputElement.play().catch(function () { /* needs a gesture */ });
+});
 
 function noiseBuffer(colour) {
   if (noiseCache[colour]) return noiseCache[colour];
@@ -4057,6 +4179,8 @@ function startSound(name, mixLevel) {
   if (!builder) { console.warn('unknown soundscape:', name); return; }
   const ctx = getAudioCtx();
   if (ctx.state === 'suspended') ctx.resume().catch(function (e) { console.warn('audio resume:', e.message); });
+  installMediaSession();
+  userPaused = false;
   const built = builder();
   const gain = ctx.createGain();
   const target = built.level * (mixLevel == null ? 1 : mixLevel) * masterVolume();
@@ -4091,9 +4215,11 @@ function stopSound(name) {
 }
 
 function toggleSound(name, btn) {
-  if (activeSounds[name]) stopSound(name); else startSound(name);
+  const wasOn = !!activeSounds[name];
+  if (wasOn) stopSound(name); else startSound(name);
   clearPresetHighlight();
   persistMix();
+  recordSoundEvent(wasOn ? 'sound_stop' : 'sound_start', 'user', { sound: name });
 }
 
 function playPreset(key, btn) {
@@ -4104,17 +4230,26 @@ function playPreset(key, btn) {
   if (already) { persistMix(); return; }        // tapping the active preset stops it
   Object.keys(preset.mix).forEach(function (name) { startSound(name, preset.mix[name]); });
   clearPresetHighlight();
+  activePresetKey = key;
   if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); }
+  updateMediaSession();
   persistMix();
+  recordSoundEvent('sound_start', 'preset');
 }
 
 function stopAllSounds(keepQuiet) {
+  const had = Object.keys(activeSounds).length > 0;
+  if (had && !keepQuiet) recordSoundEvent('sound_stop', 'user');
   Object.keys(activeSounds).forEach(stopSound);
   clearPresetHighlight();
-  if (!keepQuiet) persistMix();
+  if (!keepQuiet) {
+    persistMix();
+    soundscapeFollowTimer(false); // an explicit stop ends the ritual; the bell will not bring it back
+  }
 }
 
 function clearPresetHighlight() {
+  activePresetKey = null;
   const nodes = document.querySelectorAll('.preset-btn');
   for (let i = 0; i < nodes.length; i++) {
     nodes[i].classList.remove('active');
@@ -4130,8 +4265,9 @@ function paintSoundButton(name, on) {
   const live = document.getElementById('soundNowPlaying');
   if (live) {
     const names = Object.keys(activeSounds);
-    live.textContent = names.length ? 'Playing: ' + names.join(' + ') : 'Nothing playing';
+    live.textContent = names.length ? 'Playing: ' + names.map(prettySoundName).join(' + ') : 'Nothing playing';
   }
+  updateMediaSession();
 }
 
 function updateVolume(val) {
@@ -4153,14 +4289,127 @@ function persistMix() {
     const mix = {};
     Object.keys(activeSounds).forEach(function (n) { mix[n] = activeSounds[n].mix; });
     localStorage.setItem('fb_sound_mix', JSON.stringify(mix));
+    if (activePresetKey) localStorage.setItem('fb_sound_preset', activePresetKey);
+    else localStorage.removeItem('fb_sound_preset');
   } catch (e) { /* private mode */ }
 }
 
-function restoreLastMix(btn) {
-  let mix = null;
-  try { mix = JSON.parse(localStorage.getItem('fb_sound_mix') || 'null'); } catch (e) { mix = null; }
-  if (!mix || !Object.keys(mix).length) return;
+function restoreLastMix() {
+  let mix = null, preset = null;
+  try {
+    mix = JSON.parse(localStorage.getItem('fb_sound_mix') || 'null');
+    preset = localStorage.getItem('fb_sound_preset');
+  } catch (e) { mix = null; }
+  if (!mix || !Object.keys(mix).length) return false;
   Object.keys(mix).forEach(function (n) { if (SOUND_BUILDERS[n]) startSound(n, mix[n]); });
+  if (preset && SOUND_PRESETS[preset]) {
+    activePresetKey = preset;
+    const pb = document.querySelector('.preset-btn[onclick*="' + preset + '"]');
+    if (pb) { pb.classList.add('active'); pb.setAttribute('aria-pressed', 'true'); }
+    updateMediaSession();
+  }
+  return true;
+}
+
+// ── the ritual: sound follows the focus block ─────────────────────────────
+// A focus block starts → the mix the bell stopped last time comes back. The
+// bell rings → the mix fades and is remembered. That is continuation of what
+// the person chose, never autoplay: nothing starts unless the bell stopped it
+// or the person pressed it, and an explicit Stop all ends the ritual.
+const SOUND_FOLLOW_KEY = 'fb_sound_follow';
+
+function soundscapeFollowTimer(on) {
+  try { if (on) localStorage.setItem(SOUND_FOLLOW_KEY, '1'); else localStorage.removeItem(SOUND_FOLLOW_KEY); } catch (e) { /* private mode */ }
+}
+
+function soundscapeSnapshot() {
+  return { sounds: Object.keys(activeSounds), preset: activePresetKey || null };
+}
+
+function soundscapeOnFocusStart() {
+  if (Object.keys(activeSounds).length) return;   // already playing — leave it
+  let follow = false;
+  try { follow = localStorage.getItem(SOUND_FOLLOW_KEY) === '1'; } catch (e) { follow = false; }
+  if (!follow) return;
+  if (restoreLastMix()) recordSoundEvent('sound_start', 'focus');
+}
+
+function soundscapeOnBreak() {
+  if (!Object.keys(activeSounds).length) return;
+  recordSoundEvent('sound_stop', 'bell');           // snapshot BEFORE the fade
+  persistMix();
+  soundscapeFollowTimer(true);
+  Object.keys(activeSounds).forEach(stopSound);
+  clearPresetHighlight();
+}
+
+function soundscapeOnAbandon() {
+  if (Object.keys(activeSounds).length) recordSoundEvent('sound_stop', 'reset');
+  soundscapeFollowTimer(false);
+  Object.keys(activeSounds).forEach(stopSound);
+  clearPresetHighlight();
+}
+
+// Signed-in only, through the same queue as session_complete — one spine, one
+// writer, one dedup. Nothing here can break playback.
+function recordSoundEvent(type, reason, extra) {
+  try {
+    if (!fbAuthenticated) return;
+    const queue = fbTelemetryRead();
+    queue.push(Object.assign(
+      { id: fbEventId(), type: type, reason: reason || 'user', at: new Date().toISOString() },
+      soundscapeSnapshot(),
+      extra || {}
+    ));
+    fbTelemetryWrite(queue);
+    fbFlushTelemetry();
+  } catch (e) { console.warn('recordSoundEvent failed (non-fatal):', e && e.message); }
+}
+
+// A link can name a sound, but a browser will not start audio without a
+// gesture, and unrequested sound is a hostile way to open a page. So a link
+// ARMS the mix: the card rings and the resume button becomes one tap.
+function armSoundscape(presetKey, soundList) {
+  const btn = document.getElementById('soundResume');
+  if (!btn) return false;
+  const key = String(presetKey || '').toLowerCase().replace(/[^a-z]/g, '');
+  let label = null;
+  delete btn.dataset.preset; delete btn.dataset.mix;
+  if (key && SOUND_PRESETS[key]) {
+    btn.dataset.preset = key;
+    label = SOUND_PRESETS[key].label;
+  } else if (soundList) {
+    const names = String(soundList).toLowerCase().split(',').map(function (n) { return n.trim(); }).filter(function (n) { return !!SOUND_BUILDERS[n]; });
+    if (!names.length) return false;
+    const mix = {}; names.forEach(function (n) { mix[n] = 1; });
+    btn.dataset.mix = JSON.stringify(mix);
+    label = names.map(prettySoundName).join(' + ');
+  } else {
+    return false;
+  }
+  btn.textContent = '▶ Start ' + label;
+  btn.hidden = false;
+  btn.classList.add('armed');
+  return true;
+}
+
+function resumeOrArmed(btn) {
+  if (btn.dataset.preset) {
+    playPreset(btn.dataset.preset, document.querySelector('.preset-btn[onclick*="' + btn.dataset.preset + '"]'));
+  } else if (btn.dataset.mix) {
+    try {
+      const mix = JSON.parse(btn.dataset.mix);
+      Object.keys(mix).forEach(function (n) { startSound(n, mix[n]); });
+      persistMix();
+      recordSoundEvent('sound_start', 'link');
+    } catch (e) { console.warn('armed mix:', e && e.message); }
+  } else if (restoreLastMix()) {
+    persistMix();
+    recordSoundEvent('sound_start', 'resume');
+  }
+  btn.hidden = true;
+  btn.classList.remove('armed');
+  delete btn.dataset.preset; delete btn.dataset.mix;
 }
 
 function initSoundscapes() {
@@ -5837,15 +6086,21 @@ const TOOL_DEEPLINKS = {
 };
 (function initToolDeepLink() {
   function run() {
-    let id;
-    try { id = new URLSearchParams(window.location.search).get('tool'); } catch (e) { return; }
+    let id, preset, sound;
+    try {
+      const q = new URLSearchParams(window.location.search);
+      id = q.get('tool'); preset = q.get('preset'); sound = q.get('sound');
+    } catch (e) { return; }
+    // A named sound with no tool still means "take me to the sounds".
+    if (!id && (preset || sound)) id = 'sounds';
     if (!id) return;
     id = String(id).toLowerCase().replace(/[^a-z]/g, '');
-    // Clear the param regardless of match so a refresh won't re-trigger.
+    // Clear the params regardless of match so a refresh won't re-trigger.
     try { history.replaceState(null, '', window.location.pathname + window.location.hash); } catch (e) {}
     const action = TOOL_DEEPLINKS[id];
     if (!action) return;
     try { action(); } catch (e) { console.warn('tool deep-link failed:', e && e.message); }
+    if (preset || sound) { try { armSoundscape(preset, sound); } catch (e) { console.warn('arm soundscape failed:', e && e.message); } }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once: true });
   else run();
