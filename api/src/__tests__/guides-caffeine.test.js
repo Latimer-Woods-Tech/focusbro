@@ -75,7 +75,10 @@ describe('the caffeine guide', () => {
   it('hosts the instrument and loads it as a first-party script, never inline', () => {
     const html = renderGuidePage(guide());
     expect(html).toContain('<section class="tool" id="caffeine-calculator"');
-    expect(html).toContain('<script src="/guides/caffeine.js" defer></script>');
+    expect(html).toMatch(/<script src="\/guides\/caffeine\.js\?v=[A-Za-z0-9-]+" defer><\/script>/);
+    // the version is the build the page was rendered by, so a deploy busts every browser cache
+    expect(renderGuidePage(guide(), { version: 'abc1234' })).toContain('<script src="/guides/caffeine.js?v=abc1234" defer></script>');
+    expect(renderGuidePage(guide(), { version: 'abc1234' })).toContain('<script src="/guides/view.js?v=abc1234" data-slug="caffeine-timing-and-focus" defer></script>');
     expect(html).toContain('<noscript>');
     // no inline execution: the only <script> elements are ld+json or src= tags
     const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*application\/ld\+json)[^>]*>/g)];

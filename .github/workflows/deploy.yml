@@ -63,17 +63,32 @@ jobs:
       # serves source, not the bundle. So after deploying, fetch the LIVE bytes
       # and refuse to call the deploy green if they carry a bundler helper or
       # fail to parse.
+      #
+      # `wrangler deploy` returns before every PoP serves the new version: the
+      # first run of this step fetched the PREVIOUS script one second after
+      # deploy and failed on a build that was in fact fixed. So: first wait
+      # until /health reports THIS commit, then check the scripts, retrying
+      # through propagation. Worker responses are not edge-cached here (no
+      # cf-cache-status), so a stale read is propagation, not cache.
       run: |
         set -euo pipefail
+        deadline=$((SECONDS + 180))
+        until [ "$(curl -s -H 'Cache-Control: no-cache' https://focusbro.net/health | python3 -c 'import sys,json;print(json.load(sys.stdin).get("build_sha",""))' 2>/dev/null)" = "$GITHUB_SHA" ]; do
+          [ $SECONDS -lt $deadline ] || { echo "::error::/health never reported $GITHUB_SHA within 180s"; exit 1; }
+          echo "waiting for the edge to serve $GITHUB_SHA…"; sleep 5
+        done
+        echo "edge serves $GITHUB_SHA"
         for s in /guides/view.js /guides/caffeine.js; do
-          url="https://focusbro.net${s}?v=${GITHUB_SHA}"
-          code=$(curl -s -o "/tmp/$(basename "$s")" -w '%{http_code}' -A 'deploy-verify' "$url")
-          [ "$code" = "200" ] || { echo "::error::$s returned $code"; exit 1; }
-          if grep -qE '__name\(|__publicField|__esm\(' "/tmp/$(basename "$s")"; then
-            echo "::error::$s carries a bundler helper — it will throw in a browser"; exit 1
-          fi
-          node --check "/tmp/$(basename "$s")" || { echo "::error::$s does not parse"; exit 1; }
-          echo "ok $s ($(wc -c < "/tmp/$(basename "$s")") bytes)"
+          ok=0
+          for attempt in $(seq 1 12); do
+            url="https://focusbro.net${s}?v=${GITHUB_SHA}"
+            code=$(curl -s -H 'Cache-Control: no-cache' -o "/tmp/$(basename "$s")" -w '%{http_code}' -A 'deploy-verify' "$url")
+            if [ "$code" = "200" ] && ! grep -qE '__name\(|__publicField|__esm\(' "/tmp/$(basename "$s")" && node --check "/tmp/$(basename "$s")" 2>/dev/null; then
+              ok=1; echo "ok $s ($(wc -c < "/tmp/$(basename "$s")") bytes, attempt $attempt)"; break
+            fi
+            echo "attempt $attempt: $s http=$code — not yet clean, retrying"; sleep 5
+          done
+          [ "$ok" = "1" ] || { echo "::error::$s still carries a bundler helper, fails to parse, or is not 200 after propagation"; exit 1; }
         done
 
     - name: Purge Cloudflare Cache
