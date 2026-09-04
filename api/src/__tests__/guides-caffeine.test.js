@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { remainingMg, hoursUntil, hoursBetween, HALF_LIFE_DEFAULT_H, HALF_LIFE_MIN_H, HALF_LIFE_MAX_H } from '../guides/caffeine-math.js';
+import { remainingMg, hoursUntil, hoursBetween, CAFFEINE_MATH_SRC, HALF_LIFE_DEFAULT_H, HALF_LIFE_MIN_H, HALF_LIFE_MAX_H } from '../guides/caffeine-math.js';
 import { CAFFEINE_SCRIPT, GUIDE_VIEW_SCRIPT } from '../guides/scripts.js';
 import { guides, renderGuidePage } from '../guides/index.js';
 import { SOURCES } from '../guides/sources.js';
@@ -41,12 +41,27 @@ describe('the arithmetic', () => {
 });
 
 describe('the served script', () => {
-  it('embeds the same math the tests assert, and parses', () => {
-    expect(CAFFEINE_SCRIPT).toContain(remainingMg.toString());
-    expect(CAFFEINE_SCRIPT).toContain(hoursUntil.toString());
-    expect(CAFFEINE_SCRIPT).toContain(hoursBetween.toString());
+  it('embeds the same math the tests assert — as the source string, never reflected', () => {
+    expect(CAFFEINE_SCRIPT).toContain(CAFFEINE_MATH_SRC);
     expect(() => new Function(CAFFEINE_SCRIPT)).not.toThrow();
     expect(() => new Function(GUIDE_VIEW_SCRIPT)).not.toThrow();
+  });
+
+  it('survives the Worker bundler: no bundler helpers, no reflected function source', () => {
+    // Production runs the wrangler/esbuild bundle, which wraps declarations in
+    // `__name(...)`. A script built from Function.prototype.toString() carried
+    // that helper into the browser and the calculator was dead on the live
+    // site while every local test passed. The served scripts must be plain
+    // string data, and must never reference a bundler helper.
+    for (const [name, src] of [['CAFFEINE_SCRIPT', CAFFEINE_SCRIPT], ['GUIDE_VIEW_SCRIPT', GUIDE_VIEW_SCRIPT]]) {
+      expect(src, `${name} references a bundler helper`).not.toMatch(/__name\(|__publicField|__esm\(/);
+      expect(src, `${name} contains reflected source`).not.toContain('.toString()');
+    }
+    // and the module's callable math is built FROM the string it ships
+    const shipped = new Function(`${CAFFEINE_MATH_SRC}; return remainingMg;`)();
+    for (const [d, h, hl] of [[400, 5, 5], [200, 8, 5], [90, 3, 1.5], [300, 12, 9.5]]) {
+      expect(shipped(d, h, hl)).toBe(remainingMg(d, h, hl));
+    }
   });
 
   it('reports tool use through the same anonymous endpoint, once per session', () => {
