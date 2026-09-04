@@ -366,6 +366,21 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('the app’s breathing modal paces a box round the way the guide says, in a real browser', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-09-04T09:00:00') });
+    await page.goto('/?tool=breathing', { waitUntil: 'domcontentloaded' });
+    await page.clock.pauseAt(new Date('2026-09-04T09:00:01'));
+    await expect(page.locator('#breathingModal')).toHaveClass(/show/);
+    await expect(page.locator('#breathingLabel')).toHaveText('Inhale (4s)');
+    await page.clock.runFor(3000);
+    await expect(page.locator('#breathingLabel')).toHaveText('Inhale (1s)');
+    await page.clock.runFor(1000);
+    await expect(page.locator('#breathingLabel')).toHaveText('Hold (4s)');    // four ticks, not five
+    await page.clock.runFor(4000);
+    await expect(page.locator('#breathingLabel')).toHaveText('Exhale (4s)');
+    expect(await page.locator('#breathingCircle').evaluate((el) => el.style.animation)).toContain('breathe-out');
+  });
+
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
     await page.goto('/');

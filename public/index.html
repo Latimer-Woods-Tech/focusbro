@@ -1258,8 +1258,13 @@
   .breathing-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); z-index: 1000; align-items: center; justify-content: center; }
   .breathing-modal.show { display: flex; }
   .breathing-content { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 48px; text-align: center; max-width: 500px; animation: modalIn 0.3s ease; }
-  .breathing-circle { width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(34,197,94,0.3), transparent); margin: 0 auto 30px; display: flex; align-items: center; justify-content: center; font-size: 48px; animation: breathing 8s ease-in-out infinite; }
-  @keyframes breathing { 0% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.4); opacity: 1; } 100% { transform: scale(1); opacity: 0.7; } }
+  /* The circle is a pacer, not decoration: it fills for the length of an
+     inhale, empties for the length of an exhale, and HOLDS where it is in
+     between (fill-mode forwards) — a full hold shows a full circle. */
+  .breathing-circle { width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(34,197,94,0.3), transparent); margin: 0 auto 30px; display: flex; align-items: center; justify-content: center; font-size: 48px; transform: scale(1); opacity: 0.7; }
+  @keyframes breathe-in { from { transform: scale(1); opacity: 0.7; } to { transform: scale(1.4); opacity: 1; } }
+  @keyframes breathe-out { from { transform: scale(1.4); opacity: 1; } to { transform: scale(1); opacity: 0.7; } }
+  @media (prefers-reduced-motion: reduce) { .breathing-circle { animation: none !important; } }
   .breathing-text { font-size: 18px; font-weight: 500; margin: 10px 0; color: var(--accent); }
   .breathing-phase { font-size: 13px; color: var(--text-muted); margin: 5px 0 20px; }
 
@@ -4783,35 +4788,44 @@ function openBreathingGuide() {
   startBreathing('box');
 }
 
+// The counts here MUST equal the patterns the guides' pacer runs
+// (api/src/guides/breath-patterns.js) — a test compares them, so the app and
+// the guide it links from can never disagree on what 4-7-8 is.
 function startBreathing(type) {
-  const cycles = breathingCycles[type] || [4,4,4,4];
+  const cycles = breathingCycles[type] || breathingCycles.box;
+  const names = { box: 'Box Breathing', '478': '4-7-8 Breathing', tactical: 'Tactical Breathing' };
   const labels = { box: '4-4-4-4: Inhale, Hold, Exhale, Hold', '478': '4-7-8: Inhale, Hold Longer, Exhale Slow', tactical: '4-4-4-4: Tactical breathing for calm' };
-  document.getElementById('breathingPhaseLabel').textContent = Object.keys(breathingCycles).includes(type) ? type === '478' ? '4-7-8 Breathing' : 'Box Breathing' : 'Tactical';
-  document.getElementById('breathingTypeDesc').textContent = labels[type];
+  document.getElementById('breathingPhaseLabel').textContent = names[type] || names.box;
+  document.getElementById('breathingTypeDesc').textContent = labels[type] || labels.box;
 
   if (breathingTimer) clearInterval(breathingTimer);
-  
+
   const phases = breathingPhaseNames[type] || breathingPhaseNames.box;
   let phaseIdx = 0;
   let secondsLeft = cycles[0];
-  
+
+  // One tick per second, counting each phase from its count down to 1 — a
+  // four-count phase is four ticks, not five. The circle animates once per
+  // phase: it fills over an inhale, empties over an exhale, and a hold leaves
+  // it where the previous phase ended.
   function updateBreathing() {
     const label = document.getElementById('breathingLabel');
     const circle = document.getElementById('breathingCircle');
-    
-    label.textContent = `${phases[phaseIdx]} (${secondsLeft}s)`;
-    
-    if (phaseIdx === 0 || phaseIdx === 2) {
-      circle.style.animation = phaseIdx === 0 ? `breathing ${cycles[0]}s ease-in-out 1` : `breathing ${cycles[phaseIdx]}s ease-in-out reverse 1`;
+    const phase = phases[phaseIdx];
+
+    if (secondsLeft === cycles[phaseIdx]) {
+      if (phase === 'Inhale') circle.style.animation = `breathe-in ${cycles[phaseIdx]}s ease-in-out forwards`;
+      else if (phase === 'Exhale') circle.style.animation = `breathe-out ${cycles[phaseIdx]}s ease-in-out forwards`;
     }
-    
+    label.textContent = `${phase} (${secondsLeft}s)`;
+
     secondsLeft--;
-    if (secondsLeft < 0) {
+    if (secondsLeft <= 0) {
       phaseIdx = (phaseIdx + 1) % cycles.length;
       secondsLeft = cycles[phaseIdx];
     }
   }
-  
+
   updateBreathing();
   breathingTimer = setInterval(updateBreathing, 1000);
 }
