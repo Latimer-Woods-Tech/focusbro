@@ -61,16 +61,27 @@ function responseWithoutBody(response) {
   });
 }
 
+// The hosts AdSense actually reaches, derived from report-only violations
+// observed in headless Chromium on /guides/ (G299). Without these the policy
+// contradicts the site's own free-tier revenue model: `script-src 'self'`
+// blocks the loader and every ad frame dies the moment CSP is enforced — with
+// no signal visible to curl, to CI, or to a /health probe.
+const AD_SCRIPT_HOSTS = 'https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com';
+const AD_FRAME_HOSTS = 'https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep2.adtrafficquality.google';
+const AD_CONNECT_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com';
+const AD_IMG_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com';
+
 const CONTENT_SECURITY_POLICY_REPORT_ONLY = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self'",
+  `script-src 'self' ${AD_SCRIPT_HOSTS}`,
+  `frame-src ${AD_FRAME_HOSTS}`,
   "style-src 'self'",
-  "img-src 'self' data:",
+  `img-src 'self' data: ${AD_IMG_HOSTS}`,
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${AD_CONNECT_HOSTS}`,
   "form-action 'self'",
 ].join('; ');
 
@@ -379,20 +390,6 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen)`,
       // ── END PHASE 3 TABLES ──
       // ── PHASE 4 TABLES ──
-      `CREATE TABLE IF NOT EXISTS slack_integrations (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE,
-        webhook_url TEXT,
-        access_token TEXT,
-        team_id TEXT,
-        channel_id TEXT,
-        post_sessions INTEGER DEFAULT 1,
-        update_presence INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        is_active INTEGER DEFAULT 1,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id)`,
       // ── END PHASE 4 TABLES ──
       // ── PHASE 5 TABLES ──
       `CREATE TABLE IF NOT EXISTS subscriptions (

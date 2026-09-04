@@ -353,21 +353,6 @@
 
   .awake-timer.visible { opacity: 1; }
 
-  /* ── TEAMS PRESENCE CONTROLS ── */
-  .teams-presence-row {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-    display: none;
-  }
-  .keep-awake.active .teams-presence-row { display: block; }
-  .teams-presence-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
-  .teams-presence-opts { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
-  .presence-opt { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); transition: all 0.2s; }
-  .presence-opt:hover { border-color: var(--accent); }
-  .presence-opt input { accent-color: var(--accent); width: 14px; height: 14px; }
-  .presence-opt-hint { font-size: 10px; color: var(--text-dim); font-style: italic; }
-  .presence-status { font-size: 11px; color: var(--text-muted); margin-top: 8px; min-height: 16px; }
 
   /* ── TOP ROW CARDS ── */
   .top-row {
@@ -1982,6 +1967,13 @@
     z-index: 9998;
   }
 </style>
+<!-- AdSense ownership + Auto ads. Publisher ca-pub-1346297152611586 must match
+     /ads.txt. This tag was correctly kept by the Phase 1 compliance PR (3b9a2e9)
+     and then deleted seven days later by b70887e4, an unrelated hardening PR
+     that rewrote this file +28/-90. Two AdSense reviews then ran against a
+     homepage with no ad code while the consent banner told visitors we use
+     AdSense. Guarded by adsense-loader.test.js — do not remove it silently. -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>
 </head>
 <body>
 

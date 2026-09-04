@@ -223,20 +223,6 @@ CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_prefs(user_id);
 CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen);
 
 -- ── INTEGRATIONS + FUTURE BILLING CONTRACT ──
-CREATE TABLE IF NOT EXISTS slack_integrations (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL UNIQUE,
-  webhook_url TEXT,
-  access_token TEXT,
-  team_id TEXT,
-  channel_id TEXT,
-  post_sessions INTEGER DEFAULT 1,
-  update_presence INTEGER DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  is_active INTEGER DEFAULT 1,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL UNIQUE,
@@ -251,7 +237,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id);
 
