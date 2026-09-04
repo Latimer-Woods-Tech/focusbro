@@ -38,6 +38,20 @@ function analyticsRuns(db) {
   return db.runs.filter((r) => /INTO analytics_events/.test(r.sql));
 }
 
+describe('event types are free-form (focusbro#352)', () => {
+  it('stores a type no list has ever named — the product vocabulary moves, the spine does not gate it', async () => {
+    const db = makeDB();
+    const res = await syncAnalyticsEvents({ DB: db }, 'user-1', [
+      { id: 'e1', type: 'sound_share', at: '2026-09-04T12:00:00.000Z', reason: 'copied', sounds: ['rain', 'cafe'] },
+      { id: 'e2', type: 'a_type_invented_tomorrow', at: '2026-09-04T12:00:01.000Z' },
+    ]);
+    expect(res.synced).toBe(2);
+    const inserted = db.runs.filter((r) => /INSERT[\s\S]*analytics_events/i.test(r.sql));
+    expect(inserted.length).toBe(2);
+    expect(inserted.map((r) => r.params).flat()).toEqual(expect.arrayContaining(['sound_share', 'a_type_invented_tomorrow']));
+  });
+});
+
 describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
   it('is a no-op for an empty or non-array batch', async () => {
     const db = makeDB();
