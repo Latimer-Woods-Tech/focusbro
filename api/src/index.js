@@ -35,7 +35,18 @@ import {
 } from './middleware.js';
 
 const router = Router();
-const D1_SCHEMA_VERSION = '0006_sync_device_log_schema';
+// The newest migration this build EXPECTS. A test pins it to the newest file
+// in migrations/, so it cannot drift again (it sat at 0006 while 0007 was live).
+// /health reports, beside it, what the database held on the last cron tick.
+const D1_SCHEMA_VERSION = '0007_guest_accounts';
+export { D1_SCHEMA_VERSION };
+// Runs on the CRON (which already touches D1), never on a request.
+async function readAppliedSchemaVersion(env) {
+  try {
+    const row = await env.DB.prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1').first();
+    return (row && row.name) || null;
+  } catch { return null; }
+}
 
 function slashRedirect(path) {
   return new Response(null, { status: 301, headers: { Location: path } });
@@ -2762,12 +2773,18 @@ router.post('/api/internal/webhooks/telnyx/:eventId/replay', async (request, env
 const CRON_STALE_SECONDS = 10 * 60;
 router.get('/health', async (_request, env) => {
   const cron = await readCronHealth(env, { staleSeconds: CRON_STALE_SECONDS });
+  // what this build expects, and what the database reported having applied on
+  // the last cron tick (carried through KV — a health request never touches
+  // D1). A deploy whose migration did not land shows the two disagreeing.
+  const schemaApplied = (cron && cron.schema_applied) ? String(cron.schema_applied).replace(/\.sql$/, '') : null;
   return new Response(JSON.stringify({
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     build_sha: env.BUILD_SHA || 'development',
     schema_version: D1_SCHEMA_VERSION,
+    schema_applied: schemaApplied,
+    schema_in_step: schemaApplied === null ? null : schemaApplied === D1_SCHEMA_VERSION,
     cron
   }), {
     status: 200,
@@ -3630,10 +3647,13 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(err => { console.warn('SW network fetch failed, falling back to cache:', err && err.message || err); return caches.match(request) || new Response(
-          JSON.stringify({ error: 'Offline', offline: true }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        ))
+        .catch(err => {
+          console.warn('SW network fetch failed, falling back to cache:', err && err.message || err);
+          return caches.match(request).then(cached => cached || new Response(
+            JSON.stringify({ error: 'Offline', offline: true }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+          ));
+        })
     );
   }
 
@@ -3862,7 +3882,8 @@ export default {
       // SLO signals: liveness (last_tick) + correctness (delivery fail streak),
       // so /health + the off-platform monitor catch both a silent cron death
       // and a cron that ticks while every send fails.
-      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation });
+      const schemaApplied = await readAppliedSchemaVersion(runtimeEnv);
+      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation, schemaApplied });
       if (streak >= 3) console.error(`[cron] delivery DEGRADED — ${streak} consecutive failing ticks`);
       // Wingspan W4 / L3: after the heartbeat is stamped (so a bug here can never
       // masquerade as a delivery outage), knock once on anyone who's gone quiet
