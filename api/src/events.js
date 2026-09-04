@@ -30,6 +30,7 @@
 /** Canonical event-type names for the accountability loop. */
 export const EVENTS = Object.freeze({
   ACQUISITION_VISIT: 'acquisition_visit',
+  GUIDE_VIEW: 'guide_view',
   COMMITMENT_CREATED: 'commitment_created',
   COMMITMENT_KEPT: 'commitment_kept',
   COMMITMENT_RESCHEDULE: 'commitment_reschedule',
@@ -94,7 +95,21 @@ export function sanitizeAttribution(value) {
     const cleaned = value[key].trim().slice(0, 80);
     if (cleaned) out[key] = cleaned;
   }
+  // Internal content attribution (Content Factory §7): a guide's CTA carries
+  // `?ref=cf_focusbro_<slug>` so an activation can be credited to the piece.
+  // Strictly shaped — it is a join key to the content ledger, not free text.
+  if (typeof value.ref === 'string' && /^cf_focusbro_[a-z0-9-]{1,80}$/.test(value.ref)) out.ref = value.ref;
   return out;
+}
+
+/**
+ * Record one anonymous view of a guide page. Privacy-minimal like the landing
+ * visit: the slug only — no visitor id, no referrer, no user agent. This is
+ * what turns "content live" into "content read" (docs/content-ledger.md).
+ */
+export async function recordGuideView(env, slug) {
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{1,80}$/.test(slug)) return false;
+  return recordEvent(env, { type: EVENTS.GUIDE_VIEW, data: { slug } });
 }
 
 /** Record a privacy-minimal landing visit: attribution only, no visitor ID. */

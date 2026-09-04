@@ -7,6 +7,8 @@
 // Routes are registered generically in index.js from the exported array.
 // ════════════════════════════════════════════════════════════
 
+import { SOURCES, SOURCE_TYPES, AUTHOR, sourceUrl } from './sources.js';
+
 const AD_CLIENT_SCRIPT =
   '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>';
 
@@ -60,6 +62,18 @@ const SHELL_CSS = `
   h2.group { font-size: 15px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280;
     margin: 34px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
   h2.group:first-of-type { margin-top: 24px; }
+
+  /* ── Sources: the evidence ledger ── */
+  .sources { margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,.12); }
+  .sources h2 { margin-bottom: 6px; }
+  .sources-intro { color: #4b5563; font-size: .95rem; margin: 0 0 12px; }
+  .sources-list { padding-left: 1.25rem; margin: 0; }
+  .sources-list li { margin: 0 0 12px; font-size: .95rem; line-height: 1.55; }
+  .source-type { display: inline-block; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: #374151; background: rgba(0,0,0,.06); border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
+  .source-doi { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: #4b5563; }
+  .source-n { color: #4b5563; }
+  .source-note { display: block; color: #6b7280; font-size: .9rem; margin-top: 2px; }
+  .meta a[rel="author"] { color: inherit; font-weight: 500; }
 `;
 
 const SITE_HEADER = `<header class="site">
@@ -148,7 +162,15 @@ export function renderGuidePage(guide) {
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
     datePublished: guide.lastmod,
     dateModified: guide.lastmod,
-    author: { '@type': 'Organization', name: 'Latimer Woods Tech', url: 'https://focusbro.net/about.html' },
+    author: { '@type': 'Person', name: AUTHOR.name, jobTitle: AUTHOR.role, url: AUTHOR.url },
+    // Every verified source, as schema.org citations — the same data the visible
+    // Sources section is rendered from, so the two can never drift.
+    citation: (guide.sources || []).map((k) => SOURCES[k]).filter(Boolean).map((src) => {
+      const c = { '@type': 'CreativeWork', name: src.title, author: src.authors };
+      if (src.year) c.datePublished = String(src.year);
+      if (src.doi) { c['@id'] = sourceUrl(src); c.url = sourceUrl(src); }
+      return c;
+    }),
     publisher: {
       '@type': 'Organization',
       name: 'FocusBro',
@@ -188,6 +210,36 @@ export function renderGuidePage(guide) {
         acceptedAnswer: { '@type': 'Answer', text: stripTags(f.a) },
       })),
     }).replace(/</g, '\\u003c');
+  }
+  // The evidence ledger: every source the guide leans on, typed honestly
+  // (study / meta-analysis / review / book / guidance), linked by verified DOI,
+  // with the caveat a careful reader would want. A guide that makes no research
+  // claim says so instead of sitting blank. Rendered from the same data the
+  // JSON-LD `citation` array uses.
+  const sourceKeys = Array.isArray(guide.sources) ? guide.sources : [];
+  const sourceItems = sourceKeys.map((k) => SOURCES[k]).filter(Boolean);
+  const sourcesHtml = sourceItems.length
+    ? `<section class="sources" id="sources"><h2>Sources</h2>
+<p class="sources-intro">Every claim above rests on the sources below. Each is typed and linked so you can read it yourself; the note is the caveat we would want you to know.</p>
+<ol class="sources-list">
+${sourceItems.map((src) => {
+    const link = sourceUrl(src);
+    const title = link ? `<a href="${link}" rel="noopener">${esc(src.title)}</a>` : esc(src.title);
+    const when = src.year ? ` (${src.year})` : '';
+    const note = src.note ? ` <span class="source-note">${esc(src.note)}</span>` : '';
+    const n = src.n ? ` <span class="source-n">n&nbsp;=&nbsp;${src.n}.</span>` : '';
+    const doiTxt = link ? ` <span class="source-doi">doi:${esc(src.doi)}</span>` : '';
+    return `<li><span class="source-type">${esc(SOURCE_TYPES[src.type] || src.type)}</span> ${esc(src.authors)}${when}. ${title}. <em>${esc(src.venue)}</em>.${doiTxt}${n}${note}</li>`;
+  }).join('\n')}
+</ol>
+</section>`
+    : guide.evidenceNote
+      ? `<section class="sources" id="sources"><h2>Sources</h2><p class="sources-intro">${esc(guide.evidenceNote)}</p></section>`
+      : '';
+  if (sourcesHtml) {
+    workingBody = workingBody.includes('<div class="related">')
+      ? workingBody.replace('<div class="related">', `${sourcesHtml}\n\n<div class="related">`)
+      : `${workingBody}\n${sourcesHtml}`;
   }
   // Optional HowTo: only for genuinely step-by-step guides whose steps are
   // already listed on the page. Built from `guide.howto` so the schema matches
@@ -236,12 +288,31 @@ ${SITE_HEADER}
 <article>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › <a href="/guides/">Guides</a> › <span>${esc(guide.title)}</span></nav>
 <h1>${guide.title}</h1>
-<p class="meta">A FocusBro guide · updated ${guide.lastmodLabel || guide.lastmod}</p>
+<p class="meta">By <a href="${AUTHOR.url}" rel="author">${AUTHOR.name}</a>, ${AUTHOR.role} · updated ${guide.lastmodLabel}</p>
 ${toc}
 ${processedBody}
 </article>
 </main>
 ${SITE_FOOTER}
+<script>
+(function () {
+  try {
+    var slug = ${JSON.stringify(guide.slug)};
+    var key = 'focusbro_guide_view:' + slug;
+    if (sessionStorage.getItem(key)) return;
+    var body = JSON.stringify({ slug: slug });
+    var sent = false;
+    if (navigator.sendBeacon) {
+      try { sent = navigator.sendBeacon('/api/content/view', new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
+    }
+    if (!sent) {
+      fetch('/api/content/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
+        .catch(function () { /* instrumentation never breaks the page */ });
+    }
+    sessionStorage.setItem(key, '1');
+  } catch (e) { /* private mode — fine */ }
+})();
+</script>
 </body></html>`;
 }
 
@@ -368,6 +439,7 @@ ${SITE_FOOTER}
 export const guides = [
   {
     slug: 'how-long-should-a-pomodoro-be',
+    sources: ["ariga2011", "cirillo2006"],
     faqs: [
       { q: `Is 25 minutes the "correct" Pomodoro length?`, a: `No. Twenty-five minutes is the original starting point, not a rule. The two things that make the method work are a clear boundary you commit to and a real break afterward. Match the length to the task: short blocks of 15 to 25 minutes lower the cost of starting hard or dull work, while 45- to 90-minute blocks suit deep work that needs a long run-up.` },
       { q: `Should I take a break even if I'm focusing well?`, a: `Usually yes. The short break is what prevents the slow decline in the next interval. If you are genuinely in deep flow, treat that as a reason to use a longer block next time rather than to abolish rest entirely, and size future blocks to the task so the timer stops cutting off your best work.` },
@@ -418,7 +490,7 @@ export const guides = [
 <h2>Make the break count</h2>
 <p>A break spent scrolling a feed is not much of a break for your attention system; you have swapped one demanding screen for another. The restorative breaks are the ones that let directed attention idle: stand up and walk, look out a window, stretch, do a minute of slow breathing, or rest your eyes. Those are exactly the resets FocusBro is built around.</p>
 
-<p>Ready to try it? <a class="app-cta" href="/?tool=focus">Open the Pomodoro timer</a></p>
+<p>Ready to try it? <a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_how-long-should-a-pomodoro-be">Open the Pomodoro timer</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -432,6 +504,7 @@ export const guides = [
 
   {
     slug: 'ultradian-rhythms-and-focus',
+    sources: ["kleitman1982"],
     title: 'Ultradian Rhythms: Why Focus Comes in Roughly 90-Minute Waves',
     description: 'Nathaniel Kleitman’s Basic Rest-Activity Cycle and what ultradian rhythms suggest about pacing deep work in ~90-minute blocks with real recovery.',
     lastmod: '2026-07-05',
@@ -472,7 +545,7 @@ export const guides = [
 <h2>A caveat worth keeping</h2>
 <p>Your rhythm is your own. Chronotype (whether you are a morning lark or a night owl), sleep debt, caffeine, stress, and the task itself all shift where your peaks and troughs land. The lesson from ultradian research is not "work in exactly 90-minute blocks" — it is "energy is cyclical, so schedule your hardest work for your peaks and build in real recovery at your troughs." Notice your own pattern for a week, and pace the day around it.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_ultradian-rhythms-and-focus">Start a focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -486,6 +559,7 @@ export const guides = [
 
   {
     slug: 'the-20-20-20-rule',
+    sources: ["aoa_20_20_20"],
     title: 'The 20-20-20 Rule: A Simple Fix for Screen Eye Strain',
     description: 'What digital eye strain is, why staring at a screen tires your eyes, and how the 20-20-20 rule recommended by eye-care associations helps.',
     lastmod: '2026-07-05',
@@ -521,7 +595,7 @@ export const guides = [
 <h2>The supporting cast</h2>
 <p>The 20-20-20 rule works best alongside a few basics that reduce the underlying load on your eyes: position the screen a little below eye level and roughly an arm's length away; keep the room lit so the screen is not a bright rectangle in a dark room; nudge text size up so you are not leaning in; and keep the air from being too dry. If your eyes still ache constantly, or vision blurs and does not clear, that is a reason to see an eye-care professional rather than to push through — persistent strain can be a sign you need an updated prescription.</p>
 
-<p><a class="app-cta" href="/?tool=eyerest">Try the Eye Rest tool</a></p>
+<p><a class="app-cta" href="/?tool=eyerest&amp;ref=cf_focusbro_the-20-20-20-rule">Try the Eye Rest tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -535,6 +609,7 @@ export const guides = [
 
   {
     slug: 'the-physiological-sigh',
+    sources: ["balban2023", "yackle2017"],
     howto: {
       name: 'How to do a physiological sigh',
       description: 'A double inhale followed by a long, slow exhale to take the edge off stress in under a minute.',
@@ -584,7 +659,7 @@ export const guides = [
 <h2>Where it fits</h2>
 <p>The physiological sigh is the emergency brake; slower practices like box breathing are the long, steady cruise. For an acute jolt of stress, one or two sighs are often enough to bring you back down to where you can think. As a daily habit, a few minutes of cyclic sighing is a low-cost way to nudge your baseline toward calm.</p>
 
-<p><a class="app-cta" href="/?tool=breathing">Open the breathing tools</a></p>
+<p><a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_the-physiological-sigh">Open the breathing tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -598,6 +673,7 @@ export const guides = [
 
   {
     slug: 'attention-restoration-nature-breaks',
+    sources: ["berman2008", "lee2015", "ulrich1984"],
     title: 'Attention Restoration Theory: Why Nature Breaks Rebuild Focus',
     description: 'The Kaplans’ Attention Restoration Theory, the research on nature and directed attention, and how to get the effect even from a window or a short walk.',
     lastmod: '2026-07-05',
@@ -633,7 +709,7 @@ export const guides = [
 <h2>The bigger point</h2>
 <p>Attention Restoration Theory reframes breaks entirely. A good break is not idle time subtracted from your work; it is the process that makes the next block of work possible. Spend your focus deliberately, then restore it deliberately — and choose restoration that actually lets your directed attention idle. Often, that is as simple as stepping outside.</p>
 
-<p><a class="app-cta" href="/?tool=rest">Plan your next break</a></p>
+<p><a class="app-cta" href="/?tool=rest&amp;ref=cf_focusbro_attention-restoration-nature-breaks">Plan your next break</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -647,6 +723,7 @@ export const guides = [
 
   {
     slug: 'why-we-procrastinate',
+    sources: ["steel2007"],
     faqs: [
       { q: `Is procrastination just laziness or bad time management?`, a: `The research points elsewhere: procrastination is largely about managing emotion, not time. We put things off to escape a bad feeling in the present — the task feels boring, hard, or threatening — and avoiding it brings instant relief. That is why "just try harder" rarely helps; the useful moves are the ones that lower the emotional cost of starting.` },
       { q: `What is the single most effective thing I can do?`, a: `Shrink the first step until it is almost trivially doable — "open the document and write one bad sentence" instead of "write the report." The hardest moment is almost always the transition into the work, not the work itself, so making that first step tiny is what gets you moving.` },
@@ -687,7 +764,7 @@ export const guides = [
 <h2>Put it together</h2>
 <p>The next time a task keeps sliding, run the checklist instead of reaching for guilt: shrink the first step until it is trivially doable, strip the nearest distraction out of arm's reach, set a short timer so the commitment is bounded, and give yourself a real reward at the ring. Notice, too, which of the four levers the task is failing on — a job you are avoiding because you doubt you can do it needs a smaller first step (expectancy), while one you keep trading away for your phone needs the phone gone (impulsiveness). Naming the specific reason a task feels aversive turns a vague sense of "I just can't make myself" into a concrete problem with a matching fix. You are not fixing a broken character; you are lowering the emotional cost of starting, which is the only thing that was ever really in the way.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a two-minute focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_why-we-procrastinate">Start a two-minute focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -701,6 +778,7 @@ export const guides = [
 
   {
     slug: 'deep-work-and-attention-residue',
+    sources: ["leroy2009"],
     title: 'Deep Work and Attention Residue: The Hidden Cost of Switching',
     description: 'Cal Newport’s idea of deep work and Sophie Leroy’s research on attention residue — why switching tasks quietly drags down your focus, and how rituals protect it.',
     lastmod: '2026-07-05',
@@ -732,7 +810,7 @@ export const guides = [
 <h2>Start small</h2>
 <p>You do not have to restructure your whole calendar tomorrow. Pick one task that genuinely matters, give it a single protected 60- to 90-minute block with the phone out of reach and notifications off, and simply notice how much more you produce than in a fragmented hour. That contrast is usually persuasive enough to build from. Over a few weeks the habit compounds: as protected deep blocks become normal, the shallow work that used to sprawl across the day gets squeezed into its own windows, and the residue that once drained every task quietly stops leaking. The aim is not a perfect day of unbroken concentration — few jobs allow that — but simply more genuinely deep hours than you get by drifting, and fewer of the fragmented ones that feel busy and produce little. Treat the number of real deep-work blocks you complete in a week as the metric that matters, rather than hours merely spent at a desk, and let everything else organize itself around protecting them.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a distraction-free session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_deep-work-and-attention-residue">Start a distraction-free session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -746,6 +824,7 @@ export const guides = [
 
   {
     slug: 'time-blocking',
+    sources: ["rubinstein2001", "parkinson1955"],
     title: 'Time Blocking: Give Every Task a Home on the Calendar',
     description: 'Why an open to-do list expands to fill the day, what Parkinson’s Law and task-switching research say, and how to time-block without it falling apart by 10 a.m.',
     lastmod: '2026-07-05',
@@ -782,7 +861,7 @@ export const guides = [
 <h2>Start with one block</h2>
 <p>You do not need to schedule your entire life. Tomorrow, block a single protected hour for your most important task and defend it like a meeting. Notice how much more gets done in that hour than in a typical unplanned one — then add a second block the day after. Time blocking is a skill, not a personality trait, and the early attempts will be badly calibrated: you will underestimate durations, over-schedule, and watch the plan buckle by lunch. That is expected and not a reason to quit. Each day of blocking teaches you something concrete about how long your work actually takes and where your day tends to fracture, and within a couple of weeks your estimates tighten and the plan holds together far more often. The goal is not a flawless calendar but a realistic one that steers your best hours toward your most important work — and that is a habit worth being patient with.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Time-box a task now</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_time-blocking">Time-box a task now</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -796,6 +875,7 @@ export const guides = [
 
   {
     slug: 'caffeine-timing-and-focus',
+    sources: ["drake2013"],
     faqs: [
       { q: `How late in the day can I have caffeine?`, a: `A practical rule that follows from caffeine's long half-life is to stop at least eight to ten hours before bed — for many people that means nothing after early-to-mid afternoon. Caffeine lingers far longer than the buzz suggests, so a late cup can quietly reduce the depth of that night's sleep even when you fall asleep fine.` },
       { q: `Does caffeine actually give me energy?`, a: `Not exactly. Caffeine blocks the receptors that adenosine, a drowsiness signal that builds up while you are awake, would otherwise bind to. You temporarily stop feeling tiredness that is already there, but the adenosine keeps accumulating behind the blockade, which is part of why a crash can follow.` },
@@ -836,7 +916,7 @@ export const guides = [
 <h2>The bigger picture</h2>
 <p>Caffeine is a genuinely useful tool — well-timed, it can sharpen a demanding block of work. But it borrows alertness against your sleep, and if you borrow late in the day you repay it that night. Keep it in the morning and early afternoon, spend it on work that deserves it, and let real rest — not another cup — handle the evening. The most reliable focus aid, in the end, is the sleep that clears your adenosine to begin with.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Set up your next focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_caffeine-timing-and-focus">Set up your next focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -850,6 +930,7 @@ export const guides = [
 
   {
     slug: 'adhd-focus-strategies',
+    sources: ["barkley1997"],
     faqs: [
       { q: `Does ADHD mean you can't pay attention at all?`, a: `The name is a little misleading. The difficulty is less about a lack of attention — focus can be intense on the right thing — and more about regulating attention, time, and action. Framing it that way points toward strategies that build structure into your surroundings rather than relying on willpower. This is general education, not medical advice.` },
       { q: `What is the most useful single principle?`, a: `Externalize as much as you can: move memory, time, and future stakes out of your head and into your environment, where they are visible and hard to ignore. A countdown timer you can see makes time concrete, and capturing every task into one trusted list the moment it appears beats trying to remember it later.` },
@@ -896,7 +977,7 @@ export const guides = [
 <h2>Be kind about the misses</h2>
 <p>People with ADHD accumulate years of "you're not trying hard enough" — often internalized as shame that makes everything harder. But the missed deadlines and forgotten tasks are features of how the brain self-regulates, not evidence of a bad character. Self-criticism only adds an aversive feeling to the work, which feeds avoidance. Treat a lapse as data about which external supports to strengthen, adjust the scaffolding, and start the next block clean. If ADHD is significantly affecting your life, a qualified clinician can help you build a plan — including options this general guide cannot responsibly cover.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a short, timed block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_adhd-focus-strategies">Start a short, timed block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -910,6 +991,7 @@ export const guides = [
 
   {
     slug: 'sleep-and-executive-function',
+    sources: ["vandongen2003", "xie2013", "yoo2007"],
     faqs: [
       { q: `Can I train myself to do fine on five or six hours?`, a: `For the overwhelming majority of people, no. Studies of chronic short sleep found that objective performance kept declining while people rated their own sleepiness as only slightly elevated — the deficit is real but hard to feel. Genuine short sleepers who thrive on little sleep exist, but they are vanishingly rare. This is general education, not medical advice.` },
       { q: `Which mental skills suffer first when I'm underslept?`, a: `Executive functions — holding information in mind, planning, switching tasks, and resisting the impulse to check your phone — lean heavily on the prefrontal cortex, one of the regions most sensitive to lost sleep. So after a short night, the very system you rely on to concentrate is the one running on the least fuel.` },
@@ -954,7 +1036,7 @@ export const guides = [
 
 <p>This is general education, not medical advice. Persistent trouble sleeping — insomnia, loud snoring with daytime exhaustion, or unrefreshing sleep despite enough hours — is worth raising with a clinician.</p>
 
-<p><a class="app-cta" href="/?tool=sleep">Try the Sleep Wind-Down tool</a></p>
+<p><a class="app-cta" href="/?tool=sleep&amp;ref=cf_focusbro_sleep-and-executive-function">Try the Sleep Wind-Down tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -968,6 +1050,7 @@ export const guides = [
 
   {
     slug: 'habit-stacking',
+    sources: ["gollwitzer1999", "gollwitzer2006", "lally2010", "milkman2014"],
     title: 'Habit Stacking: Anchoring New Routines to Ones You Already Have',
     description: 'The "after I do X, I will do Y" formula. Why implementation intentions (Gollwitzer) make habits stick, how long habits really take to form (Lally 2010), and how to build a focus stack.',
     lastmod: '2026-07-05',
@@ -1010,7 +1093,7 @@ export const guides = [
 <li><strong>Quitting on a missed day.</strong> Lally's data says one miss is noise. Just run the stack again tomorrow.</li>
 </ul>
 
-<p><a class="app-cta" href="/?tool=focus">Anchor a focus session to your routine</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_habit-stacking">Anchor a focus session to your routine</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1024,6 +1107,7 @@ export const guides = [
 
   {
     slug: 'notification-batching',
+    sources: ["mark2008", "ward2017", "kushlev2015"],
     title: 'Notification Batching: Check on Your Schedule, Not Theirs',
     description: 'An interruption costs far more than the seconds it takes. Gloria Mark on the real price of interrupted work, the email-batching study by Kushlev and Dunn, and how to reclaim attention by checking in batches.',
     lastmod: '2026-07-05',
@@ -1058,7 +1142,7 @@ export const guides = [
 <h2>"But people expect an instant reply"</h2>
 <p>Some roles genuinely require fast response, and batching should bend to real obligations — widen the windows, keep a true-emergency channel open. But for most work, the expectation of instant availability is one we impose on ourselves. Replies that come within a couple of hours are, for the overwhelming majority of messages, indistinguishable from instant ones to the sender — while the difference to your own concentration is enormous. You are trading a response speed no one actually needs for a depth of focus you badly do.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start an uninterrupted focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_notification-batching">Start an uninterrupted focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1072,6 +1156,7 @@ export const guides = [
 
   {
     slug: 'workspace-ergonomics',
+    sources: ["hedge_ergonomics"],
     title: 'Workspace Ergonomics: Setting Up a Desk You Can Focus At',
     description: 'Discomfort quietly competes for your attention. Neutral posture, monitor height, glare, and the "next posture" principle — a practical desk setup grounded in established ergonomics.',
     lastmod: '2026-07-05',
@@ -1113,7 +1198,7 @@ export const guides = [
 </ul>
 <p>None of this requires expensive gear — most of it is free rearrangement. Spend five minutes on it once, and you remove a source of friction you would otherwise pay for every working hour. General guidance only; persistent pain, numbness, or tingling deserves a professional's attention.</p>
 
-<p><a class="app-cta" href="/?tool=movement">Set a movement-break reminder</a></p>
+<p><a class="app-cta" href="/?tool=movement&amp;ref=cf_focusbro_workspace-ergonomics">Set a movement-break reminder</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1127,6 +1212,7 @@ export const guides = [
 
   {
     slug: 'music-and-noise-for-focus',
+    sources: ["rauscher1993", "pietschnig2010", "mehta2012"],
     title: 'Music and Noise for Focus: What the Research Actually Shows',
     description: 'Does music help you concentrate? The honest answer is that it depends on the task. The irrelevant-sound effect, the overblown Mozart effect, and when ambient noise actually helps (Mehta 2012).',
     lastmod: '2026-07-05',
@@ -1162,7 +1248,7 @@ export const guides = [
 </ul>
 <p>Above all, trust the test over the trend. Preference and habit matter, and the honest state of the science is "it depends." Try a week of silence for your hardest verbal work and a moderate backdrop for your loosest creative work, and keep whatever measurably helps <em>you</em> get more done — not what a playlist promises.</p>
 
-<p><a class="app-cta" href="/?tool=sounds">Open the Focus Music and Ambient Sounds tools</a></p>
+<p><a class="app-cta" href="/?tool=sounds&amp;ref=cf_focusbro_music-and-noise-for-focus">Open the Focus Music and Ambient Sounds tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1176,6 +1262,7 @@ export const guides = [
 
   {
     slug: 'the-weekly-review',
+    sources: ["masicampo2011", "allen2001"],
     title: 'The Weekly Review: Closing Loops So Your Mind Can Rest',
     description: 'David Allen’s weekly review, the Zeigarnik effect, and why writing down a plan for unfinished tasks (Masicampo and Baumeister) frees up attention for the work in front of you.',
     lastmod: '2026-07-05',
@@ -1212,7 +1299,7 @@ export const guides = [
 <h2>Why weekly</h2>
 <p>A week is the natural unit of work — long enough that things accumulate, short enough that nothing rots for long. Reviewing daily is usually overkill; reviewing monthly lets too much pile up and lets the system drift out of trust. Weekly keeps your external list current enough that you actually believe it, and that belief is the whole point: only a system you trust will let your mind put its guard down. Do the review, and the reward is not just an organized list — it is walking into Monday without the background hum of everything you might be forgetting.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start next week's first focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_the-weekly-review">Start next week's first focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1226,6 +1313,7 @@ export const guides = [
 
   {
     slug: 'box-breathing',
+    sources: ["zaccaro2018", "lehrer2014"],
     howto: {
       name: 'How to do box breathing',
       description: 'Breathe in, hold, out, and hold for equal four counts to steady the nervous system.',
@@ -1280,7 +1368,7 @@ export const guides = [
 <li><strong>Only using it in a crisis.</strong> Like any skill, it works better when it is already familiar. A minute a day makes it available when you actually need it.</li>
 </ul>
 
-<p>Want to practice with a steady pacer? <a class="app-cta" href="/?tool=breathing">Open the breathing tool</a></p>
+<p>Want to practice with a steady pacer? <a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_box-breathing">Open the breathing tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1293,6 +1381,7 @@ export const guides = [
   },
   {
     slug: '4-7-8-breathing',
+    sources: ["zaccaro2018", "lehrer2014"],
     howto: {
       name: 'How to do 4-7-8 breathing',
       description: 'Breathe in for four, hold for seven, and exhale slowly for eight to lean the breath toward its calming, longer-exhale phase.',
@@ -1346,7 +1435,7 @@ export const guides = [
 <li><strong>Doing round after round.</strong> More is not better here — several rounds are enough, and stacking many in a row can leave some people light-headed. Stop if you feel dizzy.</li>
 </ul>
 
-<p>Want a steady pacer to breathe along with? <a class="app-cta" href="/?tool=breathing">Open the breathing tool</a></p>
+<p>Want a steady pacer to breathe along with? <a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_4-7-8-breathing">Open the breathing tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1364,6 +1453,7 @@ export const guides = [
   },
   {
     slug: 'movement-breaks-and-focus',
+    sources: ["hillman2008", "oppezzo2014"],
     howto: {
       name: 'How to take a movement break',
       description: 'Break up long sitting with a few minutes of easy movement to refresh attention.',
@@ -1405,7 +1495,7 @@ export const guides = [
 <h2>What movement won't do</h2>
 <p>Movement is a reset, not a cure for a badly planned day. It will not rescue focus that is failing because the task is unclear, the sleep debt is large, or the work is genuinely uninteresting — those need different fixes. And the acute boost fades, so a walk is something you spend across the day in small amounts, not once in the morning. Used that way — little and often, on the breaks — it is one of the cheapest and most dependable tools you have for staying sharp.</p>
 
-<p>Ready for your next reset? <a class="app-cta" href="/?tool=movement">Start a movement break</a></p>
+<p>Ready for your next reset? <a class="app-cta" href="/?tool=movement&amp;ref=cf_focusbro_movement-breaks-and-focus">Start a movement break</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1423,6 +1513,7 @@ export const guides = [
   },
   {
     slug: 'the-body-scan',
+    sources: ["goyal2014", "killingsworth2010"],
     howto: {
       name: 'How to do a body scan',
       description: 'Move your attention slowly through the body, noticing sensation without trying to change it.',
@@ -1469,7 +1560,7 @@ export const guides = [
 <li><strong>There is no correct sensation.</strong> Numbness, warmth, tension, or nothing at all are all valid. You are cataloguing what is there, not producing a particular feeling.</li>
 </ul>
 
-<p>Want to try a guided pass through the body? <a class="app-cta" href="/?tool=bodyscan">Open the body scan</a></p>
+<p>Want to try a guided pass through the body? <a class="app-cta" href="/?tool=bodyscan&amp;ref=cf_focusbro_the-body-scan">Open the body scan</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1487,6 +1578,8 @@ export const guides = [
   },
   {
     slug: 'the-5-4-3-2-1-grounding-technique',
+    sources: [],
+    evidenceNote: "This guide describes a widely used grounding practice. It makes no research claims of its own, and we have not found a controlled trial of the 5-4-3-2-1 sequence specifically.",
     howto: {
       name: 'How to do the 5-4-3-2-1 grounding technique',
       description: 'Name what you can sense, one fewer each step, to pull attention out of anxious thought and into the present.',
@@ -1533,7 +1626,7 @@ export const guides = [
 <li><strong>It is not a substitute for care.</strong> Grounding is a self-help skill for everyday stress and mild anxiety. Persistent or severe anxiety deserves support from a professional; a sensory exercise is a bridge, not a treatment.</li>
 </ul>
 
-<p>Need to get back to the present right now? <a class="app-cta" href="/?tool=grounding">Start the grounding exercise</a></p>
+<p>Need to get back to the present right now? <a class="app-cta" href="/?tool=grounding&amp;ref=cf_focusbro_the-5-4-3-2-1-grounding-technique">Start the grounding exercise</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1551,6 +1644,7 @@ export const guides = [
   },
   {
     slug: 'meditation-and-attention',
+    sources: ["lutz2008", "mrazek2013", "zeidan2010", "brewer2011", "goyal2014", "tang2015"],
     howto: {
       name: 'How to do a simple focused-attention meditation',
       description: 'Rest your attention on one anchor, and every time you notice it has wandered, gently bring it back.',
@@ -1592,7 +1686,7 @@ export const guides = [
 <li><strong>Expecting an overnight fix.</strong> The studies that show gains still involve days or weeks of repeated practice, and the effects fade without it. It is training, not a treatment.</li>
 </ul>
 
-<p>Want a voice to guide the first few minutes? <a class="app-cta" href="/?tool=meditation">Open the Meditation tool</a></p>
+<p>Want a voice to guide the first few minutes? <a class="app-cta" href="/?tool=meditation&amp;ref=cf_focusbro_meditation-and-attention">Open the Meditation tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1610,6 +1704,7 @@ export const guides = [
   },
   {
     slug: 'what-is-the-pomodoro-technique',
+    sources: ["ariga2011", "leroy2009", "cirillo2006"],
     howto: {
       name: 'How to use the Pomodoro Technique',
       description: 'Work in fixed, single-task intervals separated by short breaks, taking a longer break after every four intervals.',
@@ -1665,7 +1760,7 @@ export const guides = [
 <li><strong>Making it a productivity ritual.</strong> The technique is a tool for getting started and protecting attention, not a scoreboard. If tracking pomodoros starts to feel like the real work, simplify it back down.</li>
 </ul>
 
-<p>Ready to run your first interval? <a class="app-cta" href="/?tool=pomodoro">Start a Pomodoro timer</a></p>
+<p>Ready to run your first interval? <a class="app-cta" href="/?tool=pomodoro&amp;ref=cf_focusbro_what-is-the-pomodoro-technique">Start a Pomodoro timer</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1683,6 +1778,7 @@ export const guides = [
   },
   {
     slug: 'dopamine-and-focus',
+    sources: ["schultz1997", "lembke2021"],
     howto: {
       name: 'How to build a dopamine menu',
       description: 'Write a short menu of healthier things to reach for when you feel the urge for a quick hit, so the better option is already decided before the craving arrives.',
@@ -1728,7 +1824,7 @@ export const guides = [
 <h2>The honest caveats</h2>
 <p>A dopamine menu is a self-management habit, not a treatment for anything. The dopamine science above is real but simplified — the brain's reward systems are far more tangled than any single neurotransmitter story, and pop accounts routinely overreach. And a menu will not overpower a genuinely compelling pull every time; it just tilts the odds by making the better choice visible and easy when your attention is at its weakest. That modest tilt, repeated, is the whole point.</p>
 
-<p>Want a menu you can actually reach for in the moment? <a class="app-cta" href="/?tool=dopamine">Build your dopamine menu</a></p>
+<p>Want a menu you can actually reach for in the moment? <a class="app-cta" href="/?tool=dopamine&amp;ref=cf_focusbro_dopamine-and-focus">Build your dopamine menu</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1746,6 +1842,7 @@ export const guides = [
   },
   {
     slug: 'flow-state-and-focus',
+    sources: ["csikszentmihalyi1990"],
     title: 'Flow State and Focus: What It Is and How to Set the Conditions for It',
     description: 'What a flow state actually is (the psychologist Mihaly Csikszentmihalyi and the idea of optimal experience), the challenge-skill balance that produces it, why it cannot be forced on demand, and the practical conditions — a clear goal, a single task, and protected, interruption-free time — that make it more likely.',
     lastmod: '2026-08-09',
@@ -1775,7 +1872,7 @@ export const guides = [
 <h2>The honest caveats</h2>
 <p>Flow is genuine, but it is easy to oversell. It is measured largely through self-report, which makes it slippery to pin down precisely, and the popular "flow-hacking" industry — promising specific triggers, brain-chemistry cocktails, or guaranteed multipliers on your output — runs well ahead of what the careful research supports. Not every task can produce flow, and it is not the point of a workday; plenty of valuable work gets done in ordinary, un-transcendent focus. Treat flow as a welcome by-product of good conditions, not a state you owe yourself. Set a clear goal, match the challenge to your skill, protect the time, and do one thing — then let it come or not.</p>
 
-<p>Ready to give one task a protected block? <a class="app-cta" href="/?tool=focus">Set up a focus block for one task</a></p>
+<p>Ready to give one task a protected block? <a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_flow-state-and-focus">Set up a focus block for one task</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
