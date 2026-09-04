@@ -14,37 +14,6 @@ export const config = {
     rateLimitWindowSeconds: 15 * 60,
   },
 
-  // ── API Validation ──
-  api: {
-    // Maximum events per batch request
-    maxEventsPerRequest: 500,
-    // Maximum payload size (1MB)
-    maxPayloadSize: 1048576,
-    // Valid event types (whitelist)
-    validEventTypes: [
-      'session_complete',
-      'meditation',
-      'focus_session',
-      'break',
-      'energy_log',
-      'task_created',
-      'task_completed',
-      'streak_milestone',
-      'medication_logged',
-      'movement_completed'
-    ],
-    // Maximum individual event data size (5KB)
-    maxEventDataSize: 5000,
-    // Maximum tool name length
-    maxToolNameLength: 50,
-    // Maximum duration per session (1 day in seconds)
-    maxSessionDuration: 86400,
-    // Maximum event age (2 years back)
-    maxEventAgeDays: 730,
-    // Maximum future event age (7 days forward)
-    maxFutureEventDays: 7,
-  },
-
   // ── Data Limits ──
   data: {
     // Maximum stored data size per user
