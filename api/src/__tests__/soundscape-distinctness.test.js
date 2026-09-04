@@ -129,6 +129,20 @@ describe('the soundscape palette', () => {
     expect(servedHtml).toContain('linearRampToValueAtTime');
   });
 
+  it('every source carries a normalised level, so layers stay balanced', () => {
+    // Measured on production 2026-09-04, the palette spanned 25.7 dB: switching
+    // from Deep hush to Keys dropped ~26 dB, which reads as "it stopped
+    // working" rather than "that one is quieter". Per-source `level` values are
+    // derived from integrated-loudness measurement (see docs/AUDIO_SETUP.md);
+    // the band below is a coarse guard against a new source landing far off.
+    const levels = [...servedHtml.matchAll(/level:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
+    expect(levels.length).toBeGreaterThanOrEqual(12);
+    for (const lv of levels) {
+      expect(lv, `level ${lv} is outside the normalised band`).toBeGreaterThan(0.2);
+      expect(lv, `level ${lv} is outside the normalised band`).toBeLessThanOrEqual(3.0);
+    }
+  });
+
   it('keeps the deep-link and volume contract the guides depend on', () => {
     expect(servedHtml).toContain('id="soundVolume"');
     expect(servedHtml).toMatch(/function toggleSound\(name, btn\)/);
