@@ -74,6 +74,29 @@ const SHELL_CSS = `
   .source-n { color: #4b5563; }
   .source-note { display: block; color: #6b7280; font-size: .9rem; margin-top: 2px; }
   .meta a[rel="author"] { color: inherit; font-weight: 500; }
+
+  /* ── Instruments: a guide that computes something ── */
+  .tool { margin: 20px 0 24px; padding: 18px 20px; border: 1px solid #dbeafe; background: #f8fbff; border-radius: 12px; }
+  .tool h3 { margin: 0 0 12px; font-size: 18px; color: #111827; }
+  .tool-form label { display: block; font-size: 13px; color: #374151; margin-bottom: 4px; }
+  .tool-row { margin-bottom: 12px; }
+  .tool-row-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 520px) { .tool-row-3 { grid-template-columns: 1fr; } }
+  .tool-form input, .tool-form select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; color: #111827; background: #fff; }
+  .tool-form input[type="range"] { padding: 0; }
+  .tool-form output { font-weight: 600; color: #111827; margin-left: 6px; }
+  .tool-help { font-size: 13px; color: #6b7280; margin: 6px 0 0; }
+  .tool-btn { padding: 9px 16px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  .tool-btn:hover { background: #1d4ed8; }
+  .tool-result { margin-top: 14px; min-height: 24px; }
+  .tool-headline { font-size: 18px; margin: 0 0 6px; color: #111827; }
+  .tool-detail { margin: 0 0 8px; color: #374151; }
+  .tool-chart { width: 100%; height: auto; display: block; margin-top: 8px; }
+  .tool-curve { fill: none; stroke: #2563eb; stroke-width: 2; }
+  .tool-bedline { stroke: #9ca3af; stroke-width: 1; stroke-dasharray: 3 3; }
+  .tool-beddot { fill: #dc2626; }
+  .tool-label { font-size: 10px; fill: #6b7280; }
+  .tool-note { font-size: 13px; color: #6b7280; margin: 12px 0 0; }
 `;
 
 const SITE_HEADER = `<header class="site">
@@ -296,6 +319,7 @@ ${processedBody}
 ${SITE_FOOTER}
 <!-- One anonymous view per session, recorded by a first-party script so the
      page stays CSP-clean under script-src 'self' (no inline execution). -->
+${(Array.isArray(guide.scripts) ? guide.scripts : []).map((src) => `<script src="${esc(src)}" defer></script>`).join('\n')}
 <script src="/guides/view.js" data-slug="${esc(guide.slug)}" defer></script>
 </body></html>`;
 }
@@ -859,7 +883,8 @@ export const guides = [
 
   {
     slug: 'caffeine-timing-and-focus',
-    sources: ["drake2013"],
+    sources: ["drake2013", "iom2001", "fredholm1999", "fda_caffeine"],
+    scripts: ['/guides/caffeine.js'],
     faqs: [
       { q: `How late in the day can I have caffeine?`, a: `A practical rule that follows from caffeine's long half-life is to stop at least eight to ten hours before bed — for many people that means nothing after early-to-mid afternoon. Caffeine lingers far longer than the buzz suggests, so a late cup can quietly reduce the depth of that night's sleep even when you fall asleep fine.` },
       { q: `Does caffeine actually give me energy?`, a: `Not exactly. Caffeine blocks the receptors that adenosine, a drowsiness signal that builds up while you are awake, would otherwise bind to. You temporarily stop feeling tiredness that is already there, but the adenosine keeps accumulating behind the blockade, which is part of why a crash can follow.` },
@@ -878,7 +903,39 @@ export const guides = [
 <p>Caffeine works by <strong>blocking those adenosine receptors</strong>. It is shaped enough like adenosine to slot into the same docking sites, where it acts as an antagonist — occupying the receptor without activating it, so the drowsiness signal cannot land. You do not actually gain energy; you temporarily stop feeling the tiredness that was already there. This is a crucial distinction, because the adenosine has not gone anywhere. It is still accumulating behind the blockade.</p>
 
 <h2>The half-life problem</h2>
-<p>Here is the fact that changes how you should schedule caffeine: it lingers far longer than the buzz suggests. Caffeine's <strong>half-life is roughly five to six hours</strong> in a typical adult — meaning that six hours after a coffee, about half the caffeine is still circulating in your system. After another six hours, a quarter remains. (The exact figure varies a lot between people, driven largely by genetics and factors like pregnancy or certain medications, but the ballpark holds.)</p>
+<p>Here is the fact that changes how you should schedule caffeine: it lingers far longer than the buzz suggests. Caffeine's <strong>half-life is about five hours on average</strong> in a healthy adult — meaning that five hours after a coffee, about half the caffeine is still circulating in your system, and after another five, a quarter. The average hides a wide spread: between people it runs from roughly <strong>1.5 to 9.5 hours</strong>, shortened by smoking and lengthened by pregnancy and oral contraceptives (Institute of Medicine, 2001). So treat the arithmetic below as a population average, not a measurement of you.</p>
+
+<section class="tool" id="caffeine-calculator" aria-labelledby="caffeineCalcTitle">
+<h3 id="caffeineCalcTitle">Run the arithmetic on your own cup</h3>
+<form id="caffeineCalc" class="tool-form" novalidate>
+<div class="tool-row">
+<label for="cafPreset">What you had</label>
+<select id="cafPreset" name="preset">
+<option value="">Choose a drink, or type the mg</option>
+<option value="180">Brewed coffee, 12 fl oz (113–247 mg · mid 180)</option>
+<option value="71">Black tea, 12 fl oz (71 mg)</option>
+<option value="37">Green tea, 12 fl oz (37 mg)</option>
+<option value="53">Caffeinated soft drink, 12 fl oz (23–83 mg · mid 53)</option>
+<option value="143">Energy drink, 12 fl oz (41–246 mg · mid 143)</option>
+</select>
+</div>
+<div class="tool-row tool-row-3">
+<div><label for="cafDose">Caffeine (mg)</label><input id="cafDose" name="dose" type="number" inputmode="numeric" min="1" max="1000" step="1" value="180" /></div>
+<div><label for="cafTaken">When you had it</label><input id="cafTaken" name="taken" type="time" /></div>
+<div><label for="cafBed">Your bedtime</label><input id="cafBed" name="bed" type="time" value="23:00" /></div>
+</div>
+<div class="tool-row">
+<label for="cafHalf">Half-life <output id="cafHalfOut" for="cafHalf">5.0 h</output></label>
+<input id="cafHalf" name="half" type="range" min="1.5" max="9.5" step="0.5" value="5" aria-describedby="cafHalfHelp" />
+<p id="cafHalfHelp" class="tool-help">5 h is the adult average; 1.5–9.5 h is the range between people. Smokers tend toward the short end; pregnancy and oral contraceptives toward the long end.</p>
+</div>
+<button type="submit" class="tool-btn">Calculate</button>
+</form>
+<div id="cafResult" class="tool-result" role="status" aria-live="polite"></div>
+<svg id="cafChart" class="tool-chart" viewBox="0 0 320 120" role="img" aria-label="Caffeine remaining over the hours after your cup, with bedtime marked"></svg>
+<p class="tool-note">Drink figures are the FDA's typical amounts per 12 fl oz; a specific coffee can be far outside them. Nothing you enter leaves this page. This is arithmetic, not medical advice.</p>
+<noscript><p class="tool-help">The calculator needs JavaScript. The rule of thumb without it: with a five-hour half-life, half of what you drank is still there five hours later, and a quarter after ten.</p></noscript>
+</section>
 <p>Run the arithmetic on an afternoon coffee. A strong 3 p.m. cup means a meaningful fraction of that caffeine is still active at 9 p.m. and beyond — still occupying adenosine receptors, still muffling the sleep pressure your body is trying to use to fall asleep. You may drop off anyway, but the depth and quality of that sleep can suffer.</p>
 
 <h2>What the research shows about sleep</h2>
