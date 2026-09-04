@@ -94,3 +94,21 @@ switching sources read as the feature breaking rather than as one being quieter.
 Each builder's `level` is now derived from that measurement against a −36 dB
 target, which brought the spread to **1.8 dB**. Re-derive it the same way after
 adding a source; do not guess the number.
+
+## The breathing pacer's swell (guide pages)
+
+The box and 4-7-8 guides host a pacer (`api/src/guides/breath-patterns.js` for the
+counts and arithmetic, `BREATH_SCRIPT` in `api/src/guides/scripts.js` for the page).
+When the reader opts in, an ocean swell is generated on the device and **locked to the
+breath**: brown noise under a low-pass whose gain and cutoff ramp phase by phase —
+up through an inhale, settling on a full hold, down through an exhale, near-silent on
+an empty hold. The whole session's automation is laid on the audio clock when the
+session starts, so it survives a throttled background tab; the visual follows
+`performance.now()`. It never autoplays — sound starts only from Start or the
+checkbox — and the context is closed after the session's own fade-out.
+
+Measured, not assumed: `node e2e/measure-swell.mjs` (from `api/`) taps the page's
+AudioContext with an AnalyserNode and samples the output every 250 ms across one box
+round. On 2026-09-04: inhale rise **20.7 dB**, full-hold mean −21.6 dB, exhale fall
+**15.7 dB**, empty-hold mean −42.1 dB, silence after Done, zero page errors.
+

@@ -6,7 +6,7 @@
 import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
-import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT } from './guides/scripts.js';
+import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
 import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
@@ -2408,13 +2408,14 @@ const scriptResponse = (request, env, body) => {
 };
 router.get('/guides/view.js', (request, env) => scriptResponse(request, env, GUIDE_VIEW_SCRIPT));
 router.get('/guides/caffeine.js', (request, env) => scriptResponse(request, env, CAFFEINE_SCRIPT));
+router.get('/guides/breath.js', (request, env) => scriptResponse(request, env, BREATH_SCRIPT));
 
 // ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
 // The same guards as the landing visit: JSON only, small, same-origin. The slug
 // is validated against the guides that actually exist, so the ledger can never
 // be padded with junk. Anonymous by design — the slug is the whole payload.
 const GUIDE_SLUGS = new Set(guides.map((g) => g.slug));
-const GUIDE_TOOLS = new Set(['caffeine-calculator']);
+const GUIDE_TOOLS = new Set(['caffeine-calculator', 'breathing-pacer']);
 router.post('/api/content/view', async (request, env) => {
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.toLowerCase().startsWith('application/json')) {

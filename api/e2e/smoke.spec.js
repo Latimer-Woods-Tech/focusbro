@@ -274,6 +274,58 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('the breathing pacer counts the guide\u2019s own pattern, phase by phase, in a real browser', async ({ page }) => {
+    // 4-7-8: in 4, hold 7, out 8 — three phases, 19 s, capped at four rounds.
+    // The clock is faked so a full round takes no wall time and the count
+    // shown at each instant is deterministic; rAF and performance.now() are
+    // both under the fake, which is exactly what the pacer follows.
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.clock.install({ time: new Date('2026-09-04T09:00:00') });
+    await page.goto('/guides/4-7-8-breathing.html', { waitUntil: 'domcontentloaded' });
+    await page.clock.pauseAt(new Date('2026-09-04T09:00:01'));
+    await expect(page.locator('#breathing-pacer')).toBeVisible();
+    // the rounds select stops where the guide does: four
+    expect(await page.locator('#pacerRounds option').count()).toBe(4);
+    await expect(page.locator('#pacerRounds')).toHaveValue('4');
+    await page.locator('#pacerRounds').selectOption('1');
+    // the swell is opted into with a gesture; it must never be on by default
+    await expect(page.locator('#pacerSound')).not.toBeChecked();
+    await page.locator('#pacerSound').check();
+    await page.locator('#pacerStart').click();
+    await page.clock.runFor(50);
+    await expect(page.locator('#pacerPhase')).toHaveText('Inhale');
+    await expect(page.locator('#pacerCount')).toHaveText('4');
+    await expect(page.locator('#pacerRound')).toHaveText('Round 1 of 1');
+    await expect(page.locator('#pacerStop')).toBeVisible();
+    await expect(page.locator('#pacerStart')).toBeHidden();
+    await page.clock.runFor(4000);
+    await expect(page.locator('#pacerPhase')).toHaveText('Hold');
+    await expect(page.locator('#pacerCount')).toHaveText('7');
+    await page.clock.runFor(7000);
+    await expect(page.locator('#pacerPhase')).toHaveText('Exhale');
+    await expect(page.locator('#pacerCount')).toHaveText('8');
+    await page.clock.runFor(7900);
+    await expect(page.locator('#pacerCount')).toHaveText('1');
+    await page.clock.runFor(200);
+    await expect(page.locator('#pacerPhase')).toHaveText('Done');
+    await expect(page.locator('#pacerRound')).toContainText('1 round');
+    await expect(page.locator('#pacerStart')).toBeVisible();
+    await expect(page.locator('#pacerStop')).toBeHidden();
+    // switching pattern re-caps the rounds and swaps the note; the shorter
+    // form is still four rounds at most
+    await page.locator('#pacerPattern').selectOption('478short');
+    expect(await page.locator('#pacerRounds option').count()).toBe(4);
+    await expect(page.locator('#pacerNote')).toContainText('Keep the ratio');
+    // starting it was recorded once, anonymously — ask the server, since
+    // sendBeacon() is invisible to Playwright's request hooks
+    await expect.poll(async () => {
+      const views = await (await page.request.get('/__smoke/views')).json();
+      return views.filter((v) => v.tool === 'breathing-pacer');
+    }, { timeout: 5000 }).toEqual([{ slug: '4-7-8-breathing', tool: 'breathing-pacer' }]);
+    expect(pageErrors).toEqual([]);
+  });
+
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
     await page.goto('/');

@@ -6,7 +6,7 @@ import http from 'node:http';
 import htmlContent from '../src/html.js';
 import { renderMePage } from '../src/me.js';
 import { guides, renderGuidePage } from '../src/guides/index.js';
-import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT } from '../src/guides/scripts.js';
+import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from '../src/guides/scripts.js';
 
 const port = Number(process.env.PORT) || 4173;
 const receivedViews = [];
@@ -20,11 +20,11 @@ http
     } else if (path === '/me/' || path === '/me') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(renderMePage());
-    } else if (path === '/guides/view.js' || path === '/guides/caffeine.js') {
+    } else if (path === '/guides/view.js' || path === '/guides/caffeine.js' || path === '/guides/breath.js') {
       // The same bytes the Worker serves (guides/scripts.js) — a guide-page
       // smoke exercises real first-party scripts, not a stub.
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-      res.end(path.endsWith('caffeine.js') ? CAFFEINE_SCRIPT : GUIDE_VIEW_SCRIPT);
+      res.end(path.endsWith('caffeine.js') ? CAFFEINE_SCRIPT : path.endsWith('breath.js') ? BREATH_SCRIPT : GUIDE_VIEW_SCRIPT);
     } else if (/^\/guides\/[a-z0-9-]+\.html$/.test(path)) {
       const slug = path.slice('/guides/'.length, -'.html'.length);
       const guide = guides.find((g) => g.slug === slug);
