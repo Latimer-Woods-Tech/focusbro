@@ -162,7 +162,10 @@ describe('deep-links arm a mix — they never autoplay', () => {
   it('arming validates against the real palette and only exposes one tap', () => {
     const body = fnBody('armSoundscape');
     expect(body).toContain('SOUND_PRESETS[key]');
-    expect(body).toContain('SOUND_BUILDERS[n]');
+    // a named list is parsed (with levels) by parseMixParam, which is where
+    // the palette check lives now — a link can only name textures that exist
+    expect(body).toContain('parseMixParam(soundList)');
+    expect(fnBody('parseMixParam')).toContain('SOUND_BUILDERS[name]');
     expect(body).toContain('btn.hidden = false');
     // nothing in arm may start audio
     expect(body).not.toContain('startSound(');
