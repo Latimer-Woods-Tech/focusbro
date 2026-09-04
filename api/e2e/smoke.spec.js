@@ -124,6 +124,122 @@ test.describe('FocusBro client smoke', () => {
     expect(checkinBodies).toEqual([{ outcome: 'reschedule', when_text: 'after dinner' }]);
   });
 
+  test('the soundscape follows the focus block — fades at the bell, returns on the next one', async ({ page }) => {
+    // The ritual, end to end, in a real browser: choose a blend, start a focus
+    // block, ring the bell, start the break, ring it again, start the next
+    // block. The sound must stop at the bell, stay stopped through the break,
+    // and come back — the same blend — when focus resumes. Nothing autoplays.
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    // Enter the way a guide reader does: the sounds deep-link lands ON the card.
+    await page.goto('/?tool=sounds', { waitUntil: 'domcontentloaded' });
+    // The consent banner owns the bottom of a phone viewport; a person taps it
+    // away first. Then let the card's ring animation settle before tapping.
+    const consent = page.getByRole('button', { name: 'Got it' });
+    if (await consent.isVisible().catch(() => false)) await consent.click();
+    await expect(page.locator('.card.deeplink-flash')).toHaveCount(0, { timeout: 3000 });
+
+    const playing = page.locator('#soundNowPlaying');
+    const deepWork = page.getByRole('button', { name: 'Play the Deep work blend' });
+    const start = page.locator('#pomoStartBtn');
+    const active = () => page.evaluate(() => Object.keys(activeSounds).sort());
+    // A fixed header sits over the top of a phone viewport, so centre a target
+    // before tapping it — the same thing a thumb does. No force-clicks: those
+    // would hide a real overlap bug instead of surfacing it.
+    const tap = async (locator) => {
+      // Instant, not smooth: a smooth scroll keeps moving after Playwright's
+      // stability check, so the click lands on whatever slides under the
+      // target. Then wait until the box holds still across two frames.
+      await locator.evaluate(async (el) => {
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        let prev = null;
+        for (let i = 0; i < 20; i++) {
+          await frame();
+          const b = el.getBoundingClientRect();
+          const key = `${Math.round(b.top)}:${Math.round(b.left)}`;
+          if (key === prev) return;
+          prev = key;
+        }
+      });
+      await locator.click();
+    };
+
+    // 1. choose a blend (a real tap — the gesture the audio policy needs)
+    await tap(deepWork);
+    await expect(deepWork).toHaveAttribute('aria-pressed', 'true');
+    await expect(playing).toContainText('Playing:');
+    expect(await active()).toEqual(['brown', 'wind']);
+    expect(await page.evaluate(() => getAudioCtx().state)).toBe('running');
+
+    // 2. focus block → the bell (skipPomodoro forces it; no 25-minute wait).
+    //    The timer lives in the home/focus views, not the Restore view the
+    //    sounds link landed on — go home the way the nav does.
+    await page.evaluate(() => setView('home'));
+    await expect(start).toBeVisible();
+    await tap(start);
+    await expect(page.locator('body')).toHaveClass(/session-active/);
+    await page.evaluate(() => skipPomodoro());
+    await expect(page.locator('body')).not.toHaveClass(/session-active/, { timeout: 5000 });
+    await expect(playing).toHaveText('Nothing playing', { timeout: 5000 });
+    await expect(deepWork).toHaveAttribute('aria-pressed', 'false');
+    expect(await active()).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem('fb_sound_follow'))).toBe('1');
+
+    // 3. the break starts — a break must NEVER start a sound
+    await tap(start);
+    await expect(page.locator('body')).toHaveClass(/session-active/);
+    expect(await active()).toEqual([]);
+    await page.evaluate(() => skipPomodoro());
+    await expect(page.locator('body')).not.toHaveClass(/session-active/, { timeout: 5000 });
+    expect(await active()).toEqual([]);
+
+    // 4. the next focus block — the same blend comes back on its own
+    expect(await page.evaluate(() => pomoState.phase)).toBe('work');
+    await tap(start);
+    await expect(playing).toContainText('Playing:', { timeout: 5000 });
+    expect(await active()).toEqual(['brown', 'wind']);
+    await expect(deepWork).toHaveAttribute('aria-pressed', 'true');
+
+    // 5. an explicit Stop all ends the ritual: the next bell has nothing to
+    //    remember, and the next block starts silent
+    await tap(page.getByRole('button', { name: 'Stop all' }));
+    await expect(playing).toHaveText('Nothing playing');
+    expect(await page.evaluate(() => localStorage.getItem('fb_sound_follow'))).toBeNull();
+    await page.evaluate(() => skipPomodoro());
+    await expect(page.locator('body')).not.toHaveClass(/session-active/, { timeout: 5000 });
+    await tap(start); // break
+    await page.evaluate(() => skipPomodoro());
+    await expect(page.locator('body')).not.toHaveClass(/session-active/, { timeout: 5000 });
+    await tap(start); // focus — must stay silent
+    await page.waitForTimeout(600);
+    expect(await active()).toEqual([]);
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a sound deep-link arms one tap and never autoplays', async ({ page }) => {
+    await page.goto('/?tool=sounds&preset=winddown', { waitUntil: 'domcontentloaded' });
+    const armed = page.locator('#soundResume');
+    await expect(armed).toBeVisible();
+    await expect(armed).toHaveText('▶ Start Wind down');
+    await expect(armed).toHaveClass(/armed/);
+    // the URL params are cleared so a refresh cannot re-trigger
+    expect(new URL(page.url()).search).toBe('');
+    // nothing is playing until the tap
+    expect(await page.evaluate(() => Object.keys(activeSounds))).toEqual([]);
+    await armed.click();
+    await expect(armed).toBeHidden();
+    expect(await page.evaluate(() => Object.keys(activeSounds).sort())).toEqual(['drone', 'ocean']);
+    await expect(page.getByRole('button', { name: 'Play the Wind down blend' })).toHaveAttribute('aria-pressed', 'true');
+
+    // a named sound list works the same way, validated against the palette
+    await page.goto('/?sound=rain,cafe,notasound', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#soundResume')).toHaveText('▶ Start Rain + Café');
+    await page.locator('#soundResume').click();
+    expect(await page.evaluate(() => Object.keys(activeSounds).sort())).toEqual(['cafe', 'rain']);
+  });
+
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
     await page.goto('/');
