@@ -165,7 +165,10 @@ function withHeadingAnchors(body) {
  * @param {{slug:string,title:string,description:string,body:string}} guide
  * @returns {string} full HTML page
  */
-export function renderGuidePage(guide) {
+// `version` stamps the first-party script URLs (?v=<build sha>) so a browser
+// that cached yesterday's /guides/*.js never runs it against today's page.
+// The Worker passes env.BUILD_SHA; the smoke server passes 'dev'.
+export function renderGuidePage(guide, { version = 'dev' } = {}) {
   const url = `https://focusbro.net/guides/${guide.slug}.html`;
   // Escape for HTML attribute values (title/description are authored plain text,
   // but a stray & or " must never break the meta tags).
@@ -319,8 +322,8 @@ ${processedBody}
 ${SITE_FOOTER}
 <!-- One anonymous view per session, recorded by a first-party script so the
      page stays CSP-clean under script-src 'self' (no inline execution). -->
-${(Array.isArray(guide.scripts) ? guide.scripts : []).map((src) => `<script src="${esc(src)}" defer></script>`).join('\n')}
-<script src="/guides/view.js" data-slug="${esc(guide.slug)}" defer></script>
+${(Array.isArray(guide.scripts) ? guide.scripts : []).map((src) => `<script src="${esc(src)}?v=${esc(version)}" defer></script>`).join('\n')}
+<script src="/guides/view.js?v=${esc(version)}" data-slug="${esc(guide.slug)}" defer></script>
 </body></html>`;
 }
 

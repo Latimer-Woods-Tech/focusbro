@@ -2393,11 +2393,21 @@ router.post('/api/acquisition/visit', async (request, env) => {
 // The bytes come from guides/scripts.js so the e2e smoke server serves exactly
 // what production serves. A day of cache; the URL is stable, the content rarely
 // changes, and a stale day of a beacon or a calculator costs nothing.
-const scriptResponse = (body) => new Response(body, {
-  headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
-});
-router.get('/guides/view.js', () => scriptResponse(GUIDE_VIEW_SCRIPT));
-router.get('/guides/caffeine.js', () => scriptResponse(CAFFEINE_SCRIPT));
+// A versioned URL (?v=<this build>) is immutable for a year — the page always
+// links the current version, so a browser never reuses a stale script across
+// deploys. An unversioned request must revalidate.
+const scriptResponse = (request, env, body) => {
+  let v = null; try { v = new URL(request.url).searchParams.get('v'); } catch { v = null; }
+  const immutable = v && v === (env.BUILD_SHA || 'development');
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    },
+  });
+};
+router.get('/guides/view.js', (request, env) => scriptResponse(request, env, GUIDE_VIEW_SCRIPT));
+router.get('/guides/caffeine.js', (request, env) => scriptResponse(request, env, CAFFEINE_SCRIPT));
 
 // ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
 // The same guards as the landing visit: JSON only, small, same-origin. The slug
@@ -3264,7 +3274,7 @@ router.get('/guides', async () => {
 // Individual guide pages, registered generically from the guides array.
 guides.forEach((guide) => {
   router.get(`/guides/${guide.slug}.html`, async () => {
-    return new Response(renderGuidePage(guide), { status: 200, headers: GUIDE_HTML_HEADERS });
+    return new Response(renderGuidePage(guide, { version: env.BUILD_SHA || 'development' }), { status: 200, headers: GUIDE_HTML_HEADERS });
   });
 });
 
