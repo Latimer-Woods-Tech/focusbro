@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { SOURCES, SOURCE_TYPES, AUTHOR, sourceUrl } from './sources.js';
+import { renderBreathPacer } from './breath-pacer.js';
 
 const AD_CLIENT_SCRIPT =
   '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>';
@@ -97,6 +98,22 @@ const SHELL_CSS = `
   .tool-beddot { fill: #dc2626; }
   .tool-label { font-size: 10px; fill: #6b7280; }
   .tool-note { font-size: 13px; color: #6b7280; margin: 12px 0 0; }
+  .tool-btn-secondary { background: #e5e7eb; color: #111827; }
+  .tool-btn-secondary:hover { background: #d1d5db; }
+  .pacer-check label { display: flex; gap: 8px; align-items: flex-start; margin-top: 22px; }
+  .pacer-check input { width: auto; margin-top: 3px; }
+  .pacer-stage { position: relative; width: 220px; max-width: 100%; margin: 16px auto 4px; }
+  .pacer-svg { width: 100%; height: auto; display: block; }
+  .pacer-ring-bg { fill: none; stroke: #e5e7eb; stroke-width: 6; }
+  .pacer-ring { fill: none; stroke: #2563eb; stroke-width: 6; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .pacer-orb { fill: #bfdbfe; transform-origin: 50% 50%; transform: scale(0.55); }
+  .pacer-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 600; color: #1e3a8a; pointer-events: none; }
+  .pacer-phase { text-align: center; font-size: 20px; font-weight: 600; margin: 8px 0 2px; color: #111827; min-height: 28px; }
+  .pacer-round { text-align: center; color: #6b7280; margin: 0 0 12px; font-size: 14px; min-height: 20px; }
+  .pacer-actions { display: flex; gap: 10px; justify-content: center; }
+  .pacer-actions [hidden] { display: none; }
+  .pacer-patterns { font-size: 14px; color: #374151; margin: 14px 0 0; padding-left: 18px; }
+  @media (prefers-reduced-motion: reduce) { .pacer-orb { transform: scale(0.8) !important; } }
 `;
 
 const SITE_HEADER = `<header class="site">
@@ -1358,6 +1375,7 @@ export const guides = [
   {
     slug: 'box-breathing',
     sources: ["zaccaro2018", "lehrer2014"],
+    scripts: ['/guides/breath.js'],
     howto: {
       name: 'How to do box breathing',
       description: 'Breathe in, hold, out, and hold for equal four counts to steady the nervous system.',
@@ -1370,8 +1388,8 @@ export const guides = [
     },
     title: 'Box Breathing: The Four-Count Square for Steady Calm',
     description: 'How box breathing — inhale, hold, exhale, hold for equal four counts — steadies the nervous system, what the slow-breathing research actually shows, and how to use it.',
-    lastmod: '2026-07-13',
-    lastmodLabel: 'July 2026',
+    lastmod: '2026-09-04',
+    lastmodLabel: 'September 2026',
     body: `
 <p class="lede">Box breathing is one of the simplest calming techniques there is: breathe in for four counts, hold for four, breathe out for four, hold for four, and repeat. The equal, square shape is easy to remember under stress, which is exactly why people in high-pressure jobs reach for it. Here is where it comes from, what the research on slow breathing actually shows, and how to use it well.</p>
 
@@ -1391,6 +1409,8 @@ export const guides = [
 <li><strong>Hold (4):</strong> a short pause with the lungs empty before the next breath.</li>
 </ul>
 <p>The counts do two things. First, they slow you to that calming pace without your having to think about breaths per minute. Second, the holds give the mind a simple, repeating shape to follow — a box you trace over and over — which occupies just enough attention to crowd out anxious chatter. If four counts feels like a strain, use three; if it feels too easy, work up to five or six. The number is a dial, not a rule.</p>
+
+${renderBreathPacer(['box', 'resonance'], 'box')}
 
 <h2>What the evidence supports — and what it doesn't</h2>
 <p>Be clear-eyed about what is and isn't established. The broad finding — that slow, paced breathing increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety — is well supported across many studies. What is <em>not</em> well established is that the specific four-four-four-four square, with its two breath-holds, beats other slow-breathing patterns. Few if any trials have isolated the holds to show they add something beyond simply breathing slowly. Treat the holds as a memory aid and a way to lengthen the cycle, not as a proven active ingredient.</p>
@@ -1426,6 +1446,7 @@ export const guides = [
   {
     slug: '4-7-8-breathing',
     sources: ["zaccaro2018", "lehrer2014"],
+    scripts: ['/guides/breath.js'],
     howto: {
       name: 'How to do 4-7-8 breathing',
       description: 'Breathe in for four, hold for seven, and exhale slowly for eight to lean the breath toward its calming, longer-exhale phase.',
@@ -1439,8 +1460,8 @@ export const guides = [
     },
     title: 'The 4-7-8 Breathing Technique: A Longer Exhale to Wind Down',
     description: 'What 4-7-8 breathing is, why the extended exhale — not the exact numbers — does the calming work, what the slow-breathing research actually shows, and how to use it to settle before sleep.',
-    lastmod: '2026-08-06',
-    lastmodLabel: 'August 2026',
+    lastmod: '2026-09-04',
+    lastmodLabel: 'September 2026',
     body: `
 <p class="lede">The 4-7-8 pattern is a paced breath built around one idea: make the out-breath long. You inhale quietly for four counts, hold for seven, and exhale slowly for eight — so every breath spends more time in its calming phase than its arousing one. It is best known as a wind-down tool, the thing to reach for when your body is wired and you want it to settle. Here is where it comes from, why the long exhale is the active part, what the research does and doesn't support, and how to use it well.</p>
 
@@ -1458,6 +1479,8 @@ export const guides = [
 <li><strong>Exhale (8):</strong> the main event — a slow, complete release through the mouth, ideally making a soft whoosh, so the out-breath clearly outlasts the in-breath.</li>
 </ul>
 <p>Weil's instruction is to keep the <em>ratio</em> even if you can't keep the exact seconds: if a seven-count hold leaves you gasping, speed the whole thing up so four-seven-eight becomes a shorter but still-proportional two-and-a-half, four-and-a-half, five. The point is the shape — short in, longer hold, longest out — not the literal stopwatch. Four rounds is plenty to start; the pattern is meant to be a quick reset, not an endurance test.</p>
+
+${renderBreathPacer(['478', '478short'], '478')}
 
 <h2>What the evidence supports — and what it doesn't</h2>
 <p>Be clear-eyed here. The broad, well-supported finding is that slow, paced breathing — especially with an extended exhale — increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety. What is <em>not</em> well established is that the specific four-seven-eight ratio, with its seven-count hold, beats other slow-breathing patterns. Controlled trials that isolate this exact recipe are few and small, so the honest claim is modest: 4-7-8 is a convenient, memorable way to breathe slowly with a long exhale, and it borrows the general benefits of doing so — not a uniquely powerful formula whose numbers carry special power.</p>

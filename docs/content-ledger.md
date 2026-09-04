@@ -36,10 +36,10 @@ spine pointer · request id — plus `ref` (✅ = CTA carries `?ref=cf_focusbro_
 
 | URL | Target keyword | Type | Published | Spine pointer | Request id | ref |
 |---|---|---|---|---|---|:--:|
-| `/guides/4-7-8-breathing.html` | 4 7 8 breathing | guide | 2026-08-06 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_4-7-8-breathing` | ✅ |
+| `/guides/4-7-8-breathing.html` | 4 7 8 breathing | guide | 2026-09-04 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_4-7-8-breathing` | ✅ |
 | `/guides/adhd-focus-strategies.html` | adhd focus strategies | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_adhd-focus-strategies` | ✅ |
 | `/guides/attention-restoration-nature-breaks.html` | attention restoration nature breaks | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_attention-restoration-nature-breaks` | ✅ |
-| `/guides/box-breathing.html` | box breathing | guide | 2026-07-13 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_box-breathing` | ✅ |
+| `/guides/box-breathing.html` | box breathing | guide | 2026-09-04 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_box-breathing` | ✅ |
 | `/guides/caffeine-timing-and-focus.html` | caffeine timing and focus | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_caffeine-timing-and-focus` | ✅ |
 | `/guides/deep-work-and-attention-residue.html` | deep work and attention residue | guide | 2026-07-05 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_deep-work-and-attention-residue` | ✅ |
 | `/guides/dopamine-and-focus.html` | dopamine and focus | guide | 2026-08-07 | `docs/REQUIREMENTS.md (R-007)` | `cf_focusbro_dopamine-and-focus` | ✅ |

@@ -4708,7 +4708,10 @@ function dismissHyperfocus() {
 let breathingTimer = null;
 let breathingPhase = 'inhale';
 let breathingCount = 0;
-const breathingCycles = { box: [4,4,4,4], '478': [4,7,8,4], tactical: [4,4,4,4] };
+// 4-7-8 is three phases — in 4, hold 7, out 8 — with no second hold; the
+// guide at /guides/4-7-8-breathing.html and the pacer on it say the same.
+const breathingCycles = { box: [4,4,4,4], '478': [4,7,8], tactical: [4,4,4,4] };
+const breathingPhaseNames = { box: ['Inhale','Hold','Exhale','Hold'], '478': ['Inhale','Hold','Exhale'], tactical: ['Inhale','Hold','Exhale','Hold'] };
 
 function openBreathingGuide() {
   document.getElementById('breathingModal').classList.add('show');
@@ -4723,7 +4726,7 @@ function startBreathing(type) {
 
   if (breathingTimer) clearInterval(breathingTimer);
   
-  const phases = ['Inhale', 'Hold', 'Exhale', 'Hold'];
+  const phases = breathingPhaseNames[type] || breathingPhaseNames.box;
   let phaseIdx = 0;
   let secondsLeft = cycles[0];
   
@@ -4734,12 +4737,12 @@ function startBreathing(type) {
     label.textContent = `${phases[phaseIdx]} (${secondsLeft}s)`;
     
     if (phaseIdx === 0 || phaseIdx === 2) {
-      circle.style.animation = phaseIdx === 0 ? 'breathing 4s ease-in-out 1' : 'breathing 4s ease-in-out reverse 1';
+      circle.style.animation = phaseIdx === 0 ? `breathing ${cycles[0]}s ease-in-out 1` : `breathing ${cycles[phaseIdx]}s ease-in-out reverse 1`;
     }
     
     secondsLeft--;
     if (secondsLeft < 0) {
-      phaseIdx = (phaseIdx + 1) % 4;
+      phaseIdx = (phaseIdx + 1) % cycles.length;
       secondsLeft = cycles[phaseIdx];
     }
   }
