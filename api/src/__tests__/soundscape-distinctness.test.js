@@ -114,8 +114,9 @@ describe('the soundscape palette', () => {
   });
 
   it('does not reach for the audio files that were never generated', () => {
-    // public/audio/*.mp3 are 170-byte stubs and 404 in production; the old
-    // fallback path silently swallowed the failure.
+    // public/audio/ is gone. It could never have worked: wrangler.toml carries
+    // no static-asset binding and the router has no audio/ routes, so the files
+    // the deploy step generated were never uploaded and 404'd in production.
     expect(servedHtml).not.toContain('/audio/${type}.mp3');
     expect(servedHtml).not.toContain('ambientAudioPlayers');
   });

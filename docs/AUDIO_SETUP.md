@@ -1,12 +1,19 @@
 # Ambient audio — how the soundscapes work
 
 > **This file used to describe an ElevenLabs generation pipeline that produced
-> four MP3s at build time. That pipeline never ran.** The four files it named
-> (`public/audio/{rain,forest,cafe,ocean}.mp3`) were committed as 170-byte
-> stubs, they returned 404 in production for the whole life of the feature, and
-> the only code that read them (`playAmbientAudio`) had no callers. Both the
-> stubs and that code were removed. There is no build-time audio step and no
-> `ELEVENLABS_API_KEY` in this repo.
+> four MP3s at build time. That pipeline ran on every deploy and could never
+> have worked.** `wrangler.toml` carries no static-asset binding — line 12 notes
+> *"Removed 'site' config - Worker handles all routes"* — and the Worker's
+> router has zero `audio/` routes. So whatever the step wrote into
+> `public/audio/` was never uploaded and never routable: the four files it named
+> were committed as 170-byte stubs and returned 404 in production for the whole
+> life of the feature, while `continue-on-error: true` kept the deploy green.
+> The only code that read them (`playAmbientAudio`) had no callers.
+>
+> Removed: the stubs, that code, the deploy step, and
+> `scripts/generate-audio{,-elevenlabs}.js`. The `ELEVENLABS_API_KEY` repo
+> secret is now unused — left in place rather than deleted, since removing a
+> secret is not a cleanup side effect.
 
 ## The engine
 

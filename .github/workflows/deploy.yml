@@ -29,12 +29,6 @@ jobs:
         CLOUDFLARE_API: ${{ secrets.CLOUDFLARE_API }}
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
     
-    - name: Generate Audio Assets
-      run: node scripts/generate-audio-elevenlabs.js
-      env:
-        ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-      continue-on-error: true
-    
     - name: Build HTML module
       run: node create-html-module.js
     
