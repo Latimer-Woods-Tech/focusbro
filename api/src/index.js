@@ -3273,8 +3273,9 @@ router.get('/guides', async () => {
 
 // Individual guide pages, registered generically from the guides array.
 guides.forEach((guide) => {
-  router.get(`/guides/${guide.slug}.html`, async () => {
-    return new Response(renderGuidePage(guide, { version: env.BUILD_SHA || 'development' }), { status: 200, headers: GUIDE_HTML_HEADERS });
+  // itty-router passes (request, env, ctx); the version stamp needs env.
+  router.get(`/guides/${guide.slug}.html`, async (request, env) => {
+    return new Response(renderGuidePage(guide, { version: (env && env.BUILD_SHA) || 'development' }), { status: 200, headers: GUIDE_HTML_HEADERS });
   });
 });
 
