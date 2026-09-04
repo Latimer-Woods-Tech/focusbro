@@ -2388,6 +2388,36 @@ router.post('/api/acquisition/visit', async (request, env) => {
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
+// ── GUIDE VIEW BEACON (first-party script; the page itself stays inline-free) ──
+// Reads its slug from the script tag's data attribute, sends one anonymous
+// view per tab session, and can never break the page.
+const GUIDE_VIEW_SCRIPT = `(function () {
+  try {
+    var el = document.currentScript || document.querySelector('script[data-slug]');
+    var slug = el && el.getAttribute('data-slug');
+    if (!slug) return;
+    var key = 'focusbro_guide_view:' + slug;
+    if (sessionStorage.getItem(key)) return;
+    var body = JSON.stringify({ slug: slug });
+    var sent = false;
+    if (navigator.sendBeacon) {
+      try { sent = navigator.sendBeacon('/api/content/view', new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
+    }
+    if (!sent) {
+      fetch('/api/content/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
+        .catch(function () {});
+    }
+    sessionStorage.setItem(key, '1');
+  } catch (e) {}
+})();
+`;
+router.get('/guides/view.js', () => new Response(GUIDE_VIEW_SCRIPT, {
+  headers: {
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400',
+  },
+}));
+
 // ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
 // The same guards as the landing visit: JSON only, small, same-origin. The slug
 // is validated against the guides that actually exist, so the ledger can never

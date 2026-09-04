@@ -92,8 +92,10 @@ describe('every guide', () => {
     for (const g of guides) {
       const html = renderGuidePage(g);
       expect(html, `${g.slug}: CTA carries no ref`).toMatch(new RegExp(`class="app-cta" href="/\\?tool=[a-z]+&amp;ref=cf_focusbro_${g.slug}"`));
-      expect(html, `${g.slug}: no view beacon`).toContain("'/api/content/view'");
-      expect(html).toContain(`focusbro_guide_view:`);
+      // The beacon is a FIRST-PARTY script, never inline: the site's CSP is
+      // script-src 'self', and a guide page must stay clean under it.
+      expect(html, `${g.slug}: no view beacon`).toContain(`<script src="/guides/view.js" data-slug="${g.slug}" defer></script>`);
+      expect(html, `${g.slug}: inline beacon would violate script-src 'self'`).not.toContain("'/api/content/view'");
     }
   });
 });

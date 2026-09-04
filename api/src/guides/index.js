@@ -294,25 +294,9 @@ ${processedBody}
 </article>
 </main>
 ${SITE_FOOTER}
-<script>
-(function () {
-  try {
-    var slug = ${JSON.stringify(guide.slug)};
-    var key = 'focusbro_guide_view:' + slug;
-    if (sessionStorage.getItem(key)) return;
-    var body = JSON.stringify({ slug: slug });
-    var sent = false;
-    if (navigator.sendBeacon) {
-      try { sent = navigator.sendBeacon('/api/content/view', new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
-    }
-    if (!sent) {
-      fetch('/api/content/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
-        .catch(function () { /* instrumentation never breaks the page */ });
-    }
-    sessionStorage.setItem(key, '1');
-  } catch (e) { /* private mode — fine */ }
-})();
-</script>
+<!-- One anonymous view per session, recorded by a first-party script so the
+     page stays CSP-clean under script-src 'self' (no inline execution). -->
+<script src="/guides/view.js" data-slug="${esc(guide.slug)}" defer></script>
 </body></html>`;
 }
 
