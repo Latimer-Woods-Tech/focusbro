@@ -86,3 +86,11 @@ bus, and compare mean spectra (mean |Δ dB| across bins) plus temporal flux
 (dB/frame — how alive a texture is; a static bed reads near zero). Two sources
 under ~2 dB apart with low flux will sound the same to a listener regardless of
 what they are named.
+
+**Also measure loudness balance.** Peak dB of a single bin is not loudness —
+integrate power across bins above 100 Hz instead. Measured on production
+2026-09-04 the palette spanned **25.7 dB** (`keyboard` −56.4, `brown` −30.8), so
+switching sources read as the feature breaking rather than as one being quieter.
+Each builder's `level` is now derived from that measurement against a −36 dB
+target, which brought the spread to **1.8 dB**. Re-derive it the same way after
+adding a source; do not guess the number.
