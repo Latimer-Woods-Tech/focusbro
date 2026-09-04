@@ -589,6 +589,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 </div>
 
 <div id="app" class="hidden">
+  <p class="muted hidden" id="anonNote">No account needed. Give your word and I’ll hold it in this browser. <a href="#" id="signinLink">Have an account? Sign in</a></p>
   <div id="firstRun" class="card firstrun hidden">
     <h2>${firstRunHeadingCopy()}</h2>
     <p class="streakmsg">${firstRunBodyCopy()}</p>
@@ -738,6 +739,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <span>${noteSharingToggleLabelCopy()}</span>
     </label>
     <p class="ok hidden" id="noteSharingMsg"></p>
+  </div>
+
+  <div class="card hidden" id="claimCard">
+    <h2>Keep this word everywhere</h2>
+    <p class="muted">Your word lives in this browser for now. Add an email and a password and it follows you to any device — and I can email you a way back in.</p>
+    <form id="claimForm">
+      <label for="claimEmail">Email</label>
+      <input id="claimEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+      <label for="claimPassword">Password</label>
+      <input id="claimPassword" type="password" placeholder="at least 8 characters" autocomplete="new-password" minlength="8" required />
+      <div class="actions"><button type="submit" id="claimSubmit">Save my account</button></div>
+    </form>
+    <p class="err hidden" id="claimErr"></p>
+    <p class="next-step hidden" id="claimMsg"></p>
   </div>
 
   <div class="card" id="consentCard">
@@ -1392,7 +1407,73 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); }
+  // The door, measured. An anonymous visitor is shown the FORM — the first word
+  // creates a guest account on submit (a gesture, rate-limited server-side),
+  // never on page load. A guest sees the claim card; a claimed account does not.
+  var ANONYMOUS = false, GUEST = false;
+  function enterAnonymous() {
+    ANONYMOUS = true; GUEST = false;
+    hide(el('signin')); show(el('app')); show(el('anonNote'));
+    hide(el('signout')); hide(el('consentCard')); hide(el('claimCard')); hide(el('founderMetrics'));
+    updateFirstRun([]);
+    applyPrefill();
+  }
+  function startGuest() {
+    return fetch('/auth/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.b.error || 'Could not start');
+        ANONYMOUS = false; GUEST = true;
+        hide(el('anonNote')); show(el('signout')); show(el('consentCard')); show(el('claimCard'));
+        return res.b;
+      });
+  }
+  // Check-ins are delivered by push. Ask on the gesture that earned it — the
+  // first word — never on load; record what the browser said, so the funnel
+  // shows how many words CAN be followed up. Best-effort: a word is saved
+  // whether or not this succeeds.
+  function urlBase64ToUint8Array(base64) {
+    var padding = '='.repeat((4 - base64.length % 4) % 4);
+    var raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function recordPushPermission(result) {
+    try {
+      fetch('/sync/events', { method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ events: [{ id: 'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), type: 'push_permission', at: new Date().toISOString(), result: result }] }) })
+        .catch(function () {});
+    } catch (e) {}
+  }
+  function ensurePush() {
+    try {
+      if (sessionStorage.getItem('focusbro_push_asked')) return;
+      sessionStorage.setItem('focusbro_push_asked', '1');
+    } catch (e) {}
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { recordPushPermission('unsupported'); return; }
+    if (Notification.permission === 'denied') { recordPushPermission('denied'); return; }
+    navigator.serviceWorker.register('/sw.js')
+      .then(function (reg) {
+        return Notification.requestPermission().then(function (perm) {
+          if (perm !== 'granted') { recordPushPermission(perm === 'denied' ? 'denied' : 'dismissed'); return null; }
+          return fetch('/vapid/public-key').then(function (r) { return r.ok ? r.json() : null; }).then(function (k) {
+            if (!k || !k.public_key) { recordPushPermission('not_configured'); return null; }
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(k.public_key) });
+          });
+        });
+      })
+      .then(function (sub) {
+        if (!sub) return;
+        var label = 'Web';
+        try { label = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || 'Web'; } catch (e) {}
+        return fetch('/notifications/subscribe', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ subscription: sub.toJSON ? sub.toJSON() : sub, device_label: label }) })
+          .then(function (r) { recordPushPermission(r.ok ? 'granted' : 'failed'); });
+      })
+      .catch(function () { recordPushPermission('failed'); });
+  }
+
+  function enterApp(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); }
 
   function metricRate(rate) {
     return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
@@ -1899,7 +1980,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .then(function (res) {
         if (!res.ok) { throw new Error(res.b.error || 'Sign in failed'); }
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp();
+        enterApp({ guest: false });
       })
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
   });
@@ -1917,27 +1998,48 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
     var repeat = el('repeat').value;
-    fetch('/api/commitments', {
-      method: 'POST', headers: authHeaders(),
-      body: JSON.stringify({
-        title: el('title').value.trim(),
-        when_text: whenText,
-        persona: el('persona').value,
-        channel: el('channel').value,
-        recurrence: repeat,
-        timezone: tz,
-        attribution: ATTRIBUTION
+    var payload = {
+      title: el('title').value.trim(),
+      when_text: whenText,
+      persona: el('persona').value,
+      channel: el('channel').value,
+      recurrence: repeat,
+      timezone: tz,
+      attribution: ATTRIBUTION
+    };
+    (ANONYMOUS ? startGuest() : Promise.resolve(null))
+      .then(function () {
+        return fetch('/api/commitments', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       })
-    })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (!res.ok) { var e = el('commitErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
         var m = el('commitMsg'); m.textContent = res.b.message || 'Got it — I’ll check in.'; show(m);
         el('title').value = ''; el('startAt').value = ''; hide(el('carryNote'));
-        loadStreak(); loadList();
+        loadStreak(); loadList(); loadKept(); loadConsent();
+        if (payload.channel === 'push') ensurePush();
       })
-      .catch(function () { var e = el('commitErr'); e.textContent = 'Could not save that commitment. Try again in a moment.'; show(e); });
+      .catch(function (err) { var e = el('commitErr'); e.textContent = (err && err.message) || 'Could not save that commitment. Try again in a moment.'; show(e); });
   });
+
+  el('claimForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    hide(el('claimErr')); hide(el('claimMsg'));
+    fetch('/auth/claim', {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ email: el('claimEmail').value.trim(), password: el('claimPassword').value })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) { var e = el('claimErr'); e.textContent = res.b.error || 'Could not save the account.'; show(e); return; }
+        GUEST = false;
+        el('claimForm').classList.add('hidden');
+        var m = el('claimMsg'); m.textContent = 'Saved. Your word now follows you — check your inbox to confirm your email.'; show(m);
+      })
+      .catch(function () { var e = el('claimErr'); e.textContent = 'Could not save the account. Try again in a moment.'; show(e); });
+  });
+
+  el('signinLink').addEventListener('click', function (ev) { ev.preventDefault(); hide(el('app')); show(el('signin')); });
 
   el('signout').addEventListener('click', function (ev) {
     ev.preventDefault();
@@ -1953,17 +2055,11 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     }).then(toSignin);
   });
 
-  function showSigninDoor() {
-    // Challenge/homepage traffic already gave us a word. Put new people directly
-    // on account creation; returning people can still switch to sign-in in one tap.
-    if (PREFILL_TASK) {
-      mode = 'register';
-      el('signinTitle').textContent = 'Create an account';
-      el('signinSubmit').textContent = 'Create account';
-      el('toggleMode').textContent = 'I already have an account';
-      el('password').setAttribute('autocomplete', 'new-password');
-    }
-    toSignin();
+  // No session: the FORM, not a password. The first word creates the guest
+  // account on submit (see startGuest). Returning people take the sign-in link.
+  function showSigninDoor() { enterAnonymous(); }
+  function enterFromSession(response) {
+    return response.json().then(function (body) { enterApp(body); }).catch(function () { enterApp(null); });
   }
 
   function restoreSession() {
@@ -1975,20 +2071,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       }).then(function (response) {
         if (!response.ok) throw new Error('Legacy exchange rejected');
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp();
+        enterApp({ guest: false });
       }).catch(function () {
         // A rejected legacy token is no longer useful or safe to retain. The
         // cookie check still recovers a session created in another tab.
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
         fetch('/auth/session').then(function (response) {
-          if (response.ok) enterApp(); else showSigninDoor();
+          if (response.ok) enterFromSession(response); else showSigninDoor();
         }).catch(showSigninDoor);
       });
       return;
     }
 
     fetch('/auth/session').then(function (response) {
-      if (response.ok) enterApp(); else showSigninDoor();
+      if (response.ok) enterFromSession(response); else showSigninDoor();
     }).catch(showSigninDoor);
   }
 

@@ -188,8 +188,12 @@ describe('renderMePage', () => {
     expect(html).toContain("get('when')");
     expect(html).toContain("['source', 'campaign', 'content', 'challenge']");
     expect(html).toContain('attribution: ATTRIBUTION');
-    expect(html).toContain("if (PREFILL_TASK)");
-    expect(html).toContain("mode = 'register'");
+    expect(html).toContain("if (!PREFILL_TASK) return;");
+    // The door moved (2026-09-04): no session shows the FORM, prefilled — the
+    // first word creates the guest account on submit, never a password first.
+    expect(html).toContain('function showSigninDoor() { enterAnonymous(); }');
+    expect(html).toMatch(/function enterAnonymous\(\) \{[\s\S]*applyPrefill\(\);/);
+    expect(html).not.toContain("mode = 'register';\n      el('signinTitle').textContent = 'Create an account'");
   });
 
   it('is a self-contained, noindex HTML document', () => {

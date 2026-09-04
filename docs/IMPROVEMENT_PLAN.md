@@ -333,6 +333,17 @@ category with an explicit unknown value.
 | D1 healthy, D7 <15% | Improve task sizing, weekly proof, and return cadence. |
 | D1/D7 pass | Unlock the smallest referral experiment. |
 
+**Measured 2026-09-04 (D1 ledger, not a dashboard):** 928 recorded visits,
+at most four registration attempts, two accounts, zero commitments — landing
+activation effectively 0%. The hook already collected the word on the homepage;
+the wall was the email-and-password door on `/me/` in front of the first word.
+Response taken (R-312): the door moved, not the mechanic — a guest account is
+created on the first word, push is asked for on the same gesture, the account
+is claimed later. Push had also never been subscribed by any code path
+(`push_subscriptions` empty), so even a registered word would have been
+delivered to nothing; the same slice wires it. Next read: the funnel events
+`guest_started` → `commitment_created` → `push_permission` after real visits.
+
 For quiet-user learning, ask one optional one-tap question: task too large,
 wrong time, wrong channel, wrong tone, or reminders not wanted. One response is
 enough; do not create a survey funnel.
