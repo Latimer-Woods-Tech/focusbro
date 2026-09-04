@@ -3983,14 +3983,23 @@ const SOUND_BUILDERS = {
   wind: function () {
     const ctx = getAudioCtx();
     const s = noiseSource('pink');
-    const bp = filt('bandpass', 420, 1.6);
+    const bp = filt('bandpass', 260, 0.9);
     const bus = ctx.createGain();
     s.connect(bp); bp.connect(bus);
     bus.gain.value = 0.6;
+    // Real wind is a low moan AND a high hiss. Without the hiss this sat inside
+    // the cafe formant range and the two measured 1.6 dB apart.
+    const hiss = noiseSource('white');
+    const hf = filt('highpass', 5200);
+    const hg = ctx.createGain(); hg.gain.value = 0.12;
+    hiss.connect(hf); hf.connect(hg); hg.connect(bus);
     // A random walk on the resonance is what makes wind read as wind rather
     // than as a filter setting.
     addJob('wind', 1.2, 3.4, function (at) {
-      const target = 240 + Math.random() * 900;
+      const target = 130 + Math.random() * 470;
+      hg.gain.cancelScheduledValues(at);
+      hg.gain.setValueAtTime(hg.gain.value, at);
+      hg.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.22, at + 1.5 + Math.random() * 2);
       bp.frequency.cancelScheduledValues(at);
       bp.frequency.setValueAtTime(bp.frequency.value, at);
       bp.frequency.linearRampToValueAtTime(target, at + 1.6 + Math.random() * 2.2);
