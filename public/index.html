@@ -6268,6 +6268,11 @@ function dismissOnboarding() {
     const value = campaignValue(incoming, key);
     if (value) attribution[key] = value;
   }
+  // A guide's CTA carries `?ref=cf_focusbro_<slug>` (Content Factory §7) so the
+  // piece that brought this person here gets the credit. Strictly shaped; the
+  // server drops anything else.
+  const ref = (incoming.get('ref') || '').trim();
+  if (/^cf_focusbro_[a-z0-9-]{1,80}$/.test(ref)) attribution.ref = ref;
 
   // One anonymous count per tab session and acquisition tuple. No task text,
   // account data, fingerprint, or persistent visitor identifier leaves the page.

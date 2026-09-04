@@ -22,7 +22,7 @@ import {
 } from './account-recovery.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
-import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit } from './events.js';
+import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordGuideView } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -2388,6 +2388,61 @@ router.post('/api/acquisition/visit', async (request, env) => {
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
+// ── GUIDE VIEW BEACON (first-party script; the page itself stays inline-free) ──
+// Reads its slug from the script tag's data attribute, sends one anonymous
+// view per tab session, and can never break the page.
+const GUIDE_VIEW_SCRIPT = `(function () {
+  try {
+    var el = document.currentScript || document.querySelector('script[data-slug]');
+    var slug = el && el.getAttribute('data-slug');
+    if (!slug) return;
+    var key = 'focusbro_guide_view:' + slug;
+    if (sessionStorage.getItem(key)) return;
+    var body = JSON.stringify({ slug: slug });
+    var sent = false;
+    if (navigator.sendBeacon) {
+      try { sent = navigator.sendBeacon('/api/content/view', new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
+    }
+    if (!sent) {
+      fetch('/api/content/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
+        .catch(function () {});
+    }
+    sessionStorage.setItem(key, '1');
+  } catch (e) {}
+})();
+`;
+router.get('/guides/view.js', () => new Response(GUIDE_VIEW_SCRIPT, {
+  headers: {
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400',
+  },
+}));
+
+// ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
+// The same guards as the landing visit: JSON only, small, same-origin. The slug
+// is validated against the guides that actually exist, so the ledger can never
+// be padded with junk. Anonymous by design — the slug is the whole payload.
+const GUIDE_SLUGS = new Set(guides.map((g) => g.slug));
+router.post('/api/content/view', async (request, env) => {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
+  }
+  const contentLength = Number(request.headers.get('content-length')) || 0;
+  if (contentLength > 512) return jsonResponse({ error: 'View payload is too large' }, 413);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
+      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  const slug = body && typeof body.slug === 'string' ? body.slug : '';
+  if (!GUIDE_SLUGS.has(slug)) return jsonResponse({ error: 'Unknown guide' }, 404);
+  const recorded = await recordGuideView(env, slug);
+  return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
+});
+
 // ── MANUAL CRON TRIGGER (Contender #10 · R-205) ──
 // The same delivery pass the scheduled() handler runs, exposed for verification.
 // Guarded by a shared secret; when CRON_TRIGGER_KEY is unset the route 404s so
@@ -2731,6 +2786,9 @@ router.get('/about.html', async () => {
 <p>The design follows a simple idea from attention research: focus is a finite resource that is spent by sustained effort and restored by deliberate rest. Instead of trying to concentrate for hours at a stretch, FocusBro structures work into timed intervals with real breaks in between, and gives you a short menu of ways to reset &mdash; a few paced breaths, a brief walk, or a moment of grounding &mdash; before the next interval begins. The tools are intentionally short and repeatable, because a practice you will actually do beats an ideal routine you abandon.</p>
 
 <p>We keep the app calm and low-friction on purpose. There are no streak-shaming mechanics, no accounts required for the core tools, and your notes and history stay in your browser by default. The goal is to support your attention, not to compete for it.</p>
+
+<h2 id="author">Who writes the guides</h2>
+<p>The guides are written by <strong>Adrian Perry</strong>, the founder of FocusBro. He built it for the reason on the front page: he has ADHD, built reminders, and swiped them away. Every guide cites the studies it leans on in a Sources section at the end, with a link to each paper and the caveat we think you should know &mdash; including the studies that did not hold up. Nothing here is medical advice; FocusBro does not treat ADHD or any condition.</p>
 
 <h2>Who builds it</h2>
 <p>FocusBro is built and maintained by Latimer Woods Tech. If you have feedback, a bug report, or a request for a tool you wish existed, we would like to hear it &mdash; see the <a href="/contact.html">Contact</a> page. To understand how we handle data and advertising, read our <a href="/privacy.html">Privacy Policy</a>.</p>
