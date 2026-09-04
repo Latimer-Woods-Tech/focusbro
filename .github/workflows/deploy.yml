@@ -91,6 +91,22 @@ jobs:
           [ "$ok" = "1" ] || { echo "::error::$s still carries a bundler helper, fails to parse, or is not 200 after propagation"; exit 1; }
         done
 
+    - name: Verify the CSP is enforced on a guide page and reported on the app shell
+      # G299: the policy is enforced on the guides layer (no inline script
+      # there) and report-only on the app shell. If a deploy ever flips that,
+      # ads or the app break with nothing visible to /health — so read the
+      # live headers.
+      run: |
+        set -euo pipefail
+        g=$(curl -sI -H 'Cache-Control: no-cache' https://focusbro.net/guides/box-breathing.html)
+        echo "$g" | grep -qi '^content-security-policy: ' || { echo "::error::guide page is not enforcing CSP"; exit 1; }
+        if echo "$g" | grep -qi '^content-security-policy-report-only:'; then echo "::error::guide page still carries a report-only policy"; exit 1; fi
+        echo "$g" | grep -i '^content-security-policy: ' | grep -q "script-src 'self' https://pagead2.googlesyndication.com" || { echo "::error::enforced policy lost the ad loader host"; exit 1; }
+        h=$(curl -sI -H 'Cache-Control: no-cache' https://focusbro.net/)
+        echo "$h" | grep -qi '^content-security-policy-report-only:' || { echo "::error::app shell lost its report-only policy"; exit 1; }
+        if echo "$h" | grep -qi '^content-security-policy: '; then echo "::error::app shell is enforcing CSP — the legacy inline scripts would be blocked"; exit 1; fi
+        echo "CSP: enforced on the guide page, report-only on the app shell"
+
     - name: Purge Cloudflare Cache
       run: |
         # Determine which API token to use

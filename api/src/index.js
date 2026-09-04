@@ -68,36 +68,68 @@ function responseWithoutBody(response) {
 // contradicts the site's own free-tier revenue model: `script-src 'self'`
 // blocks the loader and every ad frame dies the moment CSP is enforced — with
 // no signal visible to curl, to CI, or to a /health probe.
-const AD_SCRIPT_HOSTS = 'https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com';
+// The ad-traffic-quality hosts appear in every directive AdSense reaches them
+// through: sodar2.js is a SCRIPT from ep2, its probe an IMAGE from ep1 — both
+// observed as report-only violations on a live guide page (2026-09-04).
+const AD_SCRIPT_HOSTS = 'https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com https://ep2.adtrafficquality.google';
 const AD_FRAME_HOSTS = 'https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep2.adtrafficquality.google';
 const AD_CONNECT_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com';
-const AD_IMG_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com';
+const AD_IMG_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google';
+// Cloudflare Web Analytics is injected at the ZONE (not by this code); its
+// beacon is a script from static.cloudflareinsights.com that reports to
+// cloudflareinsights.com. Allowlisted rather than switched off: the zone
+// setting is a founder-visible choice, and blocking it here would silently
+// break a measurement nobody in this repo can see.
+const ANALYTICS_SCRIPT_HOSTS = 'https://static.cloudflareinsights.com';
+const ANALYTICS_CONNECT_HOSTS = 'https://cloudflareinsights.com';
 
-const CONTENT_SECURITY_POLICY_REPORT_ONLY = [
+const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  `script-src 'self' ${AD_SCRIPT_HOSTS}`,
+  `script-src 'self' ${AD_SCRIPT_HOSTS} ${ANALYTICS_SCRIPT_HOSTS}`,
   `frame-src ${AD_FRAME_HOSTS}`,
-  "style-src 'self'",
+  // 'unsafe-inline' for STYLES only, and deliberately: the guide shell inlines
+  // its stylesheet, and AdSense auto ads set style attributes on the elements
+  // they inject — neither can be nonced from here. Inline style is not the
+  // injection class this policy exists to stop; script-src stays strict, with
+  // no 'unsafe-inline' and no 'unsafe-eval', which is what makes enforcing
+  // worth anything.
+  "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: ${AD_IMG_HOSTS}`,
   "font-src 'self'",
-  `connect-src 'self' ${AD_CONNECT_HOSTS}`,
+  `connect-src 'self' ${AD_CONNECT_HOSTS} ${ANALYTICS_CONNECT_HOSTS}`,
   "form-action 'self'",
 ].join('; ');
 
+// Where the policy is ENFORCED versus only reported. The guides layer and the
+// Index run no inline script — every script there is first-party under
+// /guides/*.js — so on those surfaces a violation is a bug, and the browser
+// should refuse it. The app shell (/) and the signed-in pages still carry the
+// legacy inline scripts that Stage 3 is to extract; there the same policy is
+// report-only, so a regression is visible without breaking the app.
+const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*)$/;
+export function cspModeFor(url) {
+  let pathname = '';
+  try { pathname = new URL(url).pathname; } catch { pathname = ''; }
+  return CSP_ENFORCED_PATH.test(pathname) ? 'enforce' : 'report-only';
+}
+
 // One response boundary keeps pages, APIs, redirects, and fallbacks on the same
-// browser-security baseline. CSP is report-only until Stage 3 extracts the
-// legacy inline scripts/styles; the other policies are safe to enforce now.
-export function withSecurityHeaders(response) {
+// browser-security baseline. The CSP is the SAME string on every response; only
+// whether the browser enforces it or reports it depends on the surface.
+export function withSecurityHeaders(response, request) {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()');
-  headers.set('Content-Security-Policy-Report-Only', CONTENT_SECURITY_POLICY_REPORT_ONLY);
+  headers.delete('Content-Security-Policy');
+  headers.delete('Content-Security-Policy-Report-Only');
+  const mode = cspModeFor(request && request.url);
+  headers.set(mode === 'enforce' ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only', CONTENT_SECURITY_POLICY);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -3695,17 +3727,17 @@ export default {
   async fetch(request, env, _ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
-    if (httpsRedirect) return withSecurityHeaders(httpsRedirect);
+    if (httpsRedirect) return withSecurityHeaders(httpsRedirect, request);
 
     const csrfRejection = rejectCrossSiteCookieMutation(request);
-    if (csrfRejection) return withSecurityHeaders(csrfRejection);
+    if (csrfRejection) return withSecurityHeaders(csrfRejection, request);
 
     // ✅ BEST PRACTICE: Single unified router with all endpoints
     // Call the router's fetch method which handles request routing
     const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
     const response = await router.fetch(routeRequest, runtimeEnv);
     const finalResponse = request.method === 'HEAD' ? responseWithoutBody(response) : response;
-    return withSecurityHeaders(finalResponse);
+    return withSecurityHeaders(finalResponse, request);
   },
 
   // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──
