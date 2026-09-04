@@ -5,7 +5,7 @@
  * under it. The Worker routes and the e2e smoke server both import from here so
  * a browser test exercises exactly the bytes production serves.
  */
-import { remainingMg, hoursUntil, hoursBetween, HALF_LIFE_DEFAULT_H, HALF_LIFE_MIN_H, HALF_LIFE_MAX_H } from './caffeine-math.js';
+import { CAFFEINE_MATH_SRC, HALF_LIFE_DEFAULT_H, HALF_LIFE_MIN_H, HALF_LIFE_MAX_H } from './caffeine-math.js';
 
 export const GUIDE_VIEW_SCRIPT = `(function () {
   try {
@@ -28,13 +28,13 @@ export const GUIDE_VIEW_SCRIPT = `(function () {
 })();
 `;
 
-// The math is embedded from its module source, so the client can never drift
-// from what the tests assert.
+// The math is embedded as the SAME STRING the module builds its own exports
+// from — data, which survives the Worker bundler. Never Function.toString():
+// the bundler rewrites declarations with its own `__name` helper and the
+// reflected source stops working in a browser (learned in production).
 export const CAFFEINE_SCRIPT = `(function () {
   var HALF_LIFE_DEFAULT_H = ${HALF_LIFE_DEFAULT_H}, HALF_LIFE_MIN_H = ${HALF_LIFE_MIN_H}, HALF_LIFE_MAX_H = ${HALF_LIFE_MAX_H};
-  ${remainingMg.toString()}
-  ${hoursUntil.toString()}
-  ${hoursBetween.toString()}
+  ${CAFFEINE_MATH_SRC}
   function $(id) { return document.getElementById(id); }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function fmtHours(h) { var m = Math.round(h * 60); var hh = Math.floor(m / 60), mm = m % 60; return hh + ' h' + (mm ? ' ' + pad(mm) + ' min' : ''); }
