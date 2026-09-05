@@ -6364,7 +6364,11 @@ function dismissOnboarding() {
       fetch('/api/acquisition/visit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attribution }),
+        // navigator.webdriver is true only under an automation framework
+        // (Playwright/Puppeteer/Selenium) — a coarse, privacy-safe signal that
+        // keeps synthetic-monitor renders out of the qualified-visit denominator
+        // the activation decision tree reads. A real browser reports false.
+        body: JSON.stringify({ attribution, wd: navigator.webdriver === true }),
         keepalive: true
       }).then((response) => {
         if (response.ok) sessionStorage.setItem(visitKey, '1');

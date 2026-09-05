@@ -226,6 +226,29 @@ describe('recordAcquisitionVisit — anonymous campaign denominator', () => {
     await recordAcquisitionVisit({ DB: legacy }, { source: 'homepage' });
     expect(JSON.parse(legacy.runs[0].params[2])).toEqual({ attribution: { source: 'homepage' } });
   });
+
+  it('classifies a clean-UA synthetic monitor as bot when the beacon reports webdriver', async () => {
+    // Proof-of-rejection: a visit that would otherwise count as a QUALIFIED human
+    // (real-browser UA, no CF score) is kept OUT of the denominator when the
+    // beacon's navigator.webdriver flag is set — the exact pollution the D1
+    // read surfaced (machine-cadence bot:0 bursts) that the UA/CF signals miss.
+    const monitor = makeDB();
+    await recordAcquisitionVisit({ DB: monitor }, { source: 'homepage' },
+      { userAgent: HUMAN_UA, clientAutomated: true });
+    expect(JSON.parse(monitor.runs[0].params[2]).bot).toBe(1);
+
+    // The same human profile without the flag stays qualified — the flag is what
+    // separates the two, so the classifier can't be silently excluding humans.
+    const human = makeDB();
+    await recordAcquisitionVisit({ DB: human }, { source: 'homepage' },
+      { userAgent: HUMAN_UA, clientAutomated: false });
+    expect(JSON.parse(human.runs[0].params[2]).bot).toBe(0);
+
+    // The flag alone (no UA/cf keys) is enough context to classify.
+    const flagOnly = makeDB();
+    await recordAcquisitionVisit({ DB: flagOnly }, { source: 'homepage' }, { clientAutomated: true });
+    expect(JSON.parse(flagOnly.runs[0].params[2]).bot).toBe(1);
+  });
 });
 
 describe('isBotVisitor — the qualified-visit classifier', () => {
@@ -256,6 +279,22 @@ describe('isBotVisitor — the qualified-visit classifier', () => {
     // A high score confirms a human; an absent score falls back to the UA.
     expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 95 } })).toBe(false);
     expect(isBotVisitor(HUMAN_UA, { botManagement: {} })).toBe(false);
+  });
+  it('honors a client navigator.webdriver=true flag over an otherwise-human profile', () => {
+    // The class the UA/CF signals miss: a JS automation framework driving a
+    // headed browser with a clean, spoofed real-browser UA and even a human CF
+    // score. The webdriver flag is the only tell, so it must win.
+    expect(isBotVisitor(HUMAN_UA, null, true)).toBe(true);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 95 } }, true)).toBe(true);
+  });
+  it('ignores a falsy or absent webdriver flag and falls back to server signals', () => {
+    // Only a strict boolean true is honored — a real browser reports false (or
+    // the field is absent on an older beacon), and must stay classified by UA/CF.
+    expect(isBotVisitor(HUMAN_UA, null, false)).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, null, undefined)).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, null, 'true')).toBe(false); // not the boolean
+    // A falsy flag does not rescue a UA/CF-flagged bot.
+    expect(isBotVisitor('curl/8.4.0', null, false)).toBe(true);
   });
 });
 
