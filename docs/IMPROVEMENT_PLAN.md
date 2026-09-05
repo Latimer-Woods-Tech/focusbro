@@ -344,6 +344,19 @@ is claimed later. Push had also never been subscribed by any code path
 delivered to nothing; the same slice wires it. Next read: the funnel events
 `guest_started` → `commitment_created` → `push_permission` after real visits.
 
+**Instrumented 2026-09-05 (`word_offered`):** the read above was unreadable
+because the homepage "Give my word" gesture is a client-side redirect to
+`/me/` — it emitted nothing, so the funnel collapsed `acquisition_visit` (936)
+→ `guest_started` (0) in one blind step, and a broken landing→`/me/` handoff
+would look identical to a hook nobody engaged. `word_offered` now records that
+gesture (coarse start-time bucket + acquisition attribution only, never the
+task text) before the redirect. `computeAcquisitionMetrics` exposes two rates
+per attribution tuple: `landing_engagement_rate` (`word_offered` ÷ visits, the
+hook) and `offer_conversion_rate` (`commitment_created` ÷ `word_offered`, the
+`/me/` handoff). Read them together after the next ≥20 qualified visits: a low
+engagement rate says rewrite the hook/CTA; a healthy engagement rate with a low
+conversion rate says the `/me/` guest door is the bottleneck, not the copy.
+
 For quiet-user learning, ask one optional one-tap question: task too large,
 wrong time, wrong channel, wrong tone, or reminders not wanted. One response is
 enough; do not create a survey funnel.

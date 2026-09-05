@@ -6376,11 +6376,29 @@ function dismissOnboarding() {
     console.warn('Acquisition visit tracking unavailable:', error && error.message);
   }
 
+  // The four fixed start-time options map to coarse buckets; the server records
+  // the bucket, never the task text. Stage-4 "time-to-start bucket" cohort dim.
+  const WHEN_BUCKETS = {
+    'in 10 minutes': 't-10m', 'in 30 minutes': 't-30m',
+    'in 1 hour': 't-1h', 'tomorrow at 9am': 't-tomorrow'
+  };
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const task = document.getElementById('quickWordTask').value.trim();
     const when = document.getElementById('quickWordWhen').value;
     if (!task) return;
+    // Record the offer BEFORE the redirect so the funnel can split
+    // visit → word_offered → guest_started. Fire-and-forget with keepalive so
+    // it survives the navigation and never delays it; no task text is sent.
+    try {
+      fetch('/api/acquisition/word-offered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attribution, when: WHEN_BUCKETS[when] || 'other' }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (error) { /* instrumentation must never block the gesture */ }
     const destination = new URL('/me/', window.location.origin);
     destination.searchParams.set('task', task);
     destination.searchParams.set('when', when);
