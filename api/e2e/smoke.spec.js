@@ -14,8 +14,13 @@ test.describe('FocusBro client smoke', () => {
       { waitUntil: 'domcontentloaded' });
     const visit = await visitRequest;
     expect(visit.method()).toBe('POST');
+    // The beacon reports navigator.webdriver (R-316) so a JS-executing synthetic
+    // monitor stays out of the qualified-visit denominator. This suite drives a
+    // real automation framework (Playwright), so webdriver is true here — the
+    // classifier will read this exact render as automated, exactly as intended.
     expect(visit.postDataJSON()).toEqual({
       attribution: { source: 'tiktok', campaign: 'landing-01', content: 'demo-01' },
+      wd: true,
     });
 
     // Renders

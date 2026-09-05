@@ -152,7 +152,7 @@ const BOT_UA_PATTERN = /bot\b|bot\/|crawl|spider|slurp|scrape|monitor|uptime|pin
  * offers from 900 humans (rewrite the hook). This marks the obvious non-humans so
  * the rate has a denominator the decision tree can actually be read against.
  *
- * Two signals, most-trusted first:
+ * Three signals, most-trusted first:
  *  1. Cloudflare Bot Management, when the zone has it: `cf.botManagement.score`
  *     runs 1–99 (1 = certainly automated, 99 = certainly human); ≤30 is
  *     Cloudflare's documented "likely automated" band, and `verifiedBot` is a
@@ -160,14 +160,25 @@ const BOT_UA_PATTERN = /bot\b|bot\/|crawl|spider|slurp|scrape|monitor|uptime|pin
  *     only when actually present.
  *  2. A User-Agent substring heuristic — the always-available fallback. An empty
  *     or missing UA is treated as automated (a real browser always sends one).
+ *  3. A client-reported automation flag (`navigator.webdriver === true`, passed
+ *     from the visit beacon). This catches the one class the first two miss: a
+ *     JS-executing automation framework (Playwright/Puppeteer/Selenium synthetic
+ *     monitor) driving a headed browser with a spoofed, clean real-browser UA and
+ *     no CF Bot Management score — indistinguishable from a human by UA/CF alone,
+ *     yet it fires the beacon (so it ran JS) and, unless it also hides webdriver,
+ *     announces itself here. Client-supplied and spoofable, so it is advisory —
+ *     one more coarse denominator filter, exactly like the UA heuristic, never a
+ *     security control. Only ever a boolean is honored; nothing else is stored.
  *
  * Privacy: the RESULT is a single boolean; the User-Agent itself is never stored.
  *
  * @param {string|null|undefined} userAgent  request User-Agent header
  * @param {object|null|undefined} cf  Cloudflare `request.cf`, when present
+ * @param {boolean|null|undefined} clientAutomated  client-reported `navigator.webdriver`
  * @returns {boolean} true iff the visit looks automated (a non-qualified visit)
  */
-export function isBotVisitor(userAgent, cf) {
+export function isBotVisitor(userAgent, cf, clientAutomated) {
+  if (clientAutomated === true) return true;
   const bm = cf && typeof cf === 'object' ? cf.botManagement : null;
   if (bm && typeof bm === 'object') {
     if (bm.verifiedBot === true) return true;
@@ -181,19 +192,21 @@ export function isBotVisitor(userAgent, cf) {
 /**
  * Record a privacy-minimal landing visit: attribution only, no visitor ID.
  *
- * `meta` carries request context ({ userAgent, cf }) so the visit can be
- * classified human vs. automated and the qualified-visit denominator (see
- * isBotVisitor) is trustworthy. It is optional: without it — internal callers,
- * older code, unit fixtures — the visit stays UNKNOWN (no `bot` field), and the
- * denominator treats unknown as qualified, so a pre-classification history is
- * never retroactively discarded.
+ * `meta` carries request context ({ userAgent, cf, clientAutomated }) so the
+ * visit can be classified human vs. automated and the qualified-visit denominator
+ * (see isBotVisitor) is trustworthy. It is optional: without it — internal
+ * callers, older code, unit fixtures — the visit stays UNKNOWN (no `bot` field),
+ * and the denominator treats unknown as qualified, so a pre-classification
+ * history is never retroactively discarded. `clientAutomated` is the beacon's
+ * `navigator.webdriver` flag; a bare beacon that omits it still classifies from
+ * the server-side UA/CF signals.
  */
 export async function recordAcquisitionVisit(env, value, meta = null) {
   const attribution = sanitizeAttribution(value);
   if (!attribution.source) attribution.source = 'direct';
   const data = { attribution };
-  if (meta && typeof meta === 'object' && ('userAgent' in meta || 'cf' in meta)) {
-    data.bot = isBotVisitor(meta.userAgent, meta.cf) ? 1 : 0;
+  if (meta && typeof meta === 'object' && ('userAgent' in meta || 'cf' in meta || 'clientAutomated' in meta)) {
+    data.bot = isBotVisitor(meta.userAgent, meta.cf, meta.clientAutomated) ? 1 : 0;
   }
   return recordEvent(env, {
     type: EVENTS.ACQUISITION_VISIT,

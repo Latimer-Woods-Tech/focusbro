@@ -2527,10 +2527,14 @@ router.post('/api/acquisition/visit', async (request, env) => {
   // Pass request context so the visit is classified human vs. automated — the
   // qualified-visit denominator the activation decision tree is read against
   // (see isBotVisitor in events.js). The result is a single boolean on the
-  // event; the User-Agent itself is never stored.
+  // event; the User-Agent itself is never stored. `body.wd` is the beacon's
+  // navigator.webdriver flag — it catches a JS-executing automation framework
+  // (synthetic monitor) that carries a clean, spoofed real-browser UA and so
+  // slips past the UA/CF signals; only a strict boolean is honored.
   const recorded = await recordAcquisitionVisit(env, body.attribution, {
     userAgent: request.headers.get('user-agent'),
     cf: request.cf || null,
+    clientAutomated: body.wd === true,
   });
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
