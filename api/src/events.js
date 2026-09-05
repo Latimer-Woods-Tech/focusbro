@@ -614,6 +614,89 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
 }
 
 /**
+ * The number of QUALIFIED (human) landing visits the activation decision tree
+ * needs before its first row may rule — `docs/IMPROVEMENT_PLAN.md`
+ * § Founding-cohort protocol step 4 ("Review the scorecard after every 20
+ * qualified visits") and § Decision tree row 1 ("Landing activation <10% after
+ * 20 qualified visits"). Below this count the read is not computable, so no
+ * hook/CTA change should be made on it.
+ */
+export const ACTIVATION_QUALIFIED_GATE = 20;
+
+/**
+ * Roll the per-attribution `acquisition` rows (from computeAcquisitionMetrics)
+ * up into the ONE readout the activation decision tree is gated on, so
+ * "N of 20 qualified visits" and the resulting verdict are legible from the
+ * 401-gated internal metrics endpoint without hand-querying D1.
+ *
+ * The verdict encodes ONLY the thresholds the plan states verbatim — the
+ * 20-qualified-visit gate and the <10% / 10–25% / >25% landing-activation bands
+ * (`docs/IMPROVEMENT_PLAN.md` § Decision tree). The driving number is
+ * `landing_engagement_rate` (words offered ÷ qualified visits): the plan's
+ * 2026-09-05 note settles that a low engagement rate is the row-1 "rewrite the
+ * hook/CTA" signal. `offer_conversion_rate` is carried alongside — un-thresholded
+ * because the plan gives it no number — so the documented "healthy engagement +
+ * low conversion → the /me/ door, not the hook" read stays legible to the reader.
+ *
+ * Pure and dependency-free: it sums fields the caller already classified
+ * (qualified vs bot, per the R-315/R-316 denominator), so it never re-queries and
+ * never re-decides what counts as human. No user-facing surface — internal
+ * observability only, so the anti-shame design law does not apply.
+ */
+export function computeActivationGate(acquisition = [], opts = {}) {
+  const threshold = Number.isFinite(opts.threshold) && opts.threshold > 0
+    ? Math.floor(opts.threshold)
+    : ACTIVATION_QUALIFIED_GATE;
+  const rows = Array.isArray(acquisition) ? acquisition : [];
+
+  let qualifiedVisits = 0;
+  let botVisits = 0;
+  let wordsOffered = 0;
+  let commitmentsCreated = 0;
+  let users = 0;
+  for (const r of rows) {
+    qualifiedVisits += Number(r && r.qualified_visits) || 0;
+    botVisits += Number(r && r.bot_visits) || 0;
+    wordsOffered += Number(r && r.words_offered) || 0;
+    commitmentsCreated += Number(r && r.commitments_created) || 0;
+    users += Number(r && r.users) || 0;
+  }
+
+  const readable = qualifiedVisits >= threshold;
+  const landingEngagementRate = qualifiedVisits ? round2(wordsOffered / qualifiedVisits) : null;
+  const offerConversionRate = wordsOffered ? round2(commitmentsCreated / wordsOffered) : null;
+  const activationRate = qualifiedVisits ? round2(users / qualifiedVisits) : null;
+
+  // Verdict — every band is verbatim from the decision tree; nothing invented.
+  let verdict;
+  if (!readable || landingEngagementRate === null) {
+    verdict = 'insufficient_data';
+  } else if (landingEngagementRate < 0.1) {
+    verdict = 'rewrite_hook'; // tree row 1: <10% → rewrite the hook/CTA
+  } else if (landingEngagementRate <= 0.25) {
+    verdict = 'reduce_friction'; // tree row 2: 10–25% → clarity + auth/consent friction
+  } else {
+    verdict = 'hook_healthy'; // tree row 3 entry: >25% → the hook works; read on down the funnel
+  }
+
+  return {
+    threshold,
+    qualified_visits: qualifiedVisits,
+    bot_visits: botVisits,
+    qualified_visits_remaining: Math.max(0, threshold - qualifiedVisits),
+    words_offered: wordsOffered,
+    commitments_created: commitmentsCreated,
+    // The hook (row-1 driver) and the /me/ handoff, side by side so the reader
+    // can tell "rewrite the hook" from "fix the door" without another query.
+    landing_engagement_rate: landingEngagementRate,
+    offer_conversion_rate: offerConversionRate,
+    activation_rate: activationRate,
+    readable,
+    verdict,
+  };
+}
+
+/**
  * The exact Phase 2 decision-gate measures. These are deliberately separate
  * from vanity totals: depth per activated person, whether recipients answer,
  * and whether a moved word is kept on its next attempt.
@@ -808,6 +891,7 @@ export async function computeLoopMetrics(env, opts = {}) {
       reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
     },
     acquisition: [],
+    activation_gate: computeActivationGate([]),
   };
 
   // Counts by type in the window.
@@ -907,6 +991,10 @@ export async function computeLoopMetrics(env, opts = {}) {
     retention,
     decision,
     acquisition,
+    // The single "N of 20 qualified visits" activation readout + documented
+    // decision-tree verdict, rolled up from the per-tuple acquisition rows so
+    // the gate is legible from /api/internal/metrics without a D1 query.
+    activation_gate: computeActivationGate(acquisition),
   };
 }
 
