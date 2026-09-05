@@ -44,9 +44,21 @@ export const EVENTS = Object.freeze({
   CHECKIN_START_HELP: 'checkin_start_help',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
-  // The activation funnel (docs/IMPROVEMENT_PLAN.md decision tree): a guest
-  // account created on the first word, that account later claimed with an
-  // email, and what the browser said when asked to deliver check-ins.
+  // The activation funnel (docs/IMPROVEMENT_PLAN.md decision tree): the word
+  // offered on the landing page, a guest account created on the first word,
+  // that account later claimed with an email, and what the browser said when
+  // asked to deliver check-ins.
+  //
+  // WORD_OFFERED is the missing rung between `acquisition_visit` and
+  // `guest_started`: the homepage "Give my word" gesture is a client-side
+  // redirect to `/me/`, so until now the funnel collapsed 936 visits → 0 guests
+  // in one unreadable step. Recording the offer splits that into two — did the
+  // hook attract (visit → word_offered) vs. did the /me/ handoff convert
+  // (word_offered → guest_started) — which is exactly the read the decision
+  // tree needs to choose between "rewrite the hook" and "reduce friction".
+  // Privacy-minimal like the landing visit: the coarse start-time bucket and
+  // acquisition attribution only — never the task text.
+  WORD_OFFERED: 'word_offered',
   GUEST_STARTED: 'guest_started',
   ACCOUNT_CLAIMED: 'account_claimed',
   PUSH_PERMISSION: 'push_permission',
@@ -130,6 +142,39 @@ export async function recordAcquisitionVisit(env, value) {
   return recordEvent(env, {
     type: EVENTS.ACQUISITION_VISIT,
     data: { attribution },
+  });
+}
+
+/**
+ * The four start-time buckets the homepage offers ("time-to-start bucket" in
+ * the Stage-4 cohort dimensions). The values come from a fixed `<select>`, not
+ * free text, so this is a closed vocabulary — anything else is recorded as
+ * `other` rather than trusted. Never the task itself.
+ */
+export const WORD_WHEN_BUCKETS = Object.freeze(['t-10m', 't-30m', 't-1h', 't-tomorrow', 'other']);
+
+/** Coerce a submitted `when` to one of WORD_WHEN_BUCKETS; unknown → `other`. */
+export function normalizeWhenBucket(value) {
+  return typeof value === 'string' && WORD_WHEN_BUCKETS.includes(value) && value !== 'other'
+    ? value
+    : 'other';
+}
+
+/**
+ * Record the landing "Give my word" gesture — the person committing intent on
+ * the homepage, before the `/me/` redirect creates the guest account. This is
+ * the funnel rung between `acquisition_visit` and `guest_started`; see the
+ * WORD_OFFERED note on EVENTS. Privacy-minimal by construction: the coarse
+ * start-time bucket and sanitized acquisition attribution only, never the task
+ * text or any visitor identifier. Non-fatal like every recordEvent path, so it
+ * can never break the redirect.
+ */
+export async function recordWordOffered(env, { attribution, when } = {}) {
+  const attr = sanitizeAttribution(attribution);
+  if (!attr.source) attr.source = 'direct';
+  return recordEvent(env, {
+    type: EVENTS.WORD_OFFERED,
+    data: { attribution: attr, when: normalizeWhenBucket(when) },
   });
 }
 
@@ -344,6 +389,14 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
       GROUP BY source, campaign, content, challenge`
   ).bind(sinceSQL).all();
 
+  const wordOfferedRows = await env.DB.prepare(
+    `/* words_offered */
+     SELECT ${dimensions}, COUNT(*) AS words_offered
+       FROM analytics_events
+      WHERE event_type = 'word_offered' AND created_at >= ?
+      GROUP BY source, campaign, content, challenge`
+  ).bind(sinceSQL).all();
+
   const funnel = await env.DB.prepare(
     `/* acquisition_funnel */
      WITH created AS (
@@ -409,17 +462,25 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
   const visits = new Map(
     ((visitRows && visitRows.results) || []).map((r) => [keyOf(r), r]),
   );
+  const wordsOffered = new Map(
+    ((wordOfferedRows && wordOfferedRows.results) || []).map((r) => [keyOf(r), r]),
+  );
   const funnelRows = (funnel && funnel.results) || [];
   const rows = [...funnelRows];
-  const funnelKeys = new Set(funnelRows.map(keyOf));
-  for (const visit of (visitRows && visitRows.results) || []) {
-    if (!funnelKeys.has(keyOf(visit))) rows.push(visit);
+  const seenKeys = new Set(funnelRows.map(keyOf));
+  // A tuple can have visits or offers but no commitment yet — that unconverted
+  // drop is exactly what this funnel exists to surface, so union those rungs in.
+  for (const r of [...((visitRows && visitRows.results) || []), ...((wordOfferedRows && wordOfferedRows.results) || [])]) {
+    const k = keyOf(r);
+    if (!seenKeys.has(k)) { seenKeys.add(k); rows.push(r); }
   }
 
   return rows.map((r) => {
     const c = cohorts.get(keyOf(r)) || {};
     const visit = visits.get(keyOf(r)) || {};
+    const offer = wordsOffered.get(keyOf(r)) || {};
     const landingVisits = Number(visit.landing_visits) || 0;
+    const wordsOfferedCount = Number(offer.words_offered) || Number(r.words_offered) || 0;
     const users = Number(r.users) || 0;
     const commitmentsCreated = Number(r.commitments_created) || 0;
     const kept = Number(r.kept) || 0;
@@ -438,8 +499,15 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
         challenge: r.challenge || '',
       },
       landing_visits: landingVisits,
+      words_offered: wordsOfferedCount,
       users,
       commitments_created: commitmentsCreated,
+      // The hook: did the landing page move a visitor to offer a word at all?
+      landing_engagement_rate: landingVisits ? round2(wordsOfferedCount / landingVisits) : null,
+      // The handoff: of those who offered, how many the /me/ door actually
+      // converted into a saved commitment. A high engagement rate with a low
+      // conversion rate points at the door, not the hook — and vice-versa.
+      offer_conversion_rate: wordsOfferedCount ? round2(commitmentsCreated / wordsOfferedCount) : null,
       activation_rate: landingVisits ? round2(users / landingVisits) : null,
       checkins_delivered: Number(r.checkins_delivered) || 0,
       outcomes: { kept, rescheduled, missed, resolved },

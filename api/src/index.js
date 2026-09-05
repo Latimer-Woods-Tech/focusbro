@@ -24,7 +24,7 @@ import {
 } from './account-recovery.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
-import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordGuideView, recordEvent, EVENTS } from './events.js';
+import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -2525,6 +2525,31 @@ router.post('/api/acquisition/visit', async (request, env) => {
     return jsonResponse({ error: 'Invalid visit payload' }, 400);
   }
   const recorded = await recordAcquisitionVisit(env, body.attribution);
+  return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
+});
+
+// The landing "Give my word" gesture — recorded before the /me/ redirect so the
+// funnel splits visit → word_offered → guest_started (see the WORD_OFFERED note
+// in events.js). Privacy-minimal exactly like the visit beacon: a coarse
+// start-time bucket and acquisition attribution only, never the task text.
+router.post('/api/acquisition/word-offered', async (request, env) => {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
+  }
+  const contentLength = Number(request.headers.get('content-length')) || 0;
+  if (contentLength > 2048) return jsonResponse({ error: 'Payload is too large' }, 413);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
+      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return jsonResponse({ error: 'Invalid payload' }, 400);
+  }
+  const recorded = await recordWordOffered(env, { attribution: body.attribution, when: body.when });
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
