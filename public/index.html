@@ -6408,6 +6408,16 @@ function dismissOnboarding() {
       const value = campaignValue(submitParams, key);
       if (value) destination.searchParams.set(key, value);
     }
+    // Hand the gesture across the navigation so /me/ can honor it in one step
+    // instead of showing the same form again. A same-tab, one-shot, short-lived
+    // token — proof THIS person just gave their word here — is what lets /me/
+    // create the account and save the word without a second click; a bare
+    // /me/?task= URL (a bot, a shared link) carries no token, so nothing is
+    // created on a mere page load. Private-mode failures fall back to the manual
+    // form, which still works.
+    try {
+      sessionStorage.setItem('focusbro_word_handoff', JSON.stringify({ t: task, w: when, ts: Date.now() }));
+    } catch (e) { /* no sessionStorage — the /me/ form is still a working manual gesture */ }
     window.location.assign(destination.pathname + destination.search);
   });
 })();

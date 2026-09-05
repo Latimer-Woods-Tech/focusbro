@@ -1347,6 +1347,39 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (w) { try { w.focus(); } catch (e) {} }
   }
 
+  // Collapse the double gesture (R-314). A person who typed a word and a time on
+  // the homepage and pressed "Give my word" arrived here to the SAME form and had
+  // to press it AGAIN — 0 of every visitor ever crossed that dead-end. The homepage
+  // leaves a one-shot, ~60s, same-tab token proving that press; when it matches the
+  // word this page was opened for, we give the word for them — the same path the
+  // button runs — so they land on the warm confirmation, not a second form. Guests
+  // are still created only on a real human gesture (the homepage press); a bare
+  // /me/?task= load carries no token and creates nothing. One-shot: consumed before
+  // use, so a reload never re-fires; any failure just leaves the prefilled form.
+  var AUTO_WORD_TRIED = false;
+  function readWordHandoff() {
+    try {
+      var raw = sessionStorage.getItem('focusbro_word_handoff');
+      if (!raw) return null;
+      sessionStorage.removeItem('focusbro_word_handoff');
+      var h = JSON.parse(raw);
+      if (!h || typeof h.ts !== 'number' || (Date.now() - h.ts) > 60000) return null;
+      return h;
+    } catch (e) { return null; }
+  }
+  function maybeAutoGiveWord() {
+    if (AUTO_WORD_TRIED) return;
+    AUTO_WORD_TRIED = true;
+    var h = readWordHandoff();
+    if (!h) return;
+    // Only honor a token for the very word this page was opened for — never fire a
+    // stale gesture against a different task carried in the URL.
+    if (PREFILL_TASK && h.t && h.t !== PREFILL_TASK) return;
+    var t = el('title'), w = el('startAt');
+    if (!t || !t.value.trim() || !w || !w.value.trim()) return;
+    giveWord({ auto: true });
+  }
+
   // The next-word bridge never guesses a task, time, or channel and never
   // auto-commits. One tap simply moves the person into the composer, preserving
   // anything they have already typed.
@@ -1417,6 +1450,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     hide(el('signout')); hide(el('consentCard')); hide(el('claimCard')); hide(el('founderMetrics'));
     updateFirstRun([]);
     applyPrefill();
+    maybeAutoGiveWord();
   }
   function startGuest() {
     return fetch('/auth/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
@@ -1473,7 +1507,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () { recordPushPermission('failed'); });
   }
 
-  function enterApp(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); }
+  function enterApp(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); maybeAutoGiveWord(); }
 
   function metricRate(rate) {
     return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
@@ -1985,8 +2019,14 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
   });
 
-  el('commitForm').addEventListener('submit', function (ev) {
-    ev.preventDefault();
+  // The word, given. Shared by the manual submit and the homepage-handoff auto-
+  // complete (maybeAutoGiveWord) so both travel exactly ONE path — guest creation,
+  // the POST, the warm confirmation, and the push ask never diverge. Returns a
+  // Promise so the auto path can stay quiet on the one failure it must not shout:
+  // a missing time (that only happens on a manual submit; the auto path never
+  // fires without a prefilled "when").
+  function giveWord(opts) {
+    var auto = !!(opts && opts.auto);
     hide(el('commitMsg')); hide(el('commitErr'));
     // The very first "when" now speaks the same warm language as the reschedule
     // and the text channel — a relative offset, a clock time, a weekday, and a
@@ -1994,7 +2034,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     // repeating word it derives the same-time-each-day anchor from the resolved
     // instant, so no separate local_time here.
     var whenText = el('startAt').value.trim();
-    if (!whenText) { var e = el('commitErr'); e.textContent = 'When do you want to start? Try something like ${inAppWhenExamplesText()}.'; show(e); return; }
+    if (!whenText) {
+      if (!auto) { var e0 = el('commitErr'); e0.textContent = 'When do you want to start? Try something like ${inAppWhenExamplesText()}.'; show(e0); }
+      return Promise.resolve();
+    }
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
     var repeat = el('repeat').value;
@@ -2007,7 +2050,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       timezone: tz,
       attribution: ATTRIBUTION
     };
-    (ANONYMOUS ? startGuest() : Promise.resolve(null))
+    return (ANONYMOUS ? startGuest() : Promise.resolve(null))
       .then(function () {
         return fetch('/api/commitments', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       })
@@ -2020,7 +2063,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         if (payload.channel === 'push') ensurePush();
       })
       .catch(function (err) { var e = el('commitErr'); e.textContent = (err && err.message) || 'Could not save that commitment. Try again in a moment.'; show(e); });
-  });
+  }
+  el('commitForm').addEventListener('submit', function (ev) { ev.preventDefault(); giveWord(); });
 
   el('claimForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
