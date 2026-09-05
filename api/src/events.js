@@ -135,13 +135,69 @@ export async function recordGuideView(env, slug, tool = null) {
   return recordEvent(env, { type: EVENTS.GUIDE_VIEW, data: { slug } });
 }
 
-/** Record a privacy-minimal landing visit: attribution only, no visitor ID. */
-export async function recordAcquisitionVisit(env, value) {
+// Substrings that mark an automated client. Deliberately broad and lower-cased —
+// this is a coarse denominator filter, not a security control. A false "human"
+// costs one over-counted visit and a false "bot" one under-counted visit; both
+// wash out at cohort scale, and the decision tree only reads a rate, never a row.
+const BOT_UA_PATTERN = /bot\b|bot\/|crawl|spider|slurp|scrape|monitor|uptime|pingdom|gtmetrix|lighthouse|headless|phantom|puppeteer|playwright|selenium|dataprovider|curl|wget|python-requests|python-urllib|go-http|java\/|okhttp|axios|node-fetch|libwww|httpclient|facebookexternalhit|embedly|whatsapp|telegrambot|discordbot|slackbot|twitterbot|linkedinbot|bitlybot|semrush|ahrefs|mj12|dotbot|petalbot|yandex|baidu|bingpreview|duckduckbot|applebot|googlebot/;
+
+/**
+ * A coarse, dependency-free "is this a qualified (human) visit?" classifier for
+ * the landing denominator. The activation decision tree (docs/IMPROVEMENT_PLAN.md
+ * § Decision tree) is keyed on QUALIFIED visits — "landing activation <10% after
+ * 20 qualified visits" — but `acquisition_visit` fires on every page render,
+ * including Googlebot (which executes JS), link unfurlers, uptime monitors, and
+ * headless browsers. Dividing `word_offered` by that raw count makes the rate
+ * uninterpretable: 0 offers from 900 bots (do nothing) reads identically to 0
+ * offers from 900 humans (rewrite the hook). This marks the obvious non-humans so
+ * the rate has a denominator the decision tree can actually be read against.
+ *
+ * Two signals, most-trusted first:
+ *  1. Cloudflare Bot Management, when the zone has it: `cf.botManagement.score`
+ *     runs 1–99 (1 = certainly automated, 99 = certainly human); ≤30 is
+ *     Cloudflare's documented "likely automated" band, and `verifiedBot` is a
+ *     known crawler. Absent on zones without the subscription, so it is consulted
+ *     only when actually present.
+ *  2. A User-Agent substring heuristic — the always-available fallback. An empty
+ *     or missing UA is treated as automated (a real browser always sends one).
+ *
+ * Privacy: the RESULT is a single boolean; the User-Agent itself is never stored.
+ *
+ * @param {string|null|undefined} userAgent  request User-Agent header
+ * @param {object|null|undefined} cf  Cloudflare `request.cf`, when present
+ * @returns {boolean} true iff the visit looks automated (a non-qualified visit)
+ */
+export function isBotVisitor(userAgent, cf) {
+  const bm = cf && typeof cf === 'object' ? cf.botManagement : null;
+  if (bm && typeof bm === 'object') {
+    if (bm.verifiedBot === true) return true;
+    if (typeof bm.score === 'number' && bm.score > 0 && bm.score <= 30) return true;
+  }
+  const ua = typeof userAgent === 'string' ? userAgent.trim().toLowerCase() : '';
+  if (!ua) return true; // a real browser always sends a User-Agent
+  return BOT_UA_PATTERN.test(ua);
+}
+
+/**
+ * Record a privacy-minimal landing visit: attribution only, no visitor ID.
+ *
+ * `meta` carries request context ({ userAgent, cf }) so the visit can be
+ * classified human vs. automated and the qualified-visit denominator (see
+ * isBotVisitor) is trustworthy. It is optional: without it — internal callers,
+ * older code, unit fixtures — the visit stays UNKNOWN (no `bot` field), and the
+ * denominator treats unknown as qualified, so a pre-classification history is
+ * never retroactively discarded.
+ */
+export async function recordAcquisitionVisit(env, value, meta = null) {
   const attribution = sanitizeAttribution(value);
   if (!attribution.source) attribution.source = 'direct';
+  const data = { attribution };
+  if (meta && typeof meta === 'object' && ('userAgent' in meta || 'cf' in meta)) {
+    data.bot = isBotVisitor(meta.userAgent, meta.cf) ? 1 : 0;
+  }
   return recordEvent(env, {
     type: EVENTS.ACQUISITION_VISIT,
-    data: { attribution },
+    data,
   });
 }
 
@@ -383,7 +439,10 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
 
   const visitRows = await env.DB.prepare(
     `/* acquisition_visits */
-     SELECT ${dimensions}, COUNT(*) AS landing_visits
+     SELECT ${dimensions},
+            COUNT(*) AS landing_visits,
+            SUM(CASE WHEN json_extract(event_data, '$.bot') = 1 THEN 1 ELSE 0 END) AS bot_visits,
+            SUM(CASE WHEN json_extract(event_data, '$.bot') = 1 THEN 0 ELSE 1 END) AS qualified_visits
        FROM analytics_events
       WHERE event_type = 'acquisition_visit' AND created_at >= ?
       GROUP BY source, campaign, content, challenge`
@@ -480,6 +539,15 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
     const visit = visits.get(keyOf(r)) || {};
     const offer = wordsOffered.get(keyOf(r)) || {};
     const landingVisits = Number(visit.landing_visits) || 0;
+    const botVisits = Number(visit.bot_visits) || 0;
+    // The qualified (human) denominator the decision tree is keyed on. Legacy
+    // visits recorded before classification carry no `bot` flag and count as
+    // qualified, so an un-instrumented history is never discarded; going forward
+    // the denominator is real. When the column is absent (older callers / unit
+    // fixtures) fall back to landing_visits minus any bots, i.e. landing_visits.
+    const qualifiedVisits = visit.qualified_visits === undefined || visit.qualified_visits === null
+      ? landingVisits - botVisits
+      : Number(visit.qualified_visits) || 0;
     const wordsOfferedCount = Number(offer.words_offered) || Number(r.words_offered) || 0;
     const users = Number(r.users) || 0;
     const commitmentsCreated = Number(r.commitments_created) || 0;
@@ -499,16 +567,22 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
         challenge: r.challenge || '',
       },
       landing_visits: landingVisits,
+      // The share of raw visits filtered out as automated — surfaced so a
+      // suspiciously bot-heavy channel is itself visible, not silently dropped.
+      bot_visits: botVisits,
+      qualified_visits: qualifiedVisits,
       words_offered: wordsOfferedCount,
       users,
       commitments_created: commitmentsCreated,
-      // The hook: did the landing page move a visitor to offer a word at all?
-      landing_engagement_rate: landingVisits ? round2(wordsOfferedCount / landingVisits) : null,
+      // The hook: did the landing page move a QUALIFIED (human) visitor to offer
+      // a word at all? Automated visits are excluded so the decision tree's
+      // "<10% after 20 qualified visits" is read against a trustworthy denominator.
+      landing_engagement_rate: qualifiedVisits ? round2(wordsOfferedCount / qualifiedVisits) : null,
       // The handoff: of those who offered, how many the /me/ door actually
       // converted into a saved commitment. A high engagement rate with a low
       // conversion rate points at the door, not the hook — and vice-versa.
       offer_conversion_rate: wordsOfferedCount ? round2(commitmentsCreated / wordsOfferedCount) : null,
-      activation_rate: landingVisits ? round2(users / landingVisits) : null,
+      activation_rate: qualifiedVisits ? round2(users / qualifiedVisits) : null,
       checkins_delivered: Number(r.checkins_delivered) || 0,
       outcomes: { kept, rescheduled, missed, resolved },
       kept_word_rate: resolved ? round2(kept / resolved) : null,
