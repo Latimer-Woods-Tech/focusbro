@@ -11,8 +11,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics, computeDecisionMetrics,
-  recordAcquisitionVisit, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
+  recordAcquisitionVisit, isBotVisitor, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
+
+// A representative real-browser UA — carries "Safari"/"Chrome"/"Mozilla" but
+// none of the automated-client tokens, so it must classify as a human.
+const HUMAN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `counts` maps event_type → n for the GROUP BY query; `active`/`returning` are
@@ -200,6 +205,57 @@ describe('recordAcquisitionVisit — anonymous campaign denominator', () => {
     expect(sanitizeAttribution({ source: 42, content: 'x'.repeat(100) })).toEqual({
       content: 'x'.repeat(80),
     });
+  });
+
+  it('records a `bot` flag ONLY when request context is supplied', async () => {
+    // A human visit with context → bot:0 alongside the attribution.
+    const human = makeDB();
+    await recordAcquisitionVisit({ DB: human }, { source: 'homepage' }, { userAgent: HUMAN_UA });
+    expect(JSON.parse(human.runs[0].params[2])).toEqual({
+      attribution: { source: 'homepage' }, bot: 0,
+    });
+
+    // A crawler with context → bot:1.
+    const crawler = makeDB();
+    await recordAcquisitionVisit({ DB: crawler }, { source: 'homepage' },
+      { userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' });
+    expect(JSON.parse(crawler.runs[0].params[2]).bot).toBe(1);
+
+    // No context → UNKNOWN, no `bot` field (an un-instrumented visit is qualified).
+    const legacy = makeDB();
+    await recordAcquisitionVisit({ DB: legacy }, { source: 'homepage' });
+    expect(JSON.parse(legacy.runs[0].params[2])).toEqual({ attribution: { source: 'homepage' } });
+  });
+});
+
+describe('isBotVisitor — the qualified-visit classifier', () => {
+  it('treats a real browser User-Agent as human', () => {
+    expect(isBotVisitor(HUMAN_UA, null)).toBe(false);
+  });
+  it('flags crawlers, unfurlers, and headless/HTTP clients from the UA', () => {
+    for (const ua of [
+      'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+      'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
+      'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/126 Safari/537.36',
+      'curl/8.4.0',
+      'python-requests/2.31.0',
+    ]) {
+      expect(isBotVisitor(ua, null)).toBe(true);
+    }
+  });
+  it('treats a missing or empty User-Agent as automated', () => {
+    expect(isBotVisitor('', null)).toBe(true);
+    expect(isBotVisitor(null, null)).toBe(true);
+    expect(isBotVisitor(undefined, undefined)).toBe(true);
+  });
+  it('uses Cloudflare Bot Management when the zone provides it', () => {
+    // A low score / verifiedBot outranks an innocent-looking UA.
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 5 } })).toBe(true);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { verifiedBot: true } })).toBe(true);
+    // A high score confirms a human; an absent score falls back to the UA.
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 95 } })).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: {} })).toBe(false);
   });
 });
 

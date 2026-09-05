@@ -2524,7 +2524,14 @@ router.post('/api/acquisition/visit', async (request, env) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return jsonResponse({ error: 'Invalid visit payload' }, 400);
   }
-  const recorded = await recordAcquisitionVisit(env, body.attribution);
+  // Pass request context so the visit is classified human vs. automated — the
+  // qualified-visit denominator the activation decision tree is read against
+  // (see isBotVisitor in events.js). The result is a single boolean on the
+  // event; the User-Agent itself is never stored.
+  const recorded = await recordAcquisitionVisit(env, body.attribution, {
+    userAgent: request.headers.get('user-agent'),
+    cf: request.cf || null,
+  });
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 

@@ -138,4 +138,22 @@ describe('computeAcquisitionMetrics — word_offered splits the funnel', () => {
     expect(row.landing_engagement_rate).toBe(0.24);
     expect(row.offer_conversion_rate).toBe(0); // 0 of 12 — a dead handoff, now visible
   });
+
+  it('reads engagement against QUALIFIED (human) visits, not raw bot-padded traffic', async () => {
+    const tuple = { source: 'homepage', campaign: '', content: '', challenge: '' };
+    // 10 raw visits, 6 of them automated → 4 qualified. 2 words offered.
+    const db = makeDB({
+      visits: [{ ...tuple, landing_visits: 10, bot_visits: 6, qualified_visits: 4 }],
+      offers: [{ ...tuple, words_offered: 2 }],
+      funnel: [],
+    });
+    const rows = await computeAcquisitionMetrics({ DB: db }, { sinceDays: 30 });
+    const row = rows.find((r) => r.attribution.source === 'homepage');
+    expect(row.landing_visits).toBe(10);
+    expect(row.bot_visits).toBe(6);
+    expect(row.qualified_visits).toBe(4);
+    // 2/4 = 0.5, the real hook rate — NOT 2/10 = 0.2, which the bot traffic would
+    // have hidden the decision tree behind.
+    expect(row.landing_engagement_rate).toBe(0.5);
+  });
 });
