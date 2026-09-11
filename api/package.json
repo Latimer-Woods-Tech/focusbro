@@ -29,7 +29,7 @@
     "@vitest/ui": "^4.1.10",
     "eslint": "^10.8.0",
     "globals": "^17.7.0",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "wrangler": "^4.114.0"
   },
   "engines": {
