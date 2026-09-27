@@ -1,0 +1,366 @@
+import { describe, it, expect } from 'vitest';
+import {
+  scanDesignLaw,
+  assertDesignLawClean,
+  SHAME_PATTERNS,
+  TREATMENT_CLAIM_PATTERNS,
+  AI_BRANDING,
+  ADHD_WORD,
+} from '../design-law.js';
+import { meCopySurface } from '../me.js';
+import { roomCopySurface } from '../room.js';
+import { consentCopySurface } from '../consent.js';
+import { coachOnboardingCopySurface } from '../coach-onboarding.js';
+import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
+import { accountabilityCopySurface, alreadyLoggedCopy } from '../accountability.js';
+import { reportCopySurface } from '../report.js';
+import { coachCopySurface } from '../coach.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * THE DESIGN LAW, enforced once for every user-facing copy surface.
+ *
+ * Before this file each surface carried its own hand-rolled banned-word list, and
+ * they had drifted: the two coach surfaces never checked for banned "AI" branding
+ * or clinical claims. This sweeps every surface through the single `scanDesignLaw`
+ * source of truth so the bar is identical everywhere.
+ *
+ * `allowAdhd` marks the coach-pitch surfaces where naming ADHD is permitted
+ * (guardrail: "ADHD lives in SEO and the coach pitch, not in a clinical promise").
+ * Consumer surfaces ban it.
+ */
+const SURFACES = [
+  { label: 'meCopySurface', strings: meCopySurface(), allowAdhd: false },
+  { label: 'roomCopySurface', strings: roomCopySurface(), allowAdhd: false },
+  { label: 'consentCopySurface', strings: consentCopySurface(), allowAdhd: false },
+  // The bro's actual voice — the nudge/escalation/return copy + two-way SMS
+  // replies that land on a person's phone. Highest-stakes anti-shame surface;
+  // consumer voice, so bare ADHD is banned here the same as the other consumer
+  // surfaces.
+  { label: 'accountabilityCopySurface', strings: accountabilityCopySurface(), allowAdhd: false },
+  // The weekly report (/me/report) — a consumer reading surface AND the artifact a
+  // person copies/shares with their coach. The most tally-prone surface there is:
+  // a week is most tempting to score as a wall of misses exactly here. Consumer
+  // voice, so bare ADHD is banned the same as the other consumer surfaces.
+  { label: 'reportCopySurface', strings: reportCopySurface(), allowAdhd: false },
+  // Coach-facing pitch/onboarding + operator roster: ADHD may be named in the
+  // pitch, but shame / treatment claims / "AI" are banned the same as anywhere.
+  { label: 'coachOnboardingCopySurface', strings: coachOnboardingCopySurface(), allowAdhd: true },
+  { label: 'coachOperatorRosterCopySurface', strings: coachOperatorRosterCopySurface(), allowAdhd: true },
+  // The whole coach/operator voice — the dashboard intro, invite, rhythm,
+  // momentum, weekly snapshot, homecoming digest, and reach-out/celebration cues
+  // that a coach reads about their clients. Previously this file's copy family was
+  // guarded only by a hand-rolled banned-word loop over a hand-maintained sample
+  // list in coach.test.js — the exact per-surface drift design-law.js exists to
+  // end. Now swept through the one source of truth like every other surface.
+  // Coach-pitch voice, so bare ADHD is permitted; shame / treatment / "AI" are not.
+  { label: 'coachCopySurface', strings: coachCopySurface(), allowAdhd: true },
+];
+
+describe('THE DESIGN LAW — every copy surface, one source of truth', () => {
+  for (const { label, strings, allowAdhd } of SURFACES) {
+    it(`${label} is design-LAW clean (no shame / treatment claim / "AI"${allowAdhd ? '' : ' / bare ADHD'})`, () => {
+      expect(Array.isArray(strings) || typeof strings[Symbol.iterator] === 'function').toBe(true);
+      let count = 0;
+      for (const raw of strings) {
+        count += 1;
+        const violations = scanDesignLaw(raw, { allowAdhd });
+        expect(
+          violations,
+          violations.length
+            ? `${label}: ${JSON.stringify(String(raw))} → ${violations.map((v) => `${v.kind}(${v.pattern})`).join(', ')}`
+            : '',
+        ).toEqual([]);
+      }
+      // Guard against an empty/stubbed surface silently "passing".
+      expect(count, `${label} returned no strings`).toBeGreaterThan(0);
+    });
+  }
+
+  it('assertDesignLawClean accepts every surface at its declared ADHD policy', () => {
+    for (const { label, strings, allowAdhd } of SURFACES) {
+      expect(() => assertDesignLawClean(strings, { allowAdhd, label })).not.toThrow();
+    }
+  });
+});
+
+/**
+ * Proof-of-rejection (Factory Standing Law #1): a guard that has never rejected
+ * anything is presumed broken. These pin that the scanner actually FAILS on real
+ * violations — if someone loosens the lexicon, one of these goes red.
+ */
+describe('scanDesignLaw — proof it rejects real violations', () => {
+  it('flags shame / self-blame copy', () => {
+    for (const bad of [
+      'You failed to keep your word again.',
+      "You're falling behind.",
+      "Don't be lazy about it.",
+      'That was a pathetic excuse.',
+      'You missed three check-ins.',
+      "You should have started by now.",
+      'The client went unresponsive.',
+      "Here's who's slipping this week.", // promoted from report/coach surfaces
+      "Seriously, late again?!", // the incredulous eye-roll (fixed from a dead per-surface regex)
+    ]) {
+      const v = scanDesignLaw(bad);
+      expect(v.some((x) => x.kind === 'shame'), `expected shame in: ${bad}`).toBe(true);
+    }
+  });
+
+  it('flags clinical / treatment claims on any surface, coach copy included', () => {
+    for (const bad of [
+      'We treat ADHD.',
+      'A cure for your focus problems.',
+      'Get a diagnosis here.',
+      'Manages your disorder and symptoms.',
+      'Adjust your medication.',
+      'A form of therapy.',
+    ]) {
+      const v = scanDesignLaw(bad, { allowAdhd: true }); // even where ADHD is allowed
+      expect(v.some((x) => x.kind === 'treatment'), `expected treatment claim in: ${bad}`).toBe(true);
+    }
+  });
+
+  it('flags bare "AI" branding, case-sensitively', () => {
+    expect(scanDesignLaw('Meet your AI coach.').some((v) => v.kind === 'ai-branding')).toBe(true);
+    // ordinary words that merely contain the letters are NOT violations
+    for (const ok of ['See you again soon.', 'You said you would.', 'Check your email.', 'The detail matters.']) {
+      expect(scanDesignLaw(ok).some((v) => v.kind === 'ai-branding'), `false positive in: ${ok}`).toBe(false);
+    }
+  });
+
+  it('bans bare "ADHD" in consumer copy but allows it in the coach pitch', () => {
+    const s = 'Built for ADHD brains.';
+    expect(scanDesignLaw(s).some((v) => v.kind === 'adhd-in-consumer-copy')).toBe(true);
+    expect(scanDesignLaw(s, { allowAdhd: true }).some((v) => v.kind === 'adhd-in-consumer-copy')).toBe(false);
+  });
+
+  it('does not false-positive on warm, on-brand copy', () => {
+    for (const ok of [
+      'No problem — when do you want to try again?',
+      'You said, I’m here, let’s go.',
+      'Be patient with yourself; plans change.',
+      'Ready when you are.',
+      'One word at a time.',
+    ]) {
+      expect(scanDesignLaw(ok), `unexpected violation in: ${ok}`).toEqual([]);
+    }
+  });
+
+  // Proof-of-rejection (Standing Law #1) for the SECOND shame-framing wave added
+  // this run. The first lexicon caught the blunt shame words (fail / lazy / miss /
+  // slipping / behind), but a whole class of framings — a miss recast as a
+  // character trait ("you flaked"), a broken-record framing of the kept-word
+  // streak, the reset-shame "back to zero", and "no-show" — sailed straight
+  // through. These reach a person most dangerously through a COACH-authored
+  // check-in script, which is validated by this exact scanner before it can open a
+  // call. Each assertion below FAILS if its pattern is dropped or loosened.
+  it('flags the second wave: flake / dropped-the-ball / let-you-down / back-to-zero / broken-streak / no-show', () => {
+    for (const bad of [
+      "Don't flake on me this time.",
+      'You flaked on the taxes again.',
+      'You keep dropping the ball.',
+      'You dropped the ball on this one.',
+      'You let yourself down today.',
+      'You let me down.',
+      "You've let everyone down.",
+      "You're back to zero now.",
+      'Back to square one.',
+      'You broke your streak.',
+      'That was a broken streak.',
+      'Your streak is gone.',
+      'Your streak ended.',
+      'Your streak reset.',
+      'You lost your streak.',
+      'Another no-show.',
+      'You were a no show.',
+    ]) {
+      const v = scanDesignLaw(bad);
+      expect(v.some((x) => x.kind === 'shame'), `expected shame in: ${bad}`).toBe(true);
+    }
+  });
+
+  // The precision half of the same wave: the warm forms these patterns sit right
+  // next to MUST stay clean, or the law would start rejecting on-brand copy. The
+  // bro's promise "I won't let you down" is not the accusation "you let me down";
+  // "cut yourself some slack" and "never give up on yourself" are the voice, not a
+  // violation; a growing streak is the whole point. If a pattern is widened until
+  // it swallows one of these, this test goes red before the copy ever ships.
+  it('does not false-positive on the warm neighbours of the second wave', () => {
+    for (const ok of [
+      "I won't let you down.",
+      'You never gave up on yourself.',
+      'Cut yourself some slack — plans change.',
+      'Never give up on yourself.',
+      'Your kept-word streak is growing.',
+      'Your streak is going strong.',
+      'Back to it — give your word.',
+      "Let's wind down for the night.",
+    ]) {
+      expect(scanDesignLaw(ok), `unexpected violation in: ${ok}`).toEqual([]);
+    }
+  });
+});
+
+/**
+ * Proof-of-rejection for the newly-swept accountability surface (Standing Law #1):
+ * the sweep is only real if it would FAIL on a shame leak in the bro's voice. We
+ * can't mutate the frozen copy engine, so we prove the guard the sweep relies on
+ * rejects a representative outbound violation, and that the real surface is broad
+ * enough that the sweep isn't vacuously passing on a near-empty list.
+ */
+describe('accountabilityCopySurface — the bro voice is swept and the sweep bites', () => {
+  it('enumerates a broad surface (both personas × every confirmation arm), not a stub', () => {
+    const strings = accountabilityCopySurface();
+    expect(Array.isArray(strings)).toBe(true);
+    // Both personas × the full copy family → well over the dashboard surfaces.
+    expect(strings.length).toBeGreaterThan(40);
+    expect(strings.every((s) => typeof s === 'string' && s.length > 0)).toBe(true);
+  });
+
+  it('the sweep would catch a shame / "AI" leak in an outbound nudge', () => {
+    // A hand-authored counterfeit of a check-in nudge that violates the law —
+    // exactly the class of edit the sweep exists to stop reaching a phone.
+    const shamingNudge = 'You missed the taxes again — you keep failing your streak.';
+    const aiBrandedNudge = 'Your AI coach is checking in about the taxes.';
+    expect(() => assertDesignLawClean([shamingNudge], { label: 'accountabilityCopySurface' })).toThrow(/shame/);
+    expect(() => assertDesignLawClean([aiBrandedNudge], { label: 'accountabilityCopySurface' })).toThrow(/ai-branding/);
+    // And the real surface, swept at the same bar, is clean.
+    expect(() =>
+      assertDesignLawClean(accountabilityCopySurface(), { allowAdhd: false, label: 'accountabilityCopySurface' }),
+    ).not.toThrow();
+  });
+
+  // Enrollment guard (Standing Law #1): `alreadyLoggedCopy` is a REAL outbound
+  // API reply on the resolve path ("you already logged this one — you're covered")
+  // that had escaped every design-LAW surface and every test. It is now enrolled
+  // in accountabilityCopySurface(). This pins the enrollment so it can't silently
+  // regress: both persona renderings must appear in the swept surface, AND a
+  // shaming counterfeit of that exact reply must be caught by the same guard. If a
+  // future edit drops the enrollment, the membership assertion goes red; if the
+  // guard is loosened, the counterfeit assertion goes red.
+  it('the already-logged reply is enrolled in the swept surface and the sweep bites it', () => {
+    const surface = accountabilityCopySurface();
+    for (const persona of ['ally', 'hype']) {
+      expect(
+        surface.includes(alreadyLoggedCopy({ persona })),
+        `alreadyLoggedCopy(${persona}) is not enrolled in accountabilityCopySurface()`,
+      ).toBe(true);
+      // The real copy is clean at the consumer bar…
+      expect(scanDesignLaw(alreadyLoggedCopy({ persona }), { allowAdhd: false })).toEqual([]);
+    }
+    // …and a counterfeit of that reply that tallies misses is rejected.
+    const shamingAlreadyLogged = 'Already logged — but you missed the last three, back to zero.';
+    expect(() =>
+      assertDesignLawClean([shamingAlreadyLogged], { label: 'accountabilityCopySurface' }),
+    ).toThrow(/shame/);
+  });
+});
+
+/**
+ * Completeness guard for the coach voice (Factory Standing Law #1 — a gate that
+ * can never fail is presumed broken). `coachCopySurface()` is only a real design-
+ * LAW gate if it enumerates EVERY coach-facing copy helper — otherwise a future
+ * `coachSomethingCopy()` could ship shame / "AI" / a clinical claim swept by
+ * nothing, exactly the silent hole this whole module exists to close. This reads
+ * coach.js at source, extracts every exported `*Copy` helper, and pins that the
+ * surface enumerator references each one. Add a coach copy helper and forget to
+ * enroll it → this goes red before it can reach a coach.
+ */
+describe('coachCopySurface — provably complete over the coach voice, and the sweep bites', () => {
+  const coachSrc = readFileSync(fileURLToPath(new URL('../coach.js', import.meta.url)), 'utf8');
+  const exportedCopyFns = [
+    ...coachSrc.matchAll(/export function (\w+Copy)\s*\(/g),
+  ]
+    .map((m) => m[1])
+    .filter((name) => name !== 'coachCopySurface');
+  // The enumerator's own body, with line comments stripped so a commented-out
+  // (dead) enrollment can't satisfy the guard — we require a live `name(` call.
+  const surfaceBody = (() => {
+    const start = coachSrc.indexOf('export function coachCopySurface(');
+    const raw = coachSrc.slice(start, start + 4000);
+    return raw
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n');
+  })();
+
+  it('invokes every exported coach *Copy helper (no silent escape, no dead ref)', () => {
+    expect(exportedCopyFns.length).toBeGreaterThan(15); // sanity: the family is broad
+    // Require a live call `name(`, not just the bare token, so a commented-out or
+    // otherwise dead reference cannot make the surface look complete.
+    const missing = exportedCopyFns.filter((name) => !surfaceBody.includes(`${name}(`));
+    expect(missing, `coach copy helpers not invoked in coachCopySurface(): ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('enumerates a broad, non-empty surface (not a stub)', () => {
+    const strings = coachCopySurface();
+    expect(Array.isArray(strings)).toBe(true);
+    expect(strings.length).toBeGreaterThan(20);
+    expect(strings.every((s) => typeof s === 'string' && s.length > 0)).toBe(true);
+  });
+
+  it('the sweep would catch shame / "AI" / a clinical claim leaking into the coach view', () => {
+    // Hand-authored counterfeits of a coach line — the roster is exactly where a
+    // miss is most tempting to tally into "who's slipping".
+    const shamingRosterLine = "Here's who's slipping this week — they keep missing their words.";
+    const aiBrandedLine = 'Your AI assistant flagged these clients.';
+    const clinicalLine = 'This client needs treatment for their disorder.';
+    expect(() => assertDesignLawClean([shamingRosterLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/shame/);
+    expect(() => assertDesignLawClean([aiBrandedLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/ai-branding/);
+    expect(() => assertDesignLawClean([clinicalLine], { allowAdhd: true, label: 'coachCopySurface' })).toThrow(/treatment/);
+    // And the real surface, swept at the coach-pitch bar, is clean.
+    expect(() => assertDesignLawClean(coachCopySurface(), { allowAdhd: true, label: 'coachCopySurface' })).not.toThrow();
+  });
+});
+
+describe('design-law lexicon shape', () => {
+  it('exposes frozen pattern lists so the source of truth cannot be mutated at runtime', () => {
+    expect(Object.isFrozen(SHAME_PATTERNS)).toBe(true);
+    expect(Object.isFrozen(TREATMENT_CLAIM_PATTERNS)).toBe(true);
+    expect(SHAME_PATTERNS.length).toBeGreaterThan(10);
+    expect(TREATMENT_CLAIM_PATTERNS.length).toBeGreaterThan(4);
+    expect(AI_BRANDING).toBeInstanceOf(RegExp);
+    expect(ADHD_WORD).toBeInstanceOf(RegExp);
+  });
+
+  // Proof-of-rejection (Standing Law #1) for the consolidation done this run:
+  // every consumer/coach copy-surface test now derives its clinical guard from
+  // `[...TREATMENT_CLAIM_PATTERNS, ADHD_WORD]` instead of a hand-rolled list.
+  // The old hand-rolled lists had drifted — several omitted `therapy`, so a
+  // valid-but-clinical string like "a form of therapy" slipped past them. This
+  // pins the composed shape those surfaces now share: it MUST catch `therapy`
+  // (the word the drift dropped) and `medication` from the frozen source, and
+  // the consumer `ADHD` ban, while staying clean on warm copy. If a future edit
+  // drops `therapy` from the canonical list, every consolidated surface loses it
+  // at once — and this test goes red first.
+  it('the composed consumer clinical guard rejects therapy/medication/ADHD, not warm copy', () => {
+    const guard = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
+    const hit = (s) => guard.some((p) => p.test(s));
+    for (const bad of ['a form of therapy', 'adjust your medication', 'built for ADHD brains']) {
+      expect(hit(bad), `expected a clinical hit in: ${bad}`).toBe(true);
+    }
+    for (const ok of ['no problem — when do you want to try again?', 'ready when you are']) {
+      expect(hit(ok), `unexpected clinical hit in: ${ok}`).toBe(false);
+    }
+  });
+
+  // Proof-of-rejection (Standing Law #1) for the SHAME promotion done this run:
+  // `slipping` (report/coach) and the incredulous `again?!` (accountability/
+  // two-way-checkins) were only ever guarded per-surface, and the `again?!`
+  // regex those surfaces carried — `/\bagain\?!\b/i` — was DEAD (a `\b` can never
+  // follow `!`), so it caught nothing. Both now live in the frozen SHAME_PATTERNS.
+  // This pins that the canonical list catches them AND that the fix is precise:
+  // the shaming "again?!" is flagged while the warm reschedule "try again?"
+  // (single `?`) stays clean. Drop either promotion from the frozen list and this
+  // goes red; loosen `again?!` so it swallows the warm line and it goes red too.
+  it('the frozen SHAME lexicon catches "slipping" and "again?!" but never the warm "try again?"', () => {
+    const shame = (s) => SHAME_PATTERNS.some((p) => p.test(s));
+    expect(shame("who's slipping this week"), 'expected shame: slipping').toBe(true);
+    expect(shame('late again?!'), 'expected shame: again?!').toBe(true);
+    // the anti-shame reschedule LAW line — must survive the new pattern
+    expect(shame('No problem — when do you want to try again?'), 'warm line must stay clean').toBe(false);
+    expect(shame("Let's do it again!"), 'single-! encouragement must stay clean').toBe(false);
+  });
+});

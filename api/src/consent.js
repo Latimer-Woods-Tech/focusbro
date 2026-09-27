@@ -35,6 +35,7 @@
 
 import {
   detectCheckinReply,
+  parseSnoozeMinutes,
   isStartHelpReply,
   isProgressReply,
   keptNoteFromReply,
@@ -165,17 +166,39 @@ export function isWithinQuietHours(nowISO, timezone, start, end) {
 
 // ── ONE-WORD KEYWORDS (CTIA standard) ────────────────────────
 
+/**
+ * Reduce an inbound message to the bare keyword token CTIA matching runs on:
+ * trim, then shed any punctuation / emoji / whitespace clinging to EITHER END.
+ * A real texter almost never sends a naked "STOP" — it lands as "STOP.",
+ * "Stop!", "(stop)", "🛑 STOP" (autocorrect appends the period; a thumb adds
+ * the emoji). The raw `^stop$` match rejected every one of those, so the
+ * opt-out fell straight through to the two-way check-in reply parser and the
+ * person who just told us to stop kept getting texts — a TCPA/R-212 miss AND
+ * the sharpest design-LAW break there is: ignoring someone asking us to leave.
+ * Edge-stripping ONLY — an interior space is preserved, so a genuinely
+ * multi-word message ("please stop texting", "stop the taxes at 3") still
+ * fails the one-word match below and is never mistaken for an opt-out; the
+ * existing false-positive guard is kept exactly. The interior hyphen of
+ * "opt-out" / "opt-in" sits between letters, never at an edge, so it survives.
+ */
+export function keywordToken(t) {
+  return String(t == null ? '' : t)
+    .trim()
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/[^\p{L}\p{N}]+$/u, '');
+}
+
 /** Standard opt-out keywords — honored instantly and durably. */
 export function isStopKeyword(t) {
-  return /^(stop|stopall|unsubscribe|cancel|end|quit|optout|opt-out)$/i.test(String(t == null ? '' : t).trim());
+  return /^(stop|stopall|unsubscribe|cancel|end|quit|optout|opt-out)$/i.test(keywordToken(t));
 }
 /** Standard opt-in / resume keywords. */
 export function isStartKeyword(t) {
-  return /^(start|unstop|yes|optin|opt-in)$/i.test(String(t == null ? '' : t).trim());
+  return /^(start|unstop|yes|optin|opt-in)$/i.test(keywordToken(t));
 }
 /** Standard help keyword. */
 export function isHelpKeyword(t) {
-  return /^(help|info)$/i.test(String(t == null ? '' : t).trim());
+  return /^(help|info)$/i.test(keywordToken(t));
 }
 
 // ── PHONE ────────────────────────────────────────────────────
@@ -587,18 +610,46 @@ export function registerConsentRoutes(router, ctx) {
 
       // ── Two-way check-in reply: resolve the person's open text check-in ──
       // A text check-in is only half the loop if you can't answer it. Find the
-      // single most-recent open text check-in — whether it was just delivered
-      // ('sent') or is mid-"when do you want to try again?" conversation
-      // ('awaiting_time'). Newest wins, so a stale awaiting row never hijacks a
-      // fresh nudge. STOP/START/HELP are handled above, so they never land here.
+      // single open text check-in that is currently awaiting the person's word —
+      // whether it was just delivered ('sent'), is mid-"when do you want to try
+      // again?" conversation ('awaiting_time'), or was DELIVERED and then re-pended
+      // into a short wait window (a "help me start" check-back, or an "I'm on it"
+      // snooze) — those carry `status = 'pending'` but keep their `delivered_at`.
+      // Without the delivered-pending arm, the most engaged reply on the live moat
+      // met silence: the "help me start" copy literally says "Text STARTED when
+      // you're moving," yet a STARTED / done / on-it texted inside those two minutes
+      // found no open check-in and was dropped (no_open_checkin) — the same cold
+      // gap the recent two-way work has been closing, one channel at a time. The
+      // `delivered_at IS NOT NULL` guard is exact: a never-yet-delivered future
+      // occurrence is materialized with `delivered_at` NULL and only ever reaches
+      // 'sent' on delivery, so this arm matches ONLY a delivered-then-re-pended
+      // check-in — never a future one. The `status='pending'` rows rank LAST in the
+      // order (sent/awaiting first, then newest), so a fresh nudge is never
+      // shadowed by a snoozed row scheduled further out. STOP/START/HELP are handled
+      // above, so they never land here.
+      //
+      // `m.status = 'active'` is load-bearing under the design LAW. Setting a word
+      // DOWN (release), pausing a rhythm, and the terminal resolves all cancel a
+      // commitment's *waiting* rows — but their cancel scan is
+      // `IN ('pending','deferred','awaiting_time')`, so a nudge already DELIVERED
+      // (status='sent', responded_at NULL) is deliberately left live. Without this
+      // guard a late "done"/"3pm" reply to that stray sent row would match it and
+      // run applyCheckinOutcome — resurrecting a released word (re-activating the
+      // rhythm + re-arming the next occurrence, or moving a one-shot released→kept)
+      // and ringing the bro again on a word the person explicitly set down: the
+      // exact guilt-engine the LAW forbids. Parity with reconcileStrandedCheckins,
+      // which already scopes its resolve to `m.status='active'`. A non-active parent
+      // falls through to `no_open_checkin` (silent ack — never text unprompted).
       const open = await env.DB.prepare(
         `SELECT c.id AS checkin_id, c.commitment_id, c.status AS checkin_status,
                 m.recurrence, m.timezone, m.local_time, m.channel, m.persona
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
-          WHERE c.user_id = ? AND c.channel = 'text'
-            AND c.status IN ('sent', 'awaiting_time') AND c.responded_at IS NULL
-          ORDER BY c.scheduled_for DESC LIMIT 1`
+          WHERE c.user_id = ? AND c.channel = 'text' AND c.responded_at IS NULL
+            AND m.status = 'active'
+            AND ( c.status IN ('sent', 'awaiting_time')
+                  OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
+          ORDER BY (c.status = 'pending') ASC, c.scheduled_for DESC LIMIT 1`
       ).bind(user.id).first();
 
       if (!open) {
@@ -684,13 +735,25 @@ export function registerConsentRoutes(router, ctx) {
         // runs RESCHEDULE before SNOOZE, so it returns 'reschedule' and falls
         // through to the time parse below, which warmly re-asks for a time.
         if (awaitingReply === 'snooze') {
-          const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
+          // Check back WHEN they said ("gimme 20", "in an hour"), not at a fixed
+          // default; no named interval keeps the default. Clamped, streak-safe.
+          const minutes = parseSnoozeMinutes(text) ?? SNOOZE_DEFAULT_MIN;
+          const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
           await env.DB.prepare(
             `UPDATE commitment_checkins
                 SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
               WHERE id = ? AND user_id = ?`
           ).bind(snoozedUntil, open.checkin_id, user.id).run();
-          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
+          await recordEvent(env, {
+            userId: user.id,
+            type: EVENTS.COMMITMENT_SNOOZE,
+            data: {
+              commitment_id: open.commitment_id,
+              is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+              channel: 'text',
+            },
+          });
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
           return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
         }
         const whenISO = parseWhenReply(text, {
@@ -720,7 +783,7 @@ export function registerConsentRoutes(router, ctx) {
         // If they reported movement in the same breath as the new time ("made good
         // progress, tomorrow 9am"), meet it by name — parity with the snooze path,
         // which already acknowledges progress. Still a reschedule: streak untouched.
-        await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: whenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text), seed: open.checkin_id }));
         return finish({ ok: true, action: 'rescheduled', scheduled_for: whenISO });
       }
 
@@ -740,14 +803,50 @@ export function registerConsentRoutes(router, ctx) {
       // resolution and not a miss, by construction. On the next return they can
       // still say DONE or LATER. Runs before the direct-time/ambiguous fallbacks.
       if (reply === 'snooze') {
-        const snoozedUntil = new Date(Date.now() + SNOOZE_DEFAULT_MIN * 60000).toISOString();
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(snoozedUntil, open.checkin_id, user.id).run();
-        await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes: SNOOZE_DEFAULT_MIN, progress: isProgressReply(text) }));
-        return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
+        // An engaged reply that also names a concrete return TIME ("on it — check
+        // back at 3pm", "still working, come back at 4") is not a bounded hold: the
+        // person told us exactly when to return. `parseSnoozeMinutes` returns null
+        // for a clock time by construction (a clock time is "a reschedule TARGET,
+        // never a hold length"), so the old path silently DROPPED the 3pm and fell to
+        // the default ~15-min snooze — re-nudging on top of someone who is actively
+        // working and just told us when to come back, the exact nag the design LAW
+        // forbids. When a clock/date target is present AND no bounded duration was
+        // stated, let it fall through to the direct-time reschedule branch below,
+        // which re-pends this check-in to that exact time and names it back. A bare
+        // "on it" or a DURATION ("give me 20", "in an hour") is a true, bounded snooze
+        // and stays here. The duration guard is load-bearing: `parseWhenReply`
+        // misreads a bare "give me 20" as 20:00, so `statedMinutes == null` — not mere
+        // `parseWhenReply` truthiness — is what isolates a real named clock target.
+        const statedMinutes = parseSnoozeMinutes(text);
+        const snoozeTargetISO = parseWhenReply(text, {
+          nowISO, timezone: open.timezone, defaultTime: open.local_time,
+        });
+        const namesReturnTime = Boolean(snoozeTargetISO) && statedMinutes == null;
+        if (!namesReturnTime) {
+          // Honor a stated hold-length ("on it, give me 20", "still working, check
+          // back in an hour"); no named interval keeps the default. Clamped, streak-safe.
+          const minutes = statedMinutes ?? SNOOZE_DEFAULT_MIN;
+          const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
+          await env.DB.prepare(
+            `UPDATE commitment_checkins
+                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+              WHERE id = ? AND user_id = ?`
+          ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await recordEvent(env, {
+            userId: user.id,
+            type: EVENTS.COMMITMENT_SNOOZE,
+            data: {
+              commitment_id: open.commitment_id,
+              is_recurring: open.recurrence === 'daily' || open.recurrence === 'weekdays',
+              channel: 'text',
+            },
+          });
+          await sendSms(env, phone, snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(text) }));
+          return finish({ ok: true, action: 'snoozed', scheduled_for: snoozedUntil });
+        }
+        // else: an "on it, at 3pm"-style engaged reply that named a concrete return
+        // time — fall through to the direct-time reschedule branch below, which honors
+        // that exact time (streak untouched, a reschedule protects the chain).
       }
 
       // ── Answered directly with a new TIME? Reschedule in one step ──
@@ -784,7 +883,7 @@ export function registerConsentRoutes(router, ctx) {
         });
         // Same as the awaiting-time branch: a time given with reported progress
         // ("chipping away, make it 3pm") is met by name. Still a reschedule.
-        await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text) }));
+        await sendSms(env, phone, smsRescheduledCopy({ persona, when: directWhenISO, timezone: open.timezone, nowISO, progress: isProgressReply(text), seed: open.checkin_id }));
         return finish({ ok: true, action: 'rescheduled', scheduled_for: directWhenISO });
       }
 
@@ -799,9 +898,26 @@ export function registerConsentRoutes(router, ctx) {
       // when, right here over text, and hold this check-in in 'awaiting_time' for
       // the person's next reply. The design LAW's literal promise: "no problem —
       // when do you want to try again?"
+      //
+      // Park the SPECIFIC open row we already resolved (`open`), guarded only on it
+      // still being unanswered — the exact condition the open lookup required at
+      // selection. The old `AND status = 'sent'` guard was too narrow: the open
+      // lookup validly matches a delivered-then-re-pended check-in too (a "help me
+      // start" or snooze re-pend carries `status='pending'` with `delivered_at`
+      // set), so a "later" reply to one of those left the UPDATE matching zero rows
+      // — the check-in stayed 'pending' at its near-future time, the promised
+      // "when?" holding state never took effect, and `runDueCheckins` re-delivered
+      // the nudge minutes later, nagging the person on the very moment they just
+      // deferred (a design-LAW brush). `responded_at IS NULL` transitions both a
+      // fresh 'sent' row and a delivered-'pending' one, matching the sibling
+      // re-pend branches (which all key on `id` alone), and is a stronger optimistic
+      // guard than the old one — a concurrently-resolved row is correctly skipped.
+      // An 'awaiting_time' row never reaches here (handled above); a 'deferred' row
+      // is never selected by the inbound open lookup — so this can only ever match
+      // the intended open, unresponded occurrence.
       await env.DB.prepare(
         `UPDATE commitment_checkins SET status = 'awaiting_time'
-          WHERE id = ? AND user_id = ? AND status = 'sent'`
+          WHERE id = ? AND user_id = ? AND responded_at IS NULL`
       ).bind(open.checkin_id, user.id).run();
       await sendSms(env, phone, smsAskWhenCopy({ persona }));
       return finish({ ok: true, action: 'reschedule_ask_when' });

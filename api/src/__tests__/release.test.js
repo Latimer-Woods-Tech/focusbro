@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import { Router } from 'itty-router';
 import { registerAccountabilityRoutes, releaseConfirmCopy } from '../accountability.js';
 import { generateUUID } from '../middleware.js';
@@ -131,7 +132,7 @@ describe('releaseConfirmCopy — a blameless exit, never a miss', () => {
     /\bashamed\b/i, /\bshame\b/i, /\bquit(ter|ting)?\b/i, /\bgave up\b/i, /\bgiving up\b/i,
     /\byou (didn.?t|should have|should.?ve)\b/i, /\bexcuse/i, /\bpathetic\b/i, /\bworthless\b/i,
   ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI = /\bAI\b/;
 
   const samples = ['ally', 'hype', 'unknown'].map((persona) => releaseConfirmCopy({ persona }));

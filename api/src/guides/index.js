@@ -7,10 +7,13 @@
 // Routes are registered generically in index.js from the exported array.
 // ════════════════════════════════════════════════════════════
 
+import { SOURCES, SOURCE_TYPES, AUTHOR, sourceUrl } from './sources.js';
+import { renderBreathPacer } from './breath-pacer.js';
+
 const AD_CLIENT_SCRIPT =
   '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>';
 
-const SHELL_CSS = `
+export const SHELL_CSS = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -60,17 +63,79 @@ const SHELL_CSS = `
   h2.group { font-size: 15px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280;
     margin: 34px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
   h2.group:first-of-type { margin-top: 24px; }
+
+  /* ── Sources: the evidence ledger ── */
+  .sources { margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,.12); }
+  .sources h2 { margin-bottom: 6px; }
+  .sources-intro { color: #4b5563; font-size: .95rem; margin: 0 0 12px; }
+  .sources-list { padding-left: 1.25rem; margin: 0; }
+  .sources-list li { margin: 0 0 12px; font-size: .95rem; line-height: 1.55; }
+  .source-type { display: inline-block; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: #374151; background: rgba(0,0,0,.06); border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
+  .source-doi { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: #4b5563; }
+  .source-n { color: #4b5563; }
+  .source-note { display: block; color: #6b7280; font-size: .9rem; margin-top: 2px; }
+  .meta a[rel="author"] { color: inherit; font-weight: 500; }
+
+  /* ── Instruments: a guide that computes something ── */
+  .tool { margin: 20px 0 24px; padding: 18px 20px; border: 1px solid #dbeafe; background: #f8fbff; border-radius: 12px; }
+  .tool h3 { margin: 0 0 12px; font-size: 18px; color: #111827; }
+  .tool-form label { display: block; font-size: 13px; color: #374151; margin-bottom: 4px; }
+  .tool-row { margin-bottom: 12px; }
+  .tool-row-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 520px) { .tool-row-3 { grid-template-columns: 1fr; } }
+  .tool-form input, .tool-form select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; color: #111827; background: #fff; }
+  .tool-form input[type="range"] { padding: 0; }
+  .tool-form output { font-weight: 600; color: #111827; margin-left: 6px; }
+  .tool-help { font-size: 13px; color: #6b7280; margin: 6px 0 0; }
+  .tool-btn { padding: 9px 16px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  .tool-btn:hover { background: #1d4ed8; }
+  .tool-result { margin-top: 14px; min-height: 24px; }
+  .tool-headline { font-size: 18px; margin: 0 0 6px; color: #111827; }
+  .tool-detail { margin: 0 0 8px; color: #374151; }
+  .tool-chart { width: 100%; height: auto; display: block; margin-top: 8px; }
+  .tool-curve { fill: none; stroke: #2563eb; stroke-width: 2; }
+  .tool-bedline { stroke: #9ca3af; stroke-width: 1; stroke-dasharray: 3 3; }
+  .tool-beddot { fill: #dc2626; }
+  .tool-label { font-size: 10px; fill: #6b7280; }
+  .tool-note { font-size: 13px; color: #6b7280; margin: 12px 0 0; }
+  .figures { margin: 20px 0 24px; padding: 18px 20px; border: 1px solid #dbeafe; background: #f8fbff; border-radius: 12px; }
+  .figures h2 { margin-top: 0; }
+  .figures-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; }
+  @media (max-width: 520px) { .figures-list { grid-template-columns: 1fr; } }
+  .figures-list dt { font-size: 13px; color: #374151; }
+  .figures-list dd { margin: 2px 0 0; font-size: 26px; font-weight: 600; color: #111827; }
+  .figures-n { font-size: 13px; font-weight: 400; color: #6b7280; }
+  .figures-note { font-size: 13px; color: #6b7280; margin: 14px 0 0; }
+  .figures-stamp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #6b7280; margin: 8px 0 0; }
+  .definitions dt { font-weight: 600; margin-top: 12px; }
+  .definitions dd { margin: 4px 0 0; }
+  .tool-btn-secondary { background: #e5e7eb; color: #111827; }
+  .tool-btn-secondary:hover { background: #d1d5db; }
+  .pacer-check label { display: flex; gap: 8px; align-items: flex-start; margin-top: 22px; }
+  .pacer-check input { width: auto; margin-top: 3px; }
+  .pacer-stage { position: relative; width: 220px; max-width: 100%; margin: 16px auto 4px; }
+  .pacer-svg { width: 100%; height: auto; display: block; }
+  .pacer-ring-bg { fill: none; stroke: #e5e7eb; stroke-width: 6; }
+  .pacer-ring { fill: none; stroke: #2563eb; stroke-width: 6; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .pacer-orb { fill: #bfdbfe; transform-origin: 50% 50%; transform: scale(0.55); }
+  .pacer-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 600; color: #1e3a8a; pointer-events: none; }
+  .pacer-phase { text-align: center; font-size: 20px; font-weight: 600; margin: 8px 0 2px; color: #111827; min-height: 28px; }
+  .pacer-round { text-align: center; color: #6b7280; margin: 0 0 12px; font-size: 14px; min-height: 20px; }
+  .pacer-actions { display: flex; gap: 10px; justify-content: center; }
+  .pacer-actions [hidden] { display: none; }
+  .pacer-patterns { font-size: 14px; color: #374151; margin: 14px 0 0; padding-left: 18px; }
+  @media (prefers-reduced-motion: reduce) { .pacer-orb { transform: scale(0.8) !important; } }
 `;
 
-const SITE_HEADER = `<header class="site">
+export const SITE_HEADER = `<header class="site">
   <span class="brand"><a href="/">FocusBro</a></span>
   <nav><a href="/">App</a> &nbsp;·&nbsp; <a href="/guides/">Guides</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a></nav>
 </header>`;
 
-const SITE_FOOTER = `<footer class="site">
+export const SITE_FOOTER = `<footer class="site">
   FocusBro is a browser-based focus and wellness toolkit by Latimer Woods Tech.
   These guides are for general education and are not medical advice.
-  &nbsp;·&nbsp; <a href="/guides/">All guides</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a>
+  &nbsp;·&nbsp; <a href="/guides/">All guides</a> &nbsp;·&nbsp; <a href="/follow-through-index.html">Follow-Through Index</a> &nbsp;·&nbsp; <a href="/about.html">About</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy</a>
 </footer>`;
 
 /**
@@ -102,15 +167,21 @@ const slugifyHeading = (text = '') =>
  * @param {string} body article inner HTML
  * @returns {{body:string, toc:string}}
  */
-function withHeadingAnchors(body) {
+export function withHeadingAnchors(body) {
   const items = [];
   const seen = new Set();
+  // Ids the body already carries (a `<section id="sources">` wrapping its own
+  // `<h2>Sources</h2>`, for instance). A heading whose slug is taken gets NO id
+  // of its own — the TOC points at the existing element, which is the same
+  // place on the page — so a document never carries the same id twice.
+  const existing = new Set([...body.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   const newBody = body.replace(/<h2>([\s\S]*?)<\/h2>/g, (match, inner) => {
     const label = stripTags(inner);
     if (/^keep reading$/i.test(label)) return match;
     let id = slugifyHeading(inner);
-    while (id && seen.has(id)) id += '-x';
     if (!id) return match;
+    if (existing.has(id)) { if (!seen.has(id)) { seen.add(id); items.push({ id, label }); } return match; }
+    while (seen.has(id)) id += '-x';
     seen.add(id);
     items.push({ id, label });
     return `<h2 id="${id}">${inner}</h2>`;
@@ -128,7 +199,10 @@ function withHeadingAnchors(body) {
  * @param {{slug:string,title:string,description:string,body:string}} guide
  * @returns {string} full HTML page
  */
-export function renderGuidePage(guide) {
+// `version` stamps the first-party script URLs (?v=<build sha>) so a browser
+// that cached yesterday's /guides/*.js never runs it against today's page.
+// The Worker passes env.BUILD_SHA; the smoke server passes 'dev'.
+export function renderGuidePage(guide, { version = 'dev' } = {}) {
   const url = `https://focusbro.net/guides/${guide.slug}.html`;
   // Escape for HTML attribute values (title/description are authored plain text,
   // but a stray & or " must never break the meta tags).
@@ -148,7 +222,15 @@ export function renderGuidePage(guide) {
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
     datePublished: guide.lastmod,
     dateModified: guide.lastmod,
-    author: { '@type': 'Organization', name: 'Latimer Woods Tech', url: 'https://focusbro.net/about.html' },
+    author: { '@type': 'Person', name: AUTHOR.name, jobTitle: AUTHOR.role, url: AUTHOR.url },
+    // Every verified source, as schema.org citations — the same data the visible
+    // Sources section is rendered from, so the two can never drift.
+    citation: (guide.sources || []).map((k) => SOURCES[k]).filter(Boolean).map((src) => {
+      const c = { '@type': 'CreativeWork', name: src.title, author: src.authors };
+      if (src.year) c.datePublished = String(src.year);
+      if (src.doi) { c['@id'] = sourceUrl(src); c.url = sourceUrl(src); }
+      return c;
+    }),
     publisher: {
       '@type': 'Organization',
       name: 'FocusBro',
@@ -188,6 +270,36 @@ export function renderGuidePage(guide) {
         acceptedAnswer: { '@type': 'Answer', text: stripTags(f.a) },
       })),
     }).replace(/</g, '\\u003c');
+  }
+  // The evidence ledger: every source the guide leans on, typed honestly
+  // (study / meta-analysis / review / book / guidance), linked by verified DOI,
+  // with the caveat a careful reader would want. A guide that makes no research
+  // claim says so instead of sitting blank. Rendered from the same data the
+  // JSON-LD `citation` array uses.
+  const sourceKeys = Array.isArray(guide.sources) ? guide.sources : [];
+  const sourceItems = sourceKeys.map((k) => SOURCES[k]).filter(Boolean);
+  const sourcesHtml = sourceItems.length
+    ? `<section class="sources" id="sources"><h2>Sources</h2>
+<p class="sources-intro">Every claim above rests on the sources below. Each is typed and linked so you can read it yourself; the note is the caveat we would want you to know.</p>
+<ol class="sources-list">
+${sourceItems.map((src) => {
+    const link = sourceUrl(src);
+    const title = link ? `<a href="${link}" rel="noopener">${esc(src.title)}</a>` : esc(src.title);
+    const when = src.year ? ` (${src.year})` : '';
+    const note = src.note ? ` <span class="source-note">${esc(src.note)}</span>` : '';
+    const n = src.n ? ` <span class="source-n">n&nbsp;=&nbsp;${src.n}.</span>` : '';
+    const doiTxt = link ? ` <span class="source-doi">doi:${esc(src.doi)}</span>` : '';
+    return `<li><span class="source-type">${esc(SOURCE_TYPES[src.type] || src.type)}</span> ${esc(src.authors)}${when}. ${title}. <em>${esc(src.venue)}</em>.${doiTxt}${n}${note}</li>`;
+  }).join('\n')}
+</ol>
+</section>`
+    : guide.evidenceNote
+      ? `<section class="sources" id="sources"><h2>Sources</h2><p class="sources-intro">${esc(guide.evidenceNote)}</p></section>`
+      : '';
+  if (sourcesHtml) {
+    workingBody = workingBody.includes('<div class="related">')
+      ? workingBody.replace('<div class="related">', `${sourcesHtml}\n\n<div class="related">`)
+      : `${workingBody}\n${sourcesHtml}`;
   }
   // Optional HowTo: only for genuinely step-by-step guides whose steps are
   // already listed on the page. Built from `guide.howto` so the schema matches
@@ -236,12 +348,16 @@ ${SITE_HEADER}
 <article>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › <a href="/guides/">Guides</a> › <span>${esc(guide.title)}</span></nav>
 <h1>${guide.title}</h1>
-<p class="meta">A FocusBro guide · updated ${guide.lastmodLabel || guide.lastmod}</p>
+<p class="meta">By <a href="${AUTHOR.url}" rel="author">${AUTHOR.name}</a>, ${AUTHOR.role} · updated ${guide.lastmodLabel}</p>
 ${toc}
 ${processedBody}
 </article>
 </main>
 ${SITE_FOOTER}
+<!-- One anonymous view per session, recorded by a first-party script so the
+     page stays CSP-clean under script-src 'self' (no inline execution). -->
+${(Array.isArray(guide.scripts) ? guide.scripts : []).map((src) => `<script src="${esc(src)}?v=${esc(version)}" defer></script>`).join('\n')}
+<script src="/guides/view.js?v=${esc(version)}" data-slug="${esc(guide.slug)}" defer></script>
 </body></html>`;
 }
 
@@ -254,15 +370,15 @@ ${SITE_FOOTER}
 const GUIDE_GROUPS = Object.freeze([
   {
     label: 'Focus sessions & deep work',
-    slugs: ['how-long-should-a-pomodoro-be', 'ultradian-rhythms-and-focus', 'deep-work-and-attention-residue', 'time-blocking'],
+    slugs: ['how-long-should-a-pomodoro-be', 'ultradian-rhythms-and-focus', 'deep-work-and-attention-residue', 'flow-state-and-focus', 'time-blocking'],
   },
   {
     label: 'Breaks, breathing & calm',
-    slugs: ['the-physiological-sigh', 'box-breathing', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
+    slugs: ['the-physiological-sigh', 'box-breathing', '4-7-8-breathing', 'meditation-and-attention', 'attention-restoration-nature-breaks', 'the-20-20-20-rule'],
   },
   {
     label: 'Procrastination, habits & planning',
-    slugs: ['why-we-procrastinate', 'habit-stacking', 'the-weekly-review', 'notification-batching'],
+    slugs: ['why-we-procrastinate', 'habit-stacking', 'the-weekly-review', 'notification-batching', 'dopamine-and-focus'],
   },
   {
     label: 'Focus, ADHD & the body',
@@ -368,6 +484,7 @@ ${SITE_FOOTER}
 export const guides = [
   {
     slug: 'how-long-should-a-pomodoro-be',
+    sources: ["ariga2011", "cirillo2006"],
     faqs: [
       { q: `Is 25 minutes the "correct" Pomodoro length?`, a: `No. Twenty-five minutes is the original starting point, not a rule. The two things that make the method work are a clear boundary you commit to and a real break afterward. Match the length to the task: short blocks of 15 to 25 minutes lower the cost of starting hard or dull work, while 45- to 90-minute blocks suit deep work that needs a long run-up.` },
       { q: `Should I take a break even if I'm focusing well?`, a: `Usually yes. The short break is what prevents the slow decline in the next interval. If you are genuinely in deep flow, treat that as a reason to use a longer block next time rather than to abolish rest entirely, and size future blocks to the task so the timer stops cutting off your best work.` },
@@ -418,7 +535,7 @@ export const guides = [
 <h2>Make the break count</h2>
 <p>A break spent scrolling a feed is not much of a break for your attention system; you have swapped one demanding screen for another. The restorative breaks are the ones that let directed attention idle: stand up and walk, look out a window, stretch, do a minute of slow breathing, or rest your eyes. Those are exactly the resets FocusBro is built around.</p>
 
-<p>Ready to try it? <a class="app-cta" href="/?tool=focus">Open the Pomodoro timer</a></p>
+<p>Ready to try it? <a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_how-long-should-a-pomodoro-be">Open the Pomodoro timer</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -432,6 +549,7 @@ export const guides = [
 
   {
     slug: 'ultradian-rhythms-and-focus',
+    sources: ["kleitman1982"],
     title: 'Ultradian Rhythms: Why Focus Comes in Roughly 90-Minute Waves',
     description: 'Nathaniel Kleitman’s Basic Rest-Activity Cycle and what ultradian rhythms suggest about pacing deep work in ~90-minute blocks with real recovery.',
     lastmod: '2026-07-05',
@@ -472,7 +590,7 @@ export const guides = [
 <h2>A caveat worth keeping</h2>
 <p>Your rhythm is your own. Chronotype (whether you are a morning lark or a night owl), sleep debt, caffeine, stress, and the task itself all shift where your peaks and troughs land. The lesson from ultradian research is not "work in exactly 90-minute blocks" — it is "energy is cyclical, so schedule your hardest work for your peaks and build in real recovery at your troughs." Notice your own pattern for a week, and pace the day around it.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_ultradian-rhythms-and-focus">Start a focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -486,6 +604,7 @@ export const guides = [
 
   {
     slug: 'the-20-20-20-rule',
+    sources: ["aoa_20_20_20"],
     title: 'The 20-20-20 Rule: A Simple Fix for Screen Eye Strain',
     description: 'What digital eye strain is, why staring at a screen tires your eyes, and how the 20-20-20 rule recommended by eye-care associations helps.',
     lastmod: '2026-07-05',
@@ -521,7 +640,7 @@ export const guides = [
 <h2>The supporting cast</h2>
 <p>The 20-20-20 rule works best alongside a few basics that reduce the underlying load on your eyes: position the screen a little below eye level and roughly an arm's length away; keep the room lit so the screen is not a bright rectangle in a dark room; nudge text size up so you are not leaning in; and keep the air from being too dry. If your eyes still ache constantly, or vision blurs and does not clear, that is a reason to see an eye-care professional rather than to push through — persistent strain can be a sign you need an updated prescription.</p>
 
-<p><a class="app-cta" href="/?tool=eyerest">Try the Eye Rest tool</a></p>
+<p><a class="app-cta" href="/?tool=eyerest&amp;ref=cf_focusbro_the-20-20-20-rule">Try the Eye Rest tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -535,6 +654,7 @@ export const guides = [
 
   {
     slug: 'the-physiological-sigh',
+    sources: ["balban2023", "yackle2017"],
     howto: {
       name: 'How to do a physiological sigh',
       description: 'A double inhale followed by a long, slow exhale to take the edge off stress in under a minute.',
@@ -584,7 +704,7 @@ export const guides = [
 <h2>Where it fits</h2>
 <p>The physiological sigh is the emergency brake; slower practices like box breathing are the long, steady cruise. For an acute jolt of stress, one or two sighs are often enough to bring you back down to where you can think. As a daily habit, a few minutes of cyclic sighing is a low-cost way to nudge your baseline toward calm.</p>
 
-<p><a class="app-cta" href="/?tool=breathing">Open the breathing tools</a></p>
+<p><a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_the-physiological-sigh">Open the breathing tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -598,6 +718,7 @@ export const guides = [
 
   {
     slug: 'attention-restoration-nature-breaks',
+    sources: ["berman2008", "lee2015", "ulrich1984"],
     title: 'Attention Restoration Theory: Why Nature Breaks Rebuild Focus',
     description: 'The Kaplans’ Attention Restoration Theory, the research on nature and directed attention, and how to get the effect even from a window or a short walk.',
     lastmod: '2026-07-05',
@@ -633,7 +754,7 @@ export const guides = [
 <h2>The bigger point</h2>
 <p>Attention Restoration Theory reframes breaks entirely. A good break is not idle time subtracted from your work; it is the process that makes the next block of work possible. Spend your focus deliberately, then restore it deliberately — and choose restoration that actually lets your directed attention idle. Often, that is as simple as stepping outside.</p>
 
-<p><a class="app-cta" href="/?tool=rest">Plan your next break</a></p>
+<p><a class="app-cta" href="/?tool=rest&amp;ref=cf_focusbro_attention-restoration-nature-breaks">Plan your next break</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -647,6 +768,7 @@ export const guides = [
 
   {
     slug: 'why-we-procrastinate',
+    sources: ["steel2007"],
     faqs: [
       { q: `Is procrastination just laziness or bad time management?`, a: `The research points elsewhere: procrastination is largely about managing emotion, not time. We put things off to escape a bad feeling in the present — the task feels boring, hard, or threatening — and avoiding it brings instant relief. That is why "just try harder" rarely helps; the useful moves are the ones that lower the emotional cost of starting.` },
       { q: `What is the single most effective thing I can do?`, a: `Shrink the first step until it is almost trivially doable — "open the document and write one bad sentence" instead of "write the report." The hardest moment is almost always the transition into the work, not the work itself, so making that first step tiny is what gets you moving.` },
@@ -687,7 +809,7 @@ export const guides = [
 <h2>Put it together</h2>
 <p>The next time a task keeps sliding, run the checklist instead of reaching for guilt: shrink the first step until it is trivially doable, strip the nearest distraction out of arm's reach, set a short timer so the commitment is bounded, and give yourself a real reward at the ring. Notice, too, which of the four levers the task is failing on — a job you are avoiding because you doubt you can do it needs a smaller first step (expectancy), while one you keep trading away for your phone needs the phone gone (impulsiveness). Naming the specific reason a task feels aversive turns a vague sense of "I just can't make myself" into a concrete problem with a matching fix. You are not fixing a broken character; you are lowering the emotional cost of starting, which is the only thing that was ever really in the way.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a two-minute focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_why-we-procrastinate">Start a two-minute focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -701,6 +823,7 @@ export const guides = [
 
   {
     slug: 'deep-work-and-attention-residue',
+    sources: ["leroy2009"],
     title: 'Deep Work and Attention Residue: The Hidden Cost of Switching',
     description: 'Cal Newport’s idea of deep work and Sophie Leroy’s research on attention residue — why switching tasks quietly drags down your focus, and how rituals protect it.',
     lastmod: '2026-07-05',
@@ -732,7 +855,7 @@ export const guides = [
 <h2>Start small</h2>
 <p>You do not have to restructure your whole calendar tomorrow. Pick one task that genuinely matters, give it a single protected 60- to 90-minute block with the phone out of reach and notifications off, and simply notice how much more you produce than in a fragmented hour. That contrast is usually persuasive enough to build from. Over a few weeks the habit compounds: as protected deep blocks become normal, the shallow work that used to sprawl across the day gets squeezed into its own windows, and the residue that once drained every task quietly stops leaking. The aim is not a perfect day of unbroken concentration — few jobs allow that — but simply more genuinely deep hours than you get by drifting, and fewer of the fragmented ones that feel busy and produce little. Treat the number of real deep-work blocks you complete in a week as the metric that matters, rather than hours merely spent at a desk, and let everything else organize itself around protecting them.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a distraction-free session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_deep-work-and-attention-residue">Start a distraction-free session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -746,6 +869,7 @@ export const guides = [
 
   {
     slug: 'time-blocking',
+    sources: ["rubinstein2001", "parkinson1955"],
     title: 'Time Blocking: Give Every Task a Home on the Calendar',
     description: 'Why an open to-do list expands to fill the day, what Parkinson’s Law and task-switching research say, and how to time-block without it falling apart by 10 a.m.',
     lastmod: '2026-07-05',
@@ -782,7 +906,7 @@ export const guides = [
 <h2>Start with one block</h2>
 <p>You do not need to schedule your entire life. Tomorrow, block a single protected hour for your most important task and defend it like a meeting. Notice how much more gets done in that hour than in a typical unplanned one — then add a second block the day after. Time blocking is a skill, not a personality trait, and the early attempts will be badly calibrated: you will underestimate durations, over-schedule, and watch the plan buckle by lunch. That is expected and not a reason to quit. Each day of blocking teaches you something concrete about how long your work actually takes and where your day tends to fracture, and within a couple of weeks your estimates tighten and the plan holds together far more often. The goal is not a flawless calendar but a realistic one that steers your best hours toward your most important work — and that is a habit worth being patient with.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Time-box a task now</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_time-blocking">Time-box a task now</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -796,6 +920,8 @@ export const guides = [
 
   {
     slug: 'caffeine-timing-and-focus',
+    sources: ["drake2013", "iom2001", "fredholm1999", "fda_caffeine"],
+    scripts: ['/guides/caffeine.js'],
     faqs: [
       { q: `How late in the day can I have caffeine?`, a: `A practical rule that follows from caffeine's long half-life is to stop at least eight to ten hours before bed — for many people that means nothing after early-to-mid afternoon. Caffeine lingers far longer than the buzz suggests, so a late cup can quietly reduce the depth of that night's sleep even when you fall asleep fine.` },
       { q: `Does caffeine actually give me energy?`, a: `Not exactly. Caffeine blocks the receptors that adenosine, a drowsiness signal that builds up while you are awake, would otherwise bind to. You temporarily stop feeling tiredness that is already there, but the adenosine keeps accumulating behind the blockade, which is part of why a crash can follow.` },
@@ -814,7 +940,39 @@ export const guides = [
 <p>Caffeine works by <strong>blocking those adenosine receptors</strong>. It is shaped enough like adenosine to slot into the same docking sites, where it acts as an antagonist — occupying the receptor without activating it, so the drowsiness signal cannot land. You do not actually gain energy; you temporarily stop feeling the tiredness that was already there. This is a crucial distinction, because the adenosine has not gone anywhere. It is still accumulating behind the blockade.</p>
 
 <h2>The half-life problem</h2>
-<p>Here is the fact that changes how you should schedule caffeine: it lingers far longer than the buzz suggests. Caffeine's <strong>half-life is roughly five to six hours</strong> in a typical adult — meaning that six hours after a coffee, about half the caffeine is still circulating in your system. After another six hours, a quarter remains. (The exact figure varies a lot between people, driven largely by genetics and factors like pregnancy or certain medications, but the ballpark holds.)</p>
+<p>Here is the fact that changes how you should schedule caffeine: it lingers far longer than the buzz suggests. Caffeine's <strong>half-life is about five hours on average</strong> in a healthy adult — meaning that five hours after a coffee, about half the caffeine is still circulating in your system, and after another five, a quarter. The average hides a wide spread: between people it runs from roughly <strong>1.5 to 9.5 hours</strong>, shortened by smoking and lengthened by pregnancy and oral contraceptives (Institute of Medicine, 2001). So treat the arithmetic below as a population average, not a measurement of you.</p>
+
+<section class="tool" id="caffeine-calculator" aria-labelledby="caffeineCalcTitle">
+<h3 id="caffeineCalcTitle">Run the arithmetic on your own cup</h3>
+<form id="caffeineCalc" class="tool-form" novalidate>
+<div class="tool-row">
+<label for="cafPreset">What you had</label>
+<select id="cafPreset" name="preset">
+<option value="">Choose a drink, or type the mg</option>
+<option value="180">Brewed coffee, 12 fl oz (113–247 mg · mid 180)</option>
+<option value="71">Black tea, 12 fl oz (71 mg)</option>
+<option value="37">Green tea, 12 fl oz (37 mg)</option>
+<option value="53">Caffeinated soft drink, 12 fl oz (23–83 mg · mid 53)</option>
+<option value="143">Energy drink, 12 fl oz (41–246 mg · mid 143)</option>
+</select>
+</div>
+<div class="tool-row tool-row-3">
+<div><label for="cafDose">Caffeine (mg)</label><input id="cafDose" name="dose" type="number" inputmode="numeric" min="1" max="1000" step="1" value="180" /></div>
+<div><label for="cafTaken">When you had it</label><input id="cafTaken" name="taken" type="time" /></div>
+<div><label for="cafBed">Your bedtime</label><input id="cafBed" name="bed" type="time" value="23:00" /></div>
+</div>
+<div class="tool-row">
+<label for="cafHalf">Half-life <output id="cafHalfOut" for="cafHalf">5.0 h</output></label>
+<input id="cafHalf" name="half" type="range" min="1.5" max="9.5" step="0.5" value="5" aria-describedby="cafHalfHelp" />
+<p id="cafHalfHelp" class="tool-help">5 h is the adult average; 1.5–9.5 h is the range between people. Smokers tend toward the short end; pregnancy and oral contraceptives toward the long end.</p>
+</div>
+<button type="submit" class="tool-btn">Calculate</button>
+</form>
+<div id="cafResult" class="tool-result" role="status" aria-live="polite"></div>
+<svg id="cafChart" class="tool-chart" viewBox="0 0 320 120" role="img" aria-label="Caffeine remaining over the hours after your cup, with bedtime marked"></svg>
+<p class="tool-note">Drink figures are the FDA's typical amounts per 12 fl oz; a specific coffee can be far outside them. Nothing you enter leaves this page. This is arithmetic, not medical advice.</p>
+<noscript><p class="tool-help">The calculator needs JavaScript. The rule of thumb without it: with a five-hour half-life, half of what you drank is still there five hours later, and a quarter after ten.</p></noscript>
+</section>
 <p>Run the arithmetic on an afternoon coffee. A strong 3 p.m. cup means a meaningful fraction of that caffeine is still active at 9 p.m. and beyond — still occupying adenosine receptors, still muffling the sleep pressure your body is trying to use to fall asleep. You may drop off anyway, but the depth and quality of that sleep can suffer.</p>
 
 <h2>What the research shows about sleep</h2>
@@ -836,7 +994,7 @@ export const guides = [
 <h2>The bigger picture</h2>
 <p>Caffeine is a genuinely useful tool — well-timed, it can sharpen a demanding block of work. But it borrows alertness against your sleep, and if you borrow late in the day you repay it that night. Keep it in the morning and early afternoon, spend it on work that deserves it, and let real rest — not another cup — handle the evening. The most reliable focus aid, in the end, is the sleep that clears your adenosine to begin with.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Set up your next focus session</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_caffeine-timing-and-focus">Set up your next focus session</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -850,6 +1008,7 @@ export const guides = [
 
   {
     slug: 'adhd-focus-strategies',
+    sources: ["barkley1997"],
     faqs: [
       { q: `Does ADHD mean you can't pay attention at all?`, a: `The name is a little misleading. The difficulty is less about a lack of attention — focus can be intense on the right thing — and more about regulating attention, time, and action. Framing it that way points toward strategies that build structure into your surroundings rather than relying on willpower. This is general education, not medical advice.` },
       { q: `What is the most useful single principle?`, a: `Externalize as much as you can: move memory, time, and future stakes out of your head and into your environment, where they are visible and hard to ignore. A countdown timer you can see makes time concrete, and capturing every task into one trusted list the moment it appears beats trying to remember it later.` },
@@ -896,7 +1055,7 @@ export const guides = [
 <h2>Be kind about the misses</h2>
 <p>People with ADHD accumulate years of "you're not trying hard enough" — often internalized as shame that makes everything harder. But the missed deadlines and forgotten tasks are features of how the brain self-regulates, not evidence of a bad character. Self-criticism only adds an aversive feeling to the work, which feeds avoidance. Treat a lapse as data about which external supports to strengthen, adjust the scaffolding, and start the next block clean. If ADHD is significantly affecting your life, a qualified clinician can help you build a plan — including options this general guide cannot responsibly cover.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start a short, timed block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_adhd-focus-strategies">Start a short, timed block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -910,6 +1069,7 @@ export const guides = [
 
   {
     slug: 'sleep-and-executive-function',
+    sources: ["vandongen2003", "xie2013", "yoo2007"],
     faqs: [
       { q: `Can I train myself to do fine on five or six hours?`, a: `For the overwhelming majority of people, no. Studies of chronic short sleep found that objective performance kept declining while people rated their own sleepiness as only slightly elevated — the deficit is real but hard to feel. Genuine short sleepers who thrive on little sleep exist, but they are vanishingly rare. This is general education, not medical advice.` },
       { q: `Which mental skills suffer first when I'm underslept?`, a: `Executive functions — holding information in mind, planning, switching tasks, and resisting the impulse to check your phone — lean heavily on the prefrontal cortex, one of the regions most sensitive to lost sleep. So after a short night, the very system you rely on to concentrate is the one running on the least fuel.` },
@@ -954,7 +1114,7 @@ export const guides = [
 
 <p>This is general education, not medical advice. Persistent trouble sleeping — insomnia, loud snoring with daytime exhaustion, or unrefreshing sleep despite enough hours — is worth raising with a clinician.</p>
 
-<p><a class="app-cta" href="/?tool=sleep">Try the Sleep Wind-Down tool</a></p>
+<p><a class="app-cta" href="/?tool=sleep&amp;ref=cf_focusbro_sleep-and-executive-function">Try the Sleep Wind-Down tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -968,6 +1128,7 @@ export const guides = [
 
   {
     slug: 'habit-stacking',
+    sources: ["gollwitzer1999", "gollwitzer2006", "lally2010", "milkman2014"],
     title: 'Habit Stacking: Anchoring New Routines to Ones You Already Have',
     description: 'The "after I do X, I will do Y" formula. Why implementation intentions (Gollwitzer) make habits stick, how long habits really take to form (Lally 2010), and how to build a focus stack.',
     lastmod: '2026-07-05',
@@ -1010,7 +1171,7 @@ export const guides = [
 <li><strong>Quitting on a missed day.</strong> Lally's data says one miss is noise. Just run the stack again tomorrow.</li>
 </ul>
 
-<p><a class="app-cta" href="/?tool=focus">Anchor a focus session to your routine</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_habit-stacking">Anchor a focus session to your routine</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1024,6 +1185,7 @@ export const guides = [
 
   {
     slug: 'notification-batching',
+    sources: ["mark2008", "ward2017", "kushlev2015"],
     title: 'Notification Batching: Check on Your Schedule, Not Theirs',
     description: 'An interruption costs far more than the seconds it takes. Gloria Mark on the real price of interrupted work, the email-batching study by Kushlev and Dunn, and how to reclaim attention by checking in batches.',
     lastmod: '2026-07-05',
@@ -1058,7 +1220,7 @@ export const guides = [
 <h2>"But people expect an instant reply"</h2>
 <p>Some roles genuinely require fast response, and batching should bend to real obligations — widen the windows, keep a true-emergency channel open. But for most work, the expectation of instant availability is one we impose on ourselves. Replies that come within a couple of hours are, for the overwhelming majority of messages, indistinguishable from instant ones to the sender — while the difference to your own concentration is enormous. You are trading a response speed no one actually needs for a depth of focus you badly do.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start an uninterrupted focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_notification-batching">Start an uninterrupted focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1072,6 +1234,7 @@ export const guides = [
 
   {
     slug: 'workspace-ergonomics',
+    sources: ["hedge_ergonomics"],
     title: 'Workspace Ergonomics: Setting Up a Desk You Can Focus At',
     description: 'Discomfort quietly competes for your attention. Neutral posture, monitor height, glare, and the "next posture" principle — a practical desk setup grounded in established ergonomics.',
     lastmod: '2026-07-05',
@@ -1113,7 +1276,7 @@ export const guides = [
 </ul>
 <p>None of this requires expensive gear — most of it is free rearrangement. Spend five minutes on it once, and you remove a source of friction you would otherwise pay for every working hour. General guidance only; persistent pain, numbness, or tingling deserves a professional's attention.</p>
 
-<p><a class="app-cta" href="/?tool=movement">Set a movement-break reminder</a></p>
+<p><a class="app-cta" href="/?tool=movement&amp;ref=cf_focusbro_workspace-ergonomics">Set a movement-break reminder</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1127,6 +1290,7 @@ export const guides = [
 
   {
     slug: 'music-and-noise-for-focus',
+    sources: ["rauscher1993", "pietschnig2010", "mehta2012"],
     title: 'Music and Noise for Focus: What the Research Actually Shows',
     description: 'Does music help you concentrate? The honest answer is that it depends on the task. The irrelevant-sound effect, the overblown Mozart effect, and when ambient noise actually helps (Mehta 2012).',
     lastmod: '2026-07-05',
@@ -1142,10 +1306,10 @@ export const guides = [
 <p>The practical rule that falls out of this: <strong>if the task uses language, avoid music with words.</strong> Lyrics and your inner verbal voice compete for the same channel. Instrumental music, or no music, leaves that channel clear.</p>
 
 <h2>When a bit of noise helps</h2>
-<p>Sound is not all cost. A 2012 study by Ravi Mehta, Rui Zhu and Amar Cheema in the <em>Journal of Consumer Research</em> found that a <strong>moderate</strong> level of ambient noise — around 70 decibels, roughly a busy coffee shop — improved performance on creative tasks compared with both quiet and loud conditions. Their explanation is that a little background distraction nudges you into slightly more abstract, associative thinking, which helps idea generation. Note the shape of it: moderate helps, loud hurts, and the benefit was for open-ended <em>creative</em> work, not for tasks demanding precise concentration. This is why some people genuinely think better in a café — and why the same café is miserable for careful editing.</p>
+<p>Sound is not all cost. A 2012 study by Ravi Mehta, Rui Zhu and Amar Cheema in the <em>Journal of Consumer Research</em> found that a <strong>moderate</strong> level of ambient noise — around 70 decibels, roughly a <a href="/?tool=sounds&amp;sound=cafe">busy coffee shop</a> — improved performance on creative tasks compared with both quiet and loud conditions. Their explanation is that a little background distraction nudges you into slightly more abstract, associative thinking, which helps idea generation. Note the shape of it: moderate helps, loud hurts, and the benefit was for open-ended <em>creative</em> work, not for tasks demanding precise concentration. This is why some people genuinely think better in a café — and why the same café is miserable for careful editing.</p>
 
 <h2>Steady sound versus sudden sound</h2>
-<p>For many people the value of music or ambient noise is not stimulation at all — it is <strong>masking</strong>. A steady, predictable sound covers the unpredictable ones: a slamming door, a snippet of nearby conversation, a phone buzzing across the room. The brain orients automatically to novel, intermittent sounds, so a constant backdrop of rain, brown noise, or familiar instrumental music can be less distracting than an otherwise quiet room punctuated by interruptions. The key word is <em>steady</em>: consistent and unobtrusive beats dynamic and attention-grabbing.</p>
+<p>For many people the value of music or ambient noise is not stimulation at all — it is <strong>masking</strong>. A steady, predictable sound covers the unpredictable ones: a slamming door, a snippet of nearby conversation, a phone buzzing across the room. The brain orients automatically to novel, intermittent sounds, so a constant backdrop of <a href="/?tool=sounds&amp;sound=rain">rain</a>, <a href="/?tool=sounds&amp;sound=brown">brown noise</a>, or familiar instrumental music can be less distracting than an otherwise quiet room punctuated by interruptions. The key word is <em>steady</em>: consistent and unobtrusive beats dynamic and attention-grabbing.</p>
 
 <h2>Familiar beats novel</h2>
 <p>One more reason the same album helps some people concentrate: familiar music demands less of you. A new song invites your attention — you notice the hook, wonder what comes next, maybe reach to see what it is. Music you have heard a hundred times has no surprises left to pull focus, so it fades into the background where a masking sound belongs. This is why "the same playlist every time I work" is a common and sensible habit: it turns music into wallpaper rather than an event. If you find yourself reaching to change the track, that is the tell that the music has stopped being background and started being the task.</p>
@@ -1162,7 +1326,7 @@ export const guides = [
 </ul>
 <p>Above all, trust the test over the trend. Preference and habit matter, and the honest state of the science is "it depends." Try a week of silence for your hardest verbal work and a moderate backdrop for your loosest creative work, and keep whatever measurably helps <em>you</em> get more done — not what a playlist promises.</p>
 
-<p><a class="app-cta" href="/?tool=sounds">Open the Focus Music and Ambient Sounds tools</a></p>
+<p><a class="app-cta" href="/?tool=sounds&amp;ref=cf_focusbro_music-and-noise-for-focus">Open the Focus Music and Ambient Sounds tools</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1176,6 +1340,7 @@ export const guides = [
 
   {
     slug: 'the-weekly-review',
+    sources: ["masicampo2011", "allen2001"],
     title: 'The Weekly Review: Closing Loops So Your Mind Can Rest',
     description: 'David Allen’s weekly review, the Zeigarnik effect, and why writing down a plan for unfinished tasks (Masicampo and Baumeister) frees up attention for the work in front of you.',
     lastmod: '2026-07-05',
@@ -1212,7 +1377,7 @@ export const guides = [
 <h2>Why weekly</h2>
 <p>A week is the natural unit of work — long enough that things accumulate, short enough that nothing rots for long. Reviewing daily is usually overkill; reviewing monthly lets too much pile up and lets the system drift out of trust. Weekly keeps your external list current enough that you actually believe it, and that belief is the whole point: only a system you trust will let your mind put its guard down. Do the review, and the reward is not just an organized list — it is walking into Monday without the background hum of everything you might be forgetting.</p>
 
-<p><a class="app-cta" href="/?tool=focus">Start next week's first focus block</a></p>
+<p><a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_the-weekly-review">Start next week's first focus block</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1226,6 +1391,8 @@ export const guides = [
 
   {
     slug: 'box-breathing',
+    sources: ["zaccaro2018", "lehrer2014"],
+    scripts: ['/guides/breath.js'],
     howto: {
       name: 'How to do box breathing',
       description: 'Breathe in, hold, out, and hold for equal four counts to steady the nervous system.',
@@ -1238,8 +1405,8 @@ export const guides = [
     },
     title: 'Box Breathing: The Four-Count Square for Steady Calm',
     description: 'How box breathing — inhale, hold, exhale, hold for equal four counts — steadies the nervous system, what the slow-breathing research actually shows, and how to use it.',
-    lastmod: '2026-07-13',
-    lastmodLabel: 'July 2026',
+    lastmod: '2026-09-04',
+    lastmodLabel: 'September 2026',
     body: `
 <p class="lede">Box breathing is one of the simplest calming techniques there is: breathe in for four counts, hold for four, breathe out for four, hold for four, and repeat. The equal, square shape is easy to remember under stress, which is exactly why people in high-pressure jobs reach for it. Here is where it comes from, what the research on slow breathing actually shows, and how to use it well.</p>
 
@@ -1259,6 +1426,8 @@ export const guides = [
 <li><strong>Hold (4):</strong> a short pause with the lungs empty before the next breath.</li>
 </ul>
 <p>The counts do two things. First, they slow you to that calming pace without your having to think about breaths per minute. Second, the holds give the mind a simple, repeating shape to follow — a box you trace over and over — which occupies just enough attention to crowd out anxious chatter. If four counts feels like a strain, use three; if it feels too easy, work up to five or six. The number is a dial, not a rule.</p>
+
+${renderBreathPacer(['box', 'resonance'], 'box')}
 
 <h2>What the evidence supports — and what it doesn't</h2>
 <p>Be clear-eyed about what is and isn't established. The broad finding — that slow, paced breathing increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety — is well supported across many studies. What is <em>not</em> well established is that the specific four-four-four-four square, with its two breath-holds, beats other slow-breathing patterns. Few if any trials have isolated the holds to show they add something beyond simply breathing slowly. Treat the holds as a memory aid and a way to lengthen the cycle, not as a proven active ingredient.</p>
@@ -1280,7 +1449,7 @@ export const guides = [
 <li><strong>Only using it in a crisis.</strong> Like any skill, it works better when it is already familiar. A minute a day makes it available when you actually need it.</li>
 </ul>
 
-<p>Want to practice with a steady pacer? <a class="app-cta" href="/?tool=breathing">Open the breathing tool</a></p>
+<p>Want to practice with a steady pacer? <a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_box-breathing">Open the breathing tool</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1292,7 +1461,83 @@ export const guides = [
 </div>`
   },
   {
+    slug: '4-7-8-breathing',
+    sources: ["zaccaro2018", "lehrer2014"],
+    scripts: ['/guides/breath.js'],
+    howto: {
+      name: 'How to do 4-7-8 breathing',
+      description: 'Breathe in for four, hold for seven, and exhale slowly for eight to lean the breath toward its calming, longer-exhale phase.',
+      steps: [
+        'Rest the tip of your tongue lightly behind your upper front teeth and let your lips part; you will exhale around the tongue.',
+        'Empty your lungs, then inhale quietly through your nose for a count of four.',
+        'Hold your breath gently for a count of seven.',
+        'Exhale slowly and completely through your mouth for a count of eight, letting it make a soft whoosh.',
+        'That is one round; repeat for up to four rounds, and stop sooner if you feel light-headed.',
+      ],
+    },
+    title: 'The 4-7-8 Breathing Technique: A Longer Exhale to Wind Down',
+    description: 'What 4-7-8 breathing is, why the extended exhale — not the exact numbers — does the calming work, what the slow-breathing research actually shows, and how to use it to settle before sleep.',
+    lastmod: '2026-09-04',
+    lastmodLabel: 'September 2026',
+    body: `
+<p class="lede">The 4-7-8 pattern is a paced breath built around one idea: make the out-breath long. You inhale quietly for four counts, hold for seven, and exhale slowly for eight — so every breath spends more time in its calming phase than its arousing one. It is best known as a wind-down tool, the thing to reach for when your body is wired and you want it to settle. Here is where it comes from, why the long exhale is the active part, what the research does and doesn't support, and how to use it well.</p>
+
+<h2>Where 4-7-8 comes from</h2>
+<p>The 4-7-8 breath was popularized by Andrew Weil, a physician known for integrative medicine, who teaches it as a simple, portable way to calm the nervous system and describes it as a "natural tranquilizer" for a keyed-up body. Weil is clear that he did not invent the pattern: it is adapted from <em>pranayama</em>, the breath-control practices of yoga, which have used slow, ratio-based breathing for a very long time. The specific counts — four in, seven held, eight out — are his packaging of a much older idea, chosen to be easy to remember and to push the exhale longer than the inhale. As with any single technique, the origin story tells you it has been found useful by a lot of people, not that it works miracles; the counts cost nothing to try.</p>
+
+<h2>Why the long exhale is the point</h2>
+<p>The number that matters most in 4-7-8 is the eight. Your heart rate is not perfectly steady from moment to moment — it rises a little when you breathe in and falls when you breathe out, a healthy pattern called <strong>respiratory sinus arrhythmia</strong>. That fall on the exhale reflects the vagus nerve, the main line of your body's calming, parasympathetic branch, briefly taking the wheel. Make the exhale longer than the inhale and you spend proportionally more of each breath in that parasympathetic-leaning phase — which is the physiological reason an extended out-breath tends to feel settling.</p>
+<p>Slowing the breath overall points the same direction. A 2018 systematic review by Andrea Zaccaro and colleagues in <em>Frontiers in Human Neuroscience</em>, which gathered dozens of studies on slow breathing, found that slow-paced breathing is consistently linked to greater heart rate variability, a shift toward parasympathetic dominance, and self-reported increases in comfort and relaxation alongside reductions in anxiety. A full 4-7-8 cycle runs nineteen seconds — roughly three breaths a minute, far below the twelve to twenty most people take at rest, and even slower than the six-breaths-a-minute "resonance frequency" that heart rate variability researchers Paul Lehrer and Richard Gevirtz found maximizes that healthy heart-rate swing for most adults. In short: 4-7-8 combines two calming levers — genuinely slow breathing and an out-breath that outlasts the in-breath.</p>
+
+<h2>The counts, and what each is for</h2>
+<ul>
+<li><strong>Inhale (4):</strong> a quiet breath in through the nose, low in the belly rather than high in the chest.</li>
+<li><strong>Hold (7):</strong> a gentle pause with the lungs comfortably full — it stretches the cycle and gives the mind a steady shape to follow, not a strained breath-hold.</li>
+<li><strong>Exhale (8):</strong> the main event — a slow, complete release through the mouth, ideally making a soft whoosh, so the out-breath clearly outlasts the in-breath.</li>
+</ul>
+<p>Weil's instruction is to keep the <em>ratio</em> even if you can't keep the exact seconds: if a seven-count hold leaves you gasping, speed the whole thing up so four-seven-eight becomes a shorter but still-proportional two-and-a-half, four-and-a-half, five. The point is the shape — short in, longer hold, longest out — not the literal stopwatch. Four rounds is plenty to start; the pattern is meant to be a quick reset, not an endurance test.</p>
+
+${renderBreathPacer(['478', '478short'], '478')}
+
+<h2>What the evidence supports — and what it doesn't</h2>
+<p>Be clear-eyed here. The broad, well-supported finding is that slow, paced breathing — especially with an extended exhale — increases heart rate variability, nudges the nervous system toward its parasympathetic branch, and tends to lower momentary anxiety. What is <em>not</em> well established is that the specific four-seven-eight ratio, with its seven-count hold, beats other slow-breathing patterns. Controlled trials that isolate this exact recipe are few and small, so the honest claim is modest: 4-7-8 is a convenient, memorable way to breathe slowly with a long exhale, and it borrows the general benefits of doing so — not a uniquely powerful formula whose numbers carry special power.</p>
+<p>It follows that the breath-hold of seven is best treated as a pacing and attention device rather than a proven active ingredient, and that 4-7-8 is <strong>not a medical treatment</strong> for anxiety disorders or insomnia. Weil suggests it as a sleep aid, and many people find a long exhale genuinely helps them drift off, but that is a reasonable use of a low-risk tool — not a substitute for care when sleep or anxiety problems are serious. If a long hold ever makes you dizzy or anxious, that is your cue to shorten it or drop the hold entirely and simply breathe out longer than you breathe in. Research on breathing that emphasizes a long exhale — such as cyclic sighing — even suggests it can calm you faster than perfectly equal breathing, which is the same lever 4-7-8 is pulling.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>As a wind-down before sleep.</strong> This is 4-7-8's home turf. A few rounds in bed give a racing mind a slow, repeating shape to follow and lean your body toward its calming branch. It pairs naturally with a fuller <a href="/guides/sleep-and-executive-function.html">sleep routine</a>.</li>
+<li><strong>To come down from stress.</strong> After a tense moment, four rounds hand your body an off-ramp from fight-or-flight instead of letting the adrenaline linger.</li>
+<li><strong>In the gap between focus blocks.</strong> A short reset that actually restores attention — unlike checking your phone, which keeps it working. It fits the break in a <a href="/guides/how-long-should-a-pomodoro-be.html">Pomodoro cycle</a>.</li>
+<li><strong>When you want steadiness over speed, try its cousin.</strong> If the seven-count hold feels like a strain, the equal-count <a href="/guides/box-breathing.html">box breathing</a> pattern is a gentler on-ramp; for the fastest single-breath reset, the <a href="/guides/the-physiological-sigh.html">physiological sigh</a> is the tool.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Forcing the hold.</strong> If a seven-count hold makes you gulp air afterward, the counts are too long. Keep the ratio but shrink the seconds; you should never feel starved for air.</li>
+<li><strong>Rushing the exhale.</strong> The out-breath is the whole point — if it isn't clearly the longest part, you have lost the calming lever. Let it be slow and complete.</li>
+<li><strong>Breathing into the chest.</strong> Aim for a quiet breath low in the belly; heaving shoulders signal the shallow, stress-style breathing you are trying to leave behind.</li>
+<li><strong>Doing round after round.</strong> More is not better here — several rounds are enough, and stacking many in a row can leave some people light-headed. Stop if you feel dizzy.</li>
+</ul>
+
+<p>Want a steady pacer to breathe along with? <a class="app-cta" href="/?tool=breathing&amp;ref=cf_focusbro_4-7-8-breathing">Open the breathing tool</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/box-breathing.html">Box breathing: the four-count square for steady calm</a></li>
+<li><a href="/guides/the-physiological-sigh.html">The physiological sigh: the fastest way to calm down between blocks</a></li>
+<li><a href="/guides/sleep-and-executive-function.html">Sleep and executive function: why a bad night wrecks your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is the 4-7-8 breathing technique good for?', a: 'It is a simple way to breathe slowly with a long exhale, which tends to shift the nervous system toward its calming, parasympathetic branch. People most often use it to wind down before sleep or to settle after a stressful moment. It is a low-risk relaxation tool, not a medical treatment for insomnia or anxiety disorders.' },
+      { q: 'Do the exact numbers 4, 7, and 8 matter?', a: 'The ratio matters more than the literal seconds. What does the calming work is breathing slowly with an out-breath that is longer than the in-breath. If a seven-count hold is uncomfortable, keep the short-in, longer-hold, longest-out shape but speed the whole cycle up. Controlled studies have not shown the specific 4-7-8 numbers to be uniquely powerful compared with other slow-breathing patterns.' },
+      { q: 'Is 4-7-8 breathing safe, and can it make me dizzy?', a: 'For most people a few rounds are safe and calming, but holding the breath and doing many rounds back-to-back can leave some people light-headed. Do no more than about four rounds at a time, and if you feel dizzy, shorten or drop the hold and simply breathe out longer than you breathe in. If you have a heart or respiratory condition or are pregnant, check with a professional before making it a habit.' },
+    ],
+  },
+  {
     slug: 'movement-breaks-and-focus',
+    sources: ["hillman2008", "oppezzo2014"],
     howto: {
       name: 'How to take a movement break',
       description: 'Break up long sitting with a few minutes of easy movement to refresh attention.',
@@ -1334,7 +1579,7 @@ export const guides = [
 <h2>What movement won't do</h2>
 <p>Movement is a reset, not a cure for a badly planned day. It will not rescue focus that is failing because the task is unclear, the sleep debt is large, or the work is genuinely uninteresting — those need different fixes. And the acute boost fades, so a walk is something you spend across the day in small amounts, not once in the morning. Used that way — little and often, on the breaks — it is one of the cheapest and most dependable tools you have for staying sharp.</p>
 
-<p>Ready for your next reset? <a class="app-cta" href="/?tool=movement">Start a movement break</a></p>
+<p>Ready for your next reset? <a class="app-cta" href="/?tool=movement&amp;ref=cf_focusbro_movement-breaks-and-focus">Start a movement break</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1352,6 +1597,7 @@ export const guides = [
   },
   {
     slug: 'the-body-scan',
+    sources: ["goyal2014", "killingsworth2010"],
     howto: {
       name: 'How to do a body scan',
       description: 'Move your attention slowly through the body, noticing sensation without trying to change it.',
@@ -1398,7 +1644,7 @@ export const guides = [
 <li><strong>There is no correct sensation.</strong> Numbness, warmth, tension, or nothing at all are all valid. You are cataloguing what is there, not producing a particular feeling.</li>
 </ul>
 
-<p>Want to try a guided pass through the body? <a class="app-cta" href="/?tool=bodyscan">Open the body scan</a></p>
+<p>Want to try a guided pass through the body? <a class="app-cta" href="/?tool=bodyscan&amp;ref=cf_focusbro_the-body-scan">Open the body scan</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1416,6 +1662,8 @@ export const guides = [
   },
   {
     slug: 'the-5-4-3-2-1-grounding-technique',
+    sources: [],
+    evidenceNote: "This guide describes a widely used grounding practice. It makes no research claims of its own, and we have not found a controlled trial of the 5-4-3-2-1 sequence specifically.",
     howto: {
       name: 'How to do the 5-4-3-2-1 grounding technique',
       description: 'Name what you can sense, one fewer each step, to pull attention out of anxious thought and into the present.',
@@ -1462,7 +1710,7 @@ export const guides = [
 <li><strong>It is not a substitute for care.</strong> Grounding is a self-help skill for everyday stress and mild anxiety. Persistent or severe anxiety deserves support from a professional; a sensory exercise is a bridge, not a treatment.</li>
 </ul>
 
-<p>Need to get back to the present right now? <a class="app-cta" href="/?tool=grounding">Start the grounding exercise</a></p>
+<p>Need to get back to the present right now? <a class="app-cta" href="/?tool=grounding&amp;ref=cf_focusbro_the-5-4-3-2-1-grounding-technique">Start the grounding exercise</a></p>
 
 <div class="related">
 <h2>Keep reading</h2>
@@ -1476,6 +1724,252 @@ export const guides = [
       { q: 'What is the 5-4-3-2-1 grounding technique?', a: 'It is a sensory exercise for interrupting anxiety or overwhelm: you name five things you can see, four you can feel, three you can hear, two you can smell, and one you can taste. Working through the senses pulls your attention out of anxious thought and back to the present.' },
       { q: 'Does 5-4-3-2-1 grounding really work?', a: 'The mechanism it uses — redirecting attention away from internal threat and toward the external world — is a well-supported way to regulate emotion. The specific 5-4-3-2-1 recipe, though, is a clinical teaching device rather than a protocol proven superior in controlled trials. It works because it reliably puts a real mechanism to use.' },
       { q: 'When should I use grounding instead of breathing?', a: 'Reach for grounding when your attention is trapped in anxious thoughts and you need to get back into the room; reach for slow breathing when your body feels activated and you want to calm the nervous system. They pair well — many people ground first, then finish with a long, slow exhale.' },
+    ],
+  },
+  {
+    slug: 'meditation-and-attention',
+    sources: ["lutz2008", "mrazek2013", "zeidan2010", "brewer2011", "goyal2014", "tang2015"],
+    howto: {
+      name: 'How to do a simple focused-attention meditation',
+      description: 'Rest your attention on one anchor, and every time you notice it has wandered, gently bring it back.',
+      steps: [
+        'Sit comfortably, set a timer for a few minutes, and let your eyes close or soften your gaze toward the floor.',
+        'Choose one anchor for your attention — most often the feeling of the breath where you notice it most clearly, at the nose or in the rise and fall of the belly.',
+        'Rest your attention on that sensation, breath after breath, without trying to control or deepen the breathing.',
+        'When you notice your mind has wandered off — and it will, many times — note it kindly and guide your attention back to the anchor.',
+        'Treat each return as the repetition that matters, not as a failure, and keep going gently until the timer ends.',
+      ],
+    },
+    title: 'Does Meditation Improve Focus? What the Attention Research Shows',
+    description: 'What focused-attention meditation actually trains, what controlled studies have and have not shown about meditation and concentration, and how to start with a few honest minutes a day.',
+    lastmod: '2026-08-04',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">Meditation gets sold as a cure for a scattered mind, and the promises usually run ahead of the evidence. But strip away the hype and there is a real, testable idea underneath: a simple attention practice, done regularly, trains the exact skill a distracted day keeps asking of you — noticing that your mind has drifted, and bringing it back. Here is what that practice actually is, what careful studies have shown, and where the science is thinner than the marketing.</p>
+
+<h2>What "meditation for focus" actually means</h2>
+<p>Meditation is not one thing, and the differences matter. Researchers Antoine Lutz, Heleen Slagter, John Dunne, and Richard Davidson, in an influential 2008 paper in <em>Trends in Cognitive Sciences</em>, drew a useful line between two broad families of practice. <strong>Focused-attention</strong> meditation asks you to hold your attention on a single object — usually the breath — and to return to it whenever you notice you have wandered. <strong>Open-monitoring</strong> meditation instead asks you to rest in awareness of whatever arises, without fixing on any one thing. When people talk about meditating to sharpen focus, they almost always mean the focused-attention kind, because its core move is a direct rehearsal of concentration itself.</p>
+<p>That core move is worth spelling out, because it is where the training lives. You place attention on the breath. Before long — seconds, sometimes — your mind slips off to a plan, a worry, a memory. At some point you notice. You let the thought go and come back to the breath. The noticing-and-returning is not the interruption to the practice; it <em>is</em> the practice. Every return is one repetition of catching a wandering mind and redirecting it, which is precisely the muscle that a morning of pings and open tabs keeps demanding.</p>
+
+<h2>What the research shows</h2>
+<p>Several controlled studies have found measurable gains from surprisingly little practice. In a 2013 study in <em>Psychological Science</em>, Michael Mrazek and colleagues put undergraduates through a two-week mindfulness course and found improvements in working-memory capacity and reading-comprehension scores on the GRE, along with less mind-wandering during the tasks — with the biggest gains among students who had been the most prone to drifting. Earlier, in a 2010 paper in <em>Consciousness and Cognition</em>, Fadel Zeidan and colleagues found that just four days of brief mindfulness training — around twenty minutes a day — improved performance on demanding tests of sustained attention.</p>
+<p>Brain-imaging work points at a plausible mechanism. A 2011 study in <em>PNAS</em> led by Judson Brewer found that experienced meditators showed reduced activity in the <strong>default mode network</strong> — the set of brain regions most active during self-referential, mind-wandering thought — both while meditating and at rest. In other words, the network that hums along when you are lost in your own head appears to quiet down with practice. Taken together, this is a genuinely encouraging picture: a low-cost, equipment-free practice that seems to train attention and dampen the wandering that pulls focus apart.</p>
+
+<h2>Where the evidence is thinner than the hype</h2>
+<p>Now the honest part. The meditation research base is young, and a lot of it is built on small samples, short interventions, and studies that lack a strong comparison group — so it is easy to overstate. The most careful summary is a 2014 meta-analysis in <em>JAMA Internal Medicine</em> by Madhav Goyal and colleagues, which pooled dozens of randomized trials of mindfulness programs. It found <em>moderate</em> evidence that these programs reduce anxiety, depression, and pain — but only <em>low or insufficient</em> evidence that they improve attention, mood, sleep, or related outcomes. A 2015 review in <em>Nature Reviews Neuroscience</em> by Yi-Yuan Tang, Britta Hölzel, and Michael Posner reached a similar verdict: the findings are promising and the mechanisms are becoming clearer, but many studies are too small or poorly controlled to lean on hard.</p>
+<p>The fair reading is neither "meditation transforms your focus" nor "it does nothing." It is that focused-attention practice trains a real and relevant skill, some controlled studies show modest gains in attention and less mind-wandering, and the effects are smaller and less certain than the wellness industry implies. Treat it as a habit worth building for its own sake, not as a switch that fixes concentration.</p>
+
+<h2>How to start — and actually stick with it</h2>
+<p>Consistency beats duration. A few minutes every day builds the skill faster than a rare half-hour, and it keeps the practice from feeling like a chore. If sitting in silence is daunting, a guided session — a voice that reminds you what to do when you drift — is an easier on-ramp than going it alone, and there is no shame in leaning on one for months. Expect your mind to wander constantly; that is not a sign you are bad at it, it is the raw material. And pair the practice with the rest of a focused day rather than asking it to do all the work: a short sit before a block of hard work, or in the reset between blocks, tends to land better than one big session with nothing around it.</p>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Chasing a blank mind.</strong> The goal is not to stop thinking — that is not something a human brain does on command. The goal is to notice thinking and return. A "busy" session where you came back a hundred times is a good session.</li>
+<li><strong>Starting with a marathon.</strong> A forty-minute first sit usually ends in restlessness and a quiet decision never to do it again. Start with three to five minutes and let it grow on its own.</li>
+<li><strong>Judging yourself on the misses.</strong> Meeting a wandering mind with irritation just adds a second distraction. The instruction is to come back gently — the gentleness is part of what is being trained.</li>
+<li><strong>Expecting an overnight fix.</strong> The studies that show gains still involve days or weeks of repeated practice, and the effects fade without it. It is training, not a treatment.</li>
+</ul>
+
+<p>Want a voice to guide the first few minutes? <a class="app-cta" href="/?tool=meditation&amp;ref=cf_focusbro_meditation-and-attention">Open the Meditation tool</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/the-body-scan.html">The body scan: a beginner-friendly way into attention practice</a></li>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and attention residue: why switching tasks costs so much</a></li>
+<li><a href="/guides/attention-restoration-nature-breaks.html">Attention restoration: how a short nature break refills your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'Does meditation really improve focus?', a: 'Controlled studies have shown short courses improving sustained attention and reducing mind-wandering — for example a two-week course in a 2013 Psychological Science study and four days of brief training in a 2010 Consciousness and Cognition study. But the samples are small and the wider evidence base is young; a 2014 JAMA Internal Medicine review rated the evidence for attention benefits as low. It is best treated as a low-cost skill worth practicing, not a guaranteed fix.' },
+      { q: 'How long before meditation helps my concentration?', a: 'Some studies saw changes after only days to two weeks of short daily sessions, but the effects are modest and fade without continued practice. Think of it as ongoing training rather than a course you finish once — a few consistent minutes a day builds the skill more reliably than an occasional long sit.' },
+      { q: 'Does meditation treat ADHD?', a: 'No. Meditation is not a treatment for ADHD or any medical condition. Some people find attention practices a helpful complement to the support they already use, but the evidence is limited and meditation is not a substitute for professional care. If focus difficulties are disrupting your life, that is a reason to talk to a qualified professional.' },
+    ],
+  },
+  {
+    slug: 'what-is-the-pomodoro-technique',
+    sources: ["ariga2011", "leroy2009", "cirillo2006"],
+    howto: {
+      name: 'How to use the Pomodoro Technique',
+      description: 'Work in fixed, single-task intervals separated by short breaks, taking a longer break after every four intervals.',
+      steps: [
+        'Pick one task and decide what "done for now" looks like for this interval.',
+        'Set a timer for 25 minutes — one "pomodoro" — and work on only that task until it rings.',
+        'If a distraction pops up, jot it on a scrap of paper and return to the task instead of acting on it.',
+        'When the timer rings, stop and take a short break of about five minutes — stand up and look away from the screen.',
+        'After four pomodoros, take a longer break of fifteen to thirty minutes before starting the next set.',
+      ],
+    },
+    title: 'What Is the Pomodoro Technique? How the 25-Minute Method Actually Works',
+    description: 'Where the Pomodoro Technique comes from, how the 25-minutes-on, 5-minutes-off loop works, why the structure helps more than the exact number, and how to use it without turning it into a rigid ritual.',
+    lastmod: '2026-08-07',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">The Pomodoro Technique is one of the best-known ways to structure focused work: pick a task, work on it for twenty-five minutes without switching, take a short break, and repeat — with a longer break after every fourth round. It is simple enough to explain in a sentence, which is part of why it spread so widely. But the reason it works is not the magic of the number twenty-five; it is what the structure forces you to do. Here is where the method comes from, how to run it, what actually makes it help, and how to use it without letting the timer boss you around.</p>
+
+<h2>Where the Pomodoro Technique comes from</h2>
+<p>The method was created by Francesco Cirillo in the late 1980s, when he was a university student in Italy struggling to concentrate on his studying. He grabbed a kitchen timer shaped like a tomato — <em>pomodoro</em> is Italian for "tomato" — and challenged himself to focus for just the time it counted down. The tomato timer gave the technique its name, and each work interval is still called "a pomodoro." Cirillo later wrote the approach up as a formal method with its own rules, but the core is the same student's trick: shrink the commitment down to a length you can actually sustain, and let a timer, not your willpower, hold the boundary.</p>
+
+<h2>How the method works</h2>
+<p>The basic loop has four moving parts:</p>
+<ul>
+<li><strong>Choose one task</strong> and commit to working on only that until the timer rings.</li>
+<li><strong>Work for one pomodoro — 25 minutes</strong> — with single focus. No email, no "quick" tab-switch.</li>
+<li><strong>Take a short break, about 5 minutes.</strong> Stand up, look away, let your attention rest.</li>
+<li><strong>After four pomodoros, take a longer break</strong> of fifteen to thirty minutes.</li>
+</ul>
+<p>Cirillo added one rule that is easy to skip but does a lot of the work: <strong>the pomodoro is indivisible.</strong> There are no half-pomodoros. If you break focus and can't get back to the task, that pomodoro doesn't count — you start a fresh one. Treating the interval as all-or-nothing is what turns a vague "I'll work for a while" into a clean, protected block. The 25-and-5 numbers are the classic recipe, but they are a starting point, not a law; sizing the interval to your task and attention span is covered in the companion guide on <a href="/guides/how-long-should-a-pomodoro-be.html">how long a Pomodoro should be</a>.</p>
+
+<h2>Why the structure helps — and what the evidence actually says</h2>
+<p>Be clear-eyed about the research. Rigorous controlled trials that test the Pomodoro Technique as a whole package are scarce, and there is nothing special about twenty-five minutes in particular. What is better supported is the value of the <em>ingredients</em> the method bundles together.</p>
+<p>The first ingredient is the break. Attention to a single task tends to fade the longer you hold it — a slow decline researchers call the vigilance decrement. In a 2011 study in the journal <em>Cognition</em>, Atsunori Ariga and Alejandro Lleras found that brief mental breaks from a long, monotonous task helped people sustain their performance, while those who pushed straight through steadily got worse. The Pomodoro breaks build that recovery in on a schedule instead of leaving it to chance.</p>
+<p>The second ingredient is single-tasking. When you switch tasks before finishing, part of your attention stays snagged on the one you left — a carryover the management researcher Sophie Leroy named <strong>attention residue</strong> in her 2009 work on why it is so hard to settle into new work. A pomodoro's "one task until it rings" rule is a practical way to keep that residue low; the mechanism is unpacked further in the guide on <a href="/guides/deep-work-and-attention-residue.html">deep work and attention residue</a>. The third ingredient is simply a low-friction start: committing to twenty-five minutes is far less daunting than committing to "finish the report," which is why the timer is such a useful lever against <a href="/guides/why-we-procrastinate.html">procrastination</a>. The honest summary: the Pomodoro Technique is a convenient container for timeboxing, single-tasking, and regular breaks — habits with real support — not a formula whose exact numbers carry special power.</p>
+
+<h2>Handling interruptions</h2>
+<p>Interruptions are what actually break most focus blocks, and Cirillo treated them as the central problem rather than an afterthought. He split them in two. An <strong>internal</strong> interruption is a thought from inside your own head — "I should check that," "did I reply to her?" The move is to not act on it: write it on a list and keep going, so the idea is captured but your block survives. An <strong>external</strong> interruption is someone or something demanding your attention now. Where you can, protect the pomodoro — note what they need, agree a time to deal with it, and come back to it on your break rather than abandoning the block. You will not defend every interval perfectly, and that is fine; the goal is to make the protected block your default, not to achieve a flawless streak.</p>
+
+<h2>How to use it in a focus day</h2>
+<ul>
+<li><strong>Point it at the task you're avoiding.</strong> The technique earns its keep on work you would rather not start. "Just one pomodoro" is a small enough ask to get moving, and momentum usually carries you past the first block.</li>
+<li><strong>Actually take the breaks.</strong> Skipping them to "keep the flow" defeats the recovery the method is built around. Spend the short break away from the screen — a <a href="/guides/movement-breaks-and-focus.html">movement break</a> or a few rounds of <a href="/guides/box-breathing.html">box breathing</a> resets attention better than scrolling, which keeps it working.</li>
+<li><strong>Match the interval to your rhythm.</strong> Twenty-five minutes is the default, not a mandate. If you routinely hit a natural wall sooner or later than that, resize the block — working with your own <a href="/guides/ultradian-rhythms-and-focus.html">ultradian rhythms</a> beats forcing a number.</li>
+<li><strong>Count pomodoros, not hours.</strong> Tallying how many clean intervals a task took turns a fuzzy day into something you can plan against next time, and makes finishing four blocks feel like real progress.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+<li><strong>Working through the ring.</strong> If you never stop when the timer goes off, you have a stopwatch, not a Pomodoro — the break is the half of the method that makes the focus sustainable.</li>
+<li><strong>Stuffing one pomodoro with many tasks.</strong> "Email, then this doc, then that message" inside one block is exactly the task-switching the interval is meant to prevent. One task per pomodoro.</li>
+<li><strong>Treating 25 minutes as sacred.</strong> The number is a convenient default. Guarding it like a rule — cutting off mid-thought at 25:00 or refusing a slightly longer block a task clearly needs — misses the point.</li>
+<li><strong>Making it a productivity ritual.</strong> The technique is a tool for getting started and protecting attention, not a scoreboard. If tracking pomodoros starts to feel like the real work, simplify it back down.</li>
+</ul>
+
+<p>Ready to run your first interval? <a class="app-cta" href="/?tool=pomodoro&amp;ref=cf_focusbro_what-is-the-pomodoro-technique">Start a Pomodoro timer</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/how-long-should-a-pomodoro-be.html">How long should a Pomodoro be? Sizing your focus intervals</a></li>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and attention residue: why switching tasks costs so much</a></li>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps you start</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is the Pomodoro Technique in simple terms?', a: 'It is a time-management method: you work on a single task for a fixed interval — classically 25 minutes, called a "pomodoro" — then take a short break of about five minutes, and after four intervals you take a longer break. Francesco Cirillo created it in the late 1980s using a tomato-shaped kitchen timer, which is where the name comes from.' },
+      { q: 'Why 25 minutes — is that number special?', a: 'Not really. Twenty-five minutes is the classic default because it is long enough to make progress and short enough to feel doable, but there is no strong evidence that this exact length beats others. The value is in the structure — one task at a time, a protected block, and a real break afterward — so it is fine to resize the interval to your task and attention span.' },
+      { q: 'Does the Pomodoro Technique actually work?', a: 'Controlled trials testing the technique as a whole are scarce, so the honest answer is that its individual ingredients are what have support: brief scheduled breaks help sustain attention, single-tasking reduces the "attention residue" that task-switching leaves behind, and committing to a short interval lowers the friction of starting. Many people find that combination genuinely helpful; treat it as a useful structure to try, not a guaranteed system.' },
+    ],
+  },
+  {
+    slug: 'dopamine-and-focus',
+    sources: ["schultz1997", "lembke2021"],
+    howto: {
+      name: 'How to build a dopamine menu',
+      description: 'Write a short menu of healthier things to reach for when you feel the urge for a quick hit, so the better option is already decided before the craving arrives.',
+      steps: [
+        'Notice the moments you reach for a quick distraction — the tab-switch, the phone, the scroll — and jot down what triggers them.',
+        'List a handful of small, genuinely enjoyable activities that take two to ten minutes: stretch, step outside, make tea, message a friend, play one song.',
+        'Add a few "slower" options that feel good but take more effort — a short walk, a chapter of a book, tidying one surface, a real hobby.',
+        'Write the list somewhere you will actually see it when the urge hits — a sticky note, your phone lock screen, or the app.',
+        'When you catch the craving, pick one item off the menu instead of defaulting to the feed. The point is that the choice is already made.',
+      ],
+    },
+    title: 'Dopamine, Distraction, and Focus: What a "Dopamine Menu" Actually Does',
+    description: 'What dopamine really does (it is closer to motivation than pleasure), why modern distractions pull so hard, why "dopamine detox" is a misnomer, and how a simple dopamine menu makes the healthier choice the easy default.',
+    lastmod: '2026-08-07',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">Dopamine gets blamed for a lot: doom-scrolling, procrastination, the itch to check your phone the second work gets hard. Most of what gets said about it in passing is half-right at best — it is not simply a "pleasure chemical," and you cannot "detox" from it. But the real story is more useful than the myth, and it points to a small, practical tool: a dopamine menu. Here is what dopamine actually does, why quick distractions feel so good, and how a short list can put a better choice within reach before the craving takes over.</p>
+
+<h2>What dopamine actually is — and isn't</h2>
+<p>The popular shorthand is that dopamine is the "pleasure chemical" your brain releases when something feels good. That is misleading. Decades of research suggest dopamine is less about the pleasure of a reward and more about <em>wanting</em> it and <em>predicting</em> it. In foundational work published in <em>Science</em> in 1997, Wolfram Schultz, Peter Dayan, and Read Montague showed that dopamine neurons fire not simply when a reward arrives, but in proportion to how much better or worse the reward is than expected — a "reward prediction error." The signal is a teacher pointing at what to pursue next time, not a reward in itself.</p>
+<p>The neuroscientists Kent Berridge and Terry Robinson drew a related line between "wanting" and "liking." In their work, dopamine drives the <em>wanting</em> — the pull toward a thing, the anticipation — while the actual <em>liking</em>, the pleasure of consuming it, leans on other systems. That gap explains a familiar, uncomfortable experience: you can crave and chase something — one more video, one more refresh — that you barely enjoy once you get it. The wanting outlived the liking. Understanding that dopamine is a motivation-and-prediction signal, not a happiness meter, reframes the whole problem of distraction.</p>
+
+<h2>Why modern distractions pull so hard</h2>
+<p>If dopamine tracks anticipated reward, then the most compelling things are the ones whose rewards are <em>unpredictable</em>. This is old behavioral science. B. F. Skinner showed that a variable-ratio reinforcement schedule — a reward that comes after an unpredictable number of tries — produces the most persistent, hardest-to-extinguish behavior, far more than a reward you can count on. A slot machine runs on exactly this. So does a feed: you pull to refresh not knowing whether the next post is boring or delightful, and the not-knowing is precisely what keeps the wanting high.</p>
+<p>None of this makes a phone a drug or a person powerless — that framing overstates it. But it does explain why willpower alone is a weak defense. You are not lazy for finding an infinite, unpredictable feed more magnetic than a hard task with a distant payoff; you are running normal machinery in an environment engineered to exploit it. The useful response is not to shame the craving but to change the choice in front of you when it strikes — the same logic behind <a href="/guides/notification-batching.html">notification batching</a> and a considered <a href="/guides/why-we-procrastinate.html">approach to procrastination</a>.</p>
+
+<h2>Why "dopamine detox" is the wrong idea</h2>
+<p>"Dopamine detox" — the trend of abstaining from all stimulation for a day to "reset" your dopamine — gets the science wrong. You cannot detox from dopamine; it is a neurotransmitter your brain makes and needs constantly for movement, motivation, and learning. Depriving yourself of a chemical you never had "too much" of in some toxic sense is not what is happening.</p>
+<p>There is, however, a real mechanism worth taking seriously underneath the hype. In her 2021 book <em>Dopamine Nation</em>, the Stanford psychiatrist Anna Lembke describes the brain's tendency to keep pleasure and pain in balance: a big, easy spike of reward tends to be followed by a dip below your baseline — the comedown that nudges you back for more. On this view, the problem is not dopamine itself but a diet of high-intensity, low-effort rewards that keeps yanking the balance around, so that ordinary, slower satisfactions — reading, a project, a conversation — start to feel flat by comparison. The honest takeaway is not to purge stimulation but to <em>rebalance</em> it: spend less time in the loudest reward loops so the quieter ones feel worth doing again. Treat the strong claims about detoxes and "resets" with skepticism; the modest, well-grounded idea is simply that what you repeatedly reach for shapes what feels rewarding.</p>
+
+<h2>What a dopamine menu is</h2>
+<p>A dopamine menu is a small, pre-written list of healthier things to reach for when you feel the urge for a quick hit — so the better option is already decided before the craving arrives. The idea was popularized in the ADHD self-management community, where it is sometimes styled a "dopamenu"; the therapist Eric Tivers is often credited with the framing, and the creator Jessica McCabe helped spread it through her <em>How to ADHD</em> work. You do not need an ADHD diagnosis for it to be useful — anyone who reaches for the feed on autopilot can benefit.</p>
+<p>The trick is that it works by <strong>choice architecture</strong>, not willpower. In the moment a craving hits, deciding what to do instead is hard — that is the worst time to weigh options. A menu moves the decision earlier, to a calm moment, and makes the good choice the low-friction default. Some people borrow a restaurant format to keep it varied: quick <em>starters</em> (a few minutes — stretch, step outside, one song), fuller <em>mains</em> (a walk, a hobby, a real break), small <em>sides</em> to pair with work (music, tea), and occasional <em>specials</em> (a bigger treat you plan for). The format is optional; the point is a concrete list you will actually see when you need it. Pairing a menu item with a genuine reset — a <a href="/guides/movement-breaks-and-focus.html">movement break</a> or a few minutes of <a href="/guides/music-and-noise-for-focus.html">music</a> — beats a scroll that leaves your attention more frayed than before.</p>
+
+<h2>Using it without overthinking it</h2>
+<ul>
+<li><strong>Keep it short and specific.</strong> "Take a break" is not a menu item; "walk to the end of the block and back" is. Specific options are easier to pick when your willpower is low.</li>
+<li><strong>Put it where the craving happens.</strong> A menu in a notebook you never open does nothing. On your phone's lock screen or taped to your monitor, it competes with the feed at the moment it matters.</li>
+<li><strong>Make the healthy option the easy one.</strong> Leave a book on your desk, keep walking shoes by the door, close the tabs you'd otherwise drift to. You are lowering the friction on the good choice and raising it on the reflexive one.</li>
+<li><strong>Do not turn it into another scoreboard.</strong> The menu is a gentle nudge, not a discipline test you can fail. Pick one thing, enjoy it, get back to work.</li>
+</ul>
+
+<h2>The honest caveats</h2>
+<p>A dopamine menu is a self-management habit, not a treatment for anything. The dopamine science above is real but simplified — the brain's reward systems are far more tangled than any single neurotransmitter story, and pop accounts routinely overreach. And a menu will not overpower a genuinely compelling pull every time; it just tilts the odds by making the better choice visible and easy when your attention is at its weakest. That modest tilt, repeated, is the whole point.</p>
+
+<p>Want a menu you can actually reach for in the moment? <a class="app-cta" href="/?tool=dopamine&amp;ref=cf_focusbro_dopamine-and-focus">Build your dopamine menu</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/why-we-procrastinate.html">Why we procrastinate — and what actually helps you start</a></li>
+<li><a href="/guides/notification-batching.html">Notification batching: check on your schedule, not theirs</a></li>
+<li><a href="/guides/movement-breaks-and-focus.html">Movement breaks: why getting up sharpens your focus</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'What is a dopamine menu?', a: 'It is a short, pre-written list of healthier things to reach for when you feel the urge for a quick distraction — small activities like stretching, stepping outside, a song, or a short walk. The idea, popularized in the ADHD self-management community as a "dopamenu," is to decide the better option ahead of time, in a calm moment, so it is easy to pick when a craving hits and your willpower is low.' },
+      { q: 'Is a dopamine detox real?', a: 'Not in the literal sense. You cannot detox from dopamine — it is a neurotransmitter your brain constantly makes and needs. The grain of truth is that a steady diet of high-intensity, low-effort rewards can leave slower satisfactions feeling flat, so spending less time in the loudest reward loops can help ordinary activities feel rewarding again. Treat the stronger "reset your dopamine in a day" claims with skepticism.' },
+      { q: 'Why do distractions like scrolling feel so good?', a: 'Dopamine tracks anticipated and unpredictable rewards more than pleasure itself, so the things that pull hardest are the ones whose payoff you cannot predict. A feed you pull to refresh — not knowing if the next post is dull or delightful — runs on the same variable-reward pattern that makes slot machines so sticky. The wanting stays high even when the actual enjoyment is low, which is why willpower alone is a weak defense and changing the choice in front of you works better.' },
+    ],
+  },
+  {
+    slug: 'flow-state-and-focus',
+    sources: ["csikszentmihalyi1990"],
+    title: 'Flow State and Focus: What It Is and How to Set the Conditions for It',
+    description: 'What a flow state actually is (the psychologist Mihaly Csikszentmihalyi and the idea of optimal experience), the challenge-skill balance that produces it, why it cannot be forced on demand, and the practical conditions — a clear goal, a single task, and protected, interruption-free time — that make it more likely.',
+    lastmod: '2026-08-09',
+    lastmodLabel: 'August 2026',
+    body: `
+<p class="lede">Flow is that state where the work seems to carry itself — you look up and an hour has vanished, the task and your attention have fused, and the nagging self-talk has gone quiet. It is real, it is well studied, and it is one of the best arguments for protecting a single block of focused time. What it is not is a switch you can flip on command. Here is what a flow state actually is, where the idea comes from, and the practical conditions that make it more likely.</p>
+
+<h2>Where the idea comes from</h2>
+<p>The concept was named and mapped by the psychologist Mihály Csíkszentmihályi, who spent decades studying people who lost themselves in what they were doing — painters, climbers, surgeons, chess players — and asked what the experience had in common. He gathered much of that work in his 1990 book <em>Flow: The Psychology of Optimal Experience</em>. Across very different activities, people described the same things: complete absorption in the moment, a merging of action and awareness, a sense of effortless control, the fading of self-consciousness, and a distorted sense of time. And the activity felt worth doing for its own sake — Csíkszentmihályi called such experiences <em>autotelic</em>, rewarding in themselves rather than for some payoff at the end.</p>
+
+<h2>The challenge–skill balance</h2>
+<p>The most useful part of the model is the relationship between how hard a task is and how skilled you are at it. Flow tends to appear in a narrow band where a meaningful challenge meets skills roughly equal to it. Push the challenge far beyond your skill and you get anxiety — the task feels overwhelming and your attention scatters to the threat. Drop it well below your skill and you get boredom — there is nothing to hold you, and your mind drifts. Between those, in a task that stretches you without swamping you, absorption becomes possible. It is why flow is far more common in a hard-but-doable project than in either a trivial chore or an impossible one.</p>
+<p>One counterintuitive finding from Csíkszentmihályi and Judith LeFevre, using a method that pinged people at random moments to log what they were doing and how they felt, was that people reported flow more often at work than in their leisure time — work more reliably supplies the clear goals and matched challenges that free time often lacks. The lesson is not that work is bliss, but that the <em>conditions</em> matter more than the label on the activity.</p>
+
+<h2>The conditions that make flow likely</h2>
+<p>In later work synthesizing the research, Jeanne Nakamura and Csíkszentmihályi described a short list of conditions that tend to precede flow: a clear, proximal goal (you know what you are trying to do right now), immediate feedback (you can tell whether it is working), and that challenge–skill balance. You cannot will yourself into the state, but you can set these conditions and remove what breaks them:</p>
+<ul>
+<li><strong>Give the block one clear goal.</strong> "Work on the report" is too vague to pull you in; "draft the two opening paragraphs" gives your attention something specific to lock onto.</li>
+<li><strong>Pick something that stretches you a little.</strong> If a task feels dull, raise the bar — do it faster, do it better, add a constraint. If it feels overwhelming, shrink the next step until it is merely hard.</li>
+<li><strong>Protect the time from interruptions.</strong> Flow builds over minutes and collapses in seconds. Every ping costs not just the seconds it steals but the climb back, which is far more expensive than it looks.</li>
+<li><strong>Do one thing.</strong> Flow is single-tasking by definition; the moment you split your attention, the state is gone.</li>
+</ul>
+
+<h2>Why interruptions are the real enemy</h2>
+<p>Absorption is fragile because attention has momentum. When you switch away from a task — even briefly, even to a quick message — a residue of the first task lingers and slows you on the next, a cost the researcher Sophie Leroy documented as <em>attention residue</em>. Getting back to the depth you had before the interruption is not instant; it is a re-climb. So the practical route to more flow is less about summoning it and more about defending the conditions once you have them — the same logic behind <a href="/guides/deep-work-and-attention-residue.html">deep work and protecting your attention</a> and <a href="/guides/notification-batching.html">batching your notifications</a> instead of taking them as they arrive.</p>
+
+<h2>The honest caveats</h2>
+<p>Flow is genuine, but it is easy to oversell. It is measured largely through self-report, which makes it slippery to pin down precisely, and the popular "flow-hacking" industry — promising specific triggers, brain-chemistry cocktails, or guaranteed multipliers on your output — runs well ahead of what the careful research supports. Not every task can produce flow, and it is not the point of a workday; plenty of valuable work gets done in ordinary, un-transcendent focus. Treat flow as a welcome by-product of good conditions, not a state you owe yourself. Set a clear goal, match the challenge to your skill, protect the time, and do one thing — then let it come or not.</p>
+
+<p>Ready to give one task a protected block? <a class="app-cta" href="/?tool=focus&amp;ref=cf_focusbro_flow-state-and-focus">Set up a focus block for one task</a></p>
+
+<div class="related">
+<h2>Keep reading</h2>
+<ul>
+<li><a href="/guides/deep-work-and-attention-residue.html">Deep work and attention residue: the cost of switching</a></li>
+<li><a href="/guides/notification-batching.html">Notification batching: check on your schedule, not theirs</a></li>
+<li><a href="/guides/time-blocking.html">Time blocking: give every task a home on the calendar</a></li>
+</ul>
+</div>`,
+    faqs: [
+      { q: 'Can you force yourself into a flow state?', a: 'Not directly. Flow is a by-product of the right conditions, not something you can switch on by wanting it. What you can control is the setup: give the session one clear goal, pick a task that stretches you without overwhelming you, remove interruptions, and do a single thing. Get those right and flow becomes more likely — treat it as a welcome result rather than a target you owe yourself.' },
+      { q: 'What is the difference between flow and deep work?', a: 'They overlap but are not the same. Deep work is a practice — deliberately protecting long, undistracted stretches for cognitively demanding tasks. Flow is a subjective state of complete absorption that can arise during that kind of work. Deep work sets up the conditions; flow is one of the things that can happen inside them. You can do genuinely valuable deep work without ever feeling the more transcendent version of flow.' },
+      { q: 'Why do I lose focus the moment I get interrupted?', a: 'Because attention has momentum. When you switch away from a task, a residue of it lingers and slows you on whatever comes next, and rebuilding the depth you had takes far longer than the interruption itself. That is why protecting a block from pings matters more than any trick for getting into the zone — the state builds over minutes and collapses in seconds.' },
     ],
   }
 ];

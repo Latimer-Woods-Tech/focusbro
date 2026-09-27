@@ -171,6 +171,77 @@ export function reportKeptNoteLabelCopy() {
   return 'The last word you kept, in your own words';
 }
 
+/**
+ * The /me/report page's intro line — the first thing a person reads on the
+ * reading surface, and the JS fallback when the fetch is still in flight. A
+ * kept-word framing, never a scorecard. Extracted (parity with me.js's
+ * `mePageIntroCopy`) so the one static line the page shows before any number is
+ * a named copy path the design LAW sweeps, not an inline literal that escapes it.
+ * @returns {string}
+ */
+export function reportPageIntroCopy() {
+  return 'Your week, in the words you kept.';
+}
+
+/**
+ * The /me/report page footnote — the tone the reader leaves the page on. States
+ * the module's kept-word-only law in the person's language: a quiet day is just
+ * quiet, we only ever count the wins. Extracted (parity with me.js's
+ * `mePageFootnoteCopy`) so this static, tone-bearing line is a named copy path
+ * the design LAW sweeps rather than an inline literal.
+ * @returns {string}
+ */
+export function reportPageFootnoteCopy() {
+  return 'Kept-word only, always. A quiet day is just quiet — we only ever count the wins. FocusBro is built by Latimer Woods Tech.';
+}
+
+/**
+ * Every user-facing copy string this module can emit, across every branch of
+ * every copy path — the report's single design-LAW surface (parity with
+ * `meCopySurface` / `roomCopySurface` / the coach surfaces). It is swept through
+ * the one `scanDesignLaw` source of truth by both `design-law.test.js` (the
+ * central every-surface sweep) and `report.test.js`, so the weekly report — the
+ * coach-shareable artifact, and the surface where a week is most tempting to
+ * score as a tally of misses — is held to the identical anti-shame / no-"AI" /
+ * no-clinical-claim bar as every other surface, with no hand-rolled per-surface
+ * lexicon left to drift out of sync.
+ * @returns {string[]} non-empty copy strings (every entry is user-visible)
+ */
+export function reportCopySurface() {
+  return [
+    reportIntroCopy(),
+    // Headline across its three branches: a fresh (quiet) week, a kept week not
+    // on a run, and a kept week mid-run.
+    reportHeadlineCopy({ keptThisWeek: 0, current: 0 }),
+    reportHeadlineCopy({ keptThisWeek: 1, current: 0 }),
+    reportHeadlineCopy({ keptThisWeek: 5, current: 3 }),
+    // The single tiny next step across its three branches (no rhythms yet; rhythms
+    // but a quiet week; rhythms and a kept week).
+    nextStepCopy({ keptThisWeek: 0, activeCount: 0, current: 0 }),
+    nextStepCopy({ keptThisWeek: 0, activeCount: 2, current: 0 }),
+    nextStepCopy({ keptThisWeek: 4, activeCount: 2, current: 4 }),
+    // The ally-showed-up line (the empty <=0 branch renders nothing, so it is
+    // intentionally not part of the surface).
+    showedUpCopy({ showedUp: 1 }),
+    showedUpCopy({ showedUp: 6 }),
+    // Rhythms intro: nothing on the books vs. an active rhythm.
+    rhythmsIntroCopy(0),
+    rhythmsIntroCopy(3),
+    // The per-rhythm "next up" line across its three branches: no time, a moment
+    // already open (still-here), and a genuinely future moment.
+    rhythmNextCopy({ iso: null }),
+    rhythmNextCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-14T12:00:00Z' }),
+    rhythmNextCopy({ iso: '2026-07-14T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-14T12:00:00Z' }),
+    // The momentum peak-day anchor (celebrates a standout only; the sub-2 branch
+    // returns '' and is not part of the surface).
+    reportPeakDayCopy({ count: 3, whenPhrase: 'Saturday' }),
+    reportPeakDayCopy({ count: 2, whenPhrase: 'today' }),
+    reportKeptNoteLabelCopy(),
+    reportPageIntroCopy(),
+    reportPageFootnoteCopy(),
+  ];
+}
+
 // ── REPORT BUILDER ───────────────────────────────────────────
 
 /**
@@ -190,7 +261,7 @@ export function reportKeptNoteLabelCopy() {
  * @param {string} [p.nowISO]          "today" anchor (defaults to now)
  * @returns {object} the structured report
  */
-export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], rhythms = [], latestNote = null, timezone, nowISO } = {}) {
+export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredTimestamps = [], snoozedTimestamps = [], rhythms = [], latestNote = null, timezone, nowISO } = {}) {
   const tz = (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC';
   const anchorISO = (nowISO && !Number.isNaN(Date.parse(nowISO))) ? nowISO : new Date().toISOString();
 
@@ -214,6 +285,17 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
   const deliveredBuckets = bucketKeptByDay({ timestamps: deliveredTimestamps, days: WEEKLY_WINDOW_DAYS, nowISO: anchorISO, timezone: tz });
   let showedUpThisWeek = 0;
   for (const b of deliveredBuckets) showedUpThisWeek += b.count;
+
+  // The person's OWN side of the week's engagement, on the SAME 7-local-day axis:
+  // how many times they answered a check-in with the "I'm on it" third answer (a
+  // recorded `commitment_snooze`, R-278). This is a lean-in, never a resolution
+  // and never a miss — it lives entirely apart from kept_this_week and is counted
+  // here only so a coach can SEE a client is actively in it (coach.js consumes it;
+  // /me/report does not pass snoozedTimestamps, so it defaults to 0 there). By
+  // construction it can only ever surface engagement, never a shortfall.
+  const snoozedBuckets = bucketKeptByDay({ timestamps: snoozedTimestamps, days: WEEKLY_WINDOW_DAYS, nowISO: anchorISO, timezone: tz });
+  let snoozedThisWeek = 0;
+  for (const b of snoozedBuckets) snoozedThisWeek += b.count;
 
   // 14-day momentum (first-person voice injected by the route via momentum copy;
   // here we build the neutral shape and let the route/text carry the words).
@@ -256,6 +338,10 @@ export function buildWeeklyReport({ streak = {}, keptTimestamps = [], deliveredT
     kept_this_week: keptThisWeek,
     showed_up_this_week: showedUpThisWeek,
     showed_up_line: showedUpCopy({ showedUp: showedUpThisWeek }),
+    // The "I'm on it" lean-ins over the same seven days — an engagement signal
+    // kept strictly apart from kept_this_week (never merged, never a miss). Read
+    // by the coach snapshot only; 0 on the person's own report.
+    snoozed_this_week: snoozedThisWeek,
     best_day: { date: bestDay.date, count: bestDay.count },
     streak: { current_streak: current, longest_streak: longest, total_kept: total },
     // A milestone recognition for the report — the shareable/coach-proof twin of
@@ -370,7 +456,8 @@ export function registerReportRoutes(router, ctx) {
   // Coach-proof artifact: returns both the structured report and a plain-text
   // rendering for copy / mailto / download. Momentum-only by construction — the
   // only check-in rows read are status='kept' (the win record) and OUTSTANDING
-  // (pending/sent/deferred) future moments; no miss series is ever queried.
+  // (pending/sent/deferred/awaiting_time) future moments; no miss series is ever
+  // queried (awaiting_time = a text nudge answered "later", still an open moment).
   router.get('/api/me/report', async (request, env) => {
     try {
       const auth = await requireUser(request, env);
@@ -449,7 +536,7 @@ export function registerReportRoutes(router, ctx) {
         const nextRows = await env.DB.prepare(
           `SELECT commitment_id, MIN(scheduled_for) AS next_for
              FROM commitment_checkins
-            WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+            WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
             GROUP BY commitment_id`
         ).bind(auth.userId).all();
         for (const r of (nextRows && nextRows.results) || []) {
@@ -488,7 +575,7 @@ export function renderReportPage() {
 <body>
 ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, { href: '/coach/', label: 'Coach view' }])}
 <h1>Weekly report</h1>
-<p class="intro" id="intro">Your week, in the words you kept.</p>
+<p class="intro" id="intro">${reportPageIntroCopy()}</p>
 
 <div id="signin" class="card hidden">
   <p class="muted">Sign in on <a href="/me/">your words</a> first, then come back for your report.</p>
@@ -525,7 +612,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
 </div>
 
 <p class="err hidden" id="err"></p>
-<p class="footnote">Kept-word only, always. A quiet day is just quiet — we only ever count the wins. FocusBro is built by Latimer Woods Tech.</p>
+<p class="footnote">${reportPageFootnoteCopy()}</p>
 
 <script>
 (function () {
@@ -546,7 +633,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
       if (!rep) throw new Error('load');
       reportText = (data && data.text) || '';
 
-      el('intro').textContent = rep.intro || 'Your week, in the words you kept.';
+      el('intro').textContent = rep.intro || ${JSON.stringify(reportPageIntroCopy())};
       el('headline').textContent = rep.headline || '';
       el('s-week').textContent = String(rep.kept_this_week || 0);
       el('s-run').textContent = String((rep.streak && rep.streak.current_streak) || 0);

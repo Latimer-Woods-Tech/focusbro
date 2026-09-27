@@ -11,8 +11,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics, computeDecisionMetrics,
-  recordAcquisitionVisit, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
+  recordAcquisitionVisit, isBotVisitor, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
 } from '../events.js';
+
+// A representative real-browser UA — carries "Safari"/"Chrome"/"Mozilla" but
+// none of the automated-client tokens, so it must classify as a human.
+const HUMAN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 // ── a minimal D1-shaped fake keyed off SQL substrings ──
 // `counts` maps event_type → n for the GROUP BY query; `active`/`returning` are
@@ -201,6 +206,96 @@ describe('recordAcquisitionVisit — anonymous campaign denominator', () => {
       content: 'x'.repeat(80),
     });
   });
+
+  it('records a `bot` flag ONLY when request context is supplied', async () => {
+    // A human visit with context → bot:0 alongside the attribution.
+    const human = makeDB();
+    await recordAcquisitionVisit({ DB: human }, { source: 'homepage' }, { userAgent: HUMAN_UA });
+    expect(JSON.parse(human.runs[0].params[2])).toEqual({
+      attribution: { source: 'homepage' }, bot: 0,
+    });
+
+    // A crawler with context → bot:1.
+    const crawler = makeDB();
+    await recordAcquisitionVisit({ DB: crawler }, { source: 'homepage' },
+      { userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' });
+    expect(JSON.parse(crawler.runs[0].params[2]).bot).toBe(1);
+
+    // No context → UNKNOWN, no `bot` field (an un-instrumented visit is qualified).
+    const legacy = makeDB();
+    await recordAcquisitionVisit({ DB: legacy }, { source: 'homepage' });
+    expect(JSON.parse(legacy.runs[0].params[2])).toEqual({ attribution: { source: 'homepage' } });
+  });
+
+  it('classifies a clean-UA synthetic monitor as bot when the beacon reports webdriver', async () => {
+    // Proof-of-rejection: a visit that would otherwise count as a QUALIFIED human
+    // (real-browser UA, no CF score) is kept OUT of the denominator when the
+    // beacon's navigator.webdriver flag is set — the exact pollution the D1
+    // read surfaced (machine-cadence bot:0 bursts) that the UA/CF signals miss.
+    const monitor = makeDB();
+    await recordAcquisitionVisit({ DB: monitor }, { source: 'homepage' },
+      { userAgent: HUMAN_UA, clientAutomated: true });
+    expect(JSON.parse(monitor.runs[0].params[2]).bot).toBe(1);
+
+    // The same human profile without the flag stays qualified — the flag is what
+    // separates the two, so the classifier can't be silently excluding humans.
+    const human = makeDB();
+    await recordAcquisitionVisit({ DB: human }, { source: 'homepage' },
+      { userAgent: HUMAN_UA, clientAutomated: false });
+    expect(JSON.parse(human.runs[0].params[2]).bot).toBe(0);
+
+    // The flag alone (no UA/cf keys) is enough context to classify.
+    const flagOnly = makeDB();
+    await recordAcquisitionVisit({ DB: flagOnly }, { source: 'homepage' }, { clientAutomated: true });
+    expect(JSON.parse(flagOnly.runs[0].params[2]).bot).toBe(1);
+  });
+});
+
+describe('isBotVisitor — the qualified-visit classifier', () => {
+  it('treats a real browser User-Agent as human', () => {
+    expect(isBotVisitor(HUMAN_UA, null)).toBe(false);
+  });
+  it('flags crawlers, unfurlers, and headless/HTTP clients from the UA', () => {
+    for (const ua of [
+      'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+      'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
+      'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/126 Safari/537.36',
+      'curl/8.4.0',
+      'python-requests/2.31.0',
+    ]) {
+      expect(isBotVisitor(ua, null)).toBe(true);
+    }
+  });
+  it('treats a missing or empty User-Agent as automated', () => {
+    expect(isBotVisitor('', null)).toBe(true);
+    expect(isBotVisitor(null, null)).toBe(true);
+    expect(isBotVisitor(undefined, undefined)).toBe(true);
+  });
+  it('uses Cloudflare Bot Management when the zone provides it', () => {
+    // A low score / verifiedBot outranks an innocent-looking UA.
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 5 } })).toBe(true);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { verifiedBot: true } })).toBe(true);
+    // A high score confirms a human; an absent score falls back to the UA.
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 95 } })).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: {} })).toBe(false);
+  });
+  it('honors a client navigator.webdriver=true flag over an otherwise-human profile', () => {
+    // The class the UA/CF signals miss: a JS automation framework driving a
+    // headed browser with a clean, spoofed real-browser UA and even a human CF
+    // score. The webdriver flag is the only tell, so it must win.
+    expect(isBotVisitor(HUMAN_UA, null, true)).toBe(true);
+    expect(isBotVisitor(HUMAN_UA, { botManagement: { score: 95 } }, true)).toBe(true);
+  });
+  it('ignores a falsy or absent webdriver flag and falls back to server signals', () => {
+    // Only a strict boolean true is honored — a real browser reports false (or
+    // the field is absent on an older beacon), and must stay classified by UA/CF.
+    expect(isBotVisitor(HUMAN_UA, null, false)).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, null, undefined)).toBe(false);
+    expect(isBotVisitor(HUMAN_UA, null, 'true')).toBe(false); // not the boolean
+    // A falsy flag does not rescue a UA/CF-flagged bot.
+    expect(isBotVisitor('curl/8.4.0', null, false)).toBe(true);
+  });
 });
 
 describe('computeLoopMetrics — the retention/coach numbers', () => {
@@ -234,6 +329,23 @@ describe('computeLoopMetrics — the retention/coach numbers', () => {
     expect(m.acquisition).toEqual([]);
     expect(m.decision.commitments.median_per_user).toBeNull();
     expect(m.decision.delivery.rate).toBeNull();
+  });
+
+  it('surfaces commitments_snoozed but keeps it OUT of resolved / the kept-word rate', async () => {
+    // The "I'm on it" third answer is an engagement signal, never a resolution
+    // and never a miss — it must be counted on its own and never move the rate.
+    // 3 kept + 1 reschedule = 4 resolved; the 5 snoozes are visible but separate.
+    const db = makeDB({
+      counts: {
+        [EVENTS.COMMITMENT_KEPT]: 3,
+        [EVENTS.COMMITMENT_RESCHEDULE]: 1,
+        [EVENTS.COMMITMENT_SNOOZE]: 5,
+      },
+    });
+    const m = await computeLoopMetrics({ DB: db }, {});
+    expect(m.totals.commitments_snoozed).toBe(5);
+    expect(m.resolved).toBe(4);                       // snoozes excluded
+    expect(m.kept_word_rate).toBeCloseTo(0.75, 2);    // 3/4, unaffected by the 5 snoozes
   });
 
   it('returns null rates (never NaN, never a divide-by-zero) on an empty window', async () => {

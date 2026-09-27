@@ -248,6 +248,7 @@ CREATE TABLE analytics_events (
 CREATE TABLE escalation_prefs (
   user_id TEXT PRIMARY KEY,
   ceiling TEXT DEFAULT 'text',
+  default_persona TEXT,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );

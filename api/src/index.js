@@ -6,8 +6,12 @@
 import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
+import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
+import { FOLLOW_THROUGH, followThroughFigures, renderFollowThroughPage } from './guides/follow-through.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
+import { registerCoachOnboardingRoutes } from './coach-onboarding.js';
+import { registerCoachOperatorRosterRoutes } from './coach-operator-roster.js';
 import { registerConsentRoutes } from './consent.js';
 import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
@@ -20,7 +24,7 @@ import {
 } from './account-recovery.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
-import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit } from './events.js';
+import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
@@ -31,7 +35,18 @@ import {
 } from './middleware.js';
 
 const router = Router();
-const D1_SCHEMA_VERSION = '0006_sync_device_log_schema';
+// The newest migration this build EXPECTS. A test pins it to the newest file
+// in migrations/, so it cannot drift again (it sat at 0006 while 0007 was live).
+// /health reports, beside it, what the database held on the last cron tick.
+const D1_SCHEMA_VERSION = '0007_guest_accounts';
+export { D1_SCHEMA_VERSION };
+// Runs on the CRON (which already touches D1), never on a request.
+async function readAppliedSchemaVersion(env) {
+  try {
+    const row = await env.DB.prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1').first();
+    return (row && row.name) || null;
+  } catch { return null; }
+}
 
 function slashRedirect(path) {
   return new Response(null, { status: 301, headers: { Location: path } });
@@ -59,30 +74,73 @@ function responseWithoutBody(response) {
   });
 }
 
-const CONTENT_SECURITY_POLICY_REPORT_ONLY = [
+// The hosts AdSense actually reaches, derived from report-only violations
+// observed in headless Chromium on /guides/ (G299). Without these the policy
+// contradicts the site's own free-tier revenue model: `script-src 'self'`
+// blocks the loader and every ad frame dies the moment CSP is enforced — with
+// no signal visible to curl, to CI, or to a /health probe.
+// The ad-traffic-quality hosts appear in every directive AdSense reaches them
+// through: sodar2.js is a SCRIPT from ep2, its probe an IMAGE from ep1 — both
+// observed as report-only violations on a live guide page (2026-09-04).
+const AD_SCRIPT_HOSTS = 'https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com https://ep2.adtrafficquality.google';
+const AD_FRAME_HOSTS = 'https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep2.adtrafficquality.google';
+const AD_CONNECT_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com';
+const AD_IMG_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google';
+// Cloudflare Web Analytics is injected at the ZONE (not by this code); its
+// beacon is a script from static.cloudflareinsights.com that reports to
+// cloudflareinsights.com. Allowlisted rather than switched off: the zone
+// setting is a founder-visible choice, and blocking it here would silently
+// break a measurement nobody in this repo can see.
+const ANALYTICS_SCRIPT_HOSTS = 'https://static.cloudflareinsights.com';
+const ANALYTICS_CONNECT_HOSTS = 'https://cloudflareinsights.com';
+
+const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data:",
+  `script-src 'self' ${AD_SCRIPT_HOSTS} ${ANALYTICS_SCRIPT_HOSTS}`,
+  `frame-src ${AD_FRAME_HOSTS}`,
+  // 'unsafe-inline' for STYLES only, and deliberately: the guide shell inlines
+  // its stylesheet, and AdSense auto ads set style attributes on the elements
+  // they inject — neither can be nonced from here. Inline style is not the
+  // injection class this policy exists to stop; script-src stays strict, with
+  // no 'unsafe-inline' and no 'unsafe-eval', which is what makes enforcing
+  // worth anything.
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: ${AD_IMG_HOSTS}`,
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${AD_CONNECT_HOSTS} ${ANALYTICS_CONNECT_HOSTS}`,
   "form-action 'self'",
 ].join('; ');
 
+// Where the policy is ENFORCED versus only reported. The guides layer and the
+// Index run no inline script — every script there is first-party under
+// /guides/*.js — so on those surfaces a violation is a bug, and the browser
+// should refuse it. The app shell (/) and the signed-in pages still carry the
+// legacy inline scripts that Stage 3 is to extract; there the same policy is
+// report-only, so a regression is visible without breaking the app.
+const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*)$/;
+export function cspModeFor(url) {
+  let pathname = '';
+  try { pathname = new URL(url).pathname; } catch { pathname = ''; }
+  return CSP_ENFORCED_PATH.test(pathname) ? 'enforce' : 'report-only';
+}
+
 // One response boundary keeps pages, APIs, redirects, and fallbacks on the same
-// browser-security baseline. CSP is report-only until Stage 3 extracts the
-// legacy inline scripts/styles; the other policies are safe to enforce now.
-export function withSecurityHeaders(response) {
+// browser-security baseline. The CSP is the SAME string on every response; only
+// whether the browser enforces it or reports it depends on the surface.
+export function withSecurityHeaders(response, request) {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()');
-  headers.set('Content-Security-Policy-Report-Only', CONTENT_SECURITY_POLICY_REPORT_ONLY);
+  headers.delete('Content-Security-Policy');
+  headers.delete('Content-Security-Policy-Report-Only');
+  const mode = cspModeFor(request && request.url);
+  headers.set(mode === 'enforce' ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only', CONTENT_SECURITY_POLICY);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -244,7 +302,8 @@ async function initializeDatabase(env) {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_login DATETIME,
         email_verified_at DATETIME,
-        is_active INTEGER DEFAULT 1
+        is_active INTEGER DEFAULT 1,
+        is_guest INTEGER DEFAULT 0
       )`,
       `CREATE TABLE IF NOT EXISTS user_data_snapshots (
         id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
@@ -377,20 +436,6 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_presence_last_seen ON focus_presence(last_seen)`,
       // ── END PHASE 3 TABLES ──
       // ── PHASE 4 TABLES ──
-      `CREATE TABLE IF NOT EXISTS slack_integrations (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE,
-        webhook_url TEXT,
-        access_token TEXT,
-        team_id TEXT,
-        channel_id TEXT,
-        post_sessions INTEGER DEFAULT 1,
-        update_presence INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        is_active INTEGER DEFAULT 1,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_slack_user ON slack_integrations(user_id)`,
       // ── END PHASE 4 TABLES ──
       // ── PHASE 5 TABLES ──
       `CREATE TABLE IF NOT EXISTS subscriptions (
@@ -490,6 +535,65 @@ async function initializeDatabase(env) {
         shared INTEGER DEFAULT 0,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+      // ── OPERATOR PLATFORM (Contender #10, Phase C · @latimer-woods-tech/operator) ──
+      // The shared operator platform's identity + hierarchy tables, backed by
+      // D1 through the thin `D1OperatorStore` adapter (src/operator-store.js).
+      // FocusBro mounts the hub instead of hand-rolling a coach hierarchy. The
+      // money tables (price books / ledger / payouts) are intentionally NOT here
+      // — that surface is Phase D (tiers & billing, founder-gated on Stripe live).
+      `CREATE TABLE IF NOT EXISTS operators (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        connect_account_id TEXT,
+        charge_mode TEXT NOT NULL DEFAULT 'direct',
+        white_label TEXT,
+        default_currency TEXT NOT NULL DEFAULT 'usd',
+        metadata TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_slug ON operators(slug)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_connect_account
+         ON operators(connect_account_id) WHERE connect_account_id IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS operator_clients (
+        id TEXT PRIMARY KEY,
+        operator_id TEXT NOT NULL,
+        external_org_id TEXT,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        retail_override TEXT,
+        metadata TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_operator_clients_operator ON operator_clients(operator_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operator_clients_external
+         ON operator_clients(operator_id, external_org_id) WHERE external_org_id IS NOT NULL`,
+      // ── COACH ↔ OPERATOR MAP (Contender #10, Phase C) ──
+      // The thin glue between a FocusBro user and their operator id. One row per
+      // coach — NOT a second hierarchy; the hierarchy lives in operator_clients.
+      `CREATE TABLE IF NOT EXISTS coach_operators (
+        user_id TEXT PRIMARY KEY,
+        operator_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
+      )`,
+      // ── COACH CHECK-IN CONFIG (Contender #10, Phase C) ──
+      // FocusBro-native: how the bro checks in for this coach — cadence, voice
+      // persona, and the opening line. The script is anti-shame-validated at the
+      // write boundary (coach-onboarding.js) before it is ever stored here.
+      `CREATE TABLE IF NOT EXISTS coach_checkin_config (
+        operator_id TEXT PRIMARY KEY,
+        cadence TEXT NOT NULL,
+        voice_persona TEXT NOT NULL,
+        script TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
       )`,
       // ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
       // Delivery-side consent state; a text/voice check-in cannot send without a
@@ -591,6 +695,14 @@ async function initializeDatabase(env) {
       `ALTER TABLE commitment_checkins ADD COLUMN escalated_at DATETIME`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_escalation
          ON commitment_checkins(status, delivered_at)`,
+      // ── PER-USER DEFAULT COMPANION TONE (Contender #10, Phase A) ──
+      // The vision names persona "configurable ... per user," but tone lived only
+      // per-word — a returning person had to re-pick their preferred voice (calm
+      // ally vs. hype) on every commitment. This remembers the last tone a person
+      // chose on the existing per-user prefs row, so /me/ pre-selects it. Nullable
+      // and override-preserving: a word still carries its own persona, and an
+      // unset default simply leaves the calm ally as the standing default.
+      `ALTER TABLE escalation_prefs ADD COLUMN default_persona TEXT`,
       // ── FREE-TIER TIMER → RETENTION SPINE (Contender #10, R-239 follow-up) ──
       // On the EXISTING production analytics_events table the column above
       // (CREATE TABLE) is not applied, so add it here (silent no-op if present).
@@ -1225,6 +1337,97 @@ router.post('/auth/register', async (request, env) => {
   }
 });
 
+// ── GUEST: a word without a password ──
+// Activation, measured (docs/IMPROVEMENT_PLAN.md decision tree): 928 visits,
+// at most four registration attempts, zero words. The homepage already
+// collects the word; the door then asked for an email and a password. So the
+// first word creates a GUEST account instead — a real users row (every FK
+// holds), a synthetic non-routable address (RFC 2606 `.invalid`), an
+// unknowable password hash — bound to this browser by the same HttpOnly
+// session cookie a registered account gets. The person claims it later with
+// POST /auth/claim. The mechanic (check-in, streak, anti-shame) is untouched;
+// only the door moved. Rate-limited per IP like registration.
+export const GUEST_EMAIL_DOMAIN = 'guest.invalid';
+export const isGuestEmail = (email) => typeof email === 'string' && email.endsWith('@' + GUEST_EMAIL_DOMAIN);
+router.post('/auth/guest', async (request, env) => {
+  try {
+    const rateLimitResult = await checkRateLimit(request, env, 'guest');
+    if (rateLimitResult.limited) {
+      return jsonResponse({ error: 'Too many new words from this connection. Try again in a few minutes.' }, 429);
+    }
+    const userId = generateUUID();
+    const email = `guest-${userId}@${GUEST_EMAIL_DOMAIN}`;
+    // Nobody can sign in with this; a guest gets in by the cookie, and later by claiming.
+    const passwordHash = await hashPassword(generateUUID() + generateUUID());
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, is_guest, created_at, updated_at)
+       VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))`
+    ).bind(userId, email, passwordHash).run();
+    const sessionId = generateUUID();
+    const token = await generateToken(userId, env.JWT_SECRET, sessionId);
+    await createSessionRecord(env, sessionId, userId, token);
+    await env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, action, details, created_at)
+       VALUES (?, 'guest_start', 'success', datetime('now'))`
+    ).bind(userId).run();
+    await recordEvent(env, { userId, type: EVENTS.GUEST_STARTED, data: {} });
+    return responseWithCookie(jsonResponse({
+      success: true,
+      user_id: userId,
+      guest: true,
+      session_id: sessionId
+    }, 201), sessionCookie(token));
+  } catch (error) {
+    console.error('[AUTH] Guest start error:', error.message);
+    return jsonResponse({ error: 'Could not start' }, 500);
+  }
+});
+
+// ── CLAIM: a guest becomes an account ──
+// The same validation as registration, applied to the CURRENT guest session:
+// the row keeps its id (every word, streak and subscription stays attached),
+// gains a real email and a password, and loses the guest flag. Idempotent by
+// state: a claimed account cannot be claimed again (409), and an email that
+// belongs to someone else is refused (409) — a claim can never take over
+// another person's account.
+router.post('/auth/claim', async (request, env) => {
+  try {
+    const auth = await authenticatedSession(request, env);
+    if (!auth) return jsonResponse({ error: 'Unauthorized' }, 401);
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON in request body' }, 400); }
+    const email = normalizeAccountEmail(body && body.email);
+    const password = body && body.password;
+    if (!email || !password) return jsonResponse({ error: 'Email and password required' }, 400);
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || isGuestEmail(email)) return jsonResponse({ error: 'Invalid email format' }, 400);
+    if (typeof password !== 'string' || password.length < 8) return jsonResponse({ error: 'Password must be at least 8 characters' }, 400);
+    const user = await env.DB.prepare('SELECT id, is_guest FROM users WHERE id = ? AND is_active = 1').bind(auth.payload.sub).first();
+    if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!Number(user.is_guest)) return jsonResponse({ error: 'This account already has an email' }, 409);
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+    if (existing) return jsonResponse({ error: 'Email already registered' }, 409);
+    const passwordHash = await hashPassword(password);
+    await env.DB.prepare(
+      `UPDATE users SET email = ?, password_hash = ?, is_guest = 0, updated_at = datetime('now') WHERE id = ?`
+    ).bind(email, passwordHash, user.id).run();
+    await env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, action, details, created_at)
+       VALUES (?, 'claim', 'success', datetime('now'))`
+    ).bind(user.id).run();
+    await recordEvent(env, { userId: user.id, type: EVENTS.ACCOUNT_CLAIMED, data: {} });
+    try {
+      const delivery = await deliverEmailVerification(env, user.id, email);
+      if (!delivery.delivered) console.warn(`[AUTH] Claim verification email not delivered: ${delivery.reason}`);
+    } catch (deliveryError) {
+      console.error('[AUTH] Claim verification setup failed:', deliveryError.message);
+    }
+    return jsonResponse({ success: true, user_id: user.id, email, email_verified: false, guest: false }, 200);
+  } catch (error) {
+    console.error('[AUTH] Claim error:', error.message);
+    return jsonResponse({ error: 'Could not save the account' }, 500);
+  }
+});
+
 // ── LOGIN ──
 router.post('/auth/login', async (request, env) => {
   try {
@@ -1540,17 +1743,20 @@ router.get('/auth/session', async (request, env) => {
       return jsonResponse({ authenticated: false }, 401);
     }
     const user = await env.DB.prepare(
-      'SELECT email, email_verified_at FROM users WHERE id = ? AND is_active = 1'
+      'SELECT email, email_verified_at, is_guest FROM users WHERE id = ? AND is_active = 1'
     ).bind(auth.payload.sub).first();
     if (!user) {
       return jsonResponse({ authenticated: false }, 401);
     }
+    const guest = Boolean(Number(user.is_guest));
     return jsonResponse({
       authenticated: true,
       user_id: auth.payload.sub,
       session_id: auth.session.session_id,
-      email: user.email,
-      email_verified: Boolean(user.email_verified_at)
+      // a guest's address is synthetic and non-routable; it is never shown
+      email: guest ? null : user.email,
+      email_verified: !guest && Boolean(user.email_verified_at),
+      guest
     }, 200);
   } catch (error) {
     console.error('[AUTH] Session status error:', error.message);
@@ -2264,6 +2470,18 @@ registerAccountabilityRoutes(router, { getAuthToken, verifyToken, jsonResponse, 
 // PAGE is /coach/ (below). Full white-label is Phase C (operator UNBLOCK gated).
 registerCoachRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID });
 
+// ── COACH ONBOARDING ROUTES (Contender #10, Phase C · slice 1) ──
+// Coach → operator identity + white-label (mounted on @latimer-woods-tech/operator
+// via the D1OperatorStore adapter) + FocusBro-native cadence/voice/script config.
+registerCoachOnboardingRoutes(router, { getAuthToken, verifyToken, jsonResponse });
+
+// ── COACH OPERATOR ROSTER ROUTES (Contender #10, Phase C · slice 2) ──
+// Seat the consented Phase-A roster (`coach_clients`, active only) into the
+// operator→client hierarchy (`operator_clients`, owned by the operator package)
+// and read the coach dashboard back OFF that hierarchy — momentum-only, no miss
+// tally. A withdrawn client's seat is suspended and drops out of the read.
+registerCoachOperatorRosterRoutes(router, { getAuthToken, verifyToken, jsonResponse });
+
 // ── CONTACT CONSENT ROUTES (TCPA consent-by-construction — Contender #10, Phase A) ──
 // Express consent capture + durable STOP opt-out + inbound SMS webhook. The
 // delivery cron consumes evaluateContactGate() so no text/voice check-in can be
@@ -2306,7 +2524,94 @@ router.post('/api/acquisition/visit', async (request, env) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return jsonResponse({ error: 'Invalid visit payload' }, 400);
   }
-  const recorded = await recordAcquisitionVisit(env, body.attribution);
+  // Pass request context so the visit is classified human vs. automated — the
+  // qualified-visit denominator the activation decision tree is read against
+  // (see isBotVisitor in events.js). The result is a single boolean on the
+  // event; the User-Agent itself is never stored. `body.wd` is the beacon's
+  // navigator.webdriver flag — it catches a JS-executing automation framework
+  // (synthetic monitor) that carries a clean, spoofed real-browser UA and so
+  // slips past the UA/CF signals; only a strict boolean is honored.
+  const recorded = await recordAcquisitionVisit(env, body.attribution, {
+    userAgent: request.headers.get('user-agent'),
+    cf: request.cf || null,
+    clientAutomated: body.wd === true,
+  });
+  return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
+});
+
+// The landing "Give my word" gesture — recorded before the /me/ redirect so the
+// funnel splits visit → word_offered → guest_started (see the WORD_OFFERED note
+// in events.js). Privacy-minimal exactly like the visit beacon: a coarse
+// start-time bucket and acquisition attribution only, never the task text.
+router.post('/api/acquisition/word-offered', async (request, env) => {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
+  }
+  const contentLength = Number(request.headers.get('content-length')) || 0;
+  if (contentLength > 2048) return jsonResponse({ error: 'Payload is too large' }, 413);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
+      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return jsonResponse({ error: 'Invalid payload' }, 400);
+  }
+  const recorded = await recordWordOffered(env, { attribution: body.attribution, when: body.when });
+  return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
+});
+
+// ── GUIDE SCRIPTS (first-party; a guide page never runs inline code) ──
+// The bytes come from guides/scripts.js so the e2e smoke server serves exactly
+// what production serves. A day of cache; the URL is stable, the content rarely
+// changes, and a stale day of a beacon or a calculator costs nothing.
+// A versioned URL (?v=<this build>) is immutable for a year — the page always
+// links the current version, so a browser never reuses a stale script across
+// deploys. An unversioned request must revalidate.
+const scriptResponse = (request, env, body) => {
+  let v = null; try { v = new URL(request.url).searchParams.get('v'); } catch { v = null; }
+  const immutable = v && v === (env.BUILD_SHA || 'development');
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    },
+  });
+};
+router.get('/guides/view.js', (request, env) => scriptResponse(request, env, GUIDE_VIEW_SCRIPT));
+router.get('/guides/caffeine.js', (request, env) => scriptResponse(request, env, CAFFEINE_SCRIPT));
+router.get('/guides/breath.js', (request, env) => scriptResponse(request, env, BREATH_SCRIPT));
+
+// ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
+// The same guards as the landing visit: JSON only, small, same-origin. The slug
+// is validated against the guides that actually exist, so the ledger can never
+// be padded with junk. Anonymous by design — the slug is the whole payload.
+const GUIDE_SLUGS = new Set(guides.map((g) => g.slug));
+const GUIDE_TOOLS = new Set(['caffeine-calculator', 'breathing-pacer']);
+router.post('/api/content/view', async (request, env) => {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
+  }
+  const contentLength = Number(request.headers.get('content-length')) || 0;
+  if (contentLength > 512) return jsonResponse({ error: 'View payload is too large' }, 413);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
+      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  const slug = body && typeof body.slug === 'string' ? body.slug : '';
+  if (!GUIDE_SLUGS.has(slug)) return jsonResponse({ error: 'Unknown guide' }, 404);
+  // An optional `tool` names an instrument on the page (allowlisted) — "was the
+  // calculator used", the outcome measure behind building instruments at all.
+  const tool = body && typeof body.tool === 'string' ? body.tool : null;
+  if (tool !== null && !GUIDE_TOOLS.has(tool)) return jsonResponse({ error: 'Unknown tool' }, 404);
+  const recorded = await recordGuideView(env, slug, tool);
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
@@ -2504,12 +2809,18 @@ router.post('/api/internal/webhooks/telnyx/:eventId/replay', async (request, env
 const CRON_STALE_SECONDS = 10 * 60;
 router.get('/health', async (_request, env) => {
   const cron = await readCronHealth(env, { staleSeconds: CRON_STALE_SECONDS });
+  // what this build expects, and what the database reported having applied on
+  // the last cron tick (carried through KV — a health request never touches
+  // D1). A deploy whose migration did not land shows the two disagreeing.
+  const schemaApplied = (cron && cron.schema_applied) ? String(cron.schema_applied).replace(/\.sql$/, '') : null;
   return new Response(JSON.stringify({
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     build_sha: env.BUILD_SHA || 'development',
     schema_version: D1_SCHEMA_VERSION,
+    schema_applied: schemaApplied,
+    schema_in_step: schemaApplied === null ? null : schemaApplied === D1_SCHEMA_VERSION,
     cron
   }), {
     status: 200,
@@ -2654,10 +2965,33 @@ router.get('/about.html', async () => {
 
 <p>We keep the app calm and low-friction on purpose. There are no streak-shaming mechanics, no accounts required for the core tools, and your notes and history stay in your browser by default. The goal is to support your attention, not to compete for it.</p>
 
+<h2 id="author">Who writes the guides</h2>
+<p>The guides are written by <strong>Adrian Perry</strong>, the founder of FocusBro. He built it for the reason on the front page: he has ADHD, built reminders, and swiped them away. Every guide cites the studies it leans on in a Sources section at the end, with a link to each paper and the caveat we think you should know &mdash; including the studies that did not hold up. Nothing here is medical advice; FocusBro does not treat ADHD or any condition.</p>
+
 <h2>Who builds it</h2>
 <p>FocusBro is built and maintained by Latimer Woods Tech. If you have feedback, a bug report, or a request for a tool you wish existed, we would like to hear it &mdash; see the <a href="/contact.html">Contact</a> page. To understand how we handle data and advertising, read our <a href="/privacy.html">Privacy Policy</a>.</p>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
+});
+
+// ── THE FOLLOW-THROUGH INDEX (methodology + current figures) ──
+// A public, dated measure of whether people who give their word actually
+// start, computed from the same first-party ledger computeLoopMetrics reads.
+// The page is script-free and cacheable; the figures are aggregates only,
+// published at or above a sample floor, and never a per-person record.
+router.get(FOLLOW_THROUGH.path, async (request, env) => {
+  const figures = await followThroughFigures(env);
+  return new Response(renderFollowThroughPage(figures, { version: (env && env.BUILD_SHA) || 'development' }), {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': `public, max-age=${FOLLOW_THROUGH.cacheSeconds}` },
+  });
+});
+router.get('/api/public/follow-through', async (request, env) => {
+  const figures = await followThroughFigures(env);
+  return new Response(JSON.stringify(figures), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${FOLLOW_THROUGH.cacheSeconds}`, 'Access-Control-Allow-Origin': '*' },
+  });
 });
 
 router.get('/contact.html', async () => {
@@ -2863,13 +3197,23 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
         var sharesLine = c.shares_reflections_line
           ? '<div class="roster-shares">' + esc(c.shares_reflections_line) + '</div>'
           : '';
+        // The at-a-glance "leaning in" cue: shown only when the server marks this
+        // client as having answered "I'm on it" (a snooze / lean-in) inside the
+        // trailing week — the roster twin of the detail view's exact lean-in count
+        // (R-279). It lets a coach tell an engaged-but-unresolved client from a
+        // truly-quiet one before deciding who to reach out to. A celebration of
+        // staying with the word, never a flag; absent for a client who hasn't
+        // leaned in (a clean card, never framed as a shortfall).
+        var engagedLine = c.engaged_line
+          ? '<div class="roster-engaged">' + esc(c.engaged_line) + '</div>'
+          : '';
         html += '<div class="card">'
           + '<div class="client">'
           +   '<div><div class="name">' + esc(name) + '</div>'
           +     '<div class="line">' + esc(c.status_line || '') + '</div>'
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
-          +     nextLine + reachLine + backLine + milestoneLine + sharesLine + '</div>'
+          +     nextLine + reachLine + backLine + milestoneLine + sharesLine + engagedLine + '</div>'
           +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
@@ -3131,8 +3475,9 @@ router.get('/guides', async () => {
 
 // Individual guide pages, registered generically from the guides array.
 guides.forEach((guide) => {
-  router.get(`/guides/${guide.slug}.html`, async () => {
-    return new Response(renderGuidePage(guide), { status: 200, headers: GUIDE_HTML_HEADERS });
+  // itty-router passes (request, env, ctx); the version stamp needs env.
+  router.get(`/guides/${guide.slug}.html`, async (request, env) => {
+    return new Response(renderGuidePage(guide, { version: (env && env.BUILD_SHA) || 'development' }), { status: 200, headers: GUIDE_HTML_HEADERS });
   });
 });
 
@@ -3160,6 +3505,7 @@ router.get('/sitemap.xml', async () => {
   <url><loc>https://focusbro.net/privacy.html</loc></url>
   <url><loc>https://focusbro.net/terms.html</loc></url>
   <url><loc>https://focusbro.net/about.html</loc></url>
+  <url><loc>https://focusbro.net${FOLLOW_THROUGH.path}</loc><lastmod>${FOLLOW_THROUGH.lastmod}</lastmod></url>
   <url><loc>https://focusbro.net/contact.html</loc></url>
   <url><loc>https://focusbro.net/guides/</loc></url>
 ${guideUrls}
@@ -3337,10 +3683,13 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(err => { console.warn('SW network fetch failed, falling back to cache:', err && err.message || err); return caches.match(request) || new Response(
-          JSON.stringify({ error: 'Offline', offline: true }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        ))
+        .catch(err => {
+          console.warn('SW network fetch failed, falling back to cache:', err && err.message || err);
+          return caches.match(request).then(cached => cached || new Response(
+            JSON.stringify({ error: 'Offline', offline: true }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+          ));
+        })
     );
   }
 
@@ -3529,17 +3878,17 @@ export default {
   async fetch(request, env, _ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
-    if (httpsRedirect) return withSecurityHeaders(httpsRedirect);
+    if (httpsRedirect) return withSecurityHeaders(httpsRedirect, request);
 
     const csrfRejection = rejectCrossSiteCookieMutation(request);
-    if (csrfRejection) return withSecurityHeaders(csrfRejection);
+    if (csrfRejection) return withSecurityHeaders(csrfRejection, request);
 
     // ✅ BEST PRACTICE: Single unified router with all endpoints
     // Call the router's fetch method which handles request routing
     const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
     const response = await router.fetch(routeRequest, runtimeEnv);
     const finalResponse = request.method === 'HEAD' ? responseWithoutBody(response) : response;
-    return withSecurityHeaders(finalResponse);
+    return withSecurityHeaders(finalResponse, request);
   },
 
   // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──
@@ -3569,7 +3918,8 @@ export default {
       // SLO signals: liveness (last_tick) + correctness (delivery fail streak),
       // so /health + the off-platform monitor catch both a silent cron death
       // and a cron that ticks while every send fails.
-      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation });
+      const schemaApplied = await readAppliedSchemaVersion(runtimeEnv);
+      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation, schemaApplied });
       if (streak >= 3) console.error(`[cron] delivery DEGRADED — ${streak} consecutive failing ticks`);
       // Wingspan W4 / L3: after the heartbeat is stamped (so a bug here can never
       // masquerade as a delivery outage), knock once on anyone who's gone quiet

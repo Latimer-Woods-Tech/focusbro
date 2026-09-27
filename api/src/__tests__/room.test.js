@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   presenceLine,
   nextSprintLine,
@@ -16,7 +17,7 @@ const SHAME = [
   /\bfall(ing|en)? behind\b/i, /\bbehind\b/i, /\bexcuse/i, /\bpathetic\b/i,
   /\bworthless\b/i, /\bmiss(ed|es|ing)?\b/i, /\balone\b/i,
 ];
-const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
 const AI = /\bAI\b/;
 
 describe('presence copy — the cold-start law (a quiet room is warmth, never "alone")', () => {

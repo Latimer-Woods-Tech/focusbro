@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { scanDesignLaw } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
@@ -34,6 +35,7 @@ import {
   snoozeConfirmCopy,
   rescheduleConfirmCopy,
   START_HELP_MIN,
+  SNOOZE_DEFAULT_MIN,
 } from '../accountability.js';
 import { registerConsentRoutes } from '../consent.js';
 import { generateUUID } from '../middleware.js';
@@ -78,6 +80,39 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
   it('never misreads a negated "done" as kept', () => {
     expect(detectCheckinReply('not done')).toBe('reschedule');
     expect(detectCheckinReply("didn't finish")).toBe('reschedule');
+  });
+
+  it('reads a grateful completion as KEPT — the warmest reply is never a not-done', () => {
+    // A real completion often arrives wrapped in a grateful/emotional negation:
+    // "did it, didn't think I could", "nailed it, couldn't have done it without
+    // you". The negator belongs to the gratitude, not the task — the person KEPT
+    // their word. RESCHEDULE's negation net (couldn't/didn't/can't) ran first and
+    // read the warmest, most engaged reply on the live moat as a "not-done",
+    // answering it with the cold "when do you want to try again?" AND silently
+    // denying the kept-word streak they just earned. These now classify as KEPT.
+    for (const t of ["did it, didn't think I could",
+                     "done, can't believe I finally finished",
+                     "nailed it, couldn't have done it without you",
+                     'finished, couldn’t be happier',
+                     "done! can't thank you enough",
+                     "crushed it, didn't expect that",
+                     "got it done, can't wait to tell you"]) {
+      expect(detectCheckinReply(t), t).toBe('kept');
+    }
+  });
+
+  it('keeps a real not-done a reschedule even beside a negation idiom (streak-safe by construction)', () => {
+    // The intercept is guarded three ways — clean (un-negated) completion +
+    // gratitude idiom + no reschedule-intent word — so a genuine miss can never
+    // be inflated into a kept word. A negated completion has no clean occurrence;
+    // a reply with no completion word never qualifies; an intent word vetoes.
+    expect(detectCheckinReply("not done, didn't think I'd have time")).toBe('reschedule'); // completion negated
+    expect(detectCheckinReply("didn't get it done, can't believe the day")).toBe('reschedule'); // completion negated
+    expect(detectCheckinReply("couldn't do it, didn't think I'd get time")).toBe('reschedule'); // no completion word
+    expect(detectCheckinReply("did it but couldn't finish part 2, tomorrow")).toBe('reschedule'); // intent word vetoes
+    // A plain completion with no negation idiom is unaffected — still KEPT.
+    expect(detectCheckinReply('did it')).toBe('kept');
+    expect(detectCheckinReply('nailed it 🎉')).toBe('kept');
   });
 
   it('reads "I\'m on it" and the mid-task family as SNOOZE — the third answer', () => {
@@ -168,6 +203,44 @@ describe('detectCheckinReply — reads a reply the way a friend would', () => {
     expect(detectCheckinReply('😴')).toBeNull();
     expect(detectCheckinReply('👎')).toBeNull();
   });
+
+  it('meets a self-critical miss with the warm RESCHEDULE, never the cold re-prompt (the design LAW)', () => {
+    // The hardest reply on the moat: a person drowning in shame, no reschedule
+    // marker word. These used to fall through to `null` — the cold "I didn't
+    // catch that, reply DONE or LATER" — the exact scold the LAW forbids. Now
+    // each is read as the no-shame reschedule ("when do you want to try again?").
+    for (const t of [
+      'failed again',
+      'i failed',
+      'i suck',
+      'i suck at this',
+      "i'm useless",
+      'so useless',
+      "i'm the worst",
+      "i'm a failure",
+      "i'm hopeless",
+      'gave up',
+      'giving up',
+      "what's the point",
+      'whats the point',
+      'screwed up',
+      'messed it up',
+      'blew it',
+      'total failure',
+    ]) {
+      expect(detectCheckinReply(t), t).toBe('reschedule');
+    }
+  });
+
+  it('never lets a self-blame phrase steal a genuine completion, snooze, or plain reschedule', () => {
+    // Every higher-priority net returns first — SHAME_MISS can only ever rescue a
+    // would-be `null`, never regress an existing read. Streak-safe by construction.
+    expect(detectCheckinReply('did it, i suck at this but got it done')).toBe('kept');
+    expect(detectCheckinReply("nailed it, didn't think i could, i'm useless usually")).toBe('kept');
+    expect(detectCheckinReply("on it, i'm useless at focusing but grinding")).toBe('snooze');
+    expect(detectCheckinReply('gave up for now, tomorrow')).toBe('reschedule'); // plain reschedule wins
+    expect(detectCheckinReply('halfway, i suck but chipping away')).toBe('snooze');
+  });
 });
 
 describe('isStartHelpReply — asks for a tiny starting intervention', () => {
@@ -232,6 +305,33 @@ describe('isProgressReply — did they actually move the needle, or just say "on
       expect(isProgressReply(t), t).toBe(true);
     }
     expect(isProgressReply('tomorrow 9am')).toBe(false);
+  });
+
+  it('reads the active-EXERTION flow phrases as progress — the most engaged reply is moving the needle', () => {
+    // R-273 reads the whole flow family as a snooze; the exertion subset
+    // ("grinding", "cranking", "on a roll", "in the groove", "beast mode",
+    // "plugging away") also REPORTS movement, so the snooze confirm meets it with
+    // "love that you're moving." Each is still a snooze upstream AND reads as
+    // progress here — the exact pairing that flows the movement copy end-to-end.
+    for (const t of ['grinding', 'grinding away', 'cranking', 'cranking away', 'cranking through',
+                     'plugging away', 'on a roll', 'in the groove', 'beast mode']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+      expect(isProgressReply(t), t).toBe(true);
+    }
+  });
+
+  it('keeps the pure focus-STATE flow phrases generic-warm (a snooze, but not "moving")', () => {
+    // "in the zone" / "locked in" / "heads down" report a focused STATE, not
+    // reported movement — still a warm snooze upstream, but they keep the generic
+    // glad-you're-on-it copy, so isProgressReply stays false. A negated exertion
+    // phrase is never progress either.
+    for (const t of ['in the zone', 'zoned in', 'dialed in', 'locked in', 'heads down',
+                     'in the weeds', 'deep in it', 'in the flow', 'flow state']) {
+      expect(detectCheckinReply(t), t).toBe('snooze');
+      expect(isProgressReply(t), t).toBe(false);
+    }
+    expect(isProgressReply('not grinding yet')).toBe(false);
+    expect(isProgressReply('no roll going')).toBe(false);
   });
 });
 
@@ -301,15 +401,6 @@ describe('rescheduleConfirmCopy — meets reported progress by name, in-app pari
 
 // ── DESIGN LAW on the reply copy ─────────────────────────────
 describe('copy law — SMS reply strings never shame, never "AI", never clinical', () => {
-  const SHAME = [
-    /\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bdisappoint/i, /\bguilt/i,
-    /\bashamed\b/i, /\bshame\b/i, /\byou (didn.?t|should have|should.?ve)\b/i,
-    /\bfall(ing|en)? behind\b/i, /\bbehind again\b/i, /\bexcuse/i, /\bpathetic\b/i,
-    /\bworthless\b/i,
-  ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-  const AI = /\bAI\b/;
-
   const samples = [];
   for (const persona of ['ally', 'hype', 'unknown']) {
     for (const streak of [0, 1, 2, 30]) samples.push(smsKeptReplyCopy({ persona, streak }));
@@ -321,14 +412,16 @@ describe('copy law — SMS reply strings never shame, never "AI", never clinical
   it('are all non-empty strings', () => {
     for (const s of samples) { expect(typeof s).toBe('string'); expect(s.trim().length).toBeGreaterThan(0); }
   });
-  it('never shame', () => {
-    for (const s of samples) for (const p of SHAME) expect(p.test(s), `${s} matched ${p}`).toBe(false);
-  });
-  it('never say "AI"', () => {
-    for (const s of samples) expect(AI.test(s), s).toBe(false);
-  });
-  it('never make a clinical claim', () => {
-    for (const s of samples) for (const p of CLINICAL) expect(p.test(s), `${s} matched ${p}`).toBe(false);
+  // One law, one scanner: every SMS reply string is swept through the canonical
+  // `scanDesignLaw` (shame + clinical + "AI" branding + consumer-ADHD in a single
+  // pass) instead of the hand-rolled lists this block used to carry — which had
+  // drifted weaker than the frozen lexicon (no `slipping`, no working `again?!`,
+  // no `unrespons`, only `behind again` where the canonical bans the bare `behind`).
+  it('obey the one design LAW — no shame / clinical / "AI" / consumer-ADHD', () => {
+    for (const s of samples) {
+      const violations = scanDesignLaw(s);
+      expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    }
   });
   it('the reschedule reply keeps the door open (a new time, streak safe)', () => {
     for (const persona of ['ally', 'hype']) {
@@ -385,6 +478,23 @@ describe('applyCheckinOutcome — resolves the check-in + moves the streak', () 
     expect(cUpd.params).toContain('kept');
     // streak persisted
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks/.test(x.sql))).toBe(true);
+  });
+
+  it('a grateful completion reply credits the kept-word streak end-to-end (never rescheduled)', async () => {
+    // The real-world impact of the classifier fix, proven through resolution: the
+    // reply "did it, didn't think I could" now classifies KEPT, so the streak
+    // moves up — where before it read as a reschedule and the earned word was
+    // silently denied.
+    const outcome = detectCheckinReply("did it, didn't think I could");
+    expect(outcome).toBe('kept');
+    const db = makeDB({ streak: { current_streak: 4, longest_streak: 4, total_kept: 4, last_kept_date: '2026-07-05' } });
+    const r = await applyCheckinOutcome({ DB: db }, {
+      userId: 'u1', checkin: { id: 'ci1', commitment_id: 'cm1' }, commitment: oneShot,
+      outcome, nowISO: '2026-07-06T14:00:00.000Z',
+    });
+    expect(r.streak.current_streak).toBe(5); // the word was kept, not denied
+    const upd = db.runs.find((x) => /UPDATE commitment_checkins/.test(x.sql));
+    expect(upd.params).toContain('kept');
   });
 
   it('RESCHEDULE protects the streak (never breaks the chain)', async () => {
@@ -640,7 +750,10 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     // the warm read-back confirmation went out (not the "I didn't catch that" copy)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the invariant every
+    // variant carries (word/streak safe — a reschedule protects the chain),
+    // which the "I didn't catch that" copy never does.
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
     expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|pick a new time/);
   });
 
@@ -682,10 +795,228 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     // a snooze is NOT a resolution and NOT a miss — the streak/commitment are never touched
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(false);
+    // ...but it IS counted — the "I'm on it" third answer records commitment_snooze
+    // on the SMS moat, parity with the in-app and /snooze surfaces.
+    const snoozeEvt = db.runs.find((x) => x.params.includes('commitment_snooze'));
+    expect(snoozeEvt, 'the SMS snooze records a commitment_snooze').toBeTruthy();
+    expect(JSON.parse(snoozeEvt.params[2])).toMatchObject({ commitment_id: 'cm1', is_recurring: false, channel: 'text' });
     // the warm "you got it, I'll swing back" copy went out — never "reply DONE or LATER"
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
     expect(sent.text.toLowerCase()).not.toMatch(/reply done|did you|when do you want to try again/);
+  });
+
+  it('"on it, give me 45 min" SNOOZES for the length they named — not a fixed default', async () => {
+    // The engaged person who names their own interval is heard: the bro checks
+    // back in 45, not 15. Still a snooze — streak untouched, never a resolution.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('on it, give me 45 min'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended ~45 min out (well past the 15-min default), never a resolution/miss
+    expect(new Date(body.scheduled_for).getTime()).toBeGreaterThanOrEqual(before + 44 * 60000);
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // and the confirmation names the length THEY chose
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('45 minutes');
+  });
+
+  it('"on it, check back at 3pm" honors the NAMED return time — a reschedule to 3pm, not a silent 15-min default snooze', async () => {
+    // The trap: an engaged reply that also names a concrete return TIME classifies
+    // as SNOOZE ("on it"), but a clock time is a reschedule TARGET, not a bounded
+    // hold — parseSnoozeMinutes returns null for it by construction. The old path
+    // then fell to the ~15-min default and re-nudged at :15, on top of someone who
+    // is actively working and told us exactly when to come back (the design-LAW
+    // nag). Now a named clock/date target with NO stated duration is routed to the
+    // direct-time reschedule branch, which honors that exact time. A bare "on it"
+    // and a DURATION ("give me 45 min") are still true snoozes (tests above).
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it, check back at 3pm'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    // routed to the reschedule branch, NOT the default-snooze branch
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    // re-pended directly at the chosen time — never parked awaiting_time
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    // the named 3pm was actually honored — the scheduled time lands on the 15:00 UTC
+    // clock target (today or, if already past, tomorrow — never-past), which a
+    // ~15-min-from-now default snooze would essentially never do
+    expect(new Date(body.scheduled_for).getUTCHours()).toBe(15);
+    expect(new Date(body.scheduled_for).getUTCMinutes()).toBe(0);
+    // recorded as a RESCHEDULE, never a snooze — the person deferred to a set time
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_snooze'))).toBe(false);
+    // streak is NEVER touched — a reschedule protects the chain by construction
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // the warm reschedule read-back went out — the invariant every rotated variant
+    // carries — not the default-snooze copy and not "I didn't catch that"
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
+    expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|when do you want to try again/);
+  });
+
+  it('"on it, check back in an hour" while awaiting a time SNOOZES for the stated hour', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('actually on it, check back in an hour'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(new Date(body.scheduled_for).getTime()).toBeGreaterThanOrEqual(before + 59 * 60000);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('60 minutes');
+  });
+
+  it('a bare "give me 20" (no marker word) SNOOZES for 20 — not misread as 8 pm', async () => {
+    // The best-case user answers with the length ALONE — no "on it"/"still
+    // working". Before this, the classifier left it null and the flow handed
+    // "give me 20" to the time parser, which read it as 20:00 (8 pm) and moved the
+    // whole commitment there — a quiet "he didn't get me" from the most engaged
+    // reply on the live moat. Now the stated length reads as the warm snooze.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('give me 20'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended ~20 min out — NOT hours away at a misread clock time
+    const at = new Date(body.scheduled_for).getTime();
+    expect(at).toBeGreaterThanOrEqual(before + 19 * 60000);
+    expect(at).toBeLessThan(before + 22 * 60000);
+    // a snooze is not a resolution and not a miss — streak/commitment untouched
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('20 minutes');
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|couldn't read/);
+  });
+
+  it('a bare "half an hour" while awaiting a time SNOOZES for 30 — never the cold re-ask', async () => {
+    // A stated length answering "when?", with no marker word, used to fail the
+    // time parse and get "I couldn't read that time." Now it reads as a 30-min hold.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const before = Date.now();
+    const res = await buildRouter(db).handle(inbound('half an hour'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    const at = new Date(body.scheduled_for).getTime();
+    expect(at).toBeGreaterThanOrEqual(before + 29 * 60000);
+    expect(at).toBeLessThan(before + 32 * 60000);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain('30 minutes');
+    expect(sent.text.toLowerCase()).not.toMatch(/try something like|couldn't read/);
+  });
+
+  it('a bare "hang tight" on a fresh nudge SNOOZES — the "hold on" family is heard, never the cold ask', async () => {
+    // "hang tight" / "bear with me" / "brb" / "a bit longer" are the actively-
+    // doing-it third answer said as a plea for room. With no marker word they used
+    // to fall through to the cold "I didn't catch that, reply DONE or LATER" on the
+    // exact two-way channel that is the live moat. Now they read as the warm snooze.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('hang tight'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended (not resolved), never parked awaiting_time, streak/commitment untouched
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // a plain hold has no stated length → the default interval, warm copy
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|didn't catch|couldn't read/);
+  });
+
+  it('a bare "bear with me" while awaiting a time SNOOZES — never the cold "couldn\'t read that time"', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('bear with me'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).not.toMatch(/couldn't read|try something like/);
+  });
+
+  it('a bare "in the zone" on a fresh nudge SNOOZES — flow-state slang is heard, never the cold ask', async () => {
+    // The MOST engaged reply — the head-down user texting "in the zone" / "locked
+    // in" / "grinding" — carries no marker word, number, or done/later word, so it
+    // used to fall through to the cold "I didn't catch that, reply DONE or LATER"
+    // on the exact two-way channel that is the live moat. Now it reads as the warm
+    // snooze at the default interval.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('in the zone'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    // re-pended (not resolved), never parked awaiting_time, streak/commitment untouched
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // no length stated → the default interval, warm copy
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).toMatch(/check back|swing back/);
+    expect(sent.text.toLowerCase()).not.toMatch(/reply done|didn't catch|couldn't read/);
+  });
+
+  it('a bare "locked in" while awaiting a time SNOOZES — never the cold "couldn\'t read that time"', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('locked in'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('snoozed');
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
+    expect(sent.text.toLowerCase()).not.toMatch(/couldn't read|try something like/);
+  });
+
+  it('regression: a bare "in 20 minutes" while awaiting is still a RESCHEDULE — the time parser keeps it', async () => {
+    // The new bare-length snooze must not steal an "in ..." target. "in 20
+    // minutes" names a time, so it stays a reschedule (commitment_reschedule
+    // recorded), exactly as before.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('in 20 minutes'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('rescheduled');
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+  });
+
+  it('regression: a snooze with no stated length ("on it!") still uses the default', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it!'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('snoozed');
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text).toContain(`${SNOOZE_DEFAULT_MIN} minutes`);
   });
 
   it('regression: bare "later" (no time) STILL asks when — the direct path only fires on a real time', async () => {
@@ -722,7 +1053,9 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the word/streak-safe
+    // invariant every variant carries (a reschedule protects the chain).
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
   });
 
   it('a late "done" while awaiting a time is still honored as KEPT', async () => {
@@ -852,6 +1185,154 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     // Minutes/hours unchanged; a bare number still reads as minutes.
     expect(parseWhenReply('in 45 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:45:00.000Z');
     expect(parseWhenReply('in 5', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:05:00.000Z');
+  });
+
+  it('reads casual word-quantities "in a couple / a few <unit>" (couple=2, few=3), never as a nag', () => {
+    // Regression: "in a couple hours" / "in a few days" — among the most natural
+    // ways this audience defers a task ("gimme a couple hours") — used to fall to
+    // the cold "I couldn't read that time" re-ask, a quiet "he didn't get me" on
+    // the two-way text moat. Now shared with the create-flow parser's couple=2 /
+    // few=3 vocabulary.
+    expect(parseWhenReply('in a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a couple of hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a few hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('in a couple minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:02:00.000Z');
+    expect(parseWhenReply('in a few min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:03:00.000Z');
+    expect(parseWhenReply('in a couple days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('in a few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // "a couple weeks" = 2 weeks = exactly the 14-day horizon → still in range.
+    expect(parseWhenReply('in a couple weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    // The optional "a/an" — "in couple hours" reads the same.
+    expect(parseWhenReply('in couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // Past the horizon → unreadable, falls to the warm re-ask (mirrors "in 3 weeks").
+    expect(parseWhenReply('in a few weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A unit is REQUIRED: a bare "in a couple" carries no concrete length, so it
+    // must NOT fire ~2 minutes out (a nag) — it stays a warm re-ask.
+    expect(parseWhenReply('in a couple', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('in a few', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
+  it('reads the texting spellings of "tonight" ("tonite"/"2nite"/"tnite") — the SMS moat gets shorthand', () => {
+    // Regression: the tomorrow matcher already read "tmrw"/"tmr", but tonight read
+    // only its full spelling — so "2nite"/"tonite", among the most common ways this
+    // texting-native audience defers to later today, fell to the cold "I couldn't
+    // read that time" re-ask on the two-way text channel that is the moat while
+    // voice is gated. Same 20:00 anchor as "tonight".
+    expect(parseWhenReply('tonite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('tnite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // Casual framings a person actually texts, and case-insensitive.
+    expect(parseWhenReply('lets do it 2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2NITE', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // "2nite" carries no clock — the "2" must NOT be read as 2 o'clock (there is no
+    // word boundary before "nite"), so it lands at tonight's 20:00, not 02:00.
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).not.toBe('2026-07-07T02:00:00.000Z');
+    // Never-past, exactly like "tonight": once 20:00 has passed it rolls to tomorrow
+    // night rather than returning a past instant or a null.
+    const LATE = '2026-07-06T21:00:00.000Z';
+    expect(parseWhenReply('tonite', { nowISO: LATE, timezone: 'UTC' })).toBe('2026-07-07T20:00:00.000Z');
+    // Regression guard: the full spelling is unchanged.
+    expect(parseWhenReply('tonight', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+  });
+
+  it('reads a BARE relative duration ("2 hours", "an hour", "a couple days") as now+duration, not a misread clock', () => {
+    // Regression (defect): a person answering "when?" — or giving a first word,
+    // which resolves through this same parser (R-226) — routinely drops the "in":
+    // "couple hours", "an hour", "2 days". Before this, such a reply didn't fall
+    // to the honest re-ask — the clock branch read the COUNT as a wall-clock hour
+    // and SILENTLY DROPPED the unit: "2 hours" landed at 02:00 (2 AM), "20 min" at
+    // 20:00, "2 days" at 02:00. A WRONG time — the bro showing up at 2 AM when you
+    // said "two hours" — is the worst outcome on the two-way text moat, strictly
+    // worse than the warm re-ask. A bare duration now reads IDENTICALLY to its
+    // "in …" form.
+    expect(parseWhenReply('an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('3 hrs', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('half an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    // day / week units — these are the ones the SMS snooze net does NOT own
+    // (detectCheckinReply never classifies "days"/"weeks" as a hold), so they
+    // reach this parser in EVERY path and used to misread the count as a clock.
+    expect(parseWhenReply('2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('a day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('a week', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T15:00:00.000Z');
+    // couple=2 / few=3 word-quantities in the bare form too.
+    expect(parseWhenReply('couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple of days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // Two weeks is exactly the 14-day reschedule horizon — still in range; past it
+    // falls to the warm re-ask, mirroring the "in 3 weeks" case above.
+    expect(parseWhenReply('2 weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    expect(parseWhenReply('3 weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // DST-correct: a duration is an instant offset, zone-agnostic — "2 hours" is
+    // +2h in America/New_York (EDT) exactly as in UTC.
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-06T17:00:00.000Z');
+  });
+
+  it('does NOT steal a unit-less number or a clock for the bare-duration reading (upgrade-only guard)', () => {
+    // The bare-duration branch REQUIRES an explicit duration unit, so a lone
+    // number stays a clock exactly as before — the guard that keeps "3" meaning
+    // 3 o'clock, never "3 minutes". Removing the unit requirement would turn "3"
+    // into a 3-minute nudge and this assertion red first.
+    expect(parseWhenReply('3', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    // A duration embedded in a dated/weekday/tomorrow reply is NOT matched by the
+    // whole-message bare branch — those keep their own reading.
+    expect(parseWhenReply('tomorrow 2', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    // A genuinely vague quantity-less answer still falls to the warm re-ask.
+    expect(parseWhenReply('a bit', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('soon', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
+  it('reads a HEDGED bare duration ("maybe 2 hours", "like 20 min", "an hour i think") — the hedge never turns it into a misread clock', () => {
+    // Regression (defect): this audience rarely answers a bare duration flat — it
+    // comes wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "prob a
+    // couple days", "an hour i think"). A leading/trailing hedge word broke the
+    // whole-message bare-duration match, so the reply fell PAST it into the clock
+    // branch and hit the exact wrong-time bug the bare branch exists to kill: the
+    // unit silently dropped, the count read as a wall-clock hour — "like 20
+    // minutes" landing at 20:00 (8 PM), "prob 2 days" at 02:00, "2 hours i think"
+    // at 02:00. A wrong time is the worst outcome on the two-way text moat. The
+    // hedge is now peeled off BOTH ends before matching, so a hedged duration reads
+    // IDENTICALLY to its flat form. (Before the fix these were the WRONG clock:
+    // "like 20 minutes" → 20:00, "prob 2 days" → 02:00, "2 hours i think" → 02:00.)
+    expect(parseWhenReply('maybe 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('like 20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('say an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('prob 2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('perhaps a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('how about 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('well 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // trailing hedge, and a hedge peeled from BOTH ends of one reply.
+    expect(parseWhenReply('2 hours i think', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('an hour maybe', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('couple days probably', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('maybe an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('umm 20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+  });
+
+  it('a hedge never fabricates a duration, and never steals a hedged clock/weekday (hedged upgrade-only guard)', () => {
+    // The hedged reading is STILL gated on an explicit duration unit and a
+    // whole-message match, so peeling the hedge can only ever upgrade a real
+    // duration — never invent one, never reshape a clock or a date.
+    // A hedged bare NUMBER carries no unit → stays the warm re-ask (never a
+    // 3-minute nudge), exactly as the un-hedged "maybe 3" would.
+    expect(parseWhenReply('maybe 3', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A hedged CLOCK / weekday / tomorrow is read by its OWN branch, unchanged —
+    // the hedge peel leaves a value that carries no duration unit, so the
+    // bare-duration branch never claims it.
+    expect(parseWhenReply('maybe 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('like saturday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('maybe tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // A hedge sitting INSIDE the reply is left alone — only the ends are peeled —
+    // so a mangled "2 maybe hours" is never silently reshaped into a duration.
+    expect(parseWhenReply('2 maybe hours', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A pure hedge with no time at all still falls to the warm re-ask.
+    expect(parseWhenReply('idk maybe', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
   it('reads clock times, rolling to tomorrow when already past', () => {
@@ -1104,6 +1585,19 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('thurs', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-09T08:40:00.000Z');
   });
 
+  it('reads the texted shorthand "wknd" and "nxt" (NOW is Monday 2026-07-06)', () => {
+    // "wknd" is the SMS-native spelling of "weekend" — same Saturday anchor.
+    expect(parseWhenReply('wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('this wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // A clock time rides the shorthand exactly as it does the full word.
+    expect(parseWhenReply('wknd 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T15:00:00.000Z');
+    // "nxt" is the texted spelling of "next" — forces the following week's
+    // occurrence, matching "next weekend" / "next friday".
+    expect(parseWhenReply('nxt wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-18T09:00:00.000Z');
+    expect(parseWhenReply('nxt fri', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-17T09:00:00.000Z');
+    expect(parseWhenReply('nxt weds at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-15T14:00:00.000Z');
+  });
+
   it('reads an explicit calendar date within the horizon (NOW is Monday 2026-07-06 15:00Z)', () => {
     // Month + day, both orders, long and short forms — all at the default time.
     expect(parseWhenReply('jul 8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
@@ -1202,24 +1696,28 @@ describe('formatWhenLocal — warm, recipient-local confirmation', () => {
 
 // ── The design LAW, on the conversational-reschedule copy ──
 describe('conversational-reschedule copy obeys the one LAW: never shame', () => {
-  const SHAME = /\b(fail(ed|ure)?|miss(ed)?|behind|lazy|should have|guilt|disappoint|streak (lost|broken)|again\?!)\b/i;
-  const CLINICAL = /\b(ADHD|diagnos|treat(ment)?|therap|disorder|symptom|patient)\b/i;
-  const AI = /\bA\.?I\.?\b/i;
+  // Routed through the canonical `scanDesignLaw` (shame + clinical + "AI" +
+  // consumer-ADHD). The old local union carried a DEAD `again\?!` branch — a `\b`
+  // after `!` can never be a boundary, so the eye-roll went unguarded — now fixed
+  // in the frozen lexicon. The one genuine per-surface extra the canonical list
+  // does not carry, `streak (lost|broken)`, is preserved locally.
+  const STREAK_SHAME = /\bstreak (lost|broken)\b/i;
+  const assertLaw = (s) => {
+    const violations = scanDesignLaw(s);
+    expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    expect(STREAK_SHAME.test(s), `${s} matched streak-shame`).toBe(false);
+  };
   for (const persona of ['ally', 'hype']) {
     for (const fn of [smsAskWhenCopy, smsWhenUnclearCopy]) {
       it(`${fn.name} (${persona}) is warm, no shame / clinical / "AI"`, () => {
         const s = fn({ persona });
-        expect(s).not.toMatch(SHAME);
-        expect(s).not.toMatch(CLINICAL);
-        expect(s).not.toMatch(AI);
+        assertLaw(s);
         expect(s.toLowerCase()).toMatch(/try again|time|check back/);
       });
     }
     it(`smsRescheduledCopy (${persona}) confirms warmly and protects the streak`, () => {
       const s = smsRescheduledCopy({ persona, when: '2026-07-06T19:00:00.000Z', timezone: 'America/New_York', nowISO: '2026-07-06T12:00:00.000Z' });
-      expect(s).not.toMatch(SHAME);
-      expect(s).not.toMatch(CLINICAL);
-      expect(s).not.toMatch(AI);
+      assertLaw(s);
       expect(s.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(s.toLowerCase()).toMatch(/still counts|streak/);
     });
@@ -1233,11 +1731,22 @@ describe('conversational-reschedule copy obeys the one LAW: never shame', () => 
       // Still a reschedule: names the new time, keeps the streak safe, never scolds.
       expect(withProgress.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(withProgress.toLowerCase()).toMatch(/still counts|streak/);
-      expect(withProgress).not.toMatch(SHAME);
-      expect(withProgress).not.toMatch(CLINICAL);
-      expect(withProgress).not.toMatch(AI);
+      assertLaw(withProgress);
     });
   }
+
+  it('the consolidation closes the drift the old local unions missed', () => {
+    // Proof-of-rejection (Standing Law #1): the old hand-rolled `SHAME` union here
+    // missed `slipping` and `unresponsive`, and — because its `again\?!` branch was
+    // dead — the incredulous "again?!". The canonical scanner catches all three,
+    // while the preserved local `streak (lost|broken)` extra still fires.
+    expect(scanDesignLaw('you keep slipping').length).toBeGreaterThan(0);
+    expect(scanDesignLaw("you've been unresponsive").length).toBeGreaterThan(0);
+    expect(scanDesignLaw('late again?!').length).toBeGreaterThan(0);
+    expect(STREAK_SHAME.test('your streak lost')).toBe(true);
+    // …and the warm reschedule line the LAW protects stays clean through the scanner.
+    expect(scanDesignLaw('No problem — when do you want to try again?')).toEqual([]);
+  });
 });
 
 // ── The invitation copy may only advertise phrasings the parser can read ──
@@ -1266,4 +1775,219 @@ describe('reschedule invitation copy stays in lock-step with parseWhenReply', ()
       expect(s).toMatch(/the 20th/);
     });
   }
+});
+
+// ── An early reply DURING a wait window is honored, not dropped (R-282) ──────
+// "Help me start" re-pends the check-in two minutes out; an "I'm on it" snooze
+// re-pends it further out. Both carry status='pending' but keep delivered_at.
+// Before R-282 the open-check-in lookup matched only ('sent','awaiting_time'),
+// so a STARTED / done / on-it texted INSIDE that window found no open check-in
+// and was dropped silently (no_open_checkin) — the coldest answer to the most
+// engaged reply, on the exact channel the "help me start" copy literally invites
+// it ("Text STARTED when you're moving"). This locks in that a delivered-and-
+// re-pended check-in is reachable for a reply, and that a never-delivered future
+// occurrence is not.
+//
+// The mock DB ignores SQL WHERE clauses, so to make these a real proof-of-
+// rejection the filter-aware mock returns the delivered-pending open ONLY when
+// the query actually carries the `delivered_at IS NOT NULL` arm — exactly what
+// the live SQL does. On the pre-R-282 query the row is withheld → the handler
+// falls to no_open_checkin → these assertions fail, as they must.
+function makeWindowDB({ open, user = { id: 'u1' } } = {}) {
+  const runs = [];
+  const db = {
+    runs,
+    prepare(sql) {
+      let params = [];
+      const stmt = {
+        bind(...a) { params = a; return stmt; },
+        async first() {
+          if (/FROM users WHERE phone/.test(sql)) return user;
+          if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
+            // Simulate the real WHERE: a delivered-pending row is only visible
+            // when the query carries the delivered_at arm (R-282). A 'sent' /
+            // 'awaiting_time' open is always visible, as it always was.
+            if (open && open.checkin_status === 'pending'
+                && !/delivered_at IS NOT NULL/.test(sql)) return null;
+            return open || null;
+          }
+          if (/FROM accountability_streaks/.test(sql)) return null;
+          if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() {
+          runs.push({ sql, params });
+          if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };
+          if (/event_id = \? AND status = 'failed'/.test(sql)) return { success: true, meta: { changes: 0 } };
+          if (/UPDATE contact_consent[\s\S]*status = 'revoked'/.test(sql)) return { success: true, meta: { changes: 0 } };
+          return { success: true, meta: { changes: 1 } };
+        },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+// A check-in that was DELIVERED and then re-pended into a wait window: the
+// "help me start" check-back or an "I'm on it" snooze. status='pending', but
+// (in the live DB) delivered_at is set — the state the R-282 arm matches.
+const windowedText = { ...openText, checkin_status: 'pending' };
+
+describe('a reply inside a "help me start" / snooze wait window is honored (R-282)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('"STARTED" texted inside the help-me-start window lands (snooze), never dropped', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: windowedText });
+    const res = await buildRouter(db).handle(inbound('STARTED'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    // Pre-R-282 the delivered-pending row is withheld → no_open_checkin. Now it's
+    // read as the third answer (moving, not done) — a snooze, streak untouched.
+    expect(body.action).toBe('snoozed');
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // and they hear the warm "love that you're moving", never silence
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/moving|check back|swing back/);
+  });
+
+  it('"done" texted inside a snooze window KEEPS the word — an early finisher is never dropped', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: windowedText });
+    const res = await buildRouter(db).handle(inbound('done, knocked it out'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    expect(body.action).toBe('checkin_kept');
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/you did the thing|your word/);
+  });
+
+  it('a truly unprompted text (no delivered-pending, no sent) still stays silent', async () => {
+    // The delivered_at arm must not open a channel to text people unprompted:
+    // with no open check-in at all, the handler acknowledges silently as before.
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWindowDB({ open: null });
+    const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('no_open_checkin');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the open-check-in query scopes the pending arm to DELIVERED rows and ranks it last', async () => {
+    // SQL-shape lock (the mock cannot execute WHERE/ORDER BY): the pending arm is
+    // guarded by delivered_at IS NOT NULL — so a never-delivered future occurrence
+    // (delivered_at NULL) is never picked — and pending rows sort AFTER sent/
+    // awaiting, so a fresh nudge is never shadowed by a snoozed row scheduled out.
+    const seen = [];
+    const db = {
+      runs: [],
+      prepare(sql) {
+        seen.push(sql);
+        const stmt = {
+          bind() { return stmt; },
+          async first() {
+            if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
+            return null;
+          },
+          async all() { return { results: [] }; },
+          async run() { return { success: true, meta: { changes: 1 } }; },
+        };
+        return stmt;
+      },
+    };
+    await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    const q = seen.find((s) => /FROM commitment_checkins c\s+JOIN commitments m/.test(s));
+    expect(q).toBeTruthy();
+    expect(q).toMatch(/status = 'pending' AND c\.delivered_at IS NOT NULL/);
+    expect(q).toMatch(/ORDER BY \(c\.status = 'pending'\) ASC/);
+  });
+});
+
+// ── A reply never resurrects a word you set down (Contender #10) ──────────────
+// release/pause/terminal-resolve cancel a commitment's WAITING check-ins
+// (`IN ('pending','deferred','awaiting_time')`) but deliberately leave a nudge
+// already DELIVERED (`status='sent'`, `responded_at` NULL) live. Without an
+// `m.status='active'` guard on the inbound lookup, a late "done"/"3pm" reply to
+// that stray sent row matches it and runs applyCheckinOutcome — re-activating a
+// released rhythm + re-arming its next occurrence (or flipping a one-shot
+// released→kept) and ringing the bro again on a word the person explicitly set
+// down: the guilt-engine the design LAW forbids. This mirrors reconcileStrandedCheckins,
+// which already scopes its resolve to active commitments.
+//
+// The double is guard-faithful: the JOIN lookup returns the row only when the SQL
+// does NOT filter it out by `m.status='active'`. So with the guard present + a
+// non-active parent → no open row → `no_open_checkin`, nothing written, no SMS.
+// Reverting the guard (dropping `m.status = 'active'`) makes the double return the
+// row → resolution + confirmation SMS fire → these assertions fail
+// (proof-of-rejection, Standing Law 1).
+function makeGuardFaithfulDB(open) {
+  const runs = [];
+  const db = {
+    runs,
+    prepare(sql) {
+      let params = [];
+      const stmt = {
+        bind(...a) { params = a; return stmt; },
+        async first() {
+          if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
+          if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
+            const guarded = /m\.status\s*=\s*'active'/.test(sql);
+            if (guarded && open.commitment_status && open.commitment_status !== 'active') return null;
+            return open;
+          }
+          if (/FROM accountability_streaks/.test(sql)) return null;
+          if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() {
+          runs.push({ sql, params });
+          if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };
+          return { success: true, meta: { changes: 1 } };
+        },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+describe('inbound reply never resurrects a word the person set down', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  for (const status of ['released', 'paused', 'kept']) {
+    it(`a "done" reply to a leftover sent row on a ${status} word resolves nothing (no re-nag)`, async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true }));
+      vi.stubGlobal('fetch', fetchMock);
+      const stray = {
+        checkin_id: 'ci-stray', commitment_id: 'cm-stray', commitment_status: status,
+        checkin_status: 'sent', recurrence: 'daily', timezone: 'UTC', local_time: null,
+        channel: 'text', persona: 'ally',
+      };
+      const db = makeGuardFaithfulDB(stray);
+      const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+      expect((await res.json()).action).toBe('no_open_checkin');
+      // Nothing resolved, nothing re-pended, no confirmation SMS went out.
+      expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+      expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  }
+
+  it('an ACTIVE word still resolves a "done" reply (the guard does not over-block)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const live = {
+      checkin_id: 'ci-live', commitment_id: 'cm-live', commitment_status: 'active',
+      checkin_status: 'sent', recurrence: 'none', timezone: 'UTC', local_time: null,
+      channel: 'text', persona: 'ally',
+    };
+    const db = makeGuardFaithfulDB(live);
+    const res = await buildRouter(db).handle(inbound('done'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('checkin_kept');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql) && x.params.includes('kept'))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

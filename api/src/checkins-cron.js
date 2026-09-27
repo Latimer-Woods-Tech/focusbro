@@ -21,6 +21,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy } from './accountability.js';
+import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate, localHour } from './consent.js';
 import { generateUUID } from './middleware.js';
@@ -64,6 +65,22 @@ export async function materializeNextOccurrence(env, row, nowISO) {
 export const MAX_ATTEMPTS = 3;
 
 /**
+ * How long past its scheduled moment a check-in may still go out as a timely
+ * nudge. Beyond this the moment has passed: "ready to start the taxes you said
+ * you'd do at 2?" arriving this late is a nag about a gone moment — the exact
+ * opposite of the on-time ally the design LAW requires — so a stale occurrence
+ * is RETIRED without a late send instead of firing it. A one-shot is parked
+ * no-shame (never a miss, never a count); a recurring commitment still
+ * materializes its next occurrence on-beat, and the silent-miss warm door
+ * (R-286/R-288) greets the person warmly on return. Deliberately longer than any
+ * overnight quiet-hours deferral (which IS delivered on purpose once its window
+ * opens — evaluated before this guard), so this only ever catches an
+ * unambiguously-passed moment: a recovered cron outage (the #74 crons death), a
+ * stuck consent/quiet-hours gate, or a long provider backlog.
+ */
+export const MAX_CHECKIN_LATENESS_MIN = 24 * 60;
+
+/**
  * True when a delivery provider's HTTP status describes a PERMANENT failure —
  * one that can never succeed on retry (e.g. Telnyx 400/422 for a mistyped or
  * unreachable number). These are parked `failed` on the first attempt instead
@@ -96,14 +113,98 @@ const DEFAULT_LIMIT = 100;
  *   `deactivate` lists push endpoints that returned 404/410 (gone) to be disabled.
  */
 export async function deliverCheckin(env, row) {
-  const message = checkinPromptCopy({ title: row.title, persona: row.persona });
+  // A coached client hears their COACH's configured voice + opening line; a
+  // self-directed user is completely unchanged. This is the delivery half of the
+  // coach's pen (coach-onboarding.js slice 1 validated + stored it) — the line a
+  // coach authored is now the first thing the person actually hears.
+  const coach = await resolveCoachCheckin(env, row.user_id);
+  const persona = coach ? mapCoachPersona(coach.voice_persona) : row.persona;
+  const opener = coach ? safeCoachOpener(coach.script) : '';
+
+  // Seed the nudge on the per-occurrence check-in id so a recurring commitment
+  // rotates its wording across days (never the same wallpaper line twice running)
+  // while a retry of THIS occurrence always reads identically. Falls back to the
+  // commitment id if the row somehow lacks a check-in id.
+  const nudge = checkinPromptCopy({
+    title: row.title, persona, seed: row.checkin_id ?? row.commitment_id,
+  });
+  const message = opener ? `${opener}\n\n${nudge}` : nudge;
   const channel = row.channel === 'text' ? 'text' : 'push';
 
   // Text has no action buttons, so the nudge itself invites the reply — that's
   // what makes the two-way loop (DONE / LATER / HELP ME START) discoverable over
   // SMS. Push carries its own in-app actions, so it stays clean.
-  if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(row.persona)}`);
+  if (channel === 'text') return deliverText(env, row, `${message}\n\n${checkinReplyHint(persona)}`);
   return deliverPush(env, row, message);
+}
+
+/**
+ * A coach's opening line, but ONLY if it still passes the never-shame battery
+ * at read time. The line is already validated at the write boundary
+ * (coach-onboarding.js), so this is defence in depth: a line that somehow fails
+ * validation — an older row, a direct DB write — is dropped and the client gets
+ * the warm standard nudge instead. A shaming line can never reach a person, even
+ * one stored out-of-band. THE DESIGN LAW, enforced twice.
+ * @param {string} script
+ * @returns {string} the safe opening line, or '' to fall back to the standard nudge
+ */
+function safeCoachOpener(script) {
+  const v = validateCheckinScript(script);
+  return v.ok ? v.value : '';
+}
+
+/**
+ * Resolve the coach-configured opening line + voice for a client's check-in, or
+ * null when this user is not a consented client of a coach who has set up
+ * check-ins.
+ *
+ * CONSENT BY CONSTRUCTION: only an `active` coach_clients link is ever
+ * considered — a pending / declined / removed link never lets a coach's voice
+ * reach the person. A client linked to more than one coach resolves
+ * deterministically to their earliest active link, so the voice never flickers
+ * between ticks. One indexed `.first()` lookup (idx_coach_clients_client), so a
+ * check-in is never fanned out into a double send. Non-fatal: any error resolves
+ * to null and the standard nudge is delivered — the coach layer never breaks a
+ * self-directed check-in.
+ * @param {object} env
+ * @param {string} userId
+ * @returns {Promise<{script:string, voice_persona:string}|null>}
+ */
+async function resolveCoachCheckin(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT kcfg.script AS script, kcfg.voice_persona AS voice_persona
+         FROM coach_clients cc
+         JOIN coach_operators co ON co.user_id = cc.coach_user_id
+         JOIN coach_checkin_config kcfg ON kcfg.operator_id = co.operator_id
+        WHERE cc.client_user_id = ? AND cc.status = 'active'
+        ORDER BY cc.created_at ASC, cc.id ASC
+        LIMIT 1`,
+    ).bind(userId).first();
+    return row && row.script ? row : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The voice a check-in to this user should speak in across the WHOLE ladder — the
+ * first nudge, the escalation knock, the return nudge. When they are the consented
+ * client of a coach who has set up check-ins, it is the coach's mapped voice; when
+ * they are self-directed, it is the fallback (the commitment's own persona). Same
+ * consent-by-construction + deterministic single-link resolution as the delivery
+ * path (`resolveCoachCheckin`), so a coached client never hears their coach's voice
+ * open the conversation and then a stranger's voice finish it. Non-fatal by
+ * inheritance: a resolution error falls back to the person's own persona.
+ *
+ * @param {object} env
+ * @param {string} userId
+ * @param {string} fallbackPersona  the persona to speak in when there is no coach
+ * @returns {Promise<string>} the persona the copy engine should speak in
+ */
+async function checkinVoice(env, userId, fallbackPersona) {
+  const coach = await resolveCoachCheckin(env, userId);
+  return coach ? mapCoachPersona(coach.voice_persona) : fallbackPersona;
 }
 
 /** Deliver over Web Push to every active subscription the user has. */
@@ -179,12 +280,13 @@ async function deliverText(env, row, message) {
  */
 export async function runDueCheckins(env, opts = {}) {
   const now = opts.now || new Date().toISOString();
+  const nowMs = Date.parse(now);
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, materialized: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0 };
 
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
-            COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
+            c.scheduled_for, COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
             m.recurrence, m.timezone, m.local_time, m.status AS commitment_status
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
@@ -216,6 +318,50 @@ export async function runDueCheckins(env, opts = {}) {
       }
     } catch (err) {
       outcome = { status: 'failed', detail: (err && err.message) || 'consent_gate_error' };
+    }
+
+    // Too old to be a timely nudge? Retire it instead of nagging late (see
+    // MAX_CHECKIN_LATENESS_MIN). Checked only AFTER the quiet-hours defer above
+    // (a deferred row `continue`s and never reaches here), so a check-in held
+    // pending on purpose overnight and delivered when its window opens is never
+    // mistaken for stale — only an unambiguously-passed moment (recovered cron
+    // outage, stuck gate, provider backlog) lands here. Parked no-shame; the
+    // recurring materialize below keeps the rhythm on-beat.
+    if (!outcome && !Number.isNaN(nowMs) && row.scheduled_for) {
+      const scheduledMs = Date.parse(row.scheduled_for);
+      if (!Number.isNaN(scheduledMs) && nowMs - scheduledMs > MAX_CHECKIN_LATENESS_MIN * 60 * 1000) {
+        outcome = { status: 'skipped', detail: 'stale' };
+      }
+    }
+
+    // NIGHT GUARD (R-291, extended to the FIRST rung) — a scheduled text is
+    // delivered at the person's CHOSEN local_time on time, so it needs no
+    // structural night floor (unlike the UNSCHEDULED escalation / return nudge).
+    // But a recovered-cron backlog, a stuck gate, or a provider backlog can slip
+    // that delivery hours late — and the ONLY night guards left on this path are
+    // the opt-in TCPA quiet-hours gate (a no-op for a text-consented user who
+    // never set a window: quiet_start === quiet_end → NO quiet hours) and a 24h
+    // staleness cap far too wide to stop a 3am landing. So a check-in the person
+    // scheduled for a DAYTIME hour could still buzz at 3am the exact way #335's
+    // escalation once could — the trust-breaking intrusion the LAW forbids. When
+    // the night landing is purely an artifact of LATENESS (its chosen local hour
+    // was daytime, but delivery would land at night NOW), defer to a later
+    // daytime tick — leave it pending, no attempt bump, exactly like a
+    // quiet-hours defer. A person who deliberately scheduled a NIGHT check-in
+    // (scheduled_for's own local hour is at night) is honored, untouched — the
+    // guard narrows nothing they chose. Text only: push is silent app UX, not a
+    // ring that wakes anyone. Read the SAME recipient clock the TCPA gate uses.
+    // Checked AFTER the stale retire above, so a genuinely stale (>24h) night
+    // check-in is parked no-shame, not deferred toward forever.
+    if (!outcome && row.channel === 'text') {
+      const guardTz = await nightGuardTimezone(env, row.user_id, row.timezone);
+      const schedHour = localHour(row.scheduled_for, guardTz);
+      const schedWasDaytime =
+        schedHour !== null && schedHour >= RETURN_NUDGE_DAY_START && schedHour < RETURN_NUDGE_DAY_END;
+      if (schedWasDaytime && !withinUnscheduledDaytime(now, guardTz)) {
+        summary.deferred++;
+        continue;
+      }
     }
 
     if (!outcome) {
@@ -254,13 +400,16 @@ export async function runDueCheckins(env, opts = {}) {
           data: { commitment_id: row.commitment_id, channel: row.channel === 'text' ? 'text' : 'push' },
         });
       } else if (outcome.status === 'skipped') {
-        // No channel available for this user — park it (terminal, no shame, no retry storm).
+        // Terminal park, no shame, no retry storm: either no channel is available
+        // for this user, or the moment aged out (detail 'stale'). Both leave the
+        // occupancy queue and, for a recurring commitment, let the next
+        // occurrence materialize below so the rhythm continues on-beat.
         await env.DB.prepare(
           `UPDATE commitment_checkins
               SET status = 'skipped', attempts = COALESCE(attempts,0) + 1, last_error = ?
             WHERE id = ?`
         ).bind(outcome.detail, row.checkin_id).run();
-        summary.skipped++;
+        if (outcome.detail === 'stale') summary.stale++; else summary.skipped++;
         leftPending = true;
       } else {
         // Delivery failure: bump attempts. Park as 'failed' once the retry cap
@@ -315,6 +464,21 @@ export async function runDueCheckins(env, opts = {}) {
 /** Minutes a delivered push check-in stays quiet before the one SMS follow-up. */
 export const ESCALATION_DELAY_MIN = 15;
 
+/**
+ * The oldest a quiet push check-in may be and still earn its SMS escalation.
+ * The escalation is the second, MORE intrusive knock on the same moment, so the
+ * same "a passed moment is gone" logic that retires a late nudge
+ * (`MAX_CHECKIN_LATENESS_MIN`, R-290) must bound the escalation too — otherwise a
+ * recovered escalation-cron outage (the #74 crons-death class) would fire "still
+ * haven't started the taxes you said you'd do at 2?" hours or days after the
+ * moment passed: a stale nag, the exact opposite of the on-time ally the design
+ * LAW requires. Deliberately mirrors the nudge threshold (independently tunable
+ * here should the product later want a tighter escalation window); measured from
+ * `delivered_at`, since the escalation's timeliness is relative to when the push
+ * that it follows up actually landed.
+ */
+export const MAX_ESCALATION_LATENESS_MIN = MAX_CHECKIN_LATENESS_MIN;
+
 /** Max escalations examined per cron tick. */
 const ESCALATION_LIMIT = 50;
 
@@ -334,20 +498,29 @@ export async function runEscalations(env, opts = {}) {
   const summary = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
 
   const cutoff = new Date(new Date(now).getTime() - ESCALATION_DELAY_MIN * 60 * 1000).toISOString();
+  // The far edge of the window: a push that has been quiet longer than this has
+  // aged out — knocking now would nag about a gone moment (see
+  // MAX_ESCALATION_LATENESS_MIN). It simply falls out of the scan and is never
+  // escalated (it only gets older, so it can never re-enter the window), which
+  // is the same silent, no-shame retirement a stale nudge gets — no latch or
+  // failure count needed.
+  const staleCutoff = new Date(new Date(now).getTime() - MAX_ESCALATION_LATENESS_MIN * 60 * 1000).toISOString();
 
   const quiet = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
-            m.title, m.persona, COALESCE(ep.ceiling, 'text') AS ceiling
+            m.title, m.persona, m.timezone AS commitment_timezone,
+            COALESCE(ep.ceiling, 'text') AS ceiling
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
        LEFT JOIN escalation_prefs ep ON ep.user_id = c.user_id
       WHERE c.status = 'sent' AND c.channel = 'push'
         AND c.responded_at IS NULL AND c.escalated_at IS NULL
         AND c.delivered_at <= ?
+        AND c.delivered_at >= ?
         AND m.status = 'active'
       ORDER BY c.delivered_at ASC
       LIMIT ?`
-  ).bind(cutoff, limit).all();
+  ).bind(cutoff, staleCutoff, limit).all();
 
   const rows = (quiet && quiet.results) || [];
   for (const row of rows) {
@@ -360,6 +533,24 @@ export async function runEscalations(env, opts = {}) {
       // rescanned. A chosen ceiling is not a failure — it counts as skipped.
       outcome = { status: 'skipped', detail: 'ceiling_none' };
     } else {
+      // NIGHT GUARD (R-291) — the escalation is UNSCHEDULED, MORE intrusive
+      // outreach: a second knock on a moment the person did NOT pick for this
+      // instant (unlike the scheduled check-in at their chosen local_time). So,
+      // exactly like the return nudge, it must be held out of the middle of the
+      // night BY CONSTRUCTION. The TCPA quiet-hours gate below cannot be the only
+      // night guard: it is opt-in, and a text-consented user who never set a
+      // window has quiet_start === quiet_end → NO quiet hours — so a recovered
+      // escalation-cron outage (the #74 crons-death class this file keeps citing)
+      // could otherwise fire a 3am "still waiting on you" knock, the exact
+      // trust-breaking intrusion the LAW forbids. Read the phone's jurisdiction
+      // (the consent-row timezone — the SAME clock the quiet-hours gate uses) so
+      // the structural and legal night guards can never disagree on "night"; fall
+      // back to the commitment zone, then UTC. Outside the daytime window → defer
+      // WITHOUT latching (escalated_at stays NULL) → eligible for a later daytime
+      // tick, exactly like a quiet-hours defer and like the return nudge.
+      const guardTz = await nightGuardTimezone(env, row.user_id, row.commitment_timezone);
+      if (!withinUnscheduledDaytime(now, guardTz)) { summary.deferred++; continue; }
+
       // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
       // TCPA gate as a text check-in. No granted consent → this user simply has
       // no escalation ladder (latch the row so it's never rescanned). Inside
@@ -377,7 +568,16 @@ export async function runEscalations(env, opts = {}) {
         outcome = { status: 'skipped', detail: gate.skip };
       } else {
         try {
-          const message = `${escalationCopy({ title: row.title, persona: row.persona })}\n\n${checkinReplyHint(row.persona)}`;
+          // Speak in the coach's voice if this client has one — the escalation is
+          // the same conversation's second knock, so it must not switch voices
+          // mid-ladder. Self-directed clients are unchanged (own persona).
+          const persona = await checkinVoice(env, row.user_id, row.persona);
+          // Seed on the per-occurrence check-in id so a recurring commitment that
+          // goes quiet each day rotates its escalation wording across days (never
+          // the same wallpaper knock twice running), while this occurrence always
+          // reads identically. Falls back to the commitment id if a check-in id is
+          // somehow absent — mirrors deliverCheckin's nudge seeding.
+          const message = `${escalationCopy({ title: row.title, persona, seed: row.checkin_id ?? row.commitment_id })}\n\n${checkinReplyHint(persona)}`;
           outcome = await deliverText(env, row, message);
         } catch (err) {
           outcome = { status: 'failed', detail: (err && err.message) || 'escalation_error' };
@@ -446,6 +646,9 @@ export const CRON_HEALTH_KEYS = Object.freeze({
   lastTick: 'cron:last_tick',
   failStreak: 'cron:delivery_fail_streak',
   lastSummary: 'cron:last_summary',
+  // the newest APPLIED migration, read from d1_migrations on the tick (the
+  // cron already touches D1) so /health can report it without touching D1
+  schemaApplied: 'cron:schema_applied',
 });
 
 /**
@@ -457,7 +660,7 @@ export const CRON_HEALTH_KEYS = Object.freeze({
  * or aborts the caller. Returns the new fail streak (for logging/tests).
  * @returns {Promise<number>} the fail streak after this tick
  */
-export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {} } = {}) {
+export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {}, schemaApplied = null } = {}) {
   const kv = env && env.KV_CACHE;
   const now = nowISO || new Date().toISOString();
   let streak = 0;
@@ -473,6 +676,7 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
   try {
     await kv.put(CRON_HEALTH_KEYS.lastSummary, JSON.stringify({ at: now, delivery, escalation }));
   } catch { /* best-effort */ }
+  if (schemaApplied) { try { await kv.put(CRON_HEALTH_KEYS.schemaApplied, String(schemaApplied)); } catch { /* best-effort */ } }
   return streak;
 }
 
@@ -487,8 +691,9 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
 export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
   const kv = env && env.KV_CACHE;
   const at = typeof nowMs === 'number' ? nowMs : Date.now();
-  let lastTick = null, failStreak = 0, lastSummary = null;
+  let lastTick = null, failStreak = 0, lastSummary = null, schemaApplied = null;
   try { lastTick = kv ? await kv.get(CRON_HEALTH_KEYS.lastTick) : null; } catch { /* best-effort */ }
+  try { schemaApplied = kv ? (await kv.get(CRON_HEALTH_KEYS.schemaApplied)) || null : null; } catch { /* best-effort */ }
   try { failStreak = kv ? (Number(await kv.get(CRON_HEALTH_KEYS.failStreak)) || 0) : 0; } catch { /* best-effort */ }
   try {
     const raw = kv ? await kv.get(CRON_HEALTH_KEYS.lastSummary) : null;
@@ -507,6 +712,7 @@ export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
     delivery_degraded: failStreak >= DELIVERY_DEGRADED_STREAK,
     degraded_streak_threshold: DELIVERY_DEGRADED_STREAK,
     last_summary: lastSummary,
+    schema_applied: schemaApplied,
   };
 }
 
@@ -569,6 +775,39 @@ export function withinReturnDaytime(nowISO, timezone) {
   const h = localHour(nowISO, (typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'UTC');
   if (h === null) return true;
   return h >= RETURN_NUDGE_DAY_START && h < RETURN_NUDGE_DAY_END;
+}
+
+/**
+ * The escalation ladder's night guard reuses the SAME structural daytime window
+ * as the return nudge. Both are UNSCHEDULED outreach the person did not ask for
+ * at this instant (unlike a scheduled check-in at their chosen local_time), so
+ * both must be held out of the middle of the night BY CONSTRUCTION — never left
+ * to the opt-in TCPA quiet-hours gate alone. An alias, not a second copy, so the
+ * two guards can never drift apart.
+ */
+export const withinUnscheduledDaytime = withinReturnDaytime;
+
+/**
+ * The timezone whose civil clock every night guard reads — the SAME clock the
+ * TCPA quiet-hours gate uses, so the structural and legal night guards can never
+ * disagree on what "night" is. The user's granted text-consent row wins (that IS
+ * the phone's jurisdiction); fall back to the commitment's own zone, then UTC.
+ * Best-effort: any DB error falls back to the commitment zone. One source for
+ * both the escalation guard and the late-check-in guard so they never drift.
+ * @param {object} env
+ * @param {string} userId
+ * @param {string} [commitmentTz]
+ * @returns {Promise<string>}
+ */
+async function nightGuardTimezone(env, userId, commitmentTz) {
+  try {
+    const tzRow = await env.DB.prepare(
+      `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`,
+    ).bind(userId).first();
+    return (tzRow && tzRow.timezone) || commitmentTz || 'UTC';
+  } catch {
+    return commitmentTz || 'UTC';
+  }
 }
 
 /** Best-effort per-user latch write — a KV blip never aborts the pass. */
@@ -663,21 +902,37 @@ export async function runReturnNudges(env, opts = {}) {
     const pref = await env.DB.prepare(
       `SELECT persona, timezone FROM commitments WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
     ).bind(userId).first();
-    const persona = pickPersona(pref && pref.persona);
+    // A coached client hears their coach's voice welcoming them back — and, on
+    // this fresh re-entry after days of silence, their coach's authored opening
+    // LINE too. The return nudge is a natural re-entry greeting (unlike the
+    // mid-conversation escalation knock, which stays voice-only — an opener there
+    // would be redundant). Resolved once: the coach lends BOTH their voice and
+    // their opener, or the person keeps their own tone with no opener. A
+    // self-directed user is byte-for-byte unchanged. The stored line is
+    // re-validated at read (safeCoachOpener) exactly as the first-nudge delivery
+    // path does, so a shaming line planted out-of-band can never reach a
+    // returning person — THE DESIGN LAW, enforced twice.
+    const coach = await resolveCoachCheckin(env, userId);
+    const persona = coach ? mapCoachPersona(coach.voice_persona) : pickPersona(pref && pref.persona);
+    const opener = coach ? safeCoachOpener(coach.script) : '';
     const timezone = (pref && pref.timezone) || 'UTC';
 
     // Pick a reachable channel: push first (subscribed, no TCPA), else text if
-    // consent was granted. No channel at all → nothing to reach them on.
+    // consent was granted. No channel at all → nothing to reach them on. For a
+    // text we also carry the consent row's timezone — the phone's jurisdiction —
+    // because that, not the commitment zone, is the clock that locates the
+    // recipient for the night guard below.
     let channel = null;
+    let consentTimezone = null;
     const sub = await env.DB.prepare(
       `SELECT 1 FROM push_subscriptions WHERE user_id = ? AND is_active = 1 LIMIT 1`
     ).bind(userId).first();
     if (sub) channel = 'push';
     else {
       const consented = await env.DB.prepare(
-        `SELECT 1 FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
+        `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
       ).bind(userId).first();
-      if (consented) channel = 'text';
+      if (consented) { channel = 'text'; consentTimezone = consented.timezone || null; }
     }
 
     if (!channel) {
@@ -687,12 +942,37 @@ export async function runReturnNudges(env, opts = {}) {
       continue;
     }
 
-    const message = returnNudgeCopy({ persona });
+    // Seed the return copy on this dormancy EPISODE: the user id + the activity
+    // timestamp that anchors it (`last_event_at`). Stable while they stay quiet
+    // (one nudge per episode reads consistently), but different next episode
+    // (their return advances `last_event_at`), so a repeat-returner never meets
+    // the identical welcome-back line — the re-entry greeting sheds wallpaper
+    // decay the same way the nudge and knock already do down the ladder.
+    const nudge = returnNudgeCopy({ persona, seed: `${userId}:${row.last_event_at}` });
+    const message = opener ? `${opener}\n\n${nudge}` : nudge;
     let outcome;
+    // An UNSCHEDULED return outreach must never land in the middle of the night —
+    // on ANY channel. This is the one moment the person didn't ask for (unlike a
+    // scheduled check-in at their chosen local_time), so a 3am buzz is exactly the
+    // trust-breaking intrusion the design LAW forbids. Push has always had this
+    // structural floor; a text at 3am is even more intrusive, and the TCPA
+    // quiet-hours gate below cannot be the only night guard because it is opt-in
+    // (a text-consented user who never set a window has s === e → no quiet hours).
+    // So gate BOTH channels on the daytime window first; outside it, defer without
+    // latching (eligible for a later daytime tick). Text still passes its own TCPA
+    // quiet-hours gate below as an additional, user-configurable narrowing.
+    //
+    // The night guard has to read the clock that actually locates the RECIPIENT.
+    // For push that's the person's commitment timezone (a device they carry). For
+    // text it's the phone's jurisdiction on the consent row — the SAME zone the
+    // TCPA quiet-hours gate below uses — so the structural floor and the legal one
+    // can never disagree on "night". Using the commitment zone for a text let a
+    // consent-tz-3am SMS through whenever the two zones differed and quiet hours
+    // were unset. Consent tz missing → fall back to the commitment zone (then UTC
+    // inside withinReturnDaytime).
+    const guardTimezone = channel === 'text' ? (consentTimezone || timezone) : timezone;
+    if (!withinReturnDaytime(now, guardTimezone)) { summary.deferred++; continue; }
     if (channel === 'push') {
-      // Never buzz an un-scheduled push in the middle of the night. Outside the
-      // window: leave eligible for a later (daytime) tick — do NOT latch.
-      if (!withinReturnDaytime(now, timezone)) { summary.deferred++; continue; }
       try {
         outcome = await deliverReturnPush(env, userId, message);
       } catch (err) {

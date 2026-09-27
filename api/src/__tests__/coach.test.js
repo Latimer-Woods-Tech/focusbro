@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { SHAME_PATTERNS, TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import {
   COACH_LINK_STATES,
   normalizeClientLabel,
@@ -33,6 +34,7 @@ import {
   backAfterReachCopy,
   clientMilestoneCopy,
   clientSharesReflectionsCopy,
+  clientRosterEngagedCopy,
   HOMECOMING_DIGEST_WINDOW_DAYS,
   homecomingDigestIntroCopy,
   homecomingDigestSummaryCopy,
@@ -134,22 +136,11 @@ describe('nextCheckinCopy — the concrete next moment the bro shows up', () => 
 
 // ── THE DESIGN LAW extends to the coach's view ───────────────
 describe('copy law — a coach never reads shame, "AI", or a clinical claim', () => {
-  const SHAME_PATTERNS = [
-    /\bfail(ed|ure|ing|s)?\b/i,
-    /\blaz(y|iness)\b/i,
-    /\bdisappoint/i,
-    /\bguilt/i,
-    /\bashamed\b/i,
-    /\bshame\b/i,
-    /\bslipping\b/i,
-    /\bfall(ing|en)? behind\b/i,
-    /\bbehind\b/i,
-    /\bmiss(es|ed|ing)?\b/i,
-    /\bexcuse/i,
-    /\bpathetic\b/i,
-    /\bworthless\b/i,
-  ];
-  const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  // Shame guard sourced from the one frozen lexicon (design-law.js). The coach
+  // dashboard is exactly where a miss could get tallied into "who's slipping" —
+  // `slipping` now lives in the canonical list, so this surface no longer keeps
+  // its own drifting copy of it. No coach-specific extras remain.
+  const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI_WORD = /\bAI\b/;
 
   const samples = [
@@ -186,6 +177,7 @@ describe('copy law — a coach never reads shame, "AI", or a clinical claim', ()
     clientMilestoneCopy({ streak: { current_streak: 30 } }),
     clientMilestoneCopy({ streak: { current_streak: 100 } }),
     clientSharesReflectionsCopy({ shares: true }),
+    clientRosterEngagedCopy({ engaged: true }),
     homecomingOwnWordsLabelCopy(),
     homecomingDigestIntroCopy(),
     homecomingDigestSummaryCopy({ count: 0 }),

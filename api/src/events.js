@@ -30,18 +30,80 @@
 /** Canonical event-type names for the accountability loop. */
 export const EVENTS = Object.freeze({
   ACQUISITION_VISIT: 'acquisition_visit',
+  GUIDE_VIEW: 'guide_view',
+  GUIDE_TOOL_USE: 'guide_tool_use',
   COMMITMENT_CREATED: 'commitment_created',
   COMMITMENT_KEPT: 'commitment_kept',
   COMMITMENT_RESCHEDULE: 'commitment_reschedule',
   COMMITMENT_MISSED: 'commitment_missed',
   COMMITMENT_RELEASED: 'commitment_released',
+  COMMITMENT_SNOOZE: 'commitment_snooze',
   CHECKIN_DELIVERED: 'checkin_delivered',
   CHECKIN_RESPONDED: 'checkin_responded',
   CHECKIN_ESCALATED: 'checkin_escalated',
   CHECKIN_START_HELP: 'checkin_start_help',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
+  // The activation funnel (docs/IMPROVEMENT_PLAN.md decision tree): the word
+  // offered on the landing page, a guest account created on the first word,
+  // that account later claimed with an email, and what the browser said when
+  // asked to deliver check-ins.
+  //
+  // WORD_OFFERED is the missing rung between `acquisition_visit` and
+  // `guest_started`: the homepage "Give my word" gesture is a client-side
+  // redirect to `/me/`, so until now the funnel collapsed 936 visits → 0 guests
+  // in one unreadable step. Recording the offer splits that into two — did the
+  // hook attract (visit → word_offered) vs. did the /me/ handoff convert
+  // (word_offered → guest_started) — which is exactly the read the decision
+  // tree needs to choose between "rewrite the hook" and "reduce friction".
+  // Privacy-minimal like the landing visit: the coarse start-time bucket and
+  // acquisition attribution only — never the task text.
+  WORD_OFFERED: 'word_offered',
+  GUEST_STARTED: 'guest_started',
+  ACCOUNT_CLAIMED: 'account_claimed',
+  PUSH_PERMISSION: 'push_permission',
 });
+
+/**
+ * Event types the BRO initiates — the product reaching out, not the person
+ * acting. A delivered nudge, an escalation knock, or a return nudge is the bro
+ * showing up; it is NOT proof the person came back. These must therefore never
+ * count as user "activity" in a retention, active-user, or returning-user
+ * measure — counting them would inflate exactly the numbers L1 exists to prove
+ * honest ("prove the accountability loop retains", docs/IMPROVEMENT_PLAN.md).
+ * This is the same reasoning that already records `return_nudge_sent` with a
+ * NULL user_id ("recording it as the user's OWN activity would reset the very
+ * dormancy this detects, and would inflate active-user/retention counts",
+ * checkins-cron.js) — extended to the two events that DO carry a real user_id
+ * because delivery/response and coach-roster queries legitimately attribute a
+ * showing-up to the person. Those rows keep their user_id; this list only
+ * removes them from the *definition of the person being active*.
+ *
+ * NOT here (genuine user activity, correctly counted): `return_welcome_shown`
+ * fires only when the person actually re-opens the app ("their own activity",
+ * accountability.js), `checkin_responded` / `checkin_start_help` are their
+ * replies, every `commitment_*` is their action, and `session_complete` (free
+ * timer) is their usage.
+ */
+export const OUTREACH_EVENT_TYPES = Object.freeze([
+  EVENTS.CHECKIN_DELIVERED,
+  EVENTS.CHECKIN_ESCALATED,
+  EVENTS.RETURN_NUDGE_SENT, // already NULL-user; listed for completeness + defence in depth
+]);
+
+/**
+ * A SQL predicate that keeps only USER-INITIATED events — the person acting,
+ * never the bro reaching out. Built from OUTREACH_EVENT_TYPES so the definition
+ * can never drift between the queries that share it. The values are our own
+ * hardcoded constants (never user input), so inlining them is injection-safe.
+ *
+ * @param {string} [prefix] table alias prefix, e.g. `'e.'`; '' for an unaliased column.
+ * @returns {string} `<prefix>event_type NOT IN ('checkin_delivered', ...)`
+ */
+export function userActivityPredicate(prefix = '') {
+  const list = OUTREACH_EVENT_TYPES.map((t) => `'${t}'`).join(', ');
+  return `${prefix}event_type NOT IN (${list})`;
+}
 
 /** Keep acquisition context useful without accepting arbitrary analytics data. */
 export function sanitizeAttribution(value) {
@@ -52,16 +114,136 @@ export function sanitizeAttribution(value) {
     const cleaned = value[key].trim().slice(0, 80);
     if (cleaned) out[key] = cleaned;
   }
+  // Internal content attribution (Content Factory §7): a guide's CTA carries
+  // `?ref=cf_focusbro_<slug>` so an activation can be credited to the piece.
+  // Strictly shaped — it is a join key to the content ledger, not free text.
+  if (typeof value.ref === 'string' && /^cf_focusbro_[a-z0-9-]{1,80}$/.test(value.ref)) out.ref = value.ref;
   return out;
 }
 
-/** Record a privacy-minimal landing visit: attribution only, no visitor ID. */
-export async function recordAcquisitionVisit(env, value) {
+/**
+ * Record one anonymous view of a guide page. Privacy-minimal like the landing
+ * visit: the slug only — no visitor id, no referrer, no user agent. This is
+ * what turns "content live" into "content read" (docs/content-ledger.md).
+ */
+export async function recordGuideView(env, slug, tool = null) {
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{1,80}$/.test(slug)) return false;
+  if (tool !== null) {
+    if (typeof tool !== 'string' || !/^[a-z0-9-]{1,40}$/.test(tool)) return false;
+    return recordEvent(env, { type: EVENTS.GUIDE_TOOL_USE, data: { slug, tool } });
+  }
+  return recordEvent(env, { type: EVENTS.GUIDE_VIEW, data: { slug } });
+}
+
+// Substrings that mark an automated client. Deliberately broad and lower-cased —
+// this is a coarse denominator filter, not a security control. A false "human"
+// costs one over-counted visit and a false "bot" one under-counted visit; both
+// wash out at cohort scale, and the decision tree only reads a rate, never a row.
+const BOT_UA_PATTERN = /bot\b|bot\/|crawl|spider|slurp|scrape|monitor|uptime|pingdom|gtmetrix|lighthouse|headless|phantom|puppeteer|playwright|selenium|dataprovider|curl|wget|python-requests|python-urllib|go-http|java\/|okhttp|axios|node-fetch|libwww|httpclient|facebookexternalhit|embedly|whatsapp|telegrambot|discordbot|slackbot|twitterbot|linkedinbot|bitlybot|semrush|ahrefs|mj12|dotbot|petalbot|yandex|baidu|bingpreview|duckduckbot|applebot|googlebot/;
+
+/**
+ * A coarse, dependency-free "is this a qualified (human) visit?" classifier for
+ * the landing denominator. The activation decision tree (docs/IMPROVEMENT_PLAN.md
+ * § Decision tree) is keyed on QUALIFIED visits — "landing activation <10% after
+ * 20 qualified visits" — but `acquisition_visit` fires on every page render,
+ * including Googlebot (which executes JS), link unfurlers, uptime monitors, and
+ * headless browsers. Dividing `word_offered` by that raw count makes the rate
+ * uninterpretable: 0 offers from 900 bots (do nothing) reads identically to 0
+ * offers from 900 humans (rewrite the hook). This marks the obvious non-humans so
+ * the rate has a denominator the decision tree can actually be read against.
+ *
+ * Three signals, most-trusted first:
+ *  1. Cloudflare Bot Management, when the zone has it: `cf.botManagement.score`
+ *     runs 1–99 (1 = certainly automated, 99 = certainly human); ≤30 is
+ *     Cloudflare's documented "likely automated" band, and `verifiedBot` is a
+ *     known crawler. Absent on zones without the subscription, so it is consulted
+ *     only when actually present.
+ *  2. A User-Agent substring heuristic — the always-available fallback. An empty
+ *     or missing UA is treated as automated (a real browser always sends one).
+ *  3. A client-reported automation flag (`navigator.webdriver === true`, passed
+ *     from the visit beacon). This catches the one class the first two miss: a
+ *     JS-executing automation framework (Playwright/Puppeteer/Selenium synthetic
+ *     monitor) driving a headed browser with a spoofed, clean real-browser UA and
+ *     no CF Bot Management score — indistinguishable from a human by UA/CF alone,
+ *     yet it fires the beacon (so it ran JS) and, unless it also hides webdriver,
+ *     announces itself here. Client-supplied and spoofable, so it is advisory —
+ *     one more coarse denominator filter, exactly like the UA heuristic, never a
+ *     security control. Only ever a boolean is honored; nothing else is stored.
+ *
+ * Privacy: the RESULT is a single boolean; the User-Agent itself is never stored.
+ *
+ * @param {string|null|undefined} userAgent  request User-Agent header
+ * @param {object|null|undefined} cf  Cloudflare `request.cf`, when present
+ * @param {boolean|null|undefined} clientAutomated  client-reported `navigator.webdriver`
+ * @returns {boolean} true iff the visit looks automated (a non-qualified visit)
+ */
+export function isBotVisitor(userAgent, cf, clientAutomated) {
+  if (clientAutomated === true) return true;
+  const bm = cf && typeof cf === 'object' ? cf.botManagement : null;
+  if (bm && typeof bm === 'object') {
+    if (bm.verifiedBot === true) return true;
+    if (typeof bm.score === 'number' && bm.score > 0 && bm.score <= 30) return true;
+  }
+  const ua = typeof userAgent === 'string' ? userAgent.trim().toLowerCase() : '';
+  if (!ua) return true; // a real browser always sends a User-Agent
+  return BOT_UA_PATTERN.test(ua);
+}
+
+/**
+ * Record a privacy-minimal landing visit: attribution only, no visitor ID.
+ *
+ * `meta` carries request context ({ userAgent, cf, clientAutomated }) so the
+ * visit can be classified human vs. automated and the qualified-visit denominator
+ * (see isBotVisitor) is trustworthy. It is optional: without it — internal
+ * callers, older code, unit fixtures — the visit stays UNKNOWN (no `bot` field),
+ * and the denominator treats unknown as qualified, so a pre-classification
+ * history is never retroactively discarded. `clientAutomated` is the beacon's
+ * `navigator.webdriver` flag; a bare beacon that omits it still classifies from
+ * the server-side UA/CF signals.
+ */
+export async function recordAcquisitionVisit(env, value, meta = null) {
   const attribution = sanitizeAttribution(value);
   if (!attribution.source) attribution.source = 'direct';
+  const data = { attribution };
+  if (meta && typeof meta === 'object' && ('userAgent' in meta || 'cf' in meta || 'clientAutomated' in meta)) {
+    data.bot = isBotVisitor(meta.userAgent, meta.cf, meta.clientAutomated) ? 1 : 0;
+  }
   return recordEvent(env, {
     type: EVENTS.ACQUISITION_VISIT,
-    data: { attribution },
+    data,
+  });
+}
+
+/**
+ * The four start-time buckets the homepage offers ("time-to-start bucket" in
+ * the Stage-4 cohort dimensions). The values come from a fixed `<select>`, not
+ * free text, so this is a closed vocabulary — anything else is recorded as
+ * `other` rather than trusted. Never the task itself.
+ */
+export const WORD_WHEN_BUCKETS = Object.freeze(['t-10m', 't-30m', 't-1h', 't-tomorrow', 'other']);
+
+/** Coerce a submitted `when` to one of WORD_WHEN_BUCKETS; unknown → `other`. */
+export function normalizeWhenBucket(value) {
+  return typeof value === 'string' && WORD_WHEN_BUCKETS.includes(value) && value !== 'other'
+    ? value
+    : 'other';
+}
+
+/**
+ * Record the landing "Give my word" gesture — the person committing intent on
+ * the homepage, before the `/me/` redirect creates the guest account. This is
+ * the funnel rung between `acquisition_visit` and `guest_started`; see the
+ * WORD_OFFERED note on EVENTS. Privacy-minimal by construction: the coarse
+ * start-time bucket and sanitized acquisition attribution only, never the task
+ * text or any visitor identifier. Non-fatal like every recordEvent path, so it
+ * can never break the redirect.
+ */
+export async function recordWordOffered(env, { attribution, when } = {}) {
+  const attr = sanitizeAttribution(attribution);
+  if (!attr.source) attr.source = 'direct';
+  return recordEvent(env, {
+    type: EVENTS.WORD_OFFERED,
+    data: { attribution: attr, when: normalizeWhenBucket(when) },
   });
 }
 
@@ -213,7 +395,7 @@ export async function computeReturnCohorts(env, opts = {}) {
     `WITH firsts AS (
        SELECT user_id, MIN(substr(created_at, 1, 10)) AS first_day
          FROM analytics_events
-        WHERE user_id IS NOT NULL
+        WHERE user_id IS NOT NULL AND ${userActivityPredicate()}
         GROUP BY user_id
      ),
      rets AS (
@@ -225,7 +407,7 @@ export async function computeReturnCohorts(env, opts = {}) {
                    AND substr(e.created_at, 1, 10) <= date(f.first_day, '+7 day')
                   THEN 1 ELSE 0 END) AS ret_d7
          FROM firsts f
-         JOIN analytics_events e ON e.user_id = f.user_id
+         JOIN analytics_events e ON e.user_id = f.user_id AND ${userActivityPredicate('e.')}
         GROUP BY f.user_id, f.first_day
      )
      SELECT
@@ -270,9 +452,20 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
 
   const visitRows = await env.DB.prepare(
     `/* acquisition_visits */
-     SELECT ${dimensions}, COUNT(*) AS landing_visits
+     SELECT ${dimensions},
+            COUNT(*) AS landing_visits,
+            SUM(CASE WHEN json_extract(event_data, '$.bot') = 1 THEN 1 ELSE 0 END) AS bot_visits,
+            SUM(CASE WHEN json_extract(event_data, '$.bot') = 1 THEN 0 ELSE 1 END) AS qualified_visits
        FROM analytics_events
       WHERE event_type = 'acquisition_visit' AND created_at >= ?
+      GROUP BY source, campaign, content, challenge`
+  ).bind(sinceSQL).all();
+
+  const wordOfferedRows = await env.DB.prepare(
+    `/* words_offered */
+     SELECT ${dimensions}, COUNT(*) AS words_offered
+       FROM analytics_events
+      WHERE event_type = 'word_offered' AND created_at >= ?
       GROUP BY source, campaign, content, challenge`
   ).bind(sinceSQL).all();
 
@@ -341,17 +534,34 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
   const visits = new Map(
     ((visitRows && visitRows.results) || []).map((r) => [keyOf(r), r]),
   );
+  const wordsOffered = new Map(
+    ((wordOfferedRows && wordOfferedRows.results) || []).map((r) => [keyOf(r), r]),
+  );
   const funnelRows = (funnel && funnel.results) || [];
   const rows = [...funnelRows];
-  const funnelKeys = new Set(funnelRows.map(keyOf));
-  for (const visit of (visitRows && visitRows.results) || []) {
-    if (!funnelKeys.has(keyOf(visit))) rows.push(visit);
+  const seenKeys = new Set(funnelRows.map(keyOf));
+  // A tuple can have visits or offers but no commitment yet — that unconverted
+  // drop is exactly what this funnel exists to surface, so union those rungs in.
+  for (const r of [...((visitRows && visitRows.results) || []), ...((wordOfferedRows && wordOfferedRows.results) || [])]) {
+    const k = keyOf(r);
+    if (!seenKeys.has(k)) { seenKeys.add(k); rows.push(r); }
   }
 
   return rows.map((r) => {
     const c = cohorts.get(keyOf(r)) || {};
     const visit = visits.get(keyOf(r)) || {};
+    const offer = wordsOffered.get(keyOf(r)) || {};
     const landingVisits = Number(visit.landing_visits) || 0;
+    const botVisits = Number(visit.bot_visits) || 0;
+    // The qualified (human) denominator the decision tree is keyed on. Legacy
+    // visits recorded before classification carry no `bot` flag and count as
+    // qualified, so an un-instrumented history is never discarded; going forward
+    // the denominator is real. When the column is absent (older callers / unit
+    // fixtures) fall back to landing_visits minus any bots, i.e. landing_visits.
+    const qualifiedVisits = visit.qualified_visits === undefined || visit.qualified_visits === null
+      ? landingVisits - botVisits
+      : Number(visit.qualified_visits) || 0;
+    const wordsOfferedCount = Number(offer.words_offered) || Number(r.words_offered) || 0;
     const users = Number(r.users) || 0;
     const commitmentsCreated = Number(r.commitments_created) || 0;
     const kept = Number(r.kept) || 0;
@@ -370,9 +580,22 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
         challenge: r.challenge || '',
       },
       landing_visits: landingVisits,
+      // The share of raw visits filtered out as automated — surfaced so a
+      // suspiciously bot-heavy channel is itself visible, not silently dropped.
+      bot_visits: botVisits,
+      qualified_visits: qualifiedVisits,
+      words_offered: wordsOfferedCount,
       users,
       commitments_created: commitmentsCreated,
-      activation_rate: landingVisits ? round2(users / landingVisits) : null,
+      // The hook: did the landing page move a QUALIFIED (human) visitor to offer
+      // a word at all? Automated visits are excluded so the decision tree's
+      // "<10% after 20 qualified visits" is read against a trustworthy denominator.
+      landing_engagement_rate: qualifiedVisits ? round2(wordsOfferedCount / qualifiedVisits) : null,
+      // The handoff: of those who offered, how many the /me/ door actually
+      // converted into a saved commitment. A high engagement rate with a low
+      // conversion rate points at the door, not the hook — and vice-versa.
+      offer_conversion_rate: wordsOfferedCount ? round2(commitmentsCreated / wordsOfferedCount) : null,
+      activation_rate: qualifiedVisits ? round2(users / qualifiedVisits) : null,
       checkins_delivered: Number(r.checkins_delivered) || 0,
       outcomes: { kept, rescheduled, missed, resolved },
       kept_word_rate: resolved ? round2(kept / resolved) : null,
@@ -388,6 +611,89 @@ export async function computeAcquisitionMetrics(env, opts = {}) {
       },
     };
   });
+}
+
+/**
+ * The number of QUALIFIED (human) landing visits the activation decision tree
+ * needs before its first row may rule — `docs/IMPROVEMENT_PLAN.md`
+ * § Founding-cohort protocol step 4 ("Review the scorecard after every 20
+ * qualified visits") and § Decision tree row 1 ("Landing activation <10% after
+ * 20 qualified visits"). Below this count the read is not computable, so no
+ * hook/CTA change should be made on it.
+ */
+export const ACTIVATION_QUALIFIED_GATE = 20;
+
+/**
+ * Roll the per-attribution `acquisition` rows (from computeAcquisitionMetrics)
+ * up into the ONE readout the activation decision tree is gated on, so
+ * "N of 20 qualified visits" and the resulting verdict are legible from the
+ * 401-gated internal metrics endpoint without hand-querying D1.
+ *
+ * The verdict encodes ONLY the thresholds the plan states verbatim — the
+ * 20-qualified-visit gate and the <10% / 10–25% / >25% landing-activation bands
+ * (`docs/IMPROVEMENT_PLAN.md` § Decision tree). The driving number is
+ * `landing_engagement_rate` (words offered ÷ qualified visits): the plan's
+ * 2026-09-05 note settles that a low engagement rate is the row-1 "rewrite the
+ * hook/CTA" signal. `offer_conversion_rate` is carried alongside — un-thresholded
+ * because the plan gives it no number — so the documented "healthy engagement +
+ * low conversion → the /me/ door, not the hook" read stays legible to the reader.
+ *
+ * Pure and dependency-free: it sums fields the caller already classified
+ * (qualified vs bot, per the R-315/R-316 denominator), so it never re-queries and
+ * never re-decides what counts as human. No user-facing surface — internal
+ * observability only, so the anti-shame design law does not apply.
+ */
+export function computeActivationGate(acquisition = [], opts = {}) {
+  const threshold = Number.isFinite(opts.threshold) && opts.threshold > 0
+    ? Math.floor(opts.threshold)
+    : ACTIVATION_QUALIFIED_GATE;
+  const rows = Array.isArray(acquisition) ? acquisition : [];
+
+  let qualifiedVisits = 0;
+  let botVisits = 0;
+  let wordsOffered = 0;
+  let commitmentsCreated = 0;
+  let users = 0;
+  for (const r of rows) {
+    qualifiedVisits += Number(r && r.qualified_visits) || 0;
+    botVisits += Number(r && r.bot_visits) || 0;
+    wordsOffered += Number(r && r.words_offered) || 0;
+    commitmentsCreated += Number(r && r.commitments_created) || 0;
+    users += Number(r && r.users) || 0;
+  }
+
+  const readable = qualifiedVisits >= threshold;
+  const landingEngagementRate = qualifiedVisits ? round2(wordsOffered / qualifiedVisits) : null;
+  const offerConversionRate = wordsOffered ? round2(commitmentsCreated / wordsOffered) : null;
+  const activationRate = qualifiedVisits ? round2(users / qualifiedVisits) : null;
+
+  // Verdict — every band is verbatim from the decision tree; nothing invented.
+  let verdict;
+  if (!readable || landingEngagementRate === null) {
+    verdict = 'insufficient_data';
+  } else if (landingEngagementRate < 0.1) {
+    verdict = 'rewrite_hook'; // tree row 1: <10% → rewrite the hook/CTA
+  } else if (landingEngagementRate <= 0.25) {
+    verdict = 'reduce_friction'; // tree row 2: 10–25% → clarity + auth/consent friction
+  } else {
+    verdict = 'hook_healthy'; // tree row 3 entry: >25% → the hook works; read on down the funnel
+  }
+
+  return {
+    threshold,
+    qualified_visits: qualifiedVisits,
+    bot_visits: botVisits,
+    qualified_visits_remaining: Math.max(0, threshold - qualifiedVisits),
+    words_offered: wordsOffered,
+    commitments_created: commitmentsCreated,
+    // The hook (row-1 driver) and the /me/ handoff, side by side so the reader
+    // can tell "rewrite the hook" from "fix the door" without another query.
+    landing_engagement_rate: landingEngagementRate,
+    offer_conversion_rate: offerConversionRate,
+    activation_rate: activationRate,
+    readable,
+    verdict,
+  };
 }
 
 /**
@@ -585,6 +891,7 @@ export async function computeLoopMetrics(env, opts = {}) {
       reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
     },
     acquisition: [],
+    activation_gate: computeActivationGate([]),
   };
 
   // Counts by type in the window.
@@ -607,26 +914,34 @@ export async function computeLoopMetrics(env, opts = {}) {
     commitments_reschedule: by_type[EVENTS.COMMITMENT_RESCHEDULE] || 0,
     commitments_missed: by_type[EVENTS.COMMITMENT_MISSED] || 0,
     commitments_released: by_type[EVENTS.COMMITMENT_RELEASED] || 0,
+    // The "I'm on it" third answer — an engagement signal, never a resolution and
+    // never a miss, so it is counted on its own and deliberately kept OUT of
+    // `resolved` below (it must not move the kept-word rate).
+    commitments_snoozed: by_type[EVENTS.COMMITMENT_SNOOZE] || 0,
   };
 
   const resolved = totals.commitments_kept + totals.commitments_reschedule + totals.commitments_missed;
   const kept_word_rate = resolved > 0 ? round2(totals.commitments_kept / resolved) : null;
   const reschedule_rate = resolved > 0 ? round2(totals.commitments_reschedule / resolved) : null;
 
-  // Distinct active users in the window.
+  // Distinct active users in the window — the person acting, never the bro
+  // reaching out (see userActivityPredicate), so a purely-passive recipient of
+  // delivered check-ins is not counted as "active".
   const activeRow = await env.DB.prepare(
     `SELECT COUNT(DISTINCT user_id) AS n
        FROM analytics_events
-      WHERE created_at >= ? AND user_id IS NOT NULL`
+      WHERE created_at >= ? AND user_id IS NOT NULL AND ${userActivityPredicate()}`
   ).bind(sinceSQL).first();
   const active_users = (activeRow && Number(activeRow.n)) || 0;
 
-  // Returning users: seen on ≥2 distinct UTC days in the window.
+  // Returning users: seen on ≥2 distinct UTC days in the window, counting only
+  // the person's OWN activity — a second day made up purely of a bro-delivered
+  // nudge is the bro showing up, not the person coming back.
   const returningRow = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM (
        SELECT user_id
          FROM analytics_events
-        WHERE created_at >= ? AND user_id IS NOT NULL
+        WHERE created_at >= ? AND user_id IS NOT NULL AND ${userActivityPredicate()}
         GROUP BY user_id
        HAVING COUNT(DISTINCT substr(created_at, 1, 10)) >= 2
      )`
@@ -676,6 +991,10 @@ export async function computeLoopMetrics(env, opts = {}) {
     retention,
     decision,
     acquisition,
+    // The single "N of 20 qualified visits" activation readout + documented
+    // decision-tree verdict, rolled up from the per-tuple acquisition rows so
+    // the gate is legible from /api/internal/metrics without a D1 query.
+    activation_gate: computeActivationGate(acquisition),
   };
 }
 

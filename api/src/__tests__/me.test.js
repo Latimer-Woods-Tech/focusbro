@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD, scanDesignLaw } from '../design-law.js';
 import {
   COMMITMENT_STATUSES,
   statusPresentation,
@@ -20,6 +21,9 @@ import {
   checkinActionLabels,
   keptWithNoteActionLabel,
   keptNotePromptCopy,
+  snoozeLengthPromptCopy,
+  reschedulePromptCopy,
+  releaseConfirmCopy,
   keptLogHeadingCopy,
   keptLogEmptyCopy,
   latestKeptNoteLabelCopy,
@@ -70,7 +74,7 @@ const SHAME_PATTERNS = [
   /\bworthless\b/i,
   /\bmiss(ed|es|ing)?\b/i, // no miss tally in what the person reads
 ];
-const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+const CLINICAL_PATTERNS = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
 const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
 
 describe('commitment statuses', () => {
@@ -184,8 +188,12 @@ describe('renderMePage', () => {
     expect(html).toContain("get('when')");
     expect(html).toContain("['source', 'campaign', 'content', 'challenge']");
     expect(html).toContain('attribution: ATTRIBUTION');
-    expect(html).toContain("if (PREFILL_TASK)");
-    expect(html).toContain("mode = 'register'");
+    expect(html).toContain("if (!PREFILL_TASK) return;");
+    // The door moved (2026-09-04): no session shows the FORM, prefilled — the
+    // first word creates the guest account on submit, never a password first.
+    expect(html).toContain('function showSigninDoor() { enterAnonymous(); }');
+    expect(html).toMatch(/function enterAnonymous\(\) \{[\s\S]*applyPrefill\(\);/);
+    expect(html).not.toContain("mode = 'register';\n      el('signinTitle').textContent = 'Create an account'");
   });
 
   it('is a self-contained, noindex HTML document', () => {
@@ -291,6 +299,97 @@ describe('renderMePage', () => {
     expect(html).toContain("resolve(id, 'kept', trimmed ? { note: trimmed } : undefined)");
     // Backing out of the optional prompt keeps nothing (leaves the fast tap free).
     expect(html).toContain('if (word === null) return;');
+  });
+
+  it('the in-app "I\'m on it" snooze can state a length, honored by the same parser as SMS (R-277 parity)', () => {
+    // The prompt copy is rendered into the page...
+    expect(html).toContain(snoozeLengthPromptCopy());
+    // ...the snooze action prompts for an optional length...
+    expect(html).toContain("act === 'snooze'");
+    expect(html).toContain('var snoozeLen = prompt(');
+    // ...a stated length rides the server's shared snooze parser as when_text...
+    expect(html).toContain('snooze(id, snoozeLenTrim ? snoozeLenTrim : undefined)');
+    expect(html).toContain('body: JSON.stringify(whenText ? { when_text: whenText } : {})');
+    // ...an empty answer keeps today's quick default (undefined → {} → server default)...
+    expect(html).toContain('var snoozeLenTrim = snoozeLen.trim();');
+    // ...and backing out (cancel) leaves the word exactly as it is, no snooze fired.
+    expect(html).toContain('if (snoozeLen === null) return;');
+  });
+});
+
+describe('the optional snooze-length prompt is warm and design-LAW clean', () => {
+  it('is non-empty, framed as optional, and preserves the quick default', () => {
+    const copy = snoozeLengthPromptCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(/optional/i.test(copy)).toBe(true);
+    // It is part of the curated copy surface, so the shame/AI/clinical batteries
+    // above already scan it — assert its membership so it can never drift out.
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('never shames, never brands "AI", never makes a clinical claim', () => {
+    const copy = snoozeLengthPromptCopy();
+    // A snooze is never a resolution and never a miss — the copy must not tally.
+    for (const pat of [/\bmiss(ed|es|ing)?\b/i, /\bfail/i, /\bbehind\b/i, /\bguilt/i, /\bshame\b/i]) {
+      expect(pat.test(copy), `snooze prompt tripped ${pat}: "${copy}"`).toBe(false);
+    }
+    expect(/\bAI\b/.test(copy)).toBe(false);
+    for (const pat of [/\btreat(s|ment|ing)?\b/i, /\bADHD\b/i, /\bdiagnos/i]) {
+      expect(pat.test(copy)).toBe(false);
+    }
+  });
+});
+
+describe('the reschedule + release client prompts are swept by the design-LAW gate', () => {
+  // R-354: these three client-script literals — the "when do you want to try
+  // again?" prompt (shared by the "Not yet" check-in reply and the "Move it"
+  // reschedule) and the "set this word down?" release confirm — are the single
+  // most anti-shame-critical moment in the product, yet they were hardcoded
+  // inline in the /me/ client script and emitted by NO copy fn, so they never
+  // reached `meCopySurface()` and were never swept by the scanner. A scold
+  // edited into them would have left every test green. These pin the fix.
+
+  it('the reschedule prompt is an open door — warm, design-LAW clean, in the surface', () => {
+    const copy = reschedulePromptCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(copy.toLowerCase()).toContain('try again');
+    expect(copy).toContain(inAppWhenExamplesText()); // advertises the real when-parser vocabulary
+    expect(scanDesignLaw(copy, { allowAdhd: false })).toEqual([]);
+    // Membership in the swept surface is the enforcement — assert it so the copy
+    // can never drift back out of the gate's reach.
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('the release confirm is a blameless exit — the streak is never framed as a loss', () => {
+    const copy = releaseConfirmCopy();
+    expect(copy.trim().length).toBeGreaterThan(0);
+    expect(copy.toLowerCase()).toContain('streak stays'); // the streak is explicitly untouched
+    expect(scanDesignLaw(copy, { allowAdhd: false })).toEqual([]);
+    expect(meCopySurface()).toContain(copy);
+  });
+
+  it('renders both into the client script via JSON.stringify, not as raw literals', () => {
+    const html = renderMePage();
+    // The prompts reach the client as embedded JS string literals (the same
+    // pattern as the snooze-length prompt), so a person sees the exact swept copy.
+    expect(html).toContain(`prompt(${JSON.stringify(reschedulePromptCopy())})`);
+    expect(html).toContain(`window.confirm(${JSON.stringify(releaseConfirmCopy())})`);
+    // The old un-swept inline literal must be gone — no bare single-quoted prompt.
+    expect(html).not.toContain("prompt('No problem — when do you want to try again?");
+    expect(html).not.toContain("window.confirm('Set this word down?");
+  });
+
+  it('PROOF-OF-REJECTION: the gate catches a scold edited into either prompt', () => {
+    // Drop these copy fns out of meCopySurface() — or reword them into a scold —
+    // and the scanner must fire. If any of these came back clean, the gate on the
+    // most anti-shame-critical strings in the product would be a no-op.
+    const rescheduleScold = 'You failed again — why do you keep missing this?';
+    const releaseScold = 'Giving up? You broke your streak and let yourself down.';
+    expect(scanDesignLaw(rescheduleScold).length).toBeGreaterThan(0);
+    expect(scanDesignLaw(releaseScold).length).toBeGreaterThan(0);
+    // And each real prompt, run through the SAME gate, stays clean.
+    expect(scanDesignLaw(reschedulePromptCopy())).toEqual([]);
+    expect(scanDesignLaw(releaseConfirmCopy())).toEqual([]);
   });
 });
 

@@ -20,7 +20,17 @@
 // ════════════════════════════════════════════════════════════
 
 import { generateUUID } from './middleware.js';
-import { buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS } from './momentum.js';
+import {
+  buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS,
+  bucketKeptByHour, peakKeptHour, describeHourBand,
+  POWER_HOURS_WINDOW_DAYS,
+  allTimeBestDay,
+  distinctKeptDays,
+  bucketKeptByWeekday, peakKeptWeekday, describeWeekday,
+  typicalKeptPerActiveDay,
+  allTimeBestWeek, describeBestWeek, BEST_WEEK_MIN_COUNT,
+  formatCalendarDay, calendarDaysAgo,
+} from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
@@ -233,8 +243,10 @@ function clockTo24(m) {
  * that context is what lets a bare "3" safely mean 3 o'clock.
  *
  * Understood: "in 20", "in 20 min", "in 2 hours", "in an hour", "in half an
- * hour"; "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
- * (soonest future); "tonight", "this afternoon", "this morning", "in the
+ * hour", "in a couple hours", "in a few days" (couple=2, few=3, unit required);
+ * "3pm", "3:30 pm", "9am", "14:00", "noon", "midnight", bare "3"/"8"
+ * (soonest future); "tonight" (and its texting spellings "tonite"/"2nite"/
+ * "tnite"), "this afternoon", "this morning", "in the
  * morning", "in the afternoon", "in the evening", "end of day"/"eod"/"cob"
  * (17:00, the close of the working day), "first thing"/"first thing tomorrow"
  * (09:00, the start of the working day), "lunch"/"lunchtime"/"after lunch"
@@ -270,6 +282,25 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   if (!t) return null;
   t = t.replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim(); // "at 3pm" → "3pm"
 
+  // "-ish", the softener this audience leans on hardest, glued straight onto the
+  // time it hedges — "5ish", "noonish", "8ish tonight", "5:30ish". The
+  // separator-stripping pass above already lets the SPACED/HYPHENATED form through
+  // ("3-ish" → "3 ish", read cleanly as 3:00), but the GLUED form the same texter
+  // is at least as likely to send stayed welded to its anchor: "5ish" never
+  // reached the clock branch, "noonish" never matched `\bnoon\b`, and both fell to
+  // the cold re-ask — a quiet "he didn't get me" on the two-way text moat at the
+  // exact moment the anti-shame LAW matters most (voice still gated). Peel a glued
+  // "ish" off a digit or a named clock-word so it reads identically to its spaced
+  // twin. Anchored TIGHT so it can never gut an ordinary word that merely ends in
+  // "ish": only a DIGIT ("5ish" → "5", "5:30ish" → "5:30") or one of the specific
+  // clock words below sheds it — "finish", "wish", "polish", "spanish" are all
+  // left untouched.
+  t = t
+    .replace(/(\d)ish\b/g, '$1')
+    .replace(/\b(noon|midnight|tonight|tonite|tomorrow|tmrw|morning|afternoon|evening)ish\b/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   // A second, separator-preserving normalization: the pass above strips "/" and
   // "-" (so "7/20" collapses to "7 20"), but a numeric MM/DD date needs the
   // separator to be readable. Keep it here for the numeric-date branch only.
@@ -302,6 +333,29 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
           : /^d/.test(u) ? n * 24 * 60
           : /^h/.test(u) ? n * 60
           : n;
+      } else {
+        // Casual word-quantity: "in a couple hours", "in a few days", "in a
+        // couple of minutes". `couple`=2, `few`=3 — the SAME numeric meaning
+        // already codified for the create-flow parser's NUMWORD map, now shared
+        // with the reschedule channel. These are among the most natural ways an
+        // ADHD brain defers a task ("gimme a couple hours"), and left unread they
+        // fell to the cold re-ask — a quiet "he didn't get me" on the two-way
+        // text moat that is the whole point while voice is gated, the same gap
+        // "end of day"/"first thing"/"lunch"/"in N days" each closed before.
+        // A unit is REQUIRED: a bare "in a couple" carries no concrete length, so
+        // it stays a warm re-ask rather than firing ~2 minutes out (a nag, the
+        // opposite of the anti-shame LAW). The "a/an" is optional ("in couple
+        // hours") and an "of" is absorbed ("a couple of hours"). ("a"/"an" + a
+        // unit alone — "in an hour", "in a day" — is already read above.)
+        const wm = t.match(/^in\s+(?:an?\s+)?(couple|few)\s+(?:of\s+)?(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)\b/);
+        if (wm) {
+          const n = wm[1] === 'few' ? 3 : 2;
+          const u = wm[2];
+          mins = /^w/.test(u) ? n * 7 * 24 * 60
+            : /^d/.test(u) ? n * 24 * 60
+            : /^h/.test(u) ? n * 60
+            : n;
+        }
       }
     }
     if (mins > 0) return inRange(nowMs + Math.round(mins) * MIN_MS);
@@ -316,6 +370,82 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     // else: fall through to the part-of-day / tomorrow / weekday branches below.
   }
 
+  // ── Bare relative duration, no "in": "2 hours", "an hour", "20 min", "a
+  // couple days", "few weeks", "half an hour" ── A person answering "when?" —
+  // or giving a first word in the create form, which resolves through this same
+  // parser (R-226) — routinely drops the "in": "couple hours", "an hour", "2
+  // days". Left unread, such a reply didn't just fall to the warm re-ask: the
+  // clock branch below read the COUNT as a wall-clock hour and SILENTLY DROPPED
+  // the unit — "2 hours" landing at 2 AM tomorrow, "20 minutes" at 8 PM, "2
+  // days" at 2 AM, "3 hrs" at 3 PM. A wrong time is the worst outcome on the
+  // two-way text moat (the bro showing up at 2 AM when you said "two hours"),
+  // strictly worse than the honest re-ask. This reads a bare duration IDENTICALLY
+  // to its "in …" form. Guarded tight so it can only ever upgrade, never steal a
+  // clock or a date: an explicit duration UNIT is REQUIRED (a bare "3"/"9" stays
+  // a clock, untouched), and the WHOLE message must be just that duration (± a
+  // leading/trailing hedge — "maybe"/"like"/"i think" — or an "or so"/"ish"/
+  // "please"), so a "tomorrow 2 hours"-shaped or dated or weekday reply is never
+  // matched here. In the SMS/in-app check-in paths a bare
+  // "an hour"/"2 hours" is classified a SNOOZE upstream (detectCheckinReply) and
+  // never reaches this parser, so this changes only the create form and the
+  // day/week-unit replies the snooze net doesn't own — always toward the right
+  // instant.
+  //
+  // Hedge tolerance: this audience rarely answers a bare duration flat — it comes
+  // wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "an hour i
+  // think", "prob a couple days"). The whole-message match below is what keeps
+  // this branch from ever stealing a clock or a date, but a leading/trailing
+  // hedge word broke that match, so the reply fell PAST it into the clock branch
+  // and hit the exact wrong-time bug this branch exists to kill — "like 20
+  // minutes" landing at 8 PM, "prob 2 days" at 2 PM, "2 hours i think" at 2 PM,
+  // the unit silently dropped and the count read as a wall-clock hour (the worst
+  // outcome on the moat: the bro showing up hours off from what you said). So the
+  // same fillers are stripped from BOTH ends before matching. This stays strictly
+  // upgrade-only: an explicit duration UNIT is still required and the message must
+  // STILL be nothing but that duration once the hedge is peeled, so a hedged clock
+  // or weekday ("maybe 3", "maybe 3pm", "like saturday") carries no unit / isn't a
+  // duration and falls through UNCHANGED to the branches that already read it.
+  {
+    // Uncertainty fillers this audience wraps a duration in. Peeled off the FRONT
+    // and BACK only (a hedge sitting INSIDE — "2 maybe hours" — is left alone, so
+    // the middle of a reply is never silently reshaped into a duration it wasn't).
+    const HEDGE = 'maybe|perhaps|possibly|prob|probably|like|say|lets say|let\'s say|how about|what about|how bout|i guess|guess|i think|i reckon|idk|dunno|hmm+|uh+|um+|erm?|well';
+    const HEDGE_LEAD = new RegExp(`^(?:${HEDGE})\\b\\s*`);
+    const HEDGE_TRAIL = new RegExp(`\\s*\\b(?:${HEDGE})$`);
+    let bare = t
+      .replace(/\bor (?:so|two|more)\b/g, ' ')
+      .replace(/\bish\b/g, ' ')
+      .replace(/\b(please|pls|thanks|thx|thank you)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    let prev;
+    do {
+      prev = bare;
+      bare = bare.replace(HEDGE_LEAD, '').replace(HEDGE_TRAIL, '').replace(/\s+/g, ' ').trim();
+    } while (bare !== prev);
+    const unitMins = (n, u) => (
+      /^w/.test(u) ? n * 7 * 24 * 60
+        : /^d/.test(u) ? n * 24 * 60
+        : /^h/.test(u) ? n * 60
+        : n
+    );
+    const U = '(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)';
+    let bareMins = null;
+    if (/^half(\s+an?)?\s+hour$/.test(bare)) bareMins = 30;
+    else if (/^an?\s+hour$/.test(bare)) bareMins = 60;
+    else if (/^an?\s+day$/.test(bare)) bareMins = 24 * 60;
+    else if (/^an?\s+week$/.test(bare)) bareMins = 7 * 24 * 60;
+    else {
+      const dm = bare.match(new RegExp(`^(\\d{1,4})\\s*${U}$`));
+      if (dm) bareMins = unitMins(parseInt(dm[1], 10), dm[2]);
+      else {
+        const wm = bare.match(new RegExp(`^(?:an?\\s+)?(couple|few)\\s+(?:of\\s+)?${U}$`));
+        if (wm) bareMins = unitMins(wm[1] === 'few' ? 3 : 2, wm[2]);
+      }
+    }
+    if (bareMins > 0) return inRange(nowMs + Math.round(bareMins) * MIN_MS);
+  }
+
   // Local calendar anchor for "today" in the recipient's zone.
   const p = tzParts(nowMs, tz);
   if (!p) return null;
@@ -327,10 +457,44 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   const at = (y, mo, d, h, mi) => zonedWallToUtcMs(y, mo, d, h, mi, tz);
   const [ty, tm, td] = addDay(y0, mo0, d0, 1);
 
-  if (/\bmidnight\b/.test(t)) return inRange(at(ty, tm, td, 0, 0));
-  if (/\bnoon\b/.test(t) && !/\btomorrow\b/.test(t)) {
-    return inRange(at(y0, mo0, d0, 12, 0)) || inRange(at(ty, tm, td, 12, 0));
+  // "midnight" (00:00) is the ONE time-of-day anchor we deliberately do NOT
+  // compose onto a named day the way "noon"/"morning"/"evening" do, because a
+  // day-qualified midnight is genuinely ambiguous: "saturday midnight" is either
+  // the midnight that STARTS Saturday or the one that ENDS it (most texters mean
+  // the latter, some the former), and "tomorrow midnight" the start or end of
+  // tomorrow. On the two-way text moat (voice still gated) a GUESSED wrong-day /
+  // wrong-side reschedule is the worst outcome the anti-shame design LAW guards
+  // against — strictly worse than a warm "which day did you mean?" re-ask. So
+  // bare "midnight" (and "tonight/tonite at midnight", the same instant) lands
+  // the next 00:00 = the start of tomorrow, unchanged; but a midnight carrying
+  // ANY other day/date token (a weekday, a calendar date, "tomorrow") returns
+  // null so the honest re-ask fires — instead of the prior branch that ignored
+  // the qualifier entirely and silently landed tomorrow 00:00 (the wrong day for
+  // "saturday midnight" / "the 12th at midnight", a day early for "tomorrow
+  // midnight"). Never a guessed wrong-day reschedule. The qualifier probes mirror
+  // the weekday / named-date / numeric-date branches below exactly so this reads
+  // "qualified" for precisely the inputs those branches would otherwise consume.
+  if (/\bmidnight\b/.test(t)) {
+    const midnightDayQualified =
+      /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|wknd|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/.test(t)
+      || /\b(tomorrow|tmrw|tmr)\b/.test(t)
+      || /\b(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\b/.test(t)
+      || /\b(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*\s+\d{1,2}/.test(t)
+      || /\b\d{1,2}(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*\b/.test(t)
+      || /\b\d{1,2}\s*[/-]\s*\d{1,2}\b/.test(tSep);
+    return midnightDayQualified ? null : inRange(at(ty, tm, td, 0, 0));
   }
+  // "noon" is modelled as a part-of-day anchor (see the `partOfDay` ladder below)
+  // so it COMPOSES with every day branch — "tomorrow noon", "saturday noon",
+  // "the 12th at noon" — exactly like "morning"/"afternoon"/"lunch". It used to
+  // sit here as a standalone branch that read only today/tomorrow, which produced
+  // two wrong-time outputs on the two-way text moat (the exact worst outcome the
+  // design LAW guards): the `&& !/\btomorrow\b/` guard skipped "tomorrow noon"
+  // and, with "noon" absent from the ladder, that branch fell to the 09:00
+  // default — silently DROPPING noon; and any other day-qualified "noon"
+  // ("saturday noon", "the 12th at noon") fired here and returned today/tomorrow
+  // noon, IGNORING the day and landing the reschedule days early. Bare "noon"
+  // still lands via the bare part-of-day branch below, unchanged.
 
   // "day after tomorrow" CONTAINS "tomorrow" but means +2 days. Detect it first
   // so the tomorrow branch below can land it two days out instead of one — a
@@ -339,7 +503,16 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // the opposite of the anti-shame design LAW).
   const wantsDayAfterTomorrow = /\bday after (tomorrow|tmrw|tmr)\b/.test(t);
   const wantsTomorrow = /\b(tomorrow|tmrw|tmr)\b/.test(t);
-  const wantsTonight = /\b(tonight|this evening)\b/.test(t);
+  // "tonite" / "2nite" / "tnite" — the texting spellings of "tonight". This is
+  // the SMS reschedule channel that is the moat while voice is gated, and it
+  // receives shorthand: the tomorrow matcher above already reads "tmrw"/"tmr",
+  // but tonight read only its full spelling — an asymmetry that dropped the most
+  // common casual "later today" answer this audience texts ("lets do it 2nite")
+  // to the cold "I couldn't read that time" re-ask, a quiet "he didn't get me"
+  // at the exact moment the design LAW matters. Same 20:00 anchor as "tonight";
+  // "2nite" carries no clock (the "2" has no word boundary before "nite", so the
+  // clock matcher below never reads it as 2 o'clock), so it composes cleanly.
+  const wantsTonight = /\b(tonight|tonite|2nite|tnite|this evening)\b/.test(t);
   // "end of day" / "eod" / "cob" — the conventional close of the working day, a
   // concrete 17:00 anchor that sits distinctly between "afternoon" (14:00) and
   // "evening" (19:00). A very common, unambiguous reschedule answer ("I'll get to
@@ -396,6 +569,7 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     : /\bfirst thing\b/.test(t) ? [9, 0]
     : /\bmid[\s-]?morning\b/.test(t) ? [10, 30]
     : /\bmorning\b/.test(t) ? [9, 0]
+    : /\bnoon\b/.test(t) ? [12, 0]
     : /\blunch(?:\s?time)?\b/.test(t) ? [13, 0]
     : /\bmid[\s-]?afternoon\b/.test(t) ? [15, 30]
     : /\bafternoon\b/.test(t) ? [14, 0]
@@ -429,15 +603,20 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
   // ("let's do saturday"). Bare form = the soonest future occurrence of that
   // day; "next X" forces the following week. Time-of-day reuses the SAME clock /
   // part-of-day / default-time reading as the tomorrow branch, so "mon 3" and
-  // "tomorrow 3" behave alike. "weekend" reads as Saturday.
+  // "tomorrow 3" behave alike. "weekend" reads as Saturday; "wknd" is its
+  // SMS-native spelling — the two-way text channel that is the moat while voice
+  // is gated receives the texted shorthand ("lets do it this wknd", "nxt wknd"),
+  // and left unread it fell to the cold "I couldn't read that time" re-ask — a
+  // quiet "he didn't get me" at the exact moment the anti-shame design LAW
+  // matters. `wknd` shares the Saturday anchor "weekend" already uses.
   const wdMatch = t.match(
-    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|wknd|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat)\b/
   );
   if (wdMatch) {
     const WD = {
       sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tues: 2, tue: 2,
       wednesday: 3, weds: 3, wed: 3, thursday: 4, thurs: 4, thur: 4, thu: 4,
-      friday: 5, fri: 5, saturday: 6, sat: 6, weekend: 6,
+      friday: 5, fri: 5, saturday: 6, sat: 6, weekend: 6, wknd: 6,
     };
     const WD_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const targetWd = WD[wdMatch[1]];
@@ -455,7 +634,11 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
 
     const base = (targetWd - todayWd + 7) % 7; // 0..6 days ahead (0 = today)
-    const offsets = /\bnext\b/.test(t) ? [base + 7] : [base, base + 7];
+    // "next friday"/"next wknd" forces the following week; `nxt` is the texted
+    // spelling of "next" the SMS-native audience uses ("nxt fri", "nxt wknd"),
+    // read alongside it so the shorthand lands the following-week occurrence
+    // instead of falling to the cold re-ask.
+    const offsets = /\b(next|nxt)\b/.test(t) ? [base + 7] : [base, base + 7];
     const cands = [];
     for (const off of offsets) {
       const [yy, mm2, dd] = addDay(y0, mo0, d0, off);
@@ -931,12 +1114,68 @@ export function computeStreakAfter(prev, outcome, today) {
 // no clinical claim. Persona shifts the energy (calm vs. hype), never the care.
 
 /** The nudge sent at check-in time: "you said, I'm here, let's go." */
-export function checkinPromptCopy({ title, persona } = {}) {
-  const what = (title || 'the thing').toString();
-  if (pickPersona(persona) === 'hype') {
-    return `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`;
+/**
+ * Pick a stable, non-negative index in [0, n) from an optional `seed`.
+ * A number seed is used directly (mod n); a string seed is hashed. An absent /
+ * empty seed always returns 0 — so an unseeded caller gets the canonical variant
+ * unchanged, and every existing snapshot holds. Deterministic and pure: the same
+ * seed always maps to the same index, so a redelivered/retried check-in reads
+ * IDENTICALLY (never a different message on a retry), while different occurrences
+ * of a recurring commitment rotate.
+ * @param {number|string|null|undefined} seed
+ * @param {number} n  number of variants (>0)
+ * @returns {number}
+ */
+function seedIndex(seed, n) {
+  if (!(n > 0)) return 0;
+  if (seed === undefined || seed === null || seed === '') return 0;
+  if (typeof seed === 'number' && Number.isFinite(seed)) {
+    return ((Math.trunc(seed) % n) + n) % n;
   }
-  return `You said you’d ${startsWithVerbish(what) ? '' : 'do '}${what}. I’m here — ready to go? We’ve got this.`;
+  const s = String(seed);
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return ((h % n) + n) % n;
+}
+
+/**
+ * The outbound check-in nudge — the bro showing up at the moment the person said.
+ *
+ * This is the OTHER half of the two-way text moat (the inbound reply parser is
+ * the first). A recurring commitment fires this on every occurrence, so a single
+ * fixed line means an ADHD brain reads the EXACT same text every day — and a
+ * message that never changes becomes wallpaper the brain filters out, which is
+ * precisely how a nudge decays into a swipe-away and the moat quietly erodes. So
+ * the copy rotates across a small set of warm, tone-identical variants, selected
+ * deterministically from `seed` (the caller passes the per-occurrence check-in
+ * id, stable across retries — see `deliverCheckin`). Every variant obeys THE
+ * DESIGN LAW: an ally glad you showed up, never a boss, never a tally. `seed`
+ * omitted → variant 0 (the canonical line, unchanged) so previews and unseeded
+ * callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
+ */
+export function checkinPromptCopy({ title, persona, seed } = {}) {
+  const what = (title || 'the thing').toString();
+  const doWhat = `${startsWithVerbish(what) ? '' : 'do '}${what}`;
+  if (pickPersona(persona) === 'hype') {
+    // Every hype variant carries an unmistakable hype marker (Yo / 🔥) — the
+    // coach-checkin-delivery contract asserts it.
+    const v = [
+      `Yo — you called it: ${what}. Let’s get it. I’m right here with you. 🔥`,
+      `Yo, it’s go time — ${doWhat}! I’m right here with you. Let’s move. 🔥`,
+      `Let’s GO — time to ${doWhat}. 🔥 I’m in your corner; one step and we’re rolling.`,
+      `Yo — ready to ${doWhat}? 🔥 I’m right beside you. One tiny start and we’re off. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
+  }
+  const v = [
+    `You said you’d ${doWhat}. I’m here — ready to go? We’ve got this.`,
+    `You’re up: time to ${doWhat}. No pressure — I’m right here with you.`,
+    `Ready to ${doWhat}? I’ve got your back. One small start and we’re moving.`,
+    `Let’s ${doWhat} together. I’m right here whenever you’re set to begin.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
@@ -959,13 +1198,40 @@ export function checkinReplyHint(persona) {
  * through hardest here — an escalation is an ally knocking once more, never a
  * scold, never a tally, and it always offers the warm exit ("pick a better
  * time") as readily as the start.
+ *
+ * Like `checkinPromptCopy`, this rotates across warm, tone-identical variants
+ * seeded deterministically from `seed` (the caller passes the per-occurrence
+ * check-in id — see `runEscalations`). A recurring commitment that goes quiet
+ * each day would otherwise get the IDENTICAL escalation text every time — the
+ * same wallpaper decay one rung down the ladder — so a daily miss reads as the
+ * bro finding a fresh way to say "still here", not a form letter. Every variant
+ * offers a way in (a tiny step), the warm exit ("pick a better time") recurs
+ * through the rotation so a person who needs to defer always sees it, and none
+ * tallies. `seed` omitted → variant 0 (the canonical line, unchanged) so
+ * previews and unseeded callers are untouched.
+ * @param {{ title?: string, persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function escalationCopy({ title, persona } = {}) {
+export function escalationCopy({ title, persona, seed } = {}) {
   const what = (title || 'the thing').toString();
   if (pickPersona(persona) === 'hype') {
-    return `Still right here — ${what} is ready when you are. One tiny step together? 🔥`;
+    // Every hype variant carries a hype marker (🔥 / Yo) and offers both a tiny
+    // step now and the warm exit — an ally knocking once more, never a scold.
+    const v = [
+      `Still right here — ${what} is ready when you are. One tiny step together? 🔥`,
+      `Yo — still in your corner on ${what}. One small step now, or grab a better time — either way I’ve got you. 🔥`,
+      `No stress — I’m still here for ${what}. 🔥 Want to knock out one little piece together, or pick a time that fits better?`,
+      `Still here, still with you — ${what} whenever you’re ready. 🔥 One tiny start together, or line up a better time?`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`;
+  const v = [
+    `No rush — I’m still here about ${what}. Want to start small together, or pick a better time?`,
+    `Still here about ${what} — no pressure at all. We can take one tiny step together, or find a time that works better.`,
+    `I’m right here whenever you’re ready for ${what}. Want to ease in with one small start, or pick a better time?`,
+    `No rush at all — ${what} is still here for you. One little step together, or shall we line up a better time?`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /**
@@ -978,12 +1244,43 @@ export function escalationCopy({ title, persona } = {}) {
  * names the absence, never a streak-at-risk, never a "you missed" — it is an ally
  * glad they exist, holding the door open. Opt-in by channel (push is subscribed;
  * text is TCPA consent-gated). Persona shifts the energy, never the care.
+ *
+ * Like `checkinPromptCopy` and `escalationCopy`, this rotates across warm,
+ * tone-identical variants seeded deterministically from `seed` (the caller passes
+ * a per-dormancy-EPISODE identifier — see `runReturnNudges`, which seeds on the
+ * user id + the activity timestamp that anchors this episode). A person who goes
+ * quiet, returns, and goes quiet again would otherwise get the IDENTICAL welcome
+ * back each time — the same wallpaper decay the nudge and the knock already shed
+ * one and two rungs down the ladder, and at the single most delicate moment on
+ * the channel: a re-entry after silence. So a repeat-returner meets the bro
+ * finding a fresh way to hold the door open, never a form letter. Every variant
+ * still holds zero agenda, names no absence, and ends with the same open-door way
+ * in ("give a word for today?"); every hype variant carries the 💪 hype marker
+ * and no ally variant does (the calm-vs-hype discriminator). `seed` omitted →
+ * variant 0 (the canonical line, unchanged) so previews and unseeded callers are
+ * byte-for-byte untouched.
+ * @param {{ persona?: string, seed?: number|string }} [opts]
+ * @returns {string}
  */
-export function returnNudgeCopy({ persona } = {}) {
+export function returnNudgeCopy({ persona, seed } = {}) {
   if (pickPersona(persona) === 'hype') {
-    return 'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?';
+    // Every hype variant carries the 💪 hype marker and holds the door open with
+    // zero agenda — an ally glad you exist, never a word about the silence.
+    const v = [
+      'Yo — no agenda, just in your corner. 💪 Whenever you want to line something up, I’m right here. Want to give a word for today?',
+      'Yo — no agenda, just hyped you’re here. 💪 Whenever you want to line something up, I’m right beside you. Want to give a word for today?',
+      'Yo — good to see you. 💪 No pressure, no catch — whenever you’re ready to line something up, I’m right here for it. Want to give a word for today?',
+      'Yo — I’m in your corner, no agenda at all. 💪 Whenever you feel like starting something fresh, I’ve got you. Want to give a word for today?',
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return 'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?';
+  const v = [
+    'Hey — no pressure at all, just checking in. I’m still here whenever you want to pick something back up. Want to give a word for today?',
+    'Hey — no agenda here, just glad you’re around. Whenever you feel like lining something up, I’m right here. Want to give a word for today?',
+    'Hey there — the door’s wide open, no pressure at all. Whenever you’re ready to pick something up, I’ve got you. Want to give a word for today?',
+    'Hey — good to see you. No rush and nothing owed; I’m still right here whenever you want to start fresh. Want to give a word for today?',
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** After a kept word: celebrate the person, name the streak, mean it. */
@@ -1040,6 +1337,36 @@ export function releaseConfirmCopy({ persona } = {}) {
     return 'Set it down — no stress at all. Clearing this one off your plate. Your streak’s untouched; start a fresh word whenever you’re ready. 💪';
   }
   return 'Consider it set down — no problem at all. I’ve cleared it, and your streak stays right where it is. Give a new word whenever you’re ready.';
+}
+
+/**
+ * Warm reply when a check-in resolve arrives for a word that is no longer active
+ * — already kept, set down (released), paused, or otherwise settled (e.g. a stale
+ * tab, or a second device acting after the word was closed elsewhere). Under the
+ * design LAW this is never a scold and never a miss: the word simply isn't waiting
+ * on the person right now, and the door back in stays open. Streak is never touched.
+ */
+export function alreadySettledCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'That one’s already handled — nothing waiting on you here. Streak’s safe. Give a fresh word whenever you’re ready. 💪';
+  }
+  return 'That word isn’t waiting on you right now — it’s already settled, no problem at all. Your streak stays right where it is. Give a new word whenever you’re ready.';
+}
+
+/**
+ * Warm reply when a resolve arrives for a word that IS still active but whose
+ * current occurrence is already logged — a double-tap, a stale card, a second
+ * device — or when the only thing open is a future day's not-yet-due check-in.
+ * Unlike {@link alreadySettledCopy} it never says "give a new word": the word is
+ * a live rhythm still rolling on its own, so the copy simply confirms this one is
+ * already counted and gets out of the way. No second streak credit, no shame, no
+ * count — the design LAW holds.
+ */
+export function alreadyLoggedCopy({ persona } = {}) {
+  if (pickPersona(persona) === 'hype') {
+    return 'Already logged this one — you’re covered. 🙌 Nothing else waiting right now; I’ll catch you at the next one.';
+  }
+  return 'Got this one already — you’re all set, no need to log it twice. Nothing else is waiting on you right now; I’ll be here at the next check-in.';
 }
 
 /**
@@ -1308,6 +1635,486 @@ export function milestoneCopy({ streak } = {}) {
   return `🎯 ${cur} kept words in a row — that’s a real milestone. Proud of you.`;
 }
 
+/** Lifetime kept-word totals worth a distinct "you've kept this many, ever" mark. */
+export const KEPT_TOTAL_LANDMARKS = [10, 25, 50, 100, 250, 500, 1000];
+
+/**
+ * A LIFETIME-landmark badge for the kept-word total — the one number in the whole
+ * product that can only ever go up. Where {@link milestoneCopy} marks a current
+ * RUN (which a single miss resets to zero) and {@link personalBestCopy} marks
+ * being AT your all-time peak (which a decline takes away), this marks the
+ * cumulative count of every word you have EVER kept crossing a landmark
+ * ({@link KEPT_TOTAL_LANDMARKS}).
+ *
+ * Anti-shame not just by wording but by ARITHMETIC: it reads `total_kept`, which
+ * {@link computeStreakAfter} increments on a kept word and NEVER decrements — a
+ * miss silently resets the run but never touches the lifetime total. So this line
+ * can only ever appear on the way UP; no reset, quiet stretch, or missed word can
+ * ever take a reached landmark away. It is the celebration that survives every
+ * reset — for the person whose run keeps returning to zero, it is the count that
+ * only grows.
+ *
+ * Fires ONLY when the lifetime total is EXACTLY a landmark, '' otherwise — so a
+ * between-landmarks total carries nothing: never a "N to go" nag, never a
+ * distance-to-next, never a reference to a gap or a past. Independent of both
+ * streak celebrations and free to co-occur with either: you can cross your 100th
+ * kept word (a lifetime landmark) while your current run is 4 and your best is 30
+ * — three true, unshaming wins that each say something different.
+ *
+ * @param {object} p { streak: { total_kept } }
+ * @returns {string} the landmark line, or '' when not exactly at a landmark
+ */
+export function keptTotalLandmarkCopy({ streak } = {}) {
+  const total = Number(streak?.total_kept) || 0;
+  if (!KEPT_TOTAL_LANDMARKS.includes(total)) return '';
+  return `🏅 ${total} words kept, all-time — every word you’ve ever shown up for. This number only ever grows. Proud of you.`;
+}
+
+/**
+ * The STANDING all-time record for the kept-word streak — your strongest run,
+ * shown as a permanent record that a reset can never revoke. This fills the one
+ * gap the other three streak lines leave open: at `current_streak === 0` (a fresh
+ * start, or the moment right after a miss zeroes the run) {@link streakSummaryCopy}
+ * says only "fresh start", and {@link personalBestCopy} / {@link milestoneCopy}
+ * both go silent — so the person's genuine best run (a real thing they achieved)
+ * becomes completely invisible at the single most shame-prone moment in the
+ * product ("I lost my streak"). This surfaces it there, as reassurance.
+ *
+ * Anti-shame not just by wording but by ARITHMETIC and by GATING:
+ * - `longest_streak` is monotonic — {@link computeStreakAfter} only ever raises it
+ *   (a miss resets the run but never lowers the best), so this line, like the
+ *   lifetime landmark, can only ever describe a number on the way up; no reset can
+ *   take a reached record away.
+ * - It fires ONLY at `current_streak === 0`. That is deliberate: it never sits
+ *   beside a live run (where {@link streakSummaryCopy} already narrates the best
+ *   inline, and where a "your record is N but you're at M" juxtaposition would be
+ *   exactly the decline-comparison the LAW forbids). At zero there is no current
+ *   run to compare against, so the record stands alone — a standing achievement,
+ *   never a gap. It names the record and frames it as permanent ("yours to keep",
+ *   "a fresh start never takes it back"); it never references the reset, a decline,
+ *   a "you were better", or a distance to anything.
+ *
+ * Requires `longest_streak >= 2` (a run of one isn't a record worth naming),
+ * matching {@link personalBestCopy}'s "worth marking" bar. Returns '' otherwise.
+ *
+ * @param {object} p { streak: { current_streak, longest_streak } }
+ * @returns {string} the standing-record line, or '' when there's no record to hold
+ */
+export function personalRecordCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  const best = Number(streak?.longest_streak) || 0;
+  if (cur !== 0 || best < 2) return '';
+  return `🛡️ Your best run stands: ${best} words kept in a row — the strongest you’ve ever put together, and it’s yours to keep. A fresh start never takes it back.`;
+}
+
+// ── POWER HOURS ──────────────────────────────────────────────
+// The person's own read of WHEN in the day their kept words tend to land — the
+// insight the per-day momentum sparkline can't give. The histogram math + the
+// signal gate live in ./momentum.js (bucketKeptByHour, peakKeptHour); the warm
+// first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever point at an hour you SHOWED UP — never a quiet hour, never a "you get
+// nothing done after lunch". It names a single high point as a strength to lean
+// into, and fires ONLY when peakKeptHour clears its signal gate — a thin or flat
+// history returns null → '' here, never a guess.
+
+/** Heading over the person's power-hours read. */
+export function powerHoursHeadingCopy() {
+  return 'Your power hours';
+}
+
+/** Intro under the power-hours heading — first person, strengths-only by design. */
+export function powerHoursIntroCopy() {
+  return 'The time of day your kept words tend to land. Only ever your strong hours — a quiet hour is just quiet, never counted against you.';
+}
+
+/**
+ * Warm one-line "power hours" read: names the hour of day the person is strongest,
+ * from a peak-hour object (see {@link peakKeptHour}). Anti-shame by CONSTRUCTION —
+ * it points only at a time they kept their word and frames it as a window to lean
+ * into, never a deficit, a comparison, or the hours they missed. Returns '' when
+ * there is no trustworthy power hour to name (the gate returned null).
+ * @param {object} p
+ * @param {{ hour:number, count:number } | null} p.peak  from {@link peakKeptHour}
+ * @returns {string}
+ */
+export function powerHoursCopy({ peak } = {}) {
+  if (!peak || typeof peak.hour !== 'number') return '';
+  const when = describeHourBand(peak.hour);
+  if (!when) return '';
+  return `You’re strongest around ${when} — that’s where most of your kept words land. Lean into it. 💪`;
+}
+
+// ── ALL-TIME BEST DAY ────────────────────────────────────────
+// The person's own high-water mark: the single day they kept the most words
+// EVER. The per-day momentum sparkline shows the last two weeks; the power-hours
+// read shows the time of day; the per-word detail view has its own best day — but
+// nothing said "the most you ever kept across ALL your words in ONE day". This
+// does. The bucketing + record math live in ./momentum.js (allTimeBestDay); the
+// warm first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever crown a day the person SHOWED UP. It is a standing record that only
+// ever climbs (a past kept day never disappears) — never a bar you must clear,
+// never a comparison to today, never a "you were better before". Fires ONLY when
+// allTimeBestDay clears its floor → a thin history returns null → '' here.
+
+/** Heading over the person's all-time best-day record. */
+export function bestDayHeadingCopy() {
+  return 'Your best day';
+}
+
+/** Intro under the best-day heading — first person, record-only by design. */
+export function bestDayIntroCopy() {
+  return 'The most kept words you’ve ever put together in a single day — a high-water mark that’s yours to keep. A quiet day never takes it back.';
+}
+
+/**
+ * Warm one-line all-time best-day read: names the record count and the day it
+ * happened, from an {@link allTimeBestDay} result. Anti-shame by CONSTRUCTION —
+ * it celebrates a peak the person actually hit and frames it as a standing record
+ * that only ever climbs, never a target to clear, a comparison to today, or a
+ * decline. Follows {@link detailPeakDayCopy}'s colon phrasing so a relative day
+ * name ("today"/"yesterday") reads naturally. Returns '' when there is no record
+ * to crown (the engine returned null) or the day can't be named.
+ * @param {object} p
+ * @param {{ date:string, count:number } | null} p.best  from {@link allTimeBestDay}
+ * @param {string} [p.nowISO]     "today" anchor for the warm day name
+ * @param {string} [p.timezone]   IANA zone the record was bucketed in
+ * @returns {string}
+ */
+export function bestDayCopy({ best, nowISO, timezone } = {}) {
+  const count = Number(best && best.count) || 0;
+  if (!best || count < 2) return '';
+  const when = describePeakDay(best.date, { nowISO, timezone });
+  if (!when) return '';
+  const words = count === 1 ? 'word' : 'words';
+  return `🌟 Your best day so far: ${when} — ${count} kept ${words} in one day. The most you’ve ever put together at once, and it only ever climbs from here.`;
+}
+
+// ── KEPT SINCE (how long you've been keeping ONE word) ───────
+// The per-word momentum sparkline shows the recent shape and the best-day callout
+// names the peak; neither says how LONG this word has been a practice. This does —
+// it names the day you first kept THIS word, so a long-standing rhythm reads as
+// the practice it is ("keeping this since Jul 8"), not just a raw count. The
+// date math lives in ./momentum.js (formatCalendarDay, calendarDaysAgo); the warm
+// first-person words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads the FIRST status='kept' instant ONLY (the
+// route's MIN is over kept rows — no miss is ever read or surfaced), so it can
+// only ever anchor to a day the person SHOWED UP. It is a standing fact that only
+// ages forward — a quiet stretch or a reset never moves the "since" date or
+// erases the practice. It fires ONLY once the word is a real practice (a floor on
+// the count AND a week or more of history), so a just-started or thin word returns
+// '' and nothing shows — never a "since today", never a "0 days".
+
+/** Minimum kept count before a word is a "practice" worth a since-anchor. */
+export const KEPT_SINCE_MIN_COUNT = 3;
+/** Minimum span (days) before "since" reads as a standing practice, not "today". */
+export const KEPT_SINCE_MIN_DAYS = 7;
+
+/**
+ * Warm one-line "you've been keeping this since …" anchor for a single word's
+ * detail panel. Anti-shame by CONSTRUCTION — it reads only the first KEPT instant
+ * on this word and frames the span as a practice being built, never a lapse, a
+ * gap since, a comparison, or a miss. Fires ONLY at {@link KEPT_SINCE_MIN_COUNT}+
+ * kept AND {@link KEPT_SINCE_MIN_DAYS}+ of history (so a young or thin word shows
+ * nothing); returns '' when there's no anchor to name.
+ *
+ * @param {object} p
+ * @param {string} p.firstKeptISO  the earliest status='kept' responded_at for this word
+ * @param {number} p.count         the word's honest lifetime kept count
+ * @param {string} [p.nowISO]      "today" anchor (defaults to now)
+ * @param {string} [p.timezone]    IANA zone the day is resolved in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the since-anchor line, or '' when there's no practice to name
+ */
+export function keptSinceCopy({ firstKeptISO, count, nowISO, timezone, persona } = {}) {
+  const n = Number(count) || 0;
+  if (n < KEPT_SINCE_MIN_COUNT) return '';
+  const daysAgo = calendarDaysAgo(firstKeptISO, { nowISO, timezone });
+  if (daysAgo == null || daysAgo < KEPT_SINCE_MIN_DAYS) return '';
+  const day = formatCalendarDay(firstKeptISO, { nowISO, timezone });
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `🌱 Keeping this one since ${day} — ${n} and going strong. That’s a real practice you built. 💪`;
+  }
+  return `🌱 You’ve been keeping this one since ${day} — the practice you’ve been building, one kept word at a time.`;
+}
+
+// ── KEEPING YOUR WORD SINCE (the account-level longevity anchor) ──
+// The per-word "kept since" (above) names how long ONE word has been a practice.
+// This is the same longevity read one level up: the day the person kept their
+// VERY FIRST word here, across ALL their commitments — a standing anchor for the
+// whole account, the start of the practice they've been building. Where the
+// lifetime landmark (keptTotalLandmarkCopy) counts HOW MANY and the best day
+// (bestDayCopy) crowns the tallest single day, this names the WHEN it all began.
+//
+// DESIGN LAW, by construction: the route's read is a MIN(responded_at) over
+// status='kept' rows ONLY — no miss is ever read or surfaced — so it can only ever
+// anchor to a day the person SHOWED UP. It is a standing fact that only ages
+// forward: a quiet stretch or a reset never moves the "since" date or erases the
+// practice. It fires ONLY once there's a real practice to name (a floor on the
+// lifetime kept count AND a week or more of history), so a brand-new or thin
+// account returns '' and nothing shows — never a "since today", never a "0 days".
+
+/** Minimum lifetime kept words before the account-level since-anchor speaks. */
+export const ACCOUNT_SINCE_MIN_COUNT = 5;
+/** Minimum span (days) since the first kept word before "since" reads as standing. */
+export const ACCOUNT_SINCE_MIN_DAYS = 7;
+
+/** Heading over the account-level "keeping your word since" anchor. */
+export function keepingSinceHeadingCopy() {
+  return 'Keeping your word';
+}
+
+/** Intro under the keeping-your-word heading — first person, longevity-only by design. */
+export function keepingSinceIntroCopy() {
+  return 'The day you first kept your word here — the start of the practice you’ve been building, one word at a time. It only ever grows from here.';
+}
+
+/**
+ * Warm one-line account-level "you've been keeping your word since …" anchor for
+ * /me/. The person-level twin of {@link keptSinceCopy} (which is per-word): it names
+ * the day of the FIRST kept word across ALL commitments. Anti-shame by CONSTRUCTION
+ * — it reads only the first KEPT instant (the route's MIN is over kept rows — no
+ * miss is ever read) and frames the span as a practice being built, never a lapse,
+ * a gap-since, a comparison, or a miss. Fires ONLY at {@link ACCOUNT_SINCE_MIN_COUNT}+
+ * lifetime kept AND {@link ACCOUNT_SINCE_MIN_DAYS}+ of history (so a young or thin
+ * account shows nothing); returns '' when there's no anchor to name.
+ *
+ * @param {object} p
+ * @param {string} p.firstKeptISO  the earliest status='kept' responded_at, account-wide
+ * @param {number} p.count         the person's lifetime kept count (streak.total_kept)
+ * @param {string} [p.nowISO]      "today" anchor (defaults to now)
+ * @param {string} [p.timezone]    IANA zone the day is resolved in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the account since-anchor line, or '' when there's no practice to name
+ */
+export function keepingSinceCopy({ firstKeptISO, count, nowISO, timezone, persona } = {}) {
+  const n = Number(count) || 0;
+  if (n < ACCOUNT_SINCE_MIN_COUNT) return '';
+  const daysAgo = calendarDaysAgo(firstKeptISO, { nowISO, timezone });
+  if (daysAgo == null || daysAgo < ACCOUNT_SINCE_MIN_DAYS) return '';
+  const day = formatCalendarDay(firstKeptISO, { nowISO, timezone });
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `🌱 You’ve been keeping your word since ${day} — that’s a real practice you built, and it only grows from here. 💪`;
+  }
+  return `🌱 You’ve been keeping your word since ${day} — the practice you’ve been building here, one word at a time.`;
+}
+
+// ── DAYS YOU SHOWED UP (lifetime distinct active days) ───────
+// The BREADTH companion to the lifetime kept COUNT: keptTotalLandmarkCopy counts
+// HOW MANY words, bestDayCopy crowns the tallest single day, keepingSinceCopy
+// names WHEN it began — this names HOW MANY DAYS the person showed up at all. Two
+// accounts with the same kept total read very differently if one kept them across
+// six days and the other across thirty-five; this surfaces that spread as a warm,
+// standing number. Anti-shame by CONSTRUCTION: it counts only distinct days that
+// carry a status='kept' word (the route reads kept rows ONLY — no miss is ever
+// read), so it can only ever count days the person SHOWED UP; a quiet day is
+// simply not in the set, never counted and never subtracted, so the number can
+// only climb. No comparison, no target, no "days since".
+
+/** Minimum distinct active days before "days you showed up" reads as a practice. */
+export const SHOWED_UP_DAYS_MIN = 3;
+
+/** Heading over the account-level "days you showed up" breadth read. */
+export function showedUpDaysHeadingCopy() {
+  return 'Days you showed up';
+}
+
+/** Intro under the days-you-showed-up heading — first person, breadth-only by design. */
+export function showedUpDaysIntroCopy() {
+  return 'The number of separate days you’ve kept your word here — every one a day you came through for yourself. It only ever grows.';
+}
+
+/**
+ * Warm one-line "you’ve shown up on N different days" breadth read for /me/. The
+ * BREADTH twin of the lifetime landmark (which counts words): it names the count
+ * of distinct local days the person kept at least one word. Anti-shame by
+ * CONSTRUCTION — the count is derived from status='kept' instants ONLY (no miss is
+ * ever read), so every counted day is a day they showed up; the copy frames it as
+ * days-came-through, never a target, a comparison, a gap, or a miss. Fires ONLY at
+ * {@link SHOWED_UP_DAYS_MIN}+ distinct days (so a barely-started account shows
+ * nothing); returns '' when there’s no real spread to name.
+ *
+ * @param {object} p
+ * @param {number} p.days             the count of distinct active days
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string} the breadth line, or '' when below the floor
+ */
+export function showedUpDaysCopy({ days, persona } = {}) {
+  const n = Number(days) || 0;
+  if (n < SHOWED_UP_DAYS_MIN) return '';
+  // n is always ≥ SHOWED_UP_DAYS_MIN (≥ 3) here, so the plural is unconditional,
+  // but keep the singular guard so the helper stays honest if the floor ever drops.
+  const dayWord = n === 1 ? 'day' : 'days';
+  if (pickPersona(persona) === 'hype') {
+    return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} times you came through for yourself. Keep stacking them. 💪`;
+  }
+  return `📆 You’ve shown up on ${n} different ${dayWord} — that’s ${n} separate days you came through for yourself.`;
+}
+
+// ── POWER DAY (the weekday your kept words most often land) ──
+// The weekday sibling of power hours: powerHoursCopy names the HOUR of day the
+// person is strongest; this names the DAY OF THE WEEK they come through most,
+// across their kept history. The histogram math + the signal gate live in
+// ./momentum.js (bucketKeptByWeekday, peakKeptWeekday); the warm first-person
+// words live here with the API that emits them.
+//
+// DESIGN LAW, by construction: it reads a status='kept' histogram ONLY, so it can
+// only ever point at a weekday you SHOWED UP — never a "weak day", never a "you
+// never keep words on Mondays". It names a single high point as a strength to lean
+// into, and fires ONLY when peakKeptWeekday clears its signal gate — a thin, flat,
+// or tied history returns null → '' here, never a guess.
+
+/** Heading over the person's power-day read. */
+export function powerDayHeadingCopy() {
+  return 'Your power day';
+}
+
+/** Intro under the power-day heading — first person, strengths-only by design. */
+export function powerDayIntroCopy() {
+  return 'The day of the week your kept words most often land. Only ever your strongest day — a quiet day is just quiet, never counted against you.';
+}
+
+/**
+ * Warm one-line "power day" read: names the weekday the person comes through most,
+ * from a peak-weekday object (see {@link peakKeptWeekday}). Anti-shame by
+ * CONSTRUCTION — it points only at a weekday they kept their word and frames it as
+ * a day to lean into, never a deficit, a comparison, or the days they missed.
+ * Returns '' when there is no trustworthy power day to name (the gate returned null)
+ * or the weekday can't be named.
+ * @param {object} p
+ * @param {{ weekday:number, count:number } | null} p.peak  from {@link peakKeptWeekday}
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function powerDayCopy({ peak, persona } = {}) {
+  if (!peak || typeof peak.weekday !== 'number') return '';
+  const day = describeWeekday(peak.weekday);
+  if (!day) return '';
+  if (pickPersona(persona) === 'hype') {
+    return `📅 ${day}s are your day — that’s where most of your kept words land. Keep stacking them. 💪`;
+  }
+  return `📅 You’re strongest on ${day}s — that’s the day of the week most of your kept words land. Lean into it. 💪`;
+}
+
+// ── TYPICAL DAY (how much you tend to keep on a day you show up) ──
+// The INTENSITY read beside the count/peak/breadth reads: keptTotalLandmarkCopy
+// counts HOW MANY, bestDayCopy crowns the tallest single day, showedUpDaysCopy
+// names HOW MANY DAYS, powerDayCopy names the strongest weekday — this names the
+// average kept words on a day the person shows up: their rhythm. The math lives in
+// ./momentum.js (typicalKeptPerActiveDay); the warm first-person words live here.
+//
+// DESIGN LAW, by construction: the average is built from a status='kept' history
+// ONLY — both the kept total it divides and the distinct active days it divides by
+// are kept-only, so a quiet day is in neither and can never be averaged in. It can
+// only ever describe the days the person SHOWED UP. No target, no comparison, no
+// "days you kept nothing". It fires only once the history clears the signal gate;
+// and even then, below ~2 words a day it stays silent (that story is already told
+// by "days you showed up"), so it never reads as a hollow "about 1 a day".
+
+/** Minimum rounded words-per-active-day before the typical-day line speaks. Below
+ *  this the read adds nothing beyond "you showed up" (already its own card), so it
+ *  stays silent rather than name a hollow figure. */
+export const TYPICAL_DAY_MIN_PER_DAY = 2;
+
+/** Heading over the person's typical-day intensity read. */
+export function typicalDayHeadingCopy() {
+  return 'Your typical day';
+}
+
+/** Intro under the typical-day heading — first person, kept-days-only by design. */
+export function typicalDayIntroCopy() {
+  return 'About how many words you keep on a day you show up — your rhythm, drawn only from the days you came through. A quiet day is just quiet, never averaged in.';
+}
+
+/**
+ * Warm one-line "typical day" read: names about how many words the person keeps on
+ * a day they show up, from a {@link typicalKeptPerActiveDay} result. Anti-shame by
+ * CONSTRUCTION — the average is drawn from status='kept' days ONLY, so it frames a
+ * rhythm the person keeps, never a deficit, a comparison, or the days they missed.
+ * Rounds to a warm "about N" and stays SILENT below {@link TYPICAL_DAY_MIN_PER_DAY}
+ * (a ~1-a-day average adds nothing past "days you showed up") or when there is no
+ * trustworthy average to name (the gate returned null).
+ * @param {object} p
+ * @param {{ perDay:number, total:number, days:number } | null} p.typical  from {@link typicalKeptPerActiveDay}
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function typicalDayCopy({ typical, persona } = {}) {
+  if (!typical || typeof typical.perDay !== 'number' || !Number.isFinite(typical.perDay)) return '';
+  const n = Math.round(typical.perDay);
+  if (!(n >= TYPICAL_DAY_MIN_PER_DAY)) return '';
+  const wordWord = n === 1 ? 'word' : 'words';
+  if (pickPersona(persona) === 'hype') {
+    return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm. Keep it rolling. 💪`;
+  }
+  return `🌤️ On a day you show up, you keep about ${n} ${wordWord} — that’s your rhythm, drawn only from the days you came through.`;
+}
+
+// ── BEST WEEK (the biggest week you ever put together) ────────
+// The week-scale peer of bestDayCopy: where the best DAY crowns the tallest single
+// day, this crowns the tallest local WEEK — the seven-day stretch you strung the
+// most kept words together in. The math lives in ./momentum.js (allTimeBestWeek,
+// describeBestWeek); the warm first-person words live here with the API that emits
+// them.
+//
+// DESIGN LAW, by construction: the week is built from a status='kept' history ONLY
+// (allTimeBestWeek buckets kept instants), so it can only ever crown a week the
+// person SHOWED UP. It is a standing record that only ever climbs — a quiet week
+// never takes it back, and there is no "worst week" or week-over-week comparison
+// anywhere. It fires only past the signal floor; and it stays SILENT unless the
+// week beats the person's best single DAY (a week no bigger than one day would only
+// echo the best-day card, adding nothing).
+
+/** Heading over the person's all-time best-week record. */
+export function bestWeekHeadingCopy() {
+  return 'Your best week';
+}
+
+/** Intro under the best-week heading — first person, record-only by design. */
+export function bestWeekIntroCopy() {
+  return 'The most kept words you’ve ever strung together across a single week — a high-water mark that’s yours to keep. A quiet week never takes it back.';
+}
+
+/**
+ * Warm one-line all-time best-week read: names the record count and the week it
+ * happened, from an {@link allTimeBestWeek} result. Anti-shame by CONSTRUCTION — it
+ * celebrates a peak the person actually hit and frames it as a standing record that
+ * only ever climbs, never a target, a week-over-week comparison, or a decline.
+ *
+ * Stays SILENT unless the best week is strictly BIGGER than the best single day
+ * (`bestDayCount`): a "best week" no larger than one already-crowned day would only
+ * echo the best-day card, so it adds nothing and shows nothing. Returns '' when
+ * there is no record to crown (engine returned null / below floor) or the week
+ * can't be named.
+ *
+ * @param {object} p
+ * @param {{ weekStart:string, count:number } | null} p.best  from {@link allTimeBestWeek}
+ * @param {number} [p.bestDayCount=0]  the person's best SINGLE-day count, to gate against echo
+ * @param {string} [p.nowISO]     "this week" anchor for the warm week name
+ * @param {string} [p.timezone]   IANA zone the record was bucketed in
+ * @param {'ally'|'hype'} [p.persona]
+ * @returns {string}
+ */
+export function bestWeekCopy({ best, bestDayCount = 0, nowISO, timezone, persona } = {}) {
+  const count = Number(best && best.count) || 0;
+  if (!best || count < BEST_WEEK_MIN_COUNT) return '';
+  const dayFloor = Number(bestDayCount) || 0;
+  if (count <= dayFloor) return ''; // a week no bigger than one day just echoes best-day
+  const when = describeBestWeek(best.weekStart, { nowISO, timezone });
+  if (!when) return '';
+  const words = count === 1 ? 'word' : 'words';
+  if (pickPersona(persona) === 'hype') {
+    return `🏔️ Biggest week yet: ${when} — ${count} kept ${words} across it. A record only you can beat, and it only ever climbs. 💪`;
+  }
+  return `🏔️ Your best week so far: ${when} — ${count} kept ${words} across it. The most you’ve ever put together in seven days, and it only ever climbs from here.`;
+}
+
 // ── TWO-WAY TEXT CHECK-INS ───────────────────────────────────
 // A text check-in ("You said you'd start the taxes at 2 — ready?") is only half
 // the loop if you can't answer it. When someone texts back, we read the reply:
@@ -1349,12 +2156,152 @@ const PARTIAL = /\b(half\s?way|part\s?way|part of the way|mid\s?way|made a start
 // These read as progress for the confirmation copy; a bare "on it" / "hang on"
 // does not.
 const PROGRESS_MOVEMENT = /\b(working on it|still working|still on it|still at it|still going|almost there|nearly there|in the middle|middle of it)\b/;
+// The subset of the flow-state family (FLOW, in detectCheckinReply) that reports
+// active EXERTION — the person moving the needle right now, not merely a focused
+// state: "grinding", "cranking", "plugging away", "on a roll", "in the groove",
+// "beast mode". R-273 already reads the whole flow family as a snooze; this lets
+// the confirmation copy meet these movement phrases with "love that you're
+// moving" instead of the generic "you got it", the same way PROGRESS_MOVEMENT
+// does for the marker-word snooze family. Deliberately a strict subset of FLOW:
+// the pure focus-STATE phrases ("in the zone", "locked in", "dialed in", "heads
+// down", "in the weeds", "in the flow") report engagement but not reported
+// movement, so they keep the generic-warm snooze copy — same warmth, same
+// interval, just not the movement line. Every form is `\b`-anchored and matches
+// FLOW's exact spelling so the two never drift. Never touches the streak — a
+// snooze is not a resolution and not a miss.
+const FLOW_MOVEMENT = /\b(on a roll|in the groove|beast mode|cranking(?: away| through)?|plugging away|grinding(?: away)?)\b/;
+// The hardest reply on the whole moat: a self-critical miss. An ADHD user
+// drowning in shame texts back "failed again", "i suck", "gave up", "i'm
+// useless", "what's the point", "i'm the worst". None of these carries a
+// reschedule marker word (no "later"/"tomorrow"/"can't"/"didn't"), so they fell
+// through the entire classifier to a bare `null` — and `null` is the COLD "I
+// didn't catch that, reply DONE or LATER" re-prompt. That is the exact scold the
+// ONE design LAW forbids ("never shame"), delivered to the very person who most
+// needs the warm hand. Read the residual self-blame / defeat family as a
+// RESCHEDULE — the no-shame path, which answers "no problem, when do you want to
+// try again?" and keeps the streak safe (a reschedule never resets it).
+//
+// Streak-safe AND regression-safe BY CONSTRUCTION: this net is consulted only in
+// detectCheckinReply AFTER RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the bare
+// hold-length nets have each already returned. So a real completion ("did it, i
+// suck at this but got it done") stays KEPT, a "later"/"tomorrow" stays a plain
+// RESCHEDULE, and an "on it, i'm useless at focusing" stays a SNOOZE — every
+// existing classification is untouched. The only reply this net can ever change
+// is one that would otherwise have gone cold. The "the worst"/"a failure"/etc.
+// identity phrases are anchored to the "i'm ..." self-frame so a stray "worst
+// case, tomorrow" (already a reschedule) or "the point is done" (already kept)
+// can never reach or trip them.
+// "dropped the ball" / "drop(ping) the ball" is the same self-blame confession
+// said as an idiom — a person owning the miss ("I totally dropped the ball"),
+// the exact reply the ONE design LAW most protects. It carries no self-frame
+// "i'm ..." word, no negation contraction, and no "life got in the way" phrase,
+// so it slipped every net and landed on the cold `null` re-prompt. Fold it into
+// the self-blame family so it routes to the no-shame RESCHEDULE. KEPT runs first,
+// so "done, dropped the ball on the email" still keeps its word.
+// "let (myself|you|everyone|the team|my family) down" is the SAME self-blame
+// confession — and the single heaviest one an ADHD brain carries: "I let you
+// down", "I let myself down". It named itself in the #332 follow-up: no self-frame
+// "i'm ..." word, no negation contraction, no "life got in the way" phrase, so it
+// slipped EVERY net to the cold `null` re-prompt — the design-LAW scold aimed at
+// the person confessing they feel they let someone down, the exact reply "never
+// shame" most protects. Fold it into the self-blame family. The pattern is anchored
+// to `let <person> down` so the engaged/positive "down" replies never trip it —
+// "i'm down", "down for it", "let's go" (no whitespace after "let") stay untouched,
+// and "let it go" / "let it slide" (object not a person) stay their existing verdict.
+// KEPT runs first, so "did it, was worried i'd let you down" still keeps its word.
+const SHAME_MISS = /\b(i suck(?: at this)?|i'?m (?:useless|hopeless|worthless|so useless|a failure|such a failure|the worst|a mess|a disaster|terrible at this|so bad at this|no good)|so useless|failed again|failed miserably|totally failed|i failed|complete failure|total failure|gave up|giving up|i give up|no use|what'?s the point|whats the point|messed it up|messed up|screwed up|blew it|dropp?(?:ed|ing)? the ball|let(?:ting)?\s+(?:my ?self|me|you(?: all)?|us|them|him|her|everyone|everybody|the \w+|my \w+|our \w+)\s+down|hopeless)\b/;
+// The circumstantial cousin of SHAME_MISS: a plain "life got in the way" miss —
+// "forgot", "slipped my mind", "ran out of time", "no time today", "not today",
+// "not happening", "swamped", "too busy". No self-blame, so SHAME_MISS never
+// touches it; and — the part that made it fall through — no negation CONTRACTION
+// either, so RESCHEDULE's net (which reads "didn't"/"couldn't"/"can't"/"haven't",
+// hence "didn't have time" / "couldn't get to it") never caught these bare forms.
+// They landed on a stone-cold `null` = the "I didn't catch that, reply DONE or
+// LATER" re-prompt — delivered to the ADHD user confessing they just forgot, the
+// exact person the ONE design LAW ("never shame") most protects. Read the family
+// as the no-shame RESCHEDULE — the warm "no problem, when do you want to try
+// again?" that keeps the streak safe (a reschedule never resets). Streak-safe AND
+// regression-safe BY CONSTRUCTION: like SHAME_MISS this net is consulted only in
+// detectCheckinReply AFTER RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the
+// hold-length nets have each already returned, so a real completion that merely
+// mentions time ("did it, almost forgot to say", "finished, ran out of time to
+// clean up but it's done") stays KEPT, and an engaged "on it, lost track of time"
+// stays a SNOOZE — the only reply this net can change is one that would otherwise
+// have gone cold. "no time" REQUIRES a qualifier (today/left/for it) so the
+// enthusiastic "no time to lose" (a start, not a miss) is never grabbed; the
+// KEPT-colliding completion slang ("slammed it") is deliberately left out so it can
+// never steal a kept word (the SNOOZE-colliding forgot slang — "spaced on it",
+// "blanked on it" — is handled by its own early net, FORGOT_SLANG_MISS, so it beats
+// the "on it" marker before it can be mis-read as a check-back).
+// The family also covers the low-state / distraction / decline confessions that
+// carry no self-blame and no negation contraction, so they slipped every net the
+// same way "forgot" did and landed cold: "sidetracked", "something came up", "no
+// energy", "too tired", "exhausted", "wiped out", and a bare "pass" (a decline).
+// "pass" is `\b`-anchored so "passed"/"passing"/"password"/"compass" never match,
+// and every low-state word is a residual last-resort read — a completion, engaged
+// snooze, or dated reschedule has already returned above — so it can only ever
+// rescue a reply otherwise headed for the cold re-prompt.
+const CIRCUMSTANTIAL_MISS = /\b(forgot|slipped my mind|lost track of (?:the )?time|ran out of time|out of time|no time (?:today|left|for (?:it|this|that))|not today|not happening|never got (?:to it|around to it)|got sidetracked|sidetracked|(?:something(?:'s)?|stuff|things?) (?:came|come|coming) up|got swamped|swamped|too busy|no bandwidth|no energy|zero energy|low energy|no motivation|(?:too|so|dead) tired|exhausted|wiped out|worn out|burnt out|burned out|pass)\b/;
+// The SNOOZE-colliding forgot slang: "spaced on it", "blanked on it" (and the bare
+// "spaced" / "spaced out" / "blanked" / "drew a blank"). These MEAN the person
+// forgot / blanked — a gentle miss — but "spaced ON IT" and "blanked ON IT" carry
+// the "on it" marker the SNOOZE net reads as actively-doing-it, so the family was
+// mis-read as a check-back instead of the miss it is; the bare forms went cold.
+// Because it collides with SNOOZE, this net must be consulted in detectCheckinReply
+// BEFORE the SNOOZE/PARTIAL nets (unlike CIRCUMSTANTIAL_MISS, which runs last) —
+// but AFTER KEPT and under a clean-completion veto, so "did it, then spaced on the
+// email" keeps its word. Deliberately excludes "zoned out" (pinned to the honest
+// warm re-ask — an ambiguous state, not a stated miss). Read-only; never touches
+// the streak — a reschedule never resets.
+const FORGOT_SLANG_MISS = /\b(spaced(?: on it| out)?|blanked(?: on it| out)?|drew a blank)\b/;
+// The SNOOZE-colliding DECLINE: "pass on it" / "passing on it" / "passed on it".
+// A bare "pass" is a decline already read as the no-shame RESCHEDULE by
+// CIRCUMSTANTIAL_MISS — but the "pass on it" phrasing carries the "on it" marker
+// the SNOOZE net reads as actively-doing-it, so a person BOWING OUT was cheerfully
+// told the bro would "swing back" (the same collision "spaced on it" hit, in the
+// decline direction). Anchored to "on it/this/that/today" so "pass me the notes"
+// (engaged) and "pass" mid-completion never match. Consulted BEFORE the
+// SNOOZE/PARTIAL nets, AFTER KEPT and under a clean-completion veto, so "did it,
+// gonna pass on it" keeps its word. Read-only; a reschedule never resets.
+const DECLINE_ON_IT = /\bpass(?:ing|ed)? on (?:it|this|that|today)\b/;
+// The AVOIDANCE / procrastination confession: "been procrastinating", "keep
+// putting it off", "avoiding it", "dreading it", "dragging my feet", "stalling",
+// "dodging it". This is the most ADHD-real reply of all — the person owning that
+// they're circling the task without touching it — and it is shame-adjacent by
+// nature. Yet it carries NO self-blame "i'm ..." identity phrase (so SHAME_MISS
+// misses it), NO circumstantial excuse word — forgot/swamped/out-of-time (so
+// CIRCUMSTANTIAL_MISS misses it), and NO negation contraction (so RESCHEDULE's
+// "didn't"/"can't" net misses it). So the whole family fell through to the
+// stone-cold `null` re-prompt ("I didn't catch that, reply DONE or LATER") —
+// aimed squarely at the person confessing they can't make themselves start, the
+// exact reply the ONE design LAW ("never shame") most protects. Read the family
+// as the no-shame RESCHEDULE — the warm "no problem, when do you want to try
+// again?" that keeps the streak safe (a reschedule never resets it).
+//
+// Streak-safe AND regression-safe BY CONSTRUCTION: like SHAME_MISS and
+// CIRCUMSTANTIAL_MISS this net is consulted only in detectCheckinReply AFTER
+// RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW and the hold-length nets have each
+// already returned, so a real completion that merely mentions the dread ("did it,
+// was dreading it all week") stays KEPT, an engaged "on it, been putting it off
+// but here now" stays a SNOOZE, and a "later, still avoiding it" stays a plain
+// RESCHEDULE — every existing verdict is untouched. The only reply this net can
+// ever change is one that would otherwise have gone cold. The postpone forms
+// REQUIRE the word "off" ("put/putting … off"), so an engaged "putting it on my
+// calendar for 3pm" (planning, no "off") is never grabbed; "avoiding"/"dreading"
+// require the -ing confession form and an it/this/that/doing object, so the
+// positive "can't avoid it, on it" (bare "avoid", and caught as a snooze upstream
+// anyway) never trips them.
+const AVOIDANCE_MISS = /\b(procrastinat(?:e|es|ed|ing|ion)|(?:put|putting) (?:it |this |that )?off|avoiding (?:it|this|that|doing)|dreading (?:it|this|that|doing)|dragging my (?:feet|heels)|stalling|dodging (?:it|this|that))\b/;
 
 /**
  * Does this reply report the person has actually MOVED the needle — as opposed
  * to merely "on it" / "hold on"? Meant to be called only when the reply already
  * classified as a snooze; lets the confirmation copy meet real progress with
- * "love that you're moving" instead of the generic "you got it". A negation
+ * "love that you're moving" instead of the generic "you got it". The active
+ * flow-state exertion phrases ("grinding", "cranking", "on a roll", "in the
+ * groove", "beast mode", "plugging away") count too — the most engaged reply of
+ * all is unambiguously the person moving the needle — while the pure focus-STATE
+ * flow phrases ("in the zone", "locked in") stay generic-warm. A negation
  * ("no progress" / "not started") is never progress. Never reads or writes the
  * streak — this only tunes wording; a snooze is not a resolution, by construction.
  * @param {string} text  the raw SMS body
@@ -1367,7 +2314,7 @@ export function isProgressReply(text) {
   // contracted "haven't started" / "didn't" (a reschedule the classifier catches
   // upstream, but guarded here too so isProgressReply is safe to call on any text).
   if (/\b(no|not|never)\b/.test(t) || /n't\b/.test(t)) return false;
-  return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t);
+  return PARTIAL_DONE.test(t) || PARTIAL.test(t) || PROGRESS_MOVEMENT.test(t) || FLOW_MOVEMENT.test(t);
 }
 
 // The neutral provenance note kept when a "done" reply carried no words of its
@@ -1399,6 +2346,310 @@ export function keptNoteFromReply(text) {
 }
 
 /**
+ * Read a stated hold-length out of an "I'm on it" reply, so the bro checks back
+ * WHEN the person said — not at a fixed default. The best-case user, mid-task,
+ * often names their own interval: "on it, give me 20", "still working — check
+ * back in an hour", "hang on, 30 more minutes". Honoring it is the difference
+ * between a friend who listens and one who nods and ignores you on the exact
+ * two-way channel the moat is built on.
+ *
+ * Returns whole minutes, always clamped to the snooze window
+ * ([SNOOZE_MIN_MIN, SNOOZE_MAX_MIN]) so a snooze can never quietly become a
+ * disappearance (too short) or a full reschedule (too long); returns `null`
+ * when no length was stated, so the caller keeps `SNOOZE_DEFAULT_MIN` exactly as
+ * before — this is UPGRADE-ONLY, never a shorter or wronger nudge than today.
+ *
+ * Only ever call this on a reply ALREADY classified as a snooze by
+ * `detectCheckinReply`: in that context a bare number is a hold-length
+ * ("give me 20"), never a clock time. An explicit clock ("at 3", "3 pm") is
+ * guarded out regardless, so even a mis-called reply falls back to the default,
+ * never a wrong minute count. NEVER reads or writes the streak — a snooze is not
+ * a resolution and not a miss, by construction.
+ *
+ * @param {string} text  the raw inbound reply
+ * @returns {number|null}  clamped minutes, or null when no length was stated
+ */
+export function parseSnoozeMinutes(text) {
+  const t = normalizeReplyText(text);
+  if (!t) return null;
+  // A clock time ("at 3", "3 pm", "noon o'clock") is a reschedule TARGET, never a
+  // hold length — never read it as minutes. (The caller only reaches here on a
+  // snooze, but guard anyway so a mis-classification can't turn into a wrong count.)
+  if (/\b(?:am|pm|noon|midnight)\b/.test(t) || /\bo'?clock\b/.test(t) || /\bat\s+\d/.test(t)) return null;
+  // A multi-day horizon ("in 2 days", "next week", "tomorrow") is a reschedule,
+  // never a snooze hold — a snooze is bounded to minutes/hours by construction.
+  // Guard here so neither a mis-classified caller nor the `isStatedHoldLength`
+  // detector below ever reads "2 days" as a 2-minute (clamped-to-5) hold.
+  if (/\b(days?|weeks?|months?|years?|tomorrow|tonight)\b/.test(t)) return null;
+
+  const WORDNUM = {
+    five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30,
+    forty: 40, fifty: 50, sixty: 60, ninety: 90,
+    an: 1, a: 1, one: 1, couple: 2, few: 3,
+  };
+  const toNum = (w) => (/^\d+$/.test(w) ? parseInt(w, 10) : (WORDNUM[w] ?? null));
+
+  // Fixed idioms first, so "half an hour" isn't misread as "an hour" (60).
+  if (/\bhalf\s?(?:an?\s+)?hour\b/.test(t)) return clampSnoozeMinutes(30);
+  if (/\b(?:an?\s+)?hour and a half\b/.test(t)) return clampSnoozeMinutes(90);
+  if (/\bquarter(?:\s+of\s+an)?\s+hour\b/.test(t)) return clampSnoozeMinutes(15);
+
+  // number + unit: "20 min", "an hour", "2 hrs", "forty five minutes", "45m",
+  // "20 more minutes" (an optional "more" between the count and the unit).
+  const NUMWORD = '\\d{1,3}|an|a|one|couple|few|five|ten|fifteen|twenty|thirty|forty|fifty|sixty|ninety';
+  const um = new RegExp(`\\b(${NUMWORD})(?:[\\s-]+(five))?(?:\\s+more)?\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b`).exec(t);
+  if (um) {
+    let n = toNum(um[1]);
+    if (n != null) {
+      if (um[2] === 'five') n += 5;                       // "forty five"
+      return clampSnoozeMinutes(/^h/.test(um[3]) ? n * 60 : n);
+    }
+  }
+
+  // bare number behind a snooze lead-in: "give me 20", "in 30", "another 15".
+  const bm = new RegExp('\\b(?:give me|gimme|need|another|in|make it|about|just|wait)\\s+(\\d{1,3}|five|ten|fifteen|twenty|thirty|forty|fifty|sixty|ninety)\\b').exec(t);
+  if (bm) {
+    const n = toNum(bm[1]);
+    if (n != null) return clampSnoozeMinutes(n);
+  }
+
+  return null; // no stated length → caller keeps SNOOZE_DEFAULT_MIN
+}
+
+/**
+ * Is this reply a bare "check back in N" hold-length — a stated minutes/hours
+ * window with NO "on it" / "still working" marker word to give it away?
+ *
+ * The mid-task person often answers with the length alone: "give me 20",
+ * "an hour", "30 more minutes", "half an hour". Without a marker word,
+ * `detectCheckinReply` used to leave these unclassified, and the awaiting-"when?"
+ * and fresh-nudge paths then handed them to `parseWhenReply` — which read
+ * "give me 20" as 8 pm and "2 hours" as 2 am, or (for the un-clockable ones)
+ * fell to the cold "I couldn't read that time." Both are a quiet "he didn't get
+ * me" on the exact two-way text channel the moat is built on, from the best-case,
+ * actively-doing-it user. Recognizing the stated length as the third answer (a
+ * snooze) closes that gap.
+ *
+ * Deliberately conservative, so it never steals a genuine reschedule:
+ *  - an "in ..." reply names a TARGET time and stays owned by `parseWhenReply`
+ *    ("in 20 minutes" / "in an hour" remain reschedules, unchanged);
+ *  - a clock time and any multi-day horizon are guarded to `null` inside
+ *    `parseSnoozeMinutes`, so a length only ever reads as minutes/hours.
+ * Meant to be consulted only AFTER the RESCHEDULE / KEPT / progress / marker-word
+ * SNOOZE nets have each had their turn, so those always win.
+ *
+ * @param {string} text  the raw inbound reply
+ * @returns {boolean}
+ */
+export function isStatedHoldLength(text) {
+  const t = normalizeReplyText(text);
+  if (!t) return false;
+  // "in ..." names a target time (a reschedule), owned by parseWhenReply — never
+  // reclassify it as a hold here.
+  if (/^in\b/.test(t)) return false;
+  return parseSnoozeMinutes(text) != null;
+}
+
+// A genuine completion sometimes rides in on a grateful/emotional negation —
+// "did it, didn't think I could", "done, can't believe I finally finished",
+// "nailed it, couldn't have done it without you", "finished, couldn't be
+// happier". The negator belongs to the gratitude, not to the task: the person
+// unmistakably KEPT their word. But RESCHEDULE's negation net
+// (couldn't/didn't/can't/haven't) runs first inside `detectCheckinReply` and read
+// the warmest, most grateful reply on the live two-way moat as a *not-done* — the
+// coldest possible answer ("no problem, when do you want to try again?") AND a
+// silent denial of the kept-word streak the person just earned. These three nets
+// let `detectCheckinReply` intercept that exact case, and only that case, ahead
+// of RESCHEDULE.
+//
+// Safe by construction — it fires ONLY when a CLEAN (un-negated) completion word
+// co-occurs with a recognized positive-negation idiom AND there is no
+// reschedule-intent word:
+//  - a real "not done" / "not finished" / "didn't get it done" has its completion
+//    word directly negated → no clean occurrence → never matches;
+//  - a real "couldn't do it" / "haven't started" carries no completion word at all;
+//  - a genuine "…, tomorrow" / "later" / "push it" is vetoed by RESCHEDULE_INTENT.
+// So this only ever rescues a real win; it can never inflate the streak with a
+// miss. Never reads or writes the streak itself — it only routes the outcome.
+const GRATEFUL_COMPLETION_IDIOM = /\b(didn'?t think|didn'?t expect|don'?t think|can'?t believe|can'?t wait|can'?t thank|couldn'?t be (?:happier|more|prouder|better)|couldn'?t have (?:done|made|asked)|never (?:thought|imagined))\b/;
+const RESCHEDULE_INTENT = /\b(later|tomorrow|tonight|next week|reschedul|resched|snooze|skip|rain ?check|another time|next time|move it|push it|not yet|no can do)\b/;
+const CLEAN_COMPLETION = /\b(done|did it|did that|finished|completed?|nailed it|crushed it|handled it|knocked it out|got it done|all done)\b/g;
+const NEGATOR_BEFORE_COMPLETION = /\b(?:not|never|no|didn'?t|couldn'?t|can'?t|cannot|won'?t|haven'?t|wasn'?t|isn'?t|ain'?t|don'?t)\b[a-z'\s]{0,14}$/;
+/**
+ * True when a completion word appears at least once with NO negator immediately
+ * before it — i.e. the reply reports a real, un-negated completion. Used to keep
+ * "not done" / "didn't get it done" out of the grateful-completion intercept
+ * while still recognizing the clean "done" in "done, couldn't have done it
+ * without you". Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function hasCleanCompletion(t) {
+  CLEAN_COMPLETION.lastIndex = 0;
+  let m;
+  while ((m = CLEAN_COMPLETION.exec(t)) !== null) {
+    if (!NEGATOR_BEFORE_COMPLETION.test(t.slice(0, m.index))) return true;
+  }
+  return false;
+}
+
+// The casual soft "no" — a MISS said gently: bare "nah"/"naw", or a yes-hedged
+// "yeah nah" / "ya no". Two cold spots on the live two-way moat today:
+//  - bare "nah"/"naw" carry no marker word, no negation contraction, and aren't
+//    the single-letter "n"/"no"/"not" the last-pass net reads, so they fell to
+//    the stone-cold null "I didn't catch that" — the exact scold the design LAW
+//    forbids, delivered to someone gently saying they didn't get to it;
+//  - "yeah nah" / "yeah no" trip KEPT's elongated-yes net on the LEADING "yeah"
+//    and get over-credited as a resolved word — a false streak tick, a
+//    streak-INTEGRITY bug, on the moat where kept-word honesty is the product.
+// The operative token in a yes+no hedge is the LAST one, exactly as in speech:
+// "yeah nah" = no, "nah yeah" = yes. This helper reads the soft-no family so
+// `detectCheckinReply` can route it to the no-shame RESCHEDULE. Read-only; never
+// touches the streak. Guarded so it can never steal a real win:
+//  - a clean (un-negated) completion anywhere ("nah, did it") vetoes it;
+//  - a soft-no immediately answered by a yes ("nah yeah", "no yes") is a
+//    soft-YES → returns false, left for KEPT to read as kept;
+//  - RESCHEDULE already runs first, so "nope"/"nah not yet" are unaffected.
+const SOFT_NO_YES = '(?:yea+h*|ye+s+|yep+|yup+|yah+|ya|ok|okay)';
+const SOFT_NO_BARE = /\b(?:nah+|naw+)\b/;
+// A negative directly answered by a yes → soft-YES ("nah yeah", "no yes"): the
+// terminal yes is operative, so this is NOT a soft-no.
+const SOFT_NO_YES_TAIL = new RegExp(`\\b(?:nah+|naw+|nope+|no)\\b[\\s',]*\\b${SOFT_NO_YES}\\b`);
+// A yes hedged by a TERMINAL soft-no ("yeah nah", "ya no", "yep nope"): the
+// leading yes is overridden by the negative → soft-no. Requires the yes prefix
+// on purpose — a bare "no"/"nope" is already read as a reschedule by the
+// last-pass net, and a bare leading "no <positive word>" ("no worries") must NOT
+// be swept in here; only the yes+no HEDGE that would otherwise trip KEPT is.
+const SOFT_NO_TAIL = new RegExp(`\\b${SOFT_NO_YES}\\b[\\s',]*\\b(?:nah+|naw+|nope+|no)\\b`);
+/**
+ * True when a reply is a casual soft "no" whose operative sentiment is negative —
+ * bare "nah"/"naw", or a yes hedged by a terminal "nah"/"no"/"nope". Read-only;
+ * never touches the streak. Used to route the soft-no family to the no-shame
+ * reschedule instead of a false 'kept' or a cold null.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNo(t) {
+  if (hasCleanCompletion(t)) return false;   // "nah, did it" is a win
+  if (SOFT_NO_YES_TAIL.test(t)) return false; // "nah yeah" is a soft YES
+  if (SOFT_NO_BARE.test(t)) return true;      // bare / leading "nah"/"naw"
+  return SOFT_NO_TAIL.test(t);                // "yeah nah" / "yeah no" / "yeah nope"
+}
+
+// The soft-NEGATIVE hedge — the gentlest partial "no" an ADHD user texts back to
+// "did you do it?": "not really", "not so much" (and any reply carrying one:
+// "meh not really", "not really tbh", "no not really"). It carries no self-blame
+// (SHAME_MISS misses it), no "life got in the way" phrase (CIRCUMSTANTIAL_MISS
+// misses it), no negation contraction and no adjacent "not done"/"not yet"
+// (RESCHEDULE's net misses it), and it isn't the single-token "n"/"no"/"not" the
+// last-pass net reads — so it fell clean through the whole classifier to a bare
+// `null`, the cold "reply DONE or LATER" re-prompt, delivered to someone gently
+// saying they didn't get to it: the exact scold the ONE design LAW ("never
+// shame") forbids, on the live two-way moat while voice is gated.
+//
+// The net is deliberately narrow — only the two unambiguous soft-no idioms
+// ("not really", "not so much"). Bare "not much" is left out on purpose: "not
+// much left" is a near-done engaged reply, not a miss, and must never be read as
+// one. `isSoftNegMiss` is consulted LAST in `detectCheckinReply` (after
+// RESCHEDULE, KEPT, PARTIAL, SNOOZE, FLOW, hold-length, SHAME_MISS and
+// CIRCUMSTANTIAL_MISS have each returned), so — exactly like SHAME_MISS and
+// CIRCUMSTANTIAL_MISS — it can only ever change a reply that would otherwise have
+// gone cold; it is streak-safe and regression-safe by construction. The single
+// guard is a clean-completion veto: a real win that happens to carry the hedge
+// ("not really feeling it but knocked it out" — a completion KEPT's list does not
+// carry) is left alone rather than wrongly rescheduled.
+const SOFT_NEG_HEDGE = /\bnot (?:really|so much)\b/;
+/**
+ * True when a reply is a bare soft-negative hedge ("not really" / "not so much")
+ * whose operative sentiment is a gentle miss — with no clean completion riding
+ * along to override it. Read-only; never touches the streak. Routes the family to
+ * the no-shame reschedule instead of the cold null.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNegMiss(t) {
+  if (hasCleanCompletion(t)) return false; // "not really feeling it but knocked it out" is a win
+  return SOFT_NEG_HEDGE.test(t);
+}
+
+// The ONE soft-negative hedge that does NOT go cold — it goes WRONG. The late
+// isSoftNegMiss net above rescues the bare hedge ("not really") from a cold
+// `null`, but a hedge that drags a bare completion ADJECTIVE right behind it —
+// "not really done", "not so much finished", "not really complete" — never
+// reaches that late net: its negated completion word slips past RESCHEDULE (whose
+// net needs the adjacent "not done"/"not finished", and "really"/"so much" sits
+// between) and past the grateful-completion intercept (no CLEAN completion), then
+// trips KEPT's bare `\bdone\b`/`finished`/`complete` and is over-credited as a
+// resolved word — a FALSE STREAK TICK. That is a streak-INTEGRITY break on the
+// moat where kept-word honesty IS the product: a person gently saying they
+// didn't really finish is silently logged as having kept their word. This net
+// reads exactly that overlap — the hedge IMMEDIATELY negating a bare completion
+// adjective (only [\s,]* between, so a real appended completion CLAUSE like "not
+// really, did it" / "not really got it done" keeps its word, matching the
+// existing verb-clause precedent) — so `detectCheckinReply` can intercept it
+// AHEAD of KEPT. Deliberately mirrors ONLY the adjective forms KEPT reads bare
+// (done/finished/complete[d]); the verb-phrase completions (did it, got it done,
+// nailed it) are left to KEPT as completion claims, exactly as "not really, did
+// it" is today.
+const SOFT_NEG_DONE_TRIP = /\bnot (?:really|so much)\b[\s,]*(?:done|finished|complete[d]?)\b/;
+/**
+ * True when a reply is a soft-negative hedge that directly negates a bare
+ * completion adjective — "not really done", "not so much finished", "not really
+ * complete" — i.e. a gentle MISS that would otherwise trip KEPT's bare
+ * `done`/`finished`/`complete` and tick the streak. Guarded by the clean-completion
+ * veto so a real win riding along ("not really done yet but nailed it") is never
+ * wrongly rescheduled. Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isSoftNegDoneTrip(t) {
+  if (hasCleanCompletion(t)) return false; // a real completion elsewhere wins
+  return SOFT_NEG_DONE_TRIP.test(t);
+}
+
+// The WISHFUL / counterfactual "almost-yes" — a completion word wrapped in a wish
+// that puts it out of reach: "wish I could say yes", "wish I'd done it", "if only
+// I'd done it", "I'd love to say yes", "was gonna say yes but no", "almost said
+// done". Every one of these MEANS I did NOT do it — the affirmation is
+// hypothetical — yet the embedded `yes`/`done`/`did it`/`finished` trips KEPT and
+// is over-credited as a resolved word: a FALSE STREAK TICK, the same
+// streak-INTEGRITY break the soft-"no" and soft-negative-done intercepts guard,
+// on the moat where kept-word honesty IS the product. It slips past every earlier
+// net — RESCHEDULE needs a "later"/"tomorrow"/negation-contraction it doesn't
+// carry, and the grateful-completion intercept needs a gratitude idiom — then
+// lands on KEPT's bare affirmation word.
+//
+// The scoping is what makes a wish counterfactual: the completion word falls
+// AFTER the wishful lead-in ("wish … yes"), so it is inside the wish, never a
+// reported fact. A REAL win that merely trails a wish states the completion FIRST
+// ("did it, wish I'd started sooner") — so the clean-completion veto reads only
+// the text BEFORE the lead-in and leaves that win alone. Guarded three ways so it
+// can never steal a real win: (1) a clean completion before the wish vetoes it;
+// (2) the affirmation must sit after the lead-in to count as wished-for; (3) a
+// bare "wish me luck" / "I wish" with no affirmation after it never matches and
+// falls through to the warm ask, exactly as before. Read-only; never touches the
+// streak — it only routes the outcome to the no-shame RESCHEDULE, never the false
+// 'kept'.
+const WISHFUL_LEADIN = /\b(?:wish(?:ed|ing)?|if only|would love to|i'd love to|love to say|hop(?:ed|ing) to|wanted to say|meant to say|(?:was )?(?:gonna|going to) say|about to say|almost said)\b/;
+const WISHFUL_AFFIRM = /\b(?:yes+|yea+h*|yep+|yup+|done|did (?:it|that)|didit|finished|complete[d]?|nailed it|crushed it|got it done|all done|handled)\b/;
+/**
+ * True when a reply is a wishful / counterfactual "almost-yes" — a completion or
+ * affirmation word scoped by a preceding wish ("wish I could say yes", "if only
+ * I'd done it", "almost said done") — i.e. a gentle MISS that would otherwise
+ * trip KEPT and tick the streak. The clean-completion veto looks ONLY at the text
+ * before the wishful lead-in, so a real win that trails a wish ("did it, wish I'd
+ * started sooner") keeps its word. Read-only; never touches the streak.
+ * @param {string} t  normalized reply text
+ * @returns {boolean}
+ */
+function isWishfulNotDone(t) {
+  const m = WISHFUL_LEADIN.exec(t);
+  if (!m) return false;
+  if (hasCleanCompletion(t.slice(0, m.index))) return false; // a completion stated before the wish is a real win
+  return WISHFUL_AFFIRM.test(t.slice(m.index));
+}
+
+/**
  * Interpret an inbound check-in reply.
  * @param {string} text  the raw SMS body
  * @returns {'kept'|'reschedule'|'snooze'|null}  null = couldn't tell (ask, don't assume)
@@ -1423,7 +2674,7 @@ export function detectCheckinReply(text) {
   // "did it" / "got it done" / "all done" → kept. Check the reschedule forms
   // first — especially the NEGATED ones — so "not done" / "haven't yet" is never
   // misread as "done".
-  const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
+  const RESCHEDULE = /\b(later|not yet|notyet|not done|not finished|not complete[d]?|not this time|nope|tomorrow|reschedule|resched|snooze|skip|rain ?check|another time|next time|move it|push it|can'?t|cannot|couldn'?t|didn'?t|did not|haven'?t|havent|won'?t|no can do)\b/;
   // The yes-family alternatives are elongation-tolerant on purpose: a casual
   // "yesss", "yaas", "yea", "yah" is a near-universal "done", but the plain
   // `yes|yeah|ya` forms only matched the un-stretched spelling — so an excited
@@ -1443,7 +2694,35 @@ export function detectCheckinReply(text) {
   // run first, so "on it done" stays kept and any negation stays a reschedule. A
   // residual bare "not on it" is guarded out below (it falls through to the warm
   // ask, never a wrong snooze) rather than being read as "check back."
-  const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on)\b/;
+  // The "hold on / give me more time" family is the same third answer said as a
+  // plea for a little more room, not a resolution and not a "later": "a bit
+  // longer", "need more time", "hang tight", "bear with me", "brb", "one moment",
+  // "in a bit", "shortly". These are the actively-doing-it user asking the bro to
+  // swing back — yet without a marker word they fell through to the cold "I
+  // couldn't read that time" on both SMS paths. Each alternative is guarded so it
+  // can't steal a genuine reschedule: "no longer" (never anymore) can't match the
+  // qualifier-required `(?:little|bit|while) longer`, and "no more time" can't
+  // match the qualifier-required more-time form; RESCHEDULE still runs first, so a
+  // "…, tomorrow" always wins. A bare "in a bit/sec/moment" carries no number, so
+  // it never collides with an "in 20 minutes" reschedule target.
+  const SNOOZE = /\b(on it|onit|working on it|still working|still on it|still at it|still going|almost there|nearly there|getting to it|in the middle|middle of it|mid ?task|give me a (?:few|sec|min|moment)|gimme a (?:few|sec|min|moment)|few more min|couple more min|need a (?:few|sec|min|moment)|one sec|hang on|hold on|hang tight|sit tight|bear with me|brb|be right back|(?:one|just a|a) moment|just a (?:sec|second|min|minute|moment)|in a (?:bit|sec|second|min|minute|moment)|(?:a )?(?:little|bit|while) longer|(?:need|want|(?:a )?(?:little|bit)) more time|shortly|momentarily)\b/;
+  // Flow-state slang is the SAME third answer, said by the MOST engaged person:
+  // asked "you doing it?", the head-down ADHD user texts back "in the zone",
+  // "locked in", "grinding", "on a roll", "heads down", "in the weeds". None of
+  // these carry an "on it"/"still working" marker word, a number, or a
+  // done/later word, so they fell through to the cold "I couldn't read that time"
+  // / "reply DONE or LATER" on both SMS paths — the coldest reply to the single
+  // most engaged message on the live two-way moat. Read the whole family as the
+  // third answer (a snooze) and re-arm the nudge at the default interval (no
+  // length stated → R-270 keeps SNOOZE_DEFAULT_MIN). Deliberately excludes the
+  // disengaged look-alikes so a real miss/distraction can never be read as
+  // "check back": "zoned OUT" (spaced out) and "locked OUT" (done for the day)
+  // never match the `in`-anchored forms, and "cooking" is left out entirely
+  // because "cooking dinner" is a genuine distraction, not flow. Every form is
+  // `\b`-anchored and the `not` guard below keeps a negated "not in the zone"
+  // out — RESCHEDULE and KEPT still run first, so "later, in the zone elsewhere"
+  // stays a reschedule and "done, was in the zone" stays kept.
+  const FLOW = /\b(in the zone|zoned in|dialed in|locked in|heads? down|deep in (?:it|the weeds)|deep into it|in the weeds|on a roll|in the groove|beast mode|cranking(?: away| through)?|plugging away|grinding(?: away)?|in (?:the |a )?flow|flow state)\b/;
   // Partial progress is the SAME third answer, said the other way round. "halfway",
   // "made a start", "chipping away", "in progress" all mean *I'm mid-thing, check
   // back* — an engaged person, never done, never a miss. Most of these used to fall
@@ -1457,11 +2736,105 @@ export function detectCheckinReply(text) {
   // and a residual bare negation falls through to the warm ask, never a mislabel.
   // (PARTIAL_DONE / PARTIAL live at module scope now, shared with isProgressReply.)
 
+  // A clean completion wrapped in a grateful negation idiom ("did it, didn't
+  // think I could", "nailed it, couldn't have done it without you") is a KEPT
+  // word, not a reschedule — intercept it before RESCHEDULE's negation net can
+  // read the warmest reply on the moat as a not-done and deny the streak. Guarded
+  // three ways (clean completion + gratitude idiom + no reschedule-intent word) so
+  // a real "not done" / "couldn't do it" / "…tomorrow" can never reach here.
+  if (hasCleanCompletion(t) && GRATEFUL_COMPLETION_IDIOM.test(t) && !RESCHEDULE_INTENT.test(t)) return 'kept';
   if (RESCHEDULE.test(t)) return 'reschedule';
   if (PARTIAL_DONE.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
+  // A casual soft "no" — bare "nah"/"naw" or a yes-hedged "yeah nah" / "yeah no"
+  // — is a gentle MISS, not a kept word. Runs BEFORE KEPT so the leading "yeah"
+  // in "yeah nah" can't be over-credited as a resolved word (a false streak
+  // tick); `isSoftNo` is guarded (clean completion vetoes, "nah yeah" reads as a
+  // soft-YES) so it can never steal a real win. Route it to the no-shame
+  // RESCHEDULE — never the false 'kept' and never the cold null on a bare "nah".
+  if (isSoftNo(t)) return 'reschedule';
+  // A soft-negative hedge that directly negates a bare completion adjective —
+  // "not really done", "not so much finished", "not really complete" — is a
+  // gentle MISS, but its bare `done`/`finished`/`complete` trips KEPT below and
+  // is over-credited as a resolved word: a false streak tick, a streak-INTEGRITY
+  // break on the moat where kept-word honesty IS the product (the same class the
+  // soft-"no" and grateful-completion intercepts guard). It reaches this point
+  // un-rerouted because its completion word is negated (so the grateful-completion
+  // intercept and RESCHEDULE's adjacency net both miss it) yet KEPT's word-boundary
+  // `done` needs no adjacency. Intercept ONLY that exact overlap ahead of KEPT and
+  // route it to the no-shame reschedule; `isSoftNegDoneTrip` vetoes a clean
+  // completion, and it fires only on the ADJECTIVE forms so an appended completion
+  // CLAUSE ("not really, did it") keeps its word. The bare hedge without a
+  // completion trip still flows to its streak-safe late net untouched.
+  if (isSoftNegDoneTrip(t)) return 'reschedule';
+  // A wishful / counterfactual "almost-yes" — "wish I could say yes", "if only
+  // I'd done it", "almost said done" — is a gentle MISS whose embedded
+  // affirmation would otherwise trip KEPT below and tick a false streak. Intercept
+  // it AHEAD of KEPT and route to the no-shame RESCHEDULE; `isWishfulNotDone`
+  // reads the completion only when it sits INSIDE the wish, so a real win trailing
+  // a wish ("did it, wish I'd started sooner") keeps its word.
+  if (isWishfulNotDone(t)) return 'reschedule';
   if (KEPT.test(t)) return 'kept';
+  // "spaced on it" / "blanked on it" (and bare "spaced" / "spaced out" / "blanked"
+  // / "drew a blank") — a FORGOT-family miss whose slang collides with the engaged
+  // SNOOZE net: "spaced ON IT" and "blanked ON IT" carry the "on it" marker SNOOZE
+  // reads as actively-doing-it, so they were mis-read as a check-back instead of the
+  // gentle miss they are; the bare forms went cold. Intercept the family AHEAD of
+  // the SNOOZE/PARTIAL nets and route to the no-shame RESCHEDULE. Runs after KEPT
+  // (so a real "done" wins) and is vetoed by a clean completion, so "did it, then
+  // spaced on the email" keeps its word. Read-only; a reschedule never resets.
+  if (!hasCleanCompletion(t) && (FORGOT_SLANG_MISS.test(t) || DECLINE_ON_IT.test(t))) return 'reschedule';
   if (PARTIAL.test(t) && !/\b(no|not)\b/.test(t)) return 'snooze';
   if (SNOOZE.test(t) && !/\bnot\b/.test(t)) return 'snooze';
+  // Flow-state slang ("in the zone", "locked in", "grinding", "on a roll") — the
+  // most engaged reply, the same third answer. RESCHEDULE / KEPT / progress /
+  // marker-word SNOOZE have all run first, so a completion or a "later"/"tomorrow"
+  // always wins; only a residual flow-state phrase reaches here. Streak-safe by
+  // construction — a snooze is not a resolution and not a miss.
+  if (FLOW.test(t) && !/\bnot\b/.test(t)) return 'snooze';
+  // The third answer said as a bare length, no marker word: "give me 20", "an
+  // hour", "30 more minutes", "half an hour". RESCHEDULE/KEPT/progress/marker-word
+  // SNOOZE have all run first, so a completion or a "later"/"tomorrow" always wins;
+  // only a residual stated minutes/hours hold reaches here. `isStatedHoldLength`
+  // excludes "in ..." targets and clock/multi-day answers, so this never steals a
+  // genuine reschedule. Streak-safe by construction — a snooze is not a resolution
+  // and not a miss.
+  if (isStatedHoldLength(raw)) return 'snooze';
+  // A self-critical miss ("failed again", "i suck", "gave up", "i'm useless",
+  // "what's the point") — the emotionally hardest reply on the two-way moat.
+  // RESCHEDULE/KEPT/PARTIAL/SNOOZE/FLOW/hold-length have ALL run first, so a
+  // completion, a "later"/"tomorrow", and any engaged mid-task reply have each
+  // already returned; only a residual self-blame phrase reaches here. Read it as
+  // the no-shame RESCHEDULE (warm "when do you want to try again?"), never the
+  // cold `null` re-prompt — that cold branch aimed at this reply is the exact
+  // scold the design LAW forbids. Streak-safe: a reschedule never resets.
+  if (SHAME_MISS.test(t)) return 'reschedule';
+  // A circumstantial "life got in the way" miss ("forgot", "ran out of time", "no
+  // time today", "not today", "not happening", "swamped", "too busy") — no
+  // self-blame (so SHAME_MISS misses it) and no negation contraction (so
+  // RESCHEDULE's "didn't"/"couldn't" net misses it), which left it going cold.
+  // Everything that could be a completion, an engaged snooze, or a "later"/date
+  // reschedule has already returned above, so only a residual bare confession
+  // reaches here. Read it as the no-shame RESCHEDULE, never the cold null.
+  // Streak-safe: a reschedule never resets.
+  if (CIRCUMSTANTIAL_MISS.test(t)) return 'reschedule';
+  // An avoidance / procrastination confession ("been procrastinating", "keep
+  // putting it off", "avoiding it", "dreading it", "dragging my feet", "stalling",
+  // "dodging it") — the person circling the task without touching it. No self-blame
+  // (SHAME_MISS misses it), no circumstantial excuse word (CIRCUMSTANTIAL_MISS
+  // misses it), no negation contraction (RESCHEDULE misses it), so it went cold.
+  // Everything that could be a completion, an engaged snooze/flow, or a
+  // "later"/date reschedule has already returned above, so only a residual
+  // avoidance confession reaches here. Read it as the no-shame RESCHEDULE, never
+  // the cold null. Streak-safe: a reschedule never resets.
+  if (AVOIDANCE_MISS.test(t)) return 'reschedule';
+  // A bare soft-negative hedge ("not really", "not so much", "meh not really") —
+  // the gentlest partial "no", carrying no self-blame, no "life got in the way"
+  // phrase, no negation contraction and no marker word, so every net above left
+  // it as a stone-cold `null`. Everything that could be a completion, an engaged
+  // snooze, or a "later"/date reschedule has already returned, so this only ever
+  // rescues a reply otherwise headed for the cold re-prompt. Read it as the
+  // no-shame RESCHEDULE. Streak-safe: a reschedule never resets.
+  if (isSoftNegMiss(t)) return 'reschedule';
   // bare affirmations / negations as a last pass
   if (/^(y|k|ok|okay|done|yay)$/.test(t)) return 'kept';
   if (/^(n|no|not)$/.test(t)) return 'reschedule';
@@ -1534,17 +2907,52 @@ export function smsAskWhenCopy({ persona } = {}) {
  * (a snooze that holds the time, a reschedule that sets a new one) read the same.
  * A reschedule with no movement reported leaves `progress` false and keeps the
  * generic warm confirm.
+ *
+ * Like `checkinPromptCopy`, `escalationCopy`, and `returnNudgeCopy`, this rotates
+ * across warm, tone-identical variants seeded deterministically from `seed` (the
+ * SMS reply path passes the per-OCCURRENCE `open.checkin_id` — a recurring
+ * commitment materializes a new check-in row per occurrence, so the seed advances
+ * day to day while a retry of the SAME occurrence reads identically). A person on
+ * a recurring commitment who reschedules regularly would otherwise get the
+ * IDENTICAL confirmation every time — the same wallpaper decay the outbound nudge,
+ * escalation knock, and return nudge already shed, now on the reply family, on the
+ * two-way channel the whole thesis rests on. Every variant still names the new
+ * time, keeps the word/streak safe (a reschedule protects the chain — never a
+ * miss, never a tally), and never scolds; every hype variant carries the 💪 hype
+ * marker and no ally variant does (the calm-vs-hype discriminator). `seed` omitted
+ * → variant 0 (the canonical line, unchanged) on every (persona × progress) arm,
+ * so previews and unseeded callers are byte-for-byte untouched.
  */
-export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false } = {}) {
+export function smsRescheduledCopy({ persona, when, timezone, nowISO, progress = false, seed } = {}) {
   const at = when ? formatWhenLocal(when, timezone, nowISO) : 'then';
   if (pickPersona(persona) === 'hype') {
-    return progress
-      ? `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`
-      : `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`;
+    // Every hype variant carries the 💪 marker, names the new time, and keeps the
+    // word/streak safe — an ally rolling on, never a scold.
+    const v = progress ? [
+      `Love that you got moving — that’s momentum! I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Love that you got some done — that’s real momentum! New time’s locked: I’ll check back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Yesss, you moved on it — momentum! I’ll swing back ${at}. Your word still counts and your streak’s safe; we just roll on. 💪`,
+      `That’s the good stuff — you got moving! I’ll check back ${at}. Your word still counts, your streak’s safe, we keep going. 💪`,
+    ] : [
+      `Got it — I’ll check back ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+      `Locked in — I’ll check back ${at}. Your word still counts and your streak’s safe; we just go again. 💪`,
+      `You got it — new time’s set: I’ll swing back ${at}. Your word still counts and your streak’s safe. 💪`,
+      `Done — I’ll be right here ${at}. Your word still counts and your streak’s safe. Let’s go. 💪`,
+    ];
+    return v[seedIndex(seed, v.length)];
   }
-  return progress
-    ? `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`
-    : `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`;
+  const v = progress ? [
+    `Love that you got moving — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Love that you made some headway — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Glad you got moving on it — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Nice, you got a bit done — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+  ] : [
+    `Got it — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `All set — I’ll check back ${at}. Your word still counts, and your streak stays right where it is.`,
+    `Got the new time — I’ll swing back ${at}. Your word still counts, and your streak stays put.`,
+    `Noted — I’ll be right here ${at}. Your word still counts, and your streak stays right where it is.`,
+  ];
+  return v[seedIndex(seed, v.length)];
 }
 
 /** We asked for a time and couldn't read one — ask again, warmly. Never assume a miss. */
@@ -1577,6 +2985,103 @@ export function inAppWhenExamples() {
 /** The in-app "when" examples as one comma-joined phrase for a placeholder / prose re-ask. */
 export function inAppWhenExamplesText() {
   return inAppWhenExamples().join(', ');
+}
+
+/**
+ * THE DESIGN-LAW SURFACE for the bro's actual voice — every outbound and
+ * user-facing string the accountability copy engine emits, enumerated so the one
+ * canonical `scanDesignLaw` guard (`design-law.js`) sweeps them the same way it
+ * sweeps the dashboard surfaces (`meCopySurface`, `roomCopySurface`, …).
+ *
+ * WHY this surface matters most: these are the words that land on a person's
+ * PHONE — the check-in nudge, the escalation knock, the return-nudge, the
+ * two-way SMS replies, and every kept/miss/reschedule/snooze/pause/resume/edit
+ * confirmation. The anti-shame law (issue #10: "any copy that tallies failures
+ * is a defect") is at its highest stakes here, yet before this the copy engine
+ * had no unified sweep — each string was only as safe as its own local test.
+ * The five dashboard `*CopySurface()` helpers were folded into one scanner in
+ * R-325; this closes the gap on the surface that actually reaches the user.
+ *
+ * Enumerated across BOTH personas (calm `ally` + `hype`) and the argument arms
+ * that change the wording (streak counts, `progress` reported vs not,
+ * `scheduleChanged`, empty vs populated records), so a future edit that leaks a
+ * shame word / "AI" / a clinical claim onto ANY arm of ANY persona is caught.
+ * Consumer voice: `allowAdhd` is false — the bro never names a diagnosis.
+ *
+ * @returns {string[]} every string the copy engine can say to a person.
+ */
+export function accountabilityCopySurface() {
+  const personas = ['ally', 'hype'];
+  const when = '2026-08-11T09:00:00.000Z';
+  const title = 'the taxes';
+  const out = [];
+  const add = (...strings) => {
+    for (const s of strings) {
+      if (typeof s === 'string' && s.length > 0) out.push(s);
+    }
+  };
+  for (const persona of personas) {
+    // The outbound nudges + hints — what actually reaches the phone.
+    add(checkinPromptCopy({ title, persona }));
+    add(checkinReplyHint(persona));
+    // Sweep EVERY escalation variant (8 seeds > 4 variants covers wraparound),
+    // so a shame word edited into any rotated line fails the build, not just
+    // the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(escalationCopy({ title, persona, seed }));
+    // Sweep EVERY return-nudge variant too (the re-entry greeting also rotates,
+    // seeded per dormancy episode), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) add(returnNudgeCopy({ persona, seed }));
+    // Resolution confirmations across every streak / progress / schedule arm.
+    add(keptCopy({ persona, streak: 0 }), keptCopy({ persona, streak: 1 }), keptCopy({ persona, streak: 5 }));
+    add(missRescheduleCopy({ persona }));
+    add(rescheduleConfirmCopy({ persona, when }), rescheduleConfirmCopy({ persona, when, progress: true }));
+    add(releaseConfirmCopy({ persona }));
+    add(alreadySettledCopy({ persona }));
+    // The "you already logged this one" reply — a real outbound API response on
+    // the resolve path (see `alreadyLoggedCopy` at the check-in route) that had
+    // escaped EVERY design-LAW surface and every test: a shame word, "AI", or a
+    // clinical claim edited into it would have shipped silently. Enroll it here so
+    // the one sweep that guards the rest of the bro's voice covers it too.
+    add(alreadyLoggedCopy({ persona }));
+    add(snoozeConfirmCopy({ persona, minutes: 10 }), snoozeConfirmCopy({ persona, minutes: 10, progress: true }));
+    add(pauseConfirmCopy({ persona }));
+    add(resumeConfirmCopy({ persona, when }));
+    add(editConfirmCopy({ persona }), editConfirmCopy({ persona, scheduleChanged: true, when }));
+    add(keptLogCopy({ persona, total: 0 }), keptLogCopy({ persona, total: 1 }), keptLogCopy({ persona, total: 5 }));
+    // First-person momentum + streak voice (persona arms present on some).
+    add(momentumSelfSummaryCopy({ total: 0 }), momentumSelfSummaryCopy({ total: 5, peak: { count: 3 } }));
+    add(detailMomentumSummaryCopy({ total: 0 }), detailMomentumSummaryCopy({ total: 5, peak: { count: 3 } }));
+    add(commitmentDetailCopy({ persona, keptCount: 0 }), commitmentDetailCopy({ persona, keptCount: 5 }));
+    // The per-word "kept since" longevity anchor (fires at 3+ kept, a week+ of history).
+    add(keptSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 5, nowISO: when, timezone: 'UTC', persona }));
+    add(
+      streakSummaryCopy({ persona, streak: { current_streak: 0, longest_streak: 0 } }),
+      streakSummaryCopy({ persona, streak: { current_streak: 5, longest_streak: 7 } }),
+    );
+    // The two-way SMS reply family — the moat's on-channel conversation.
+    add(smsKeptReplyCopy({ persona, streak: 0 }), smsKeptReplyCopy({ persona, streak: 5 }));
+    add(smsRescheduleReplyCopy({ persona }));
+    add(smsAmbiguousReplyCopy({ persona }));
+    add(smsStartHelpCopy({ persona }));
+    add(smsAskWhenCopy({ persona }));
+    // Sweep EVERY reschedule-confirmation variant (both progress arms; 8 seeds >
+    // 4 variants covers wraparound), so a shame word edited into any rotated line
+    // fails the build, not just the canonical one.
+    for (let seed = 0; seed < 8; seed += 1) {
+      add(smsRescheduledCopy({ persona, when, seed }));
+      add(smsRescheduledCopy({ persona, when, progress: true, seed }));
+    }
+    add(smsWhenUnclearCopy({ persona }));
+  }
+  // Persona-independent momentum headings/intros + peak/best/milestone marks.
+  add(momentumSelfHeadingCopy(), momentumSelfIntroCopy());
+  add(detailMomentumHeadingCopy(), detailMomentumIntroCopy());
+  add(detailPeakDayCopy({ count: 3, whenPhrase: 'Tuesday' }));
+  add(personalBestCopy({ streak: { current_streak: 5, longest_streak: 5 } }));
+  add(milestoneCopy({ streak: { current_streak: 7 } }));
+  add(inAppWhenExamplesText());
+  return out;
 }
 
 /**
@@ -1655,6 +3160,143 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
   }
 
   return { streak: next, isRecurring };
+}
+
+// ── THE SILENT MISS, MET WITH WARMTH ON RETURN ───────────────
+// R-286 / R-288. The escalation ladder (checkins-cron.js) knocks exactly ONCE
+// more on a quiet PUSH check-in — an SMS — then latches `escalated_at` and, if
+// that lands on silence too, goes quiet forever. That was the last unresolved
+// corner of the two-way moat: a check-in nobody ever answered sat as an eternal
+// `status='sent'` row, surfacing across the list as a "still waiting" ghost that
+// never closes.
+//
+// The DESIGN LAW's answer to a miss is never a scold and never a dangling thread:
+// it's a warm, no-shame door held open. So the moment the person comes back under
+// their own steam, we resolve every genuinely-silent check-in as a `reschedule` —
+// the streak-protected outcome (computeStreakAfter leaves the chain untouched),
+// the same one a person's own "later" earns. A recurring rhythm keeps rolling
+// (its next occurrence materializes); a one-shot reads "Moved — still on."
+// Nothing is ever scored as a miss; the door simply stops standing ajar.
+//
+// R-288 — the guarantee now covers EVERY channel, not just the one with a ladder.
+// The escalation ladder is push-only (`runEscalations` scans `channel = 'push'`),
+// so a TEXT check-in is never escalated: `escalated_at` stays NULL forever, and
+// the R-286 scan (which required `escalated_at IS NOT NULL`) never saw it — a
+// silently-missed text word sat open as its own eternal ghost. Text has no
+// escalation anchor, so its silence is measured from `delivered_at` instead, held
+// for the SAME total window a push miss weathers before it qualifies
+// (`STRANDED_TEXT_SILENCE_MIN`), so the door opens equally late on either channel.
+//
+// Bounded + safe by construction: a push check-in qualifies only once ESCALATED
+// and then silent for a further hour (`STRANDED_SILENCE_MIN`); a text check-in
+// only once delivered and silent for `STRANDED_TEXT_SILENCE_MIN` — either way a
+// reply still in flight is never stolen. Resolution runs through the one shared
+// `applyCheckinOutcome` core (idempotent — a resolved row no longer matches);
+// and the whole pass is non-fatal, so a hiccup never blocks the return it rides.
+
+/**
+ * Minutes an ESCALATED, still-unanswered push check-in must stay silent before a
+ * return resolves it. The escalation SMS itself fires 15 min after a quiet push
+ * (ESCALATION_DELAY_MIN); this further hour of silence marks a genuine miss, not
+ * a reply the person is about to send as they walk back in.
+ */
+export const STRANDED_SILENCE_MIN = 60;
+
+/**
+ * Minutes a delivered-but-unanswered TEXT check-in must stay silent — measured
+ * from `delivered_at` — before a return resolves it. Text has no escalation
+ * ladder (that's push-only), so it has no `escalated_at` anchor; this window is
+ * set to the SAME total silence a push miss weathers before it qualifies — the
+ * 15-min escalation delay (ESCALATION_DELAY_MIN) plus the further
+ * STRANDED_SILENCE_MIN — so a missed word is held open exactly as long on either
+ * channel, and a text reply the person is about to send is never stolen.
+ */
+export const STRANDED_TEXT_SILENCE_MIN = 15 + STRANDED_SILENCE_MIN;
+
+/** Max stranded check-ins reconciled per return — bounded; a person has few. */
+const STRANDED_LIMIT = 25;
+
+/** Blameless provenance note on an auto-resolved silent miss (safe to surface). */
+export const STRANDED_NOTE = 'Moved on your return — still on.';
+
+/**
+ * Resolve a returning person's silently-missed check-ins as no-shame reschedules.
+ *
+ * "Silently missed" spans both channels of the moat:
+ *   - a PUSH check-in the bro escalated (one SMS) that then went fully quiet for
+ *     at least `STRANDED_SILENCE_MIN` past the escalation; and
+ *   - a TEXT check-in — which has no escalation ladder, so no `escalated_at`
+ *     anchor — that stayed quiet for `STRANDED_TEXT_SILENCE_MIN` past delivery.
+ *     This also covers a text nudge the person answered with a bare "later" (so
+ *     it is parked `awaiting_time`, the bro having asked "when?") and then never
+ *     named a time: the same delivered-but-unanswered thread, closed the same
+ *     warm way rather than left hanging as the one open state the door can't see.
+ * Both are on a still-active commitment, and each is closed through the shared
+ * `applyCheckinOutcome` core as a `reschedule`: streak-safe, rhythm-continuing
+ * for a recurring word, and never a miss score.
+ *
+ * DESIGN LAW: emits no scold and names no gap — it only stops an unanswered row
+ * from sitting open forever, so the person meets a door, not a ghost. Non-fatal:
+ * any failure resolves to `{ reconciled }` with what it managed, never throwing
+ * into the caller (a return is never blocked by a housekeeping pass).
+ *
+ * @param {object} env  Worker env with a D1-shaped `DB`
+ * @param {string} userId
+ * @param {{ nowISO?: string }} [opts]
+ * @returns {Promise<{ reconciled: number }>}
+ */
+export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
+  if (!env || !env.DB || !userId) return { reconciled: 0 };
+  const now = nowISO || new Date().toISOString();
+  const nowMs = new Date(now).getTime();
+  const cutoff = new Date(nowMs - STRANDED_SILENCE_MIN * 60 * 1000).toISOString();
+  const textCutoff = new Date(nowMs - STRANDED_TEXT_SILENCE_MIN * 60 * 1000).toISOString();
+  let reconciled = 0;
+  try {
+    const stranded = await env.DB.prepare(
+      `SELECT c.id AS checkin_id, c.commitment_id,
+              m.recurrence, m.timezone, m.local_time, m.channel, m.status AS commitment_status
+         FROM commitment_checkins c
+         JOIN commitments m ON m.id = c.commitment_id
+        WHERE c.user_id = ?
+          AND c.status IN ('sent', 'awaiting_time')
+          AND c.responded_at IS NULL
+          AND m.status = 'active'
+          AND (
+                (c.channel = 'push' AND c.escalated_at IS NOT NULL AND c.escalated_at <= ?)
+             OR (c.channel = 'text' AND c.escalated_at IS NULL AND c.delivered_at IS NOT NULL AND c.delivered_at <= ?)
+              )
+        ORDER BY COALESCE(c.escalated_at, c.delivered_at) ASC
+        LIMIT ?`
+    ).bind(userId, cutoff, textCutoff, STRANDED_LIMIT).all();
+
+    const rows = (stranded && stranded.results) || [];
+    for (const row of rows) {
+      try {
+        await applyCheckinOutcome(env, {
+          userId,
+          checkin: { id: row.checkin_id, commitment_id: row.commitment_id },
+          commitment: {
+            id: row.commitment_id,
+            recurrence: row.recurrence,
+            timezone: row.timezone,
+            local_time: row.local_time,
+            channel: row.channel,
+            status: row.commitment_status,
+          },
+          outcome: 'reschedule',
+          note: STRANDED_NOTE,
+          nowISO: now,
+        });
+        reconciled++;
+      } catch (err) {
+        console.error('[accountability] stranded reconcile row error:', err && err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[accountability] stranded reconcile error:', err && err.message);
+  }
+  return { reconciled };
 }
 
 /** Read a user's kept-word streak row (module-level; used by applyCheckinOutcome). */
@@ -1868,6 +3510,21 @@ export function registerAccountabilityRoutes(router, ctx) {
          VALUES (?, ?, ?, ?, ?, 'pending')`
       ).bind(checkinId, id, auth.userId, v.checkinAt, v.channel).run();
 
+      // Remember this tone as the person's standing default (the vision's
+      // "persona ... per user"), so /me/ pre-selects it next time instead of
+      // resetting to the calm ally. Upserts ONLY default_persona on the existing
+      // per-user prefs row — never touches the escalation ceiling. Non-fatal: a
+      // pref write must never sink a saved word.
+      try {
+        await env.DB.prepare(
+          `INSERT INTO escalation_prefs (user_id, default_persona, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(user_id) DO UPDATE SET default_persona = excluded.default_persona, updated_at = CURRENT_TIMESTAMP`
+        ).bind(auth.userId, v.persona).run();
+      } catch (prefErr) {
+        console.error('[accountability] default-persona save note:', prefErr && prefErr.message);
+      }
+
       // Instrument "a word given" (non-fatal; IMPROVEMENT_PLAN L1).
       await recordEvent(env, {
         userId: auth.userId, type: EVENTS.COMMITMENT_CREATED,
@@ -1900,6 +3557,14 @@ export function registerAccountabilityRoutes(router, ctx) {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
 
+      // The silent miss, met with warmth on return (R-286): loading your words is
+      // you coming back, so first close any check-in the bro nudged that then went
+      // fully quiet — resolved as a no-shame reschedule (streak-safe, rhythm kept)
+      // BEFORE the list is read, so a returning person meets an open door, never an
+      // unanswered "still waiting" ghost. Non-fatal by construction: never blocks
+      // the load.
+      await reconcileStrandedCheckins(env, auth.userId, { nowISO: new Date().toISOString() });
+
       const rows = await env.DB.prepare(
         `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
            FROM commitments WHERE user_id = ?
@@ -1919,7 +3584,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       const outstanding = await env.DB.prepare(
         `SELECT commitment_id, MIN(scheduled_for) AS next_checkin
            FROM commitment_checkins
-          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred')
+          WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
           GROUP BY commitment_id`
       ).bind(auth.userId).all();
       const nextByCommitment = {};
@@ -1928,6 +3593,38 @@ export function registerAccountabilityRoutes(router, ctx) {
       }
       for (const c of commitments) {
         c.next_checkin = c.status === 'active' ? (nextByCommitment[c.id] || null) : null;
+      }
+
+      // In-app fallback — the bro still shows up when we could not reach the
+      // person at all. A check-in the cron parked `skipped` PURELY for a missing
+      // delivery channel (no push subscription, push/text not configured, or no
+      // number on file) never reached them — unlike a `stale` skip, which aged
+      // out on purpose and whose recurring word already rolled to a fresh
+      // occurrence. For that unreachable case, opening the app is the ONLY place
+      // the bro can still hold the door: for any ACTIVE word left with nothing
+      // outstanding (a one-shot with no next occurrence — otherwise it silently
+      // shows nothing), surface its most recent unreachable check-in as the same
+      // warm, already-past "still here" open door (never a miss, never a scold).
+      // Guarded so the extra grouped query only runs when a gap actually exists,
+      // and still one query (no N+1).
+      const anyUnfilled = commitments.some((c) => c.status === 'active' && !c.next_checkin);
+      if (anyUnfilled) {
+        const unreachable = await env.DB.prepare(
+          `SELECT commitment_id, MAX(scheduled_for) AS next_checkin
+             FROM commitment_checkins
+            WHERE user_id = ? AND status = 'skipped'
+              AND last_error IN ('no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured')
+            GROUP BY commitment_id`
+        ).bind(auth.userId).all();
+        const unreachableByCommitment = {};
+        for (const row of (unreachable && unreachable.results) || []) {
+          unreachableByCommitment[row.commitment_id] = row.next_checkin;
+        }
+        for (const c of commitments) {
+          if (c.status === 'active' && !c.next_checkin && unreachableByCommitment[c.id]) {
+            c.next_checkin = unreachableByCommitment[c.id];
+          }
+        }
       }
 
       return jsonResponse({ commitments }, 200, 'short');
@@ -2005,7 +3702,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         const up = await env.DB.prepare(
           `SELECT scheduled_for
              FROM commitment_checkins
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred')
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
             ORDER BY scheduled_for ASC
             LIMIT 1`
         ).bind(id, auth.userId).first();
@@ -2039,6 +3736,27 @@ export function registerAccountabilityRoutes(router, ctx) {
         whenPhrase: describePeakDay(momentum.peak && momentum.peak.date, { nowISO, timezone: momentumTz }),
       });
 
+      // This word's longevity — how long you've been keeping it. Reads the FIRST
+      // kept instant on this word (MIN over status='kept' only — like every read
+      // in this flow, no miss row is ever touched) and, once it's a standing
+      // practice (KEPT_SINCE_MIN_COUNT+ kept, KEPT_SINCE_MIN_DAYS+ of history),
+      // names the day the practice began. DESIGN LAW: kept-only in, a positive
+      // anchor out; keptSinceCopy stays '' for a young or thin word, so a
+      // just-started word shows nothing — never a "since today", never a "0 days".
+      // Skipped entirely for a never-yet-kept word (no first instant to read).
+      let firstKeptISO = null;
+      if (keptCount > 0) {
+        const firstRow = await env.DB.prepare(
+          `SELECT MIN(responded_at) AS first_kept
+             FROM commitment_checkins
+            WHERE commitment_id = ? AND user_id = ? AND status = 'kept'`
+        ).bind(id, auth.userId).first();
+        firstKeptISO = (firstRow && firstRow.first_kept) || null;
+      }
+      const keptSince = keptSinceCopy({
+        firstKeptISO, count: keptCount, nowISO, timezone: momentumTz, persona: commitment.persona,
+      });
+
       return jsonResponse({
         commitment,
         cadence,
@@ -2046,6 +3764,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         kept,
         kept_count: keptCount,
         momentum,
+        kept_since: keptSince,
         message: commitmentDetailCopy({ persona: commitment.persona, keptCount }),
       }, 200, 'short');
     } catch (err) {
@@ -2063,11 +3782,11 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = {}; }
-      const outcome = typeof body.outcome === 'string' ? body.outcome.toLowerCase() : '';
+      let outcome = typeof body.outcome === 'string' ? body.outcome.toLowerCase() : '';
       if (!OUTCOMES.includes(outcome)) {
         return jsonResponse({ error: `outcome must be one of: ${OUTCOMES.join(', ')}` }, 400);
       }
-      const note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
+      let note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
 
       const commitment = await env.DB.prepare(
         `SELECT id, title, persona, channel, timezone, recurrence, local_time, status
@@ -2076,7 +3795,62 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
       const persona = pickPersona(commitment.persona);
+
+      // Never resurrect a word that's already been set down or otherwise settled.
+      // The kept/snooze interceptions below already guard on `active`, but the main
+      // resolve path did not — so a resolve landing on a released/paused/kept word
+      // (a stale tab, or a second device acting after the word was closed elsewhere)
+      // would move the commitment's status and re-arm a recurring rhythm, ringing
+      // the bro again on a word the person explicitly closed. That is the guilt
+      // engine the design LAW forbids and the SMS twin of the inbound-reply guard in
+      // consent.js. A settled word is not waiting on anyone: reply warmly, write
+      // NOTHING (no check-in stamp, no status move, streak untouched), keep the door
+      // open. 200 (not an error) — nothing failed; the word is simply already done.
+      if (commitment.status !== 'active') {
+        return jsonResponse({
+          status: commitment.status,
+          message: alreadySettledCopy({ persona }),
+        }, 200);
+      }
+
       const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
+
+      // Free-text carried on the in-app "Move it → when?" surface. Read up-front
+      // because both the KEPT interception (just below) and the SNOOZE
+      // interception (further down) must inspect it BEFORE this is treated as a
+      // reschedule. An explicit picker instant (ISO new_start_at) is an
+      // unambiguous reschedule and never a completion or a snooze.
+      const rescheduleWhenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
+      const hasExplicitInstant = typeof body.new_start_at === 'string' && body.new_start_at.trim();
+
+      // Parity with the SMS awaiting-"when?" path (consent.js, R-275): someone who
+      // tapped "Move it → when?" and then reports they actually FINISHED — "did it,
+      // didn't think I could!" — is keeping their word, not rescheduling. R-275
+      // taught detectCheckinReply to read that grateful completion as 'kept'; over
+      // SMS the awaiting-time reply already honors it (resolveKept). Without this,
+      // the in-app surface fell through parseWhenReply to the cold "I couldn't read
+      // that time" AND silently denied the kept-word streak the person just earned
+      // — the coldest possible answer to the warmest reply, the exact R-275 defect
+      // on the other channel. Convert to a real kept so the whole resolution below
+      // (streak credit, kept copy, kept event) runs identically to the Kept button.
+      // Same guards as the snooze interception: only the reschedule "when?" surface,
+      // only a natural-language when_text with no explicit picker instant, only an
+      // active word. A real not-done can never reach here — detectCheckinReply
+      // returns 'kept' only on a clean, un-negated completion, never on a miss.
+      if (
+        outcome === 'reschedule'
+        && commitment.status === 'active'
+        && rescheduleWhenText
+        && !hasExplicitInstant
+        && detectCheckinReply(rescheduleWhenText) === 'kept'
+      ) {
+        outcome = 'kept';
+        // Keep the person's OWN grateful words as the note (parity with the SMS
+        // resolveKept's keptNoteFromReply) when they didn't type a separate note,
+        // so the kept-word history reads back in their voice, not a robotic label.
+        if (!note) note = keptNoteFromReply(rescheduleWhenText);
+      }
+
       // A recurring commitment is never "done" — it keeps its rhythm. Only a
       // one-shot commitment resolves to a terminal state.
       const newCommitmentStatus = isRecurring ? 'active'
@@ -2098,8 +3872,6 @@ export function registerAccountabilityRoutes(router, ctx) {
       // word (a settled one-shot has no live nudge to push). detectCheckinReply
       // runs RESCHEDULE before SNOOZE, so a plain "later" here stays a reschedule
       // and still gets the warm re-ask — never a wrong snooze.
-      const rescheduleWhenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
-      const hasExplicitInstant = typeof body.new_start_at === 'string' && body.new_start_at.trim();
       if (
         outcome === 'reschedule'
         && commitment.status === 'active'
@@ -2107,15 +3879,23 @@ export function registerAccountabilityRoutes(router, ctx) {
         && !hasExplicitInstant
         && detectCheckinReply(rescheduleWhenText) === 'snooze'
       ) {
-        const minutes = SNOOZE_DEFAULT_MIN;
+        // Honor a stated hold-length ("gimme 20", "check back in an hour"); a
+        // snooze with no named interval keeps the default. Clamped, streak-safe.
+        const minutes = parseSnoozeMinutes(rescheduleWhenText) ?? SNOOZE_DEFAULT_MIN;
         const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
-        // Mirror the /snooze endpoint exactly: re-arm the latest still-open
-        // check-in (or open a fresh one), reset attempts, clear last_error /
-        // responded_at — this check-in is not resolved, just moved a little.
+        // Mirror the /snooze endpoint exactly: re-arm the CURRENT still-open
+        // check-in — the SOONEST open occurrence, the one the /me/ card surfaces
+        // and the person is acting on — or open a fresh one; reset attempts, clear
+        // last_error / responded_at (not resolved, just moved a little). Ordering
+        // `scheduled_for ASC` is load-bearing: for a recurring word the delivery
+        // cron marks today's check-in `sent` and materializes tomorrow's as
+        // `pending` (checkins-cron.js), so a `DESC` pick would snooze TOMORROW's
+        // occurrence into today and orphan today's `sent` row into a false
+        // escalation nudge — the exact R-284 bug class, here on the snooze path.
         const open = await env.DB.prepare(
           `SELECT id FROM commitment_checkins
             WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
-            ORDER BY scheduled_for DESC LIMIT 1`
+            ORDER BY scheduled_for ASC LIMIT 1`
         ).bind(id, auth.userId).first();
         if (open && open.id) {
           await env.DB.prepare(
@@ -2129,6 +3909,23 @@ export function registerAccountabilityRoutes(router, ctx) {
              VALUES (?, ?, ?, ?, ?, 'pending')`
           ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
         }
+        // Count the "I'm on it" like every other snooze surface. This in-app
+        // interception historically returned here WITHOUT recording anything —
+        // the exact "web route skipped the analytics event → undercounting
+        // browser users in the founder scorecard" gap noted below, on the snooze
+        // path. A snooze is a first-class engagement signal (never a resolution,
+        // never a miss): record it as COMMITMENT_SNOOZE and mark the check-in
+        // responded, parity with the /snooze endpoint and the SMS branches.
+        await recordEvent(env, {
+          userId: auth.userId,
+          type: EVENTS.COMMITMENT_SNOOZE,
+          data: { commitment_id: id, is_recurring: isRecurring, channel: commitment.channel || null },
+        });
+        await recordEvent(env, {
+          userId: auth.userId,
+          type: EVENTS.CHECKIN_RESPONDED,
+          data: { commitment_id: id, channel: commitment.channel || null },
+        });
         return jsonResponse({
           commitment_id: id,
           snoozed_until: snoozedUntil,
@@ -2169,17 +3966,83 @@ export function registerAccountabilityRoutes(router, ctx) {
         rescheduleValue = parsed.value;
       }
 
-      // Record the resolution on the pending check-in (or the latest one).
-      await env.DB.prepare(
+      // Record the resolution on the check-in the person is actually acting on:
+      // the SOONEST still-outstanding occurrence — the exact one the /me/ card
+      // surfaces as `next_checkin` (MIN(scheduled_for) over the same open set,
+      // see the `outstanding` query above). This MUST NOT pick a later row.
+      // For a recurring word, the delivery cron marks today's check-in `sent` and
+      // immediately materializes tomorrow's as `pending` (checkins-cron.js). The
+      // previous ordering — pending-first, then latest `scheduled_for` DESC —
+      // therefore stamped the resolution on TOMORROW's not-yet-due occurrence and
+      // orphaned today's delivered check-in as an unanswered `sent` row: the card
+      // kept reading "still here whenever you're ready" right after the person
+      // marked it done, and the escalation ladder then texted a false "still here
+      // about <word>" nudge for a task they had already completed. Ordering by
+      // `scheduled_for ASC` over the open set resolves the current occurrence and
+      // leaves the future one untouched — an early in-app resolve (before any
+      // delivery) still lands on the single pending row exactly as before.
+      // The open set includes `awaiting_time`: when the current occurrence was
+      // delivered over text and answered "later" (so the bro asked "when?"), it
+      // is the soonest-open row and MUST be the one a subsequent in-app tap
+      // resolves — otherwise ASC skips it and stamps tomorrow's freshly
+      // materialized `pending` row (the R-284 wrong-row/orphan defect, one
+      // substate over), crediting the streak for a day that has not happened and
+      // orphaning the delivered occurrence into a false "still here" nudge.
+      // Resolve the soonest OPEN occurrence — but only one that is genuinely DUE:
+      // already delivered (sent / deferred / awaiting_time), or a `pending` row
+      // scheduled no later than the end of today in the recipient's zone (an early
+      // completion of today's not-yet-delivered word — "did it before you even
+      // pinged me"). A FUTURE day's `pending` occurrence is deliberately excluded.
+      //
+      // R-284 fixed the CRON-ordering twin of this defect (today `sent` + tomorrow
+      // `pending` both open → resolve today's, not tomorrow's). This closes the
+      // DOUBLE-RESOLVE twin: once today's occurrence is resolved, the only open row
+      // for a recurring word is tomorrow's freshly-materialized `pending` one, so a
+      // SECOND resolve — a double-tap, a stale card, a second device — would stamp
+      // IT, crediting the kept-word streak for a day that hasn't happened AND
+      // swallowing tomorrow's check-in so the bro never shows up tomorrow. Both are
+      // defects under the design LAW: an inflated count the coach pitch rests on,
+      // and a silently-dropped nudge on the exact channel that IS the product.
+      // "Today's occurrence" is a local-calendar-day boundary, not a fixed offset —
+      // only that distinguishes tomorrow's 9am nudge when it's now 11pm (~10h out)
+      // from today's 9am word when it's now 4am (~5h out).
+      const resolveTz = commitment.timezone || 'UTC';
+      const resolveTp = tzParts(Date.now(), resolveTz);
+      let dueBefore;
+      if (resolveTp) {
+        // Midnight tonight → the first instant of tomorrow, in the recipient's zone.
+        const tmr = new Date(Date.UTC(+resolveTp.year, +resolveTp.month - 1, +resolveTp.day) + 24 * 60 * 60 * 1000);
+        dueBefore = new Date(
+          zonedWallToUtcMs(tmr.getUTCFullYear(), tmr.getUTCMonth() + 1, tmr.getUTCDate(), 0, 0, resolveTz),
+        ).toISOString();
+      } else {
+        dueBefore = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      }
+
+      const resolveRes = await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
           WHERE user_id = ? AND commitment_id = ?
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-               ORDER BY (status = 'pending') DESC, scheduled_for DESC LIMIT 1
+                 AND ( status IN ('sent', 'deferred', 'awaiting_time')
+                       OR (status = 'pending' AND scheduled_for < ?) )
+               ORDER BY scheduled_for ASC LIMIT 1
             )`
-      ).bind(outcome, note, auth.userId, id, id, auth.userId).run();
+      ).bind(outcome, note, auth.userId, id, id, auth.userId, dueBefore).run();
+
+      // Nothing due was waiting: the current occurrence is already logged (a
+      // double-tap / stale card / second device), or the only open row is a future
+      // day's not-yet-due one. Resolve NOTHING — no second streak credit for one
+      // word, no swallowed future check-in, no duplicate kept event. Reply warm and
+      // blameless; the rhythm keeps rolling on its own. 200 (nothing failed).
+      if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {
+        return jsonResponse({
+          status: commitment.status,
+          message: alreadyLoggedCopy({ persona }),
+        }, 200);
+      }
 
       await env.DB.prepare(
         `UPDATE commitments SET status = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
@@ -2341,10 +4204,26 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = {}; }
-      const minutes = clampSnoozeMinutes(body && body.minutes);
+
+      // The hold length can arrive two ways, and every OTHER snooze surface — the
+      // SMS "gimme 20" reply and the in-app "Move it → I'm on it" path — already
+      // reads a natural-language length through the shared `parseSnoozeMinutes`.
+      // This endpoint used to accept ONLY a numeric `minutes`, so it was the one
+      // snooze surface that couldn't understand "give me 20" / "half an hour" — an
+      // API/UX parity gap against the "one parser on every surface" line the
+      // two-way moat is built on (R-233). Read both: an explicit numeric `minutes`
+      // keeps the exact prior API contract and wins; otherwise a `when_text` is
+      // read with the SAME parser (a clock time or multi-day horizon is guarded to
+      // the default in there, never mis-clamped into a wrong count), and a plain
+      // snooze with neither stays the default. Streak-safe by construction — this
+      // route never reads or writes the kept-word streak.
+      const whenText = body && typeof body.when_text === 'string' ? body.when_text.trim() : '';
+      const minutes = body && body.minutes != null
+        ? clampSnoozeMinutes(body.minutes)
+        : (whenText ? (parseSnoozeMinutes(whenText) ?? SNOOZE_DEFAULT_MIN) : SNOOZE_DEFAULT_MIN);
 
       const commitment = await env.DB.prepare(
-        `SELECT id, persona, channel, status FROM commitments WHERE id = ? AND user_id = ?`
+        `SELECT id, persona, channel, status, recurrence FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
@@ -2360,14 +4239,20 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
 
-      // Re-arm the latest still-open check-in if there is one: the person may be
-      // answering a nudge already delivered (status='sent') or one held for quiet
-      // hours ('deferred'). Reset attempts so the fresh window starts clean, and
-      // clear responded_at — this check-in is not resolved, just moved a little.
+      // Re-arm the CURRENT still-open check-in — the SOONEST open occurrence, the
+      // one the /me/ card surfaces (MIN(scheduled_for)) and the person is answering:
+      // a nudge already delivered (status='sent') or one held for quiet hours
+      // ('deferred'). Reset attempts so the fresh window starts clean, and clear
+      // responded_at — not resolved, just moved a little. Ordering `scheduled_for
+      // ASC` is load-bearing: for a recurring word the cron materializes tomorrow's
+      // occurrence as `pending` while today's is `sent`, so a `DESC` pick would
+      // snooze TOMORROW's occurrence into today and orphan today's `sent` row into a
+      // false escalation nudge (the R-284 bug class, on the snooze path). ASC re-arms
+      // the occurrence the person is acting on and leaves the future one to fire.
       const open = await env.DB.prepare(
         `SELECT id FROM commitment_checkins
           WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
-          ORDER BY scheduled_for DESC LIMIT 1`
+          ORDER BY scheduled_for ASC LIMIT 1`
       ).bind(id, auth.userId).first();
 
       if (open && open.id) {
@@ -2385,6 +4270,17 @@ export function registerAccountabilityRoutes(router, ctx) {
         ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
       }
 
+      // A snooze is a first-class engagement signal (the "I'm on it" third
+      // answer) — counted on its own, never a resolution and never a miss.
+      await recordEvent(env, {
+        userId: auth.userId,
+        type: EVENTS.COMMITMENT_SNOOZE,
+        data: {
+          commitment_id: id,
+          is_recurring: pickRecurrence(commitment.recurrence) !== 'none',
+          channel: commitment.channel || null,
+        },
+      });
       await recordEvent(env, {
         userId: auth.userId,
         type: EVENTS.CHECKIN_RESPONDED,
@@ -2395,7 +4291,12 @@ export function registerAccountabilityRoutes(router, ctx) {
         commitment_id: id,
         snoozed_until: snoozedUntil,
         minutes,
-        message: snoozeConfirmCopy({ persona, minutes }),
+        // Meet reported movement by name — "love that you're moving" — the exact
+        // warmth the SMS and in-app "when?" snooze surfaces already give, so a
+        // "grinding away, gimme 20" here no longer lands on the flatter generic
+        // line. Only a natural-language when_text can carry that signal; a numeric
+        // `minutes` request has no words to read, so it keeps the generic-warm copy.
+        message: snoozeConfirmCopy({ persona, minutes, progress: whenText ? isProgressReply(whenText) : false }),
       }, 200);
     } catch (err) {
       console.error('[accountability] snooze error:', err && err.message);
@@ -2494,6 +4395,28 @@ export function registerAccountabilityRoutes(router, ctx) {
           WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).run();
 
+      // Neutralise any occurrence left over from before the break BEFORE queuing
+      // the fresh one. Pause deliberately cancels only the waiting substates
+      // (`pending`/`deferred`/`awaiting_time`) and leaves a DELIVERED-but-
+      // unanswered `sent` nudge live — safe *while paused* because every active-
+      // scoped surface filters on `m.status='active'`, so the stray row is inert.
+      // Resume flips the word back to 'active', which re-arms that same stray row
+      // on exactly those surfaces: the escalation cron (`c.status='sent' AND
+      // m.status='active'`) would text a "still here about <word>" nudge chasing a
+      // moment from before the break, and the /me/ + coach next-check-in
+      // (MIN(scheduled_for) over the open set) would surface that pre-pause
+      // moment beside the freshly-queued one as a DUPLICATE open occurrence.
+      // Resume's contract is "pick up cleanly from now, never a backlog of the
+      // days away" — so the pre-pause occurrence is superseded, exactly as an
+      // edit's time change supersedes its outstanding check-in. Cancel the same
+      // wider set the edit path does (`sent` included). Anti-shame by
+      // construction: `cancelled` is inert, the streak is never read or written
+      // by a resume, and no miss is recorded.
+      await env.DB.prepare(
+        `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
+          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')`
+      ).bind(id, auth.userId).run();
+
       // Schedule the next occurrence so the rhythm actually starts ringing again.
       // ensureNextOccurrence is idempotent + a no-op for a non-recurring word (a
       // paused rhythm is always recurring by construction of the pause gate).
@@ -2567,10 +4490,28 @@ export function registerAccountabilityRoutes(router, ctx) {
       // If WHEN the bro shows up changed, re-queue the check-in: cancel the
       // outstanding one and, for a still-active word, schedule a fresh one at the
       // new time. A paused rhythm is left quiet — resume schedules it from now.
+      //
+      // The cancel set includes a DELIVERED-but-unanswered `sent` row, unlike
+      // release/pause (which cancel only the waiting substates and leave `sent`
+      // live). The difference is load-bearing: release/pause move the commitment
+      // OUT of 'active', so every active-scoped surface — the /me/ + coach
+      // next-check-in (MIN over the open set), the escalation cron
+      // (`c.status='sent' AND m.status='active'`), and the resolve guard — stops
+      // touching the stray `sent` row and it goes inert. An edit KEEPS the word
+      // active, so a leftover `sent` occurrence is NOT neutralised: it would
+      // linger beside the freshly-queued `pending` one as a DUPLICATE open
+      // occurrence — the /me/ card's MIN(scheduled_for) would surface the OLD,
+      // pre-edit moment the person just moved away from, and the escalation
+      // ladder would chase that superseded moment with a false "still here about
+      // <word>" nudge (a design-LAW brush: the bro chasing a moment you
+      // rescheduled). Editing the time redefines the current occurrence, so the
+      // delivered nudge for the old moment is superseded — cancel it too. Anti-
+      // shame by construction: `cancelled` is inert, the streak is never read or
+      // written by an edit, and no miss is recorded.
       if (built.scheduleChanged) {
         await env.DB.prepare(
           `UPDATE commitment_checkins SET status = 'cancelled', responded_at = datetime('now')
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'deferred', 'awaiting_time')`
+            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')`
         ).bind(id, auth.userId).run();
 
         if (commitment.status === 'active') {
@@ -2606,11 +4547,36 @@ export function registerAccountabilityRoutes(router, ctx) {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
       const streak = await loadStreak(env, auth.userId);
+      // The person's remembered companion tone (calm ally vs. hype), so /me/
+      // pre-selects it on load. Null when they have never chosen — the form then
+      // keeps its own standing default (the calm ally). Non-fatal: a read miss
+      // never blocks the streak.
+      let defaultPersona = null;
+      try {
+        const pref = await env.DB.prepare(
+          `SELECT default_persona FROM escalation_prefs WHERE user_id = ?`
+        ).bind(auth.userId).first();
+        if (pref && pref.default_persona) defaultPersona = pickPersona(pref.default_persona);
+      } catch (prefErr) {
+        console.error('[accountability] default-persona read note:', prefErr && prefErr.message);
+      }
       return jsonResponse({
         streak,
+        default_persona: defaultPersona,
         message: streakSummaryCopy({ streak }),
         best: personalBestCopy({ streak }),
         milestone: milestoneCopy({ streak }),
+        // The lifetime-total landmark (10/25/50/100/250/500/1000 words kept ever).
+        // Reads total_kept, which only ever grows, so — unlike best/milestone (both
+        // current-run signals that a miss can zero) — this celebration can never be
+        // taken away once reached. '' between landmarks, so it never nags.
+        landmark: keptTotalLandmarkCopy({ streak }),
+        // The STANDING all-time record — the strongest run, shown ONLY at a fresh
+        // start (current_streak === 0), where the summary/best/milestone lines all
+        // go quiet. Reads longest_streak (monotonic; a reset never lowers it), so
+        // it can only describe a record on the way up, and it stands alone with no
+        // current run to compare against — reassurance, never a decline.
+        record: personalRecordCopy({ streak }),
       }, 200, 'short');
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
@@ -2708,11 +4674,128 @@ export function registerAccountabilityRoutes(router, ctx) {
         summary: momentumSelfSummaryCopy,
       });
 
+      // ── Your power hours (kept-word count by local hour over a wider window) ──
+      // A time-of-day pattern needs more history than the 14-day sparkline to be
+      // honest, so this reads its own POWER_HOURS_WINDOW_DAYS window and buckets
+      // by local wall-clock hour. DESIGN LAW: status='kept' ONLY (same as every
+      // read here) → it can only ever name an hour the person SHOWED UP, and the
+      // peak gate keeps a thin/flat history from getting an arbitrary "power hour".
+      const powerCutoffISO = new Date(Date.parse(nowISO) - (POWER_HOURS_WINDOW_DAYS + 1) * 86400000).toISOString();
+      const powerRows = await env.DB.prepare(
+        `SELECT responded_at FROM commitment_checkins
+          WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL AND responded_at >= ?
+          ORDER BY responded_at DESC
+          LIMIT 2000`
+      ).bind(auth.userId, powerCutoffISO).all();
+      const powerTimestamps = ((powerRows && powerRows.results) || []).map((r) => r.responded_at);
+      const powerPeak = peakKeptHour(bucketKeptByHour({ timestamps: powerTimestamps, timezone: momentumTz }));
+      const powerHours = powerHoursCopy({ peak: powerPeak });
+
+      // ── Your all-time best day (the most kept words ever in a single day) ──
+      // A record needs the WHOLE history, not a trailing window — a best day from
+      // a year ago is still the record — so this reads status='kept' with no date
+      // cutoff (bounded to a generous LIMIT that is effectively all-time for this
+      // product; the record is recomputed each read and only ever climbs as kept
+      // rows accumulate). DESIGN LAW: status='kept' ONLY, so it can only ever
+      // crown a day the person SHOWED UP; the floor keeps a thin history from
+      // getting a hollow "best day".
+      const allKeptRows = await env.DB.prepare(
+        `SELECT responded_at FROM commitment_checkins
+          WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL
+          ORDER BY responded_at DESC
+          LIMIT 5000`
+      ).bind(auth.userId).all();
+      const allKeptTimestamps = ((allKeptRows && allKeptRows.results) || []).map((r) => r.responded_at);
+      const bestDayRaw = allTimeBestDay({ timestamps: allKeptTimestamps, timezone: momentumTz });
+      const bestDay = bestDayCopy({
+        best: bestDayRaw,
+        nowISO,
+        timezone: momentumTz,
+      });
+
+      // ── Your best week (the most kept words ever across a single week) ──
+      // The week-scale peer of the best-day record: the Monday-anchored local week
+      // the person kept the most words in. Reuses the SAME all-time status='kept'
+      // scan already fetched above (no new query), folds its days into weeks, and
+      // names the peak week only when it clears the floor AND beats the best single
+      // DAY — so it never just echoes the best-day card. DESIGN LAW: status='kept'
+      // ONLY → it can only ever crown a week the person SHOWED UP; a thin history,
+      // or a week no bigger than one day, returns '' → the card stays hidden.
+      const bestWeek = bestWeekCopy({
+        best: allTimeBestWeek({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+        bestDayCount: bestDayRaw ? bestDayRaw.count : 0,
+        nowISO,
+        timezone: momentumTz,
+      });
+
+      // ── Days you showed up (lifetime distinct active days) ──
+      // The BREADTH read beside the best day: how many separate local days carry a
+      // kept word. Reuses the SAME all-time status='kept' scan already fetched for
+      // the best day (no new query, same effectively-all-time LIMIT bound), so it
+      // costs nothing extra and stays consistent with the record above it. DESIGN
+      // LAW: status='kept' ONLY → every counted day is a day the person SHOWED UP;
+      // the floor keeps a thin history from getting a hollow "1 day".
+      const showedUpDays = showedUpDaysCopy({
+        days: distinctKeptDays({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+      });
+
+      // ── Your power day (the weekday your kept words most often land) ──
+      // The weekday sibling of power hours: instead of the HOUR of day, it names the
+      // DAY OF THE WEEK the person comes through most. Reuses the SAME all-time
+      // status='kept' scan already fetched above (no new query), buckets it by local
+      // weekday, and names the single peak only when peakKeptWeekday clears its
+      // signal gate. DESIGN LAW: status='kept' ONLY → it can only ever name a weekday
+      // the person SHOWED UP; a thin, flat, or tied history returns null → '' here.
+      const powerDay = powerDayCopy({
+        peak: peakKeptWeekday(bucketKeptByWeekday({ timestamps: allKeptTimestamps, timezone: momentumTz })),
+      });
+
+      // ── Your typical day (average kept words per active day) ──
+      // The INTENSITY read beside the count/peak/breadth reads: when the person
+      // shows up, about how many words do they keep? Reuses the SAME all-time
+      // status='kept' scan already fetched above (no new query) — both the kept
+      // total it averages and the distinct active days it divides by are drawn from
+      // kept rows ONLY, so a quiet day is in neither and the average can only ever
+      // describe a day they SHOWED UP. DESIGN LAW: status='kept' ONLY; the gate (and
+      // the ~2-a-day floor in the copy) keep a thin or flat history from getting a
+      // hollow figure → '' → the card stays hidden.
+      const typicalDay = typicalDayCopy({
+        typical: typicalKeptPerActiveDay({ timestamps: allKeptTimestamps, timezone: momentumTz }),
+      });
+
+      // ── Keeping your word since … (account-level longevity anchor) ──
+      // The day the person kept their VERY FIRST word here, across all commitments
+      // — the per-word "kept since" read one level up. A dedicated MIN(responded_at)
+      // over status='kept' is correct regardless of the all-time LIMIT above (the
+      // true earliest, even past 5000 rows). Skipped entirely below the count floor
+      // so a thin account never touches the DB for an anchor it won't show. DESIGN
+      // LAW: status='kept' ONLY — the MIN can only ever fall on a day they SHOWED UP.
+      let keepingSince = '';
+      if (total >= ACCOUNT_SINCE_MIN_COUNT) {
+        const firstKeptRow = await env.DB.prepare(
+          `SELECT MIN(responded_at) AS first_kept FROM commitment_checkins
+            WHERE user_id = ? AND status = 'kept' AND responded_at IS NOT NULL`
+        ).bind(auth.userId).first();
+        keepingSince = keepingSinceCopy({
+          firstKeptISO: firstKeptRow && firstKeptRow.first_kept,
+          count: total,
+          nowISO,
+          timezone: momentumTz,
+        });
+      }
+
       return jsonResponse({
         kept: keptList,
         latest_note: latestNote,
         total_kept: total,
         momentum,
+        power_hours: powerHours,
+        best_day: bestDay,
+        best_week: bestWeek,
+        showed_up_days: showedUpDays,
+        power_day: powerDay,
+        typical_day: typicalDay,
+        keeping_since: keepingSince,
         message: keptLogCopy({ total }),
       }, 200, 'short');
     } catch (err) {
