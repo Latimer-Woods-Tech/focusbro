@@ -28,11 +28,15 @@ import { D1OperatorStore } from '../operator-store.js';
 import {
   registerCoachOnboardingRoutes,
   validateCheckinScript,
+  validateDisplayName,
+  validateBrandName,
+  validateSupportEmail,
   deriveOperatorSlug,
   coachOnboardingCopySurface,
   COACH_CADENCES,
   COACH_VOICE_PERSONAS,
 } from '../coach-onboarding.js';
+import { scanDesignLaw } from '../design-law.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -186,6 +190,15 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
     expect(validateCheckinScript('Our AI will ring you').ok).toBe(false);
   });
 
+  it('closes the drift holes the old local list missed — "therapy" and "unresponsive"', () => {
+    // Proof-of-rejection (Standing Law #1): before this guard was routed through
+    // the canonical `scanDesignLaw`, the local CLINICAL list omitted `therapy`
+    // and the local SHAME list omitted `unrespons`, so both saved silently at
+    // this write boundary. They must now be rejected.
+    expect(validateCheckinScript('I booked your therapy session for 2').ok).toBe(false);
+    expect(validateCheckinScript("You've been unresponsive lately").ok).toBe(false);
+  });
+
   it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
     const reasons = [
       validateCheckinScript('').reason,
@@ -193,26 +206,198 @@ describe('validateCheckinScript — the design LAW at the coach\'s pen', () => {
       validateCheckinScript('treat your disorder').reason,
       validateCheckinScript('the AI calls you').reason,
     ];
-    const SHAME = [/\bfail/i, /\blazy\b/i, /\bshame\b/i, /\bmiss(ed|es|ing)?\b/i, /\bbehind\b/i, /\bguilt/i];
-    const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i];
+    // Held to the ONE canonical bar (shame + clinical + "AI" + consumer-ADHD in
+    // one pass). The old local list here was the WEAKEST of the four — its
+    // CLINICAL regexes omitted `cure`, `therapy`, AND `medication`, and its SHAME
+    // list omitted `disappoint`/`pathetic`/`worthless`/`unrespons`/`slipping`.
     for (const s of reasons) {
-      for (const p of SHAME) expect(p.test(s), `shame in reason: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in reason: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in reason: "${s}"`).toBe(false);
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+describe('validateDisplayName — the design LAW on the coach\'s required practice name', () => {
+  it('accepts a clean practice name and trims it', () => {
+    const r = validateDisplayName('  Steady Wins Coaching  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('Steady Wins Coaching');
+  });
+
+  it('allows "ADHD" in a practice name — the name IS the coach pitch', () => {
+    // Guardrail: "ADHD lives in SEO and the coach pitch, not a clinical promise."
+    // A coaching business legitimately named for its market must not be rejected.
+    expect(validateDisplayName('ADHD Focus Coaching').ok).toBe(true);
+  });
+
+  it('rejects an empty, over-long, or shaming practice name', () => {
+    expect(validateDisplayName('').ok).toBe(false);
+    expect(validateDisplayName('   ').ok).toBe(false);
+    expect(validateDisplayName(undefined).ok).toBe(false);
+    expect(validateDisplayName('x'.repeat(121)).ok).toBe(false);
+    expect(validateDisplayName('Lazy No More Coaching').ok).toBe(false);
+    expect(validateDisplayName('No More Excuses').ok).toBe(false);
+  });
+
+  it('rejects a clinical/treatment claim and the "AI" brand in the practice name', () => {
+    // The exact drift this fix closes: these passed the old presence+length-only
+    // check and reached the store + coach dashboard as a treatment/"AI" claim on a
+    // FocusBro-served surface. "cure" is a treatment claim even beside "ADHD".
+    expect(validateDisplayName('ADHD Cure Coaching').ok).toBe(false);
+    expect(validateDisplayName('Therapy Practice').ok).toBe(false);
+    expect(validateDisplayName('AI Accountability').ok).toBe(false);
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateDisplayName('').reason,
+      validateDisplayName('x'.repeat(121)).reason,
+      validateDisplayName('Lazy No More Coaching').reason,
+      validateDisplayName('ADHD Cure Coaching').reason,
+      validateDisplayName('AI Accountability').reason,
+    ];
+    // Held to the SAME ONE canonical bar as the surfaces the rest of the suite
+    // guards — the rejection copy can never itself shame or go clinical.
+    for (const s of reasons) {
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+describe('validateBrandName — the design LAW on the coach\'s white-label', () => {
+  it('accepts a clean brand and trims it', () => {
+    const r = validateBrandName('  Steady Wins Coaching  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('Steady Wins Coaching');
+  });
+
+  it('allows "ADHD" in a brand — a brand IS the coach pitch', () => {
+    // Guardrail: "ADHD lives in SEO and the coach pitch, not a clinical promise."
+    // A coaching business legitimately named for its market must not be rejected.
+    expect(validateBrandName('ADHD Focus Coaching').ok).toBe(true);
+  });
+
+  it('rejects a shaming, empty, or over-long brand', () => {
+    expect(validateBrandName('Lazy No More Coaching').ok).toBe(false);
+    expect(validateBrandName('No More Excuses').ok).toBe(false);
+    expect(validateBrandName('   ').ok).toBe(false);
+    expect(validateBrandName('x'.repeat(81)).ok).toBe(false);
+  });
+
+  it('rejects a clinical/treatment claim and the "AI" brand even in the name', () => {
+    // A brand promising to "treat"/"cure" a diagnosis is exactly the clinical
+    // claim with regulatory teeth the law bans everywhere; "AI" is never allowed.
+    expect(validateBrandName('ADHD Cure Partners').ok).toBe(false);
+    expect(validateBrandName('Therapy Line').ok).toBe(false);
+    expect(validateBrandName('AI Accountability').ok).toBe(false);
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateBrandName('').reason,
+      validateBrandName('Lazy No More Coaching').reason,
+      validateBrandName('ADHD Cure Partners').reason,
+      validateBrandName('AI Accountability').reason,
+    ];
+    // Same ONE canonical bar. The old local list here omitted `cure` and
+    // `medication` from CLINICAL (and the fuller shame framings from SHAME).
+    for (const s of reasons) {
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+describe('validateSupportEmail — the design LAW on the coach\'s white-label support address', () => {
+  it('accepts a clean support address and trims it', () => {
+    const r = validateSupportEmail('  hello@steadywins.coach  ');
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe('hello@steadywins.coach');
+  });
+
+  it('allows "ADHD" in a support address — it is part of the coach pitch', () => {
+    // Same guardrail as the brand: a coach whose real address names their market
+    // must not be blocked ("ADHD lives in SEO and the coach pitch").
+    expect(validateSupportEmail('help@adhdfocuscoaching.com').ok).toBe(true);
+  });
+
+  it('rejects a valid-format but design-dirty address (shame / clinical / AI)', () => {
+    // Proof-of-rejection (Standing Law #1): each of these PASSES the operator
+    // package's email-format check yet shames or makes a clinical claim to the
+    // client — before this guard they reached updateWhiteLabel unscanned.
+    expect(validateSupportEmail('dont-be-lazy@coach.com').ok).toBe(false); // shame
+    expect(validateSupportEmail('you-failed@coach.com').ok).toBe(false); // shame
+    expect(validateSupportEmail('cure-your-adhd@clinic.com').ok).toBe(false); // clinical
+    expect(validateSupportEmail('therapy@coach.com').ok).toBe(false); // clinical
+    expect(validateSupportEmail('the-AI-desk@coach.com').ok).toBe(false); // "AI"
+  });
+
+  it('every rejection reason is itself warm — no shame/clinical/AI leaks into feedback', () => {
+    const reasons = [
+      validateSupportEmail('').reason,
+      validateSupportEmail('dont-be-lazy@coach.com').reason,
+      validateSupportEmail('cure-your-adhd@clinic.com').reason,
+      validateSupportEmail('the-AI-desk@coach.com').reason,
+    ];
+    // Same ONE canonical bar. The old local list here omitted `medication` from
+    // CLINICAL (and the fuller shame framings from SHAME).
+    for (const s of reasons) {
+      expect(scanDesignLaw(s), `design-LAW violation in reason: "${s}"`).toEqual([]);
     }
   });
 });
 
 describe('coachOnboardingCopySurface — never shames, brands "AI", or goes clinical', () => {
-  const SHAME = [/\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bshame\b/i, /\bguilt/i, /\bbehind\b/i, /\bmiss(ed|es|ing)?\b/i, /\bpathetic\b/i, /\bworthless\b/i];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-  it('passes every battery', () => {
-    for (const s of coachOnboardingCopySurface()) {
+  it('passes every battery — via the ONE canonical scanner', () => {
+    // The onboarding copy surface (intro + labels + the warm validation-feedback
+    // reasons) is held to the SAME canonical bar as every other surface. The old
+    // local list here omitted `therapy` from CLINICAL. `allowAdhd` stays false
+    // (default): this copy never legitimately names ADHD, so the stricter
+    // consumer bar is correct — exactly what the old list's bare `\bADHD\b` did.
+    const surface = coachOnboardingCopySurface();
+    expect(surface.length).toBeGreaterThan(0);
+    for (const s of surface) {
       expect(typeof s).toBe('string');
       expect(s.length).toBeGreaterThan(0);
-      for (const p of SHAME) expect(p.test(s), `shame in copy: "${s}"`).toBe(false);
-      for (const p of CLINICAL) expect(p.test(s), `clinical in copy: "${s}"`).toBe(false);
-      expect(/\bAI\b/.test(s), `"AI" in copy: "${s}"`).toBe(false);
+      // RAW string (not lowercased) so the case-sensitive `\bAI\b` guard is meaningful.
+      expect(scanDesignLaw(s), `design-LAW violation in copy: "${s}"`).toEqual([]);
+    }
+  });
+});
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS these surfaces ──
+// The four hand-rolled SHAME/CLINICAL/AI arrays this file used to carry (one per
+// reason/copy battery above) had each drifted WEAKER than canonical, and — unlike
+// the consent fold (R-339) — they carried NO genuine per-surface extras at all:
+// every regex in them is a strict subset of `scanDesignLaw`, so routing straight
+// through the canonical scanner loses nothing and closes real holes:
+//   • the checkin-script battery missed `cure` / `therapy` / `medication`;
+//   • the brand-name battery missed `cure` / `medication`;
+//   • the support-email battery missed `medication`;
+//   • the copy-surface battery missed `therapy`;
+//   • all four missed the fuller shame framings `disappoint` / `unrespons` /
+//     `slipping` (and the incredulous `again?!`).
+// Pins that the canonical scanner catches each of those, and that the warm copy
+// this module actually emits stays clean. Verified load-bearing by mutation:
+// revert any block above to its old subset list and its "missed framing" here
+// still trips canonical while the old list would have let it pass.
+describe('the coach-onboarding surfaces are guarded by the ONE canonical design-LAW scanner (never shame/clinical)', () => {
+  it('catches shame/clinical framings the old per-surface subset lists silently missed', () => {
+    for (const bad of [
+      'let us cure your focus',    // cure — missed by the checkin/support batteries' old CLINICAL
+      'book a therapy session',    // therapy — missed by the checkin & copy-surface batteries
+      'take your medication',      // medication — missed by ALL FOUR old lists
+      'you keep disappointing me',  // disappoint — never listed in any local SHAME
+      "you've been unresponsive",   // unrespons — never listed
+      "you're slipping again",      // slipping — never listed
+      'not this again?!',           // the incredulous again?! (the R-331 dead-regex class)
+      'built for your ADHD',        // consumer-banned bare ADHD (default allowAdhd=false)
+    ]) {
+      expect(scanDesignLaw(bad).length, `should be caught: ${bad}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves the warm coach-onboarding copy this module emits clean (the anti-shame LAW survives)', () => {
+    for (const good of coachOnboardingCopySurface()) {
+      expect(scanDesignLaw(good).length, `warm copy must stay clean: ${good}`).toBe(0);
     }
   });
 });
@@ -335,6 +520,64 @@ describe('coach onboarding routes (mounted on the operator platform)', () => {
     await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
     const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', primaryColor: 'not-a-color' } });
     expect(res.status).toBe(400);
+  });
+
+  it('the white-label PUT rejects a shaming / "AI" / clinical brand name (400)', async () => {
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
+    for (const bad of ['Lazy No More Coaching', 'ADHD Cure Partners', 'AI Accountability']) {
+      const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: bad } });
+      expect(res.status, `expected 400 for brand "${bad}"`).toBe(400);
+    }
+    // A clean brand (and an ADHD-in-pitch brand) still saves.
+    const ok = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'ADHD Focus Coaching' } });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).white_label.brandName).toBe('ADHD Focus Coaching');
+  });
+
+  it('onboarding rejects a shaming brand up front and creates NO operator', async () => {
+    // Proof-of-rejection (Standing Law #1): the sibling drift hole R-327 left —
+    // the brand name reached updateWhiteLabel unscanned on the onboarding path.
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    const res = await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching', brandName: "Don't Be Lazy Coaching" } });
+    expect(res.status).toBe(400);
+    // The rejection happened before any operator was created.
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).onboarded).toBe(false);
+  });
+
+  it('the white-label PUT rejects a valid-but-design-dirty support email (400) and stores a clean one', async () => {
+    // Proof-of-rejection (Standing Law #1): the support email is the sibling
+    // white-label field that reached updateWhiteLabel unscanned. A valid-format
+    // address that shames / goes clinical / brands "AI" must now be rejected.
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    await app('POST', '/api/coach/onboarding', { token: 'coach1', body: { displayName: 'Jane Coaching' } });
+    for (const bad of ['dont-be-lazy@coach.com', 'cure-your-adhd@clinic.com', 'therapy@coach.com', 'the-AI-desk@coach.com']) {
+      const res = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', supportEmail: bad } });
+      expect(res.status, `expected 400 for support email "${bad}"`).toBe(400);
+    }
+    // A clean support address (and an ADHD-in-pitch one) saves and reads back.
+    const ok = await app('PUT', '/api/coach/white-label', { token: 'coach1', body: { brandName: 'Jane', supportEmail: 'help@janecoaching.com' } });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).white_label.supportEmail).toBe('help@janecoaching.com');
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).white_label.supportEmail).toBe('help@janecoaching.com');
+  });
+
+  it('onboarding rejects a design-dirty support email up front and creates NO operator', async () => {
+    const env = { DB: makeD1(), JWT_SECRET: 'x' };
+    const app = makeApp(env);
+    const res = await app('POST', '/api/coach/onboarding', {
+      token: 'coach1',
+      body: { displayName: 'Jane Coaching', brandName: 'Jane', supportEmail: 'you-failed@coach.com' },
+    });
+    expect(res.status).toBe(400);
+    const get = await app('GET', '/api/coach/onboarding', { token: 'coach1' });
+    expect((await get.json()).onboarded).toBe(false);
+    expect(env.DB._t.operators.length).toBe(0);
   });
 
   it('GET before onboarding reports not onboarded', async () => {

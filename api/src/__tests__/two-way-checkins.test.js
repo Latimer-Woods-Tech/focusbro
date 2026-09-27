@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { scanDesignLaw } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   detectCheckinReply,
@@ -400,15 +401,6 @@ describe('rescheduleConfirmCopy — meets reported progress by name, in-app pari
 
 // ── DESIGN LAW on the reply copy ─────────────────────────────
 describe('copy law — SMS reply strings never shame, never "AI", never clinical', () => {
-  const SHAME = [
-    /\bfail(ed|ure|ing|s)?\b/i, /\blaz(y|iness)\b/i, /\bdisappoint/i, /\bguilt/i,
-    /\bashamed\b/i, /\bshame\b/i, /\byou (didn.?t|should have|should.?ve)\b/i,
-    /\bfall(ing|en)? behind\b/i, /\bbehind again\b/i, /\bexcuse/i, /\bpathetic\b/i,
-    /\bworthless\b/i,
-  ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-  const AI = /\bAI\b/;
-
   const samples = [];
   for (const persona of ['ally', 'hype', 'unknown']) {
     for (const streak of [0, 1, 2, 30]) samples.push(smsKeptReplyCopy({ persona, streak }));
@@ -420,14 +412,16 @@ describe('copy law — SMS reply strings never shame, never "AI", never clinical
   it('are all non-empty strings', () => {
     for (const s of samples) { expect(typeof s).toBe('string'); expect(s.trim().length).toBeGreaterThan(0); }
   });
-  it('never shame', () => {
-    for (const s of samples) for (const p of SHAME) expect(p.test(s), `${s} matched ${p}`).toBe(false);
-  });
-  it('never say "AI"', () => {
-    for (const s of samples) expect(AI.test(s), s).toBe(false);
-  });
-  it('never make a clinical claim', () => {
-    for (const s of samples) for (const p of CLINICAL) expect(p.test(s), `${s} matched ${p}`).toBe(false);
+  // One law, one scanner: every SMS reply string is swept through the canonical
+  // `scanDesignLaw` (shame + clinical + "AI" branding + consumer-ADHD in a single
+  // pass) instead of the hand-rolled lists this block used to carry — which had
+  // drifted weaker than the frozen lexicon (no `slipping`, no working `again?!`,
+  // no `unrespons`, only `behind again` where the canonical bans the bare `behind`).
+  it('obey the one design LAW — no shame / clinical / "AI" / consumer-ADHD', () => {
+    for (const s of samples) {
+      const violations = scanDesignLaw(s);
+      expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    }
   });
   it('the reschedule reply keeps the door open (a new time, streak safe)', () => {
     for (const persona of ['ally', 'hype']) {
@@ -756,7 +750,10 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     // the warm read-back confirmation went out (not the "I didn't catch that" copy)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the invariant every
+    // variant carries (word/streak safe — a reschedule protects the chain),
+    // which the "I didn't catch that" copy never does.
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
     expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|pick a new time/);
   });
 
@@ -826,6 +823,43 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     // and the confirmation names the length THEY chose
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sent.text).toContain('45 minutes');
+  });
+
+  it('"on it, check back at 3pm" honors the NAMED return time — a reschedule to 3pm, not a silent 15-min default snooze', async () => {
+    // The trap: an engaged reply that also names a concrete return TIME classifies
+    // as SNOOZE ("on it"), but a clock time is a reschedule TARGET, not a bounded
+    // hold — parseSnoozeMinutes returns null for it by construction. The old path
+    // then fell to the ~15-min default and re-nudged at :15, on top of someone who
+    // is actively working and told us exactly when to come back (the design-LAW
+    // nag). Now a named clock/date target with NO stated duration is routed to the
+    // direct-time reschedule branch, which honors that exact time. A bare "on it"
+    // and a DURATION ("give me 45 min") are still true snoozes (tests above).
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const db = makeWebhookDB({ open: openText });
+    const res = await buildRouter(db).handle(inbound('on it, check back at 3pm'), { ...TELNYX_ENV, DB: db });
+    const body = await res.json();
+    // routed to the reschedule branch, NOT the default-snooze branch
+    expect(body.action).toBe('rescheduled');
+    expect(typeof body.scheduled_for).toBe('string');
+    // re-pended directly at the chosen time — never parked awaiting_time
+    expect(db.runs.some((x) => /UPDATE commitment_checkins\s+SET status = 'pending', scheduled_for/.test(x.sql))).toBe(true);
+    expect(db.runs.some((x) => /awaiting_time/.test(x.sql))).toBe(false);
+    // the named 3pm was actually honored — the scheduled time lands on the 15:00 UTC
+    // clock target (today or, if already past, tomorrow — never-past), which a
+    // ~15-min-from-now default snooze would essentially never do
+    expect(new Date(body.scheduled_for).getUTCHours()).toBe(15);
+    expect(new Date(body.scheduled_for).getUTCMinutes()).toBe(0);
+    // recorded as a RESCHEDULE, never a snooze — the person deferred to a set time
+    expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
+    expect(db.runs.some((x) => x.params.includes('commitment_snooze'))).toBe(false);
+    // streak is NEVER touched — a reschedule protects the chain by construction
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    // the warm reschedule read-back went out — the invariant every rotated variant
+    // carries — not the default-snooze copy and not "I didn't catch that"
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
+    expect(sent.text.toLowerCase()).not.toMatch(/did you|reply done|when do you want to try again/);
   });
 
   it('"on it, check back in an hour" while awaiting a time SNOOZES for the stated hour', async () => {
@@ -1019,7 +1053,9 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /INSERT INTO accountability_streaks|UPDATE commitments SET status/.test(x.sql))).toBe(false);
     expect(db.runs.some((x) => x.params.includes('commitment_reschedule'))).toBe(true);
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(sent.text.toLowerCase()).toMatch(/check back/);
+    // smsRescheduledCopy rotates per occurrence; assert the word/streak-safe
+    // invariant every variant carries (a reschedule protects the chain).
+    expect(sent.text.toLowerCase()).toMatch(/word still counts/);
   });
 
   it('a late "done" while awaiting a time is still honored as KEPT', async () => {
@@ -1149,6 +1185,154 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     // Minutes/hours unchanged; a bare number still reads as minutes.
     expect(parseWhenReply('in 45 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:45:00.000Z');
     expect(parseWhenReply('in 5', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:05:00.000Z');
+  });
+
+  it('reads casual word-quantities "in a couple / a few <unit>" (couple=2, few=3), never as a nag', () => {
+    // Regression: "in a couple hours" / "in a few days" — among the most natural
+    // ways this audience defers a task ("gimme a couple hours") — used to fall to
+    // the cold "I couldn't read that time" re-ask, a quiet "he didn't get me" on
+    // the two-way text moat. Now shared with the create-flow parser's couple=2 /
+    // few=3 vocabulary.
+    expect(parseWhenReply('in a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a couple of hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('in a few hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('in a couple minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:02:00.000Z');
+    expect(parseWhenReply('in a few min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:03:00.000Z');
+    expect(parseWhenReply('in a couple days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('in a few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // "a couple weeks" = 2 weeks = exactly the 14-day horizon → still in range.
+    expect(parseWhenReply('in a couple weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    // The optional "a/an" — "in couple hours" reads the same.
+    expect(parseWhenReply('in couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // Past the horizon → unreadable, falls to the warm re-ask (mirrors "in 3 weeks").
+    expect(parseWhenReply('in a few weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A unit is REQUIRED: a bare "in a couple" carries no concrete length, so it
+    // must NOT fire ~2 minutes out (a nag) — it stays a warm re-ask.
+    expect(parseWhenReply('in a couple', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('in a few', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
+  it('reads the texting spellings of "tonight" ("tonite"/"2nite"/"tnite") — the SMS moat gets shorthand', () => {
+    // Regression: the tomorrow matcher already read "tmrw"/"tmr", but tonight read
+    // only its full spelling — so "2nite"/"tonite", among the most common ways this
+    // texting-native audience defers to later today, fell to the cold "I couldn't
+    // read that time" re-ask on the two-way text channel that is the moat while
+    // voice is gated. Same 20:00 anchor as "tonight".
+    expect(parseWhenReply('tonite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('tnite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // Casual framings a person actually texts, and case-insensitive.
+    expect(parseWhenReply('lets do it 2nite', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('2NITE', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    // "2nite" carries no clock — the "2" must NOT be read as 2 o'clock (there is no
+    // word boundary before "nite"), so it lands at tonight's 20:00, not 02:00.
+    expect(parseWhenReply('2nite', { nowISO: NOW, timezone: 'UTC' })).not.toBe('2026-07-07T02:00:00.000Z');
+    // Never-past, exactly like "tonight": once 20:00 has passed it rolls to tomorrow
+    // night rather than returning a past instant or a null.
+    const LATE = '2026-07-06T21:00:00.000Z';
+    expect(parseWhenReply('tonite', { nowISO: LATE, timezone: 'UTC' })).toBe('2026-07-07T20:00:00.000Z');
+    // Regression guard: the full spelling is unchanged.
+    expect(parseWhenReply('tonight', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+  });
+
+  it('reads a BARE relative duration ("2 hours", "an hour", "a couple days") as now+duration, not a misread clock', () => {
+    // Regression (defect): a person answering "when?" — or giving a first word,
+    // which resolves through this same parser (R-226) — routinely drops the "in":
+    // "couple hours", "an hour", "2 days". Before this, such a reply didn't fall
+    // to the honest re-ask — the clock branch read the COUNT as a wall-clock hour
+    // and SILENTLY DROPPED the unit: "2 hours" landed at 02:00 (2 AM), "20 min" at
+    // 20:00, "2 days" at 02:00. A WRONG time — the bro showing up at 2 AM when you
+    // said "two hours" — is the worst outcome on the two-way text moat, strictly
+    // worse than the warm re-ask. A bare duration now reads IDENTICALLY to its
+    // "in …" form.
+    expect(parseWhenReply('an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('3 hrs', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T18:00:00.000Z');
+    expect(parseWhenReply('20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('half an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:30:00.000Z');
+    expect(parseWhenReply('an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    // day / week units — these are the ones the SMS snooze net does NOT own
+    // (detectCheckinReply never classifies "days"/"weeks" as a hold), so they
+    // reach this parser in EVERY path and used to misread the count as a clock.
+    expect(parseWhenReply('2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('a day', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('a week', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-13T15:00:00.000Z');
+    // couple=2 / few=3 word-quantities in the bare form too.
+    expect(parseWhenReply('couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('a couple of days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('few days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-09T15:00:00.000Z');
+    // Two weeks is exactly the 14-day reschedule horizon — still in range; past it
+    // falls to the warm re-ask, mirroring the "in 3 weeks" case above.
+    expect(parseWhenReply('2 weeks', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-20T15:00:00.000Z');
+    expect(parseWhenReply('3 weeks', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // DST-correct: a duration is an instant offset, zone-agnostic — "2 hours" is
+    // +2h in America/New_York (EDT) exactly as in UTC.
+    expect(parseWhenReply('2 hours', { nowISO: NOW, timezone: 'America/New_York' })).toBe('2026-07-06T17:00:00.000Z');
+  });
+
+  it('does NOT steal a unit-less number or a clock for the bare-duration reading (upgrade-only guard)', () => {
+    // The bare-duration branch REQUIRES an explicit duration unit, so a lone
+    // number stays a clock exactly as before — the guard that keeps "3" meaning
+    // 3 o'clock, never "3 minutes". Removing the unit requirement would turn "3"
+    // into a 3-minute nudge and this assertion red first.
+    expect(parseWhenReply('3', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
+    expect(parseWhenReply('3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    // A duration embedded in a dated/weekday/tomorrow reply is NOT matched by the
+    // whole-message bare branch — those keep their own reading.
+    expect(parseWhenReply('tomorrow 2', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T14:00:00.000Z');
+    // A genuinely vague quantity-less answer still falls to the warm re-ask.
+    expect(parseWhenReply('a bit', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    expect(parseWhenReply('soon', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+  });
+
+  it('reads a HEDGED bare duration ("maybe 2 hours", "like 20 min", "an hour i think") — the hedge never turns it into a misread clock', () => {
+    // Regression (defect): this audience rarely answers a bare duration flat — it
+    // comes wrapped in uncertainty ("maybe 2 hours", "like 20 minutes", "prob a
+    // couple days", "an hour i think"). A leading/trailing hedge word broke the
+    // whole-message bare-duration match, so the reply fell PAST it into the clock
+    // branch and hit the exact wrong-time bug the bare branch exists to kill: the
+    // unit silently dropped, the count read as a wall-clock hour — "like 20
+    // minutes" landing at 20:00 (8 PM), "prob 2 days" at 02:00, "2 hours i think"
+    // at 02:00. A wrong time is the worst outcome on the two-way text moat. The
+    // hedge is now peeled off BOTH ends before matching, so a hedged duration reads
+    // IDENTICALLY to its flat form. (Before the fix these were the WRONG clock:
+    // "like 20 minutes" → 20:00, "prob 2 days" → 02:00, "2 hours i think" → 02:00.)
+    expect(parseWhenReply('maybe 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('like 20 minutes', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+    expect(parseWhenReply('say an hour', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('prob 2 days', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('perhaps a couple hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('how about 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('well 2 hours', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    // trailing hedge, and a hedge peeled from BOTH ends of one reply.
+    expect(parseWhenReply('2 hours i think', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T17:00:00.000Z');
+    expect(parseWhenReply('an hour maybe', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('couple days probably', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T15:00:00.000Z');
+    expect(parseWhenReply('maybe an hour or so', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T16:00:00.000Z');
+    expect(parseWhenReply('umm 20 min', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T15:20:00.000Z');
+  });
+
+  it('a hedge never fabricates a duration, and never steals a hedged clock/weekday (hedged upgrade-only guard)', () => {
+    // The hedged reading is STILL gated on an explicit duration unit and a
+    // whole-message match, so peeling the hedge can only ever upgrade a real
+    // duration — never invent one, never reshape a clock or a date.
+    // A hedged bare NUMBER carries no unit → stays the warm re-ask (never a
+    // 3-minute nudge), exactly as the un-hedged "maybe 3" would.
+    expect(parseWhenReply('maybe 3', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A hedged CLOCK / weekday / tomorrow is read by its OWN branch, unchanged —
+    // the hedge peel leaves a value that carries no duration unit, so the
+    // bare-duration branch never claims it.
+    expect(parseWhenReply('maybe 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
+    expect(parseWhenReply('like saturday', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('maybe tomorrow', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T09:00:00.000Z');
+    // A hedge sitting INSIDE the reply is left alone — only the ends are peeled —
+    // so a mangled "2 maybe hours" is never silently reshaped into a duration.
+    expect(parseWhenReply('2 maybe hours', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
+    // A pure hedge with no time at all still falls to the warm re-ask.
+    expect(parseWhenReply('idk maybe', { nowISO: NOW, timezone: 'UTC' })).toBeNull();
   });
 
   it('reads clock times, rolling to tomorrow when already past', () => {
@@ -1401,6 +1585,19 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     expect(parseWhenReply('thurs', { nowISO: NOW, timezone: 'UTC', defaultTime: '08:40' })).toBe('2026-07-09T08:40:00.000Z');
   });
 
+  it('reads the texted shorthand "wknd" and "nxt" (NOW is Monday 2026-07-06)', () => {
+    // "wknd" is the SMS-native spelling of "weekend" — same Saturday anchor.
+    expect(parseWhenReply('wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    expect(parseWhenReply('this wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T09:00:00.000Z');
+    // A clock time rides the shorthand exactly as it does the full word.
+    expect(parseWhenReply('wknd 3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-11T15:00:00.000Z');
+    // "nxt" is the texted spelling of "next" — forces the following week's
+    // occurrence, matching "next weekend" / "next friday".
+    expect(parseWhenReply('nxt wknd', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-18T09:00:00.000Z');
+    expect(parseWhenReply('nxt fri', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-17T09:00:00.000Z');
+    expect(parseWhenReply('nxt weds at 2pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-15T14:00:00.000Z');
+  });
+
   it('reads an explicit calendar date within the horizon (NOW is Monday 2026-07-06 15:00Z)', () => {
     // Month + day, both orders, long and short forms — all at the default time.
     expect(parseWhenReply('jul 8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-08T09:00:00.000Z');
@@ -1499,24 +1696,28 @@ describe('formatWhenLocal — warm, recipient-local confirmation', () => {
 
 // ── The design LAW, on the conversational-reschedule copy ──
 describe('conversational-reschedule copy obeys the one LAW: never shame', () => {
-  const SHAME = /\b(fail(ed|ure)?|miss(ed)?|behind|lazy|should have|guilt|disappoint|streak (lost|broken)|again\?!)\b/i;
-  const CLINICAL = /\b(ADHD|diagnos|treat(ment)?|therap|disorder|symptom|patient)\b/i;
-  const AI = /\bA\.?I\.?\b/i;
+  // Routed through the canonical `scanDesignLaw` (shame + clinical + "AI" +
+  // consumer-ADHD). The old local union carried a DEAD `again\?!` branch — a `\b`
+  // after `!` can never be a boundary, so the eye-roll went unguarded — now fixed
+  // in the frozen lexicon. The one genuine per-surface extra the canonical list
+  // does not carry, `streak (lost|broken)`, is preserved locally.
+  const STREAK_SHAME = /\bstreak (lost|broken)\b/i;
+  const assertLaw = (s) => {
+    const violations = scanDesignLaw(s);
+    expect(violations, `${s} → ${violations.map((v) => v.kind).join(', ')}`).toEqual([]);
+    expect(STREAK_SHAME.test(s), `${s} matched streak-shame`).toBe(false);
+  };
   for (const persona of ['ally', 'hype']) {
     for (const fn of [smsAskWhenCopy, smsWhenUnclearCopy]) {
       it(`${fn.name} (${persona}) is warm, no shame / clinical / "AI"`, () => {
         const s = fn({ persona });
-        expect(s).not.toMatch(SHAME);
-        expect(s).not.toMatch(CLINICAL);
-        expect(s).not.toMatch(AI);
+        assertLaw(s);
         expect(s.toLowerCase()).toMatch(/try again|time|check back/);
       });
     }
     it(`smsRescheduledCopy (${persona}) confirms warmly and protects the streak`, () => {
       const s = smsRescheduledCopy({ persona, when: '2026-07-06T19:00:00.000Z', timezone: 'America/New_York', nowISO: '2026-07-06T12:00:00.000Z' });
-      expect(s).not.toMatch(SHAME);
-      expect(s).not.toMatch(CLINICAL);
-      expect(s).not.toMatch(AI);
+      assertLaw(s);
       expect(s.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(s.toLowerCase()).toMatch(/still counts|streak/);
     });
@@ -1530,11 +1731,22 @@ describe('conversational-reschedule copy obeys the one LAW: never shame', () => 
       // Still a reschedule: names the new time, keeps the streak safe, never scolds.
       expect(withProgress.toLowerCase()).toMatch(/check back .*3:00 pm/);
       expect(withProgress.toLowerCase()).toMatch(/still counts|streak/);
-      expect(withProgress).not.toMatch(SHAME);
-      expect(withProgress).not.toMatch(CLINICAL);
-      expect(withProgress).not.toMatch(AI);
+      assertLaw(withProgress);
     });
   }
+
+  it('the consolidation closes the drift the old local unions missed', () => {
+    // Proof-of-rejection (Standing Law #1): the old hand-rolled `SHAME` union here
+    // missed `slipping` and `unresponsive`, and — because its `again\?!` branch was
+    // dead — the incredulous "again?!". The canonical scanner catches all three,
+    // while the preserved local `streak (lost|broken)` extra still fires.
+    expect(scanDesignLaw('you keep slipping').length).toBeGreaterThan(0);
+    expect(scanDesignLaw("you've been unresponsive").length).toBeGreaterThan(0);
+    expect(scanDesignLaw('late again?!').length).toBeGreaterThan(0);
+    expect(STREAK_SHAME.test('your streak lost')).toBe(true);
+    // …and the warm reschedule line the LAW protects stays clean through the scanner.
+    expect(scanDesignLaw('No problem — when do you want to try again?')).toEqual([]);
+  });
 });
 
 // ── The invitation copy may only advertise phrasings the parser can read ──

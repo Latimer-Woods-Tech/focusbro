@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { TREATMENT_CLAIM_PATTERNS, ADHD_WORD } from '../design-law.js';
 import { Router } from 'itty-router';
 import {
   registerAccountabilityRoutes,
@@ -267,7 +268,7 @@ describe('edit copy — adjusting a plan is never a step back', () => {
     /\bmiss(ed|ing|es)?\b/i, /\bbehind\b/i, /\byou (didn.?t|should have|should.?ve)\b/i,
     /\bexcuse/i, /\bcatch(ing)? up\b/i, /\bmake up for\b/i, /\bhurry\b/i, /\bpathetic\b/i,
   ];
-  const CLINICAL = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
+  const CLINICAL = [...TREATMENT_CLAIM_PATTERNS, ADHD_WORD];
   const AI = /\bAI\b/;
 
   const samples = ['ally', 'hype', 'unknown'].flatMap((persona) => [

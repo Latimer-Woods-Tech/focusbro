@@ -26,7 +26,7 @@
  * (proof-of-rejection, Factory Standing Law 1).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Router } from 'itty-router';
 import { registerAccountabilityRoutes } from '../accountability.js';
 import { generateUUID } from '../middleware.js';
@@ -65,16 +65,27 @@ function makeDB(rows) {
     if (!m) return null;
     return new Set(m[1].split(',').map((s) => s.trim().replace(/'/g, '')));
   }
-  function selectResolveTarget(sql, commitmentId) {
-    let pool = rows.filter((r) => r.commitment_id === commitmentId);
+  // Faithful to the resolve subquery's WHERE. The FIXED source enumerates a
+  // DELIVERED set — status IN ('sent','deferred','awaiting_time') — OR a `pending`
+  // row due today: `status = 'pending' AND scheduled_for < ?` (the bound
+  // `dueBefore` = tomorrow-local-midnight). The old / reverted shapes (a bare
+  // `status IN ('pending','sent','deferred','awaiting_time')`, ASC or the
+  // pre-R-284 pending-first DESC) are modeled too, so a revert flips which row is
+  // stamped and these tests fail (proof-of-rejection, Standing Law 1).
+  function selectResolveTarget(sql, commitmentId, dueBefore) {
     const open = openSetFromSql(sql);
-    if (open) {
-      pool = pool.filter((r) => open.has(r.status));
-    }
+    const hasDueClause = /status = 'pending' AND scheduled_for < \?/.test(sql);
+    let pool = rows.filter((r) => r.commitment_id === commitmentId).filter((r) => {
+      if (open && open.has(r.status)) return true;
+      if (open && !hasDueClause) return false; // reverted shape: IN-set is the whole filter
+      if (!open && !hasDueClause) return true; // no filter at all (defensive)
+      // fixed shape: pending admitted only when due before tomorrow.
+      return r.status === 'pending' && dueBefore != null && r.scheduled_for < dueBefore;
+    });
     if (/ORDER BY scheduled_for ASC/.test(sql)) {
       pool = pool.slice().sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
     } else {
-      // old: pending-first, then scheduled_for DESC
+      // pre-R-284: pending-first, then scheduled_for DESC
       pool = pool.slice().sort((a, b) => {
         const ap = a.status === 'pending' ? 1 : 0;
         const bp = b.status === 'pending' ? 1 : 0;
@@ -102,11 +113,15 @@ function makeDB(rows) {
         async all() { return { results: [] }; },
         async run() {
           runs.push({ sql, params });
-          // The resolve UPDATE: stamp the selected occurrence, faithfully.
+          // The resolve UPDATE: stamp the selected occurrence, faithfully — and
+          // report changes:0 when nothing due matched, so the source's
+          // no-double-resolve guard (meta.changes > 0) is exercised for real.
           if (/UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(sql)
               && /SELECT id FROM commitment_checkins/.test(sql)) {
-            const target = selectResolveTarget(sql, params[4]);
+            const dueBefore = params.length >= 7 ? params[6] : null;
+            const target = selectResolveTarget(sql, params[4], dueBefore);
             if (target) { target.status = params[0]; target.responded_at = 'now'; target.resolved = true; }
+            return { success: true, meta: { changes: target ? 1 : 0 } };
           }
           return { success: true, meta: { changes: 1 } };
         },
@@ -166,10 +181,14 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
     expect(tomorrow.status).toBe('pending');
   });
 
-  it('an early resolve BEFORE any delivery still lands on the single pending row (no regression)', async () => {
+  it('an early/undelivered resolve still lands on the single today-due pending row (no regression)', async () => {
     const now = Date.now();
+    // Today's occurrence: its scheduled time has arrived but the delivery cron
+    // hasn't run yet (or push isn't configured) — still a today-due `pending`
+    // row the person can mark done in-app. A past scheduled_for is always before
+    // tomorrow's midnight boundary, so this stays deterministic at any clock time.
     const onlyPending = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'pending',
-      scheduled_for: new Date(now + 2 * 3600 * 1000).toISOString(), responded_at: null };
+      scheduled_for: new Date(now - 30 * 60 * 1000).toISOString(), responded_at: null };
     const db = makeDB([onlyPending]);
     const call = buildCall(db);
 
@@ -229,10 +248,80 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
     const resolve = db.runs.find((x) => /UPDATE commitment_checkins[\s\S]*SET status = \?, responded_at/.test(x.sql)
       && /SELECT id FROM commitment_checkins/.test(x.sql));
     expect(resolve).toBeTruthy();
-    expect(resolve.sql).toMatch(/status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/);
+    // Delivered rows are always open; a pending row is open only when due today.
+    expect(resolve.sql).toMatch(/status IN \('sent', 'deferred', 'awaiting_time'\)/);
+    expect(resolve.sql).toMatch(/status = 'pending' AND scheduled_for < \?/);
     expect(resolve.sql).toMatch(/ORDER BY scheduled_for ASC/);
     // The old future-picking ordering is gone.
     expect(resolve.sql).not.toMatch(/\(status = 'pending'\) DESC/);
+    // A bare pending-in-the-open-set (the pre-due-filter shape) is gone — a
+    // pending row is no longer unconditionally resolvable regardless of its day.
+    expect(resolve.sql).not.toMatch(/status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/);
+  });
+});
+
+// ── The double-resolve twin of R-284 (Contender #10, Phase A) ─────────────────
+// R-284 fixed the CRON-ordering case: today's delivered `sent` row + tomorrow's
+// freshly-materialized `pending` row are both open, and an in-app resolve must
+// land on today's, not tomorrow's. This block pins the OTHER way the same two
+// rows can mislead the resolver: once today's occurrence is ALREADY resolved, the
+// only open row for a recurring word is tomorrow's not-yet-due `pending` one. A
+// SECOND resolve — a double-tap, a stale card, a second device — used to stamp IT,
+// which (a) credited the kept-word streak for a day that hasn't happened and
+// (b) swallowed tomorrow's check-in so the bro never showed up tomorrow. Both are
+// design-LAW defects: an inflated count the coach pitch rests on, and a silently
+// dropped nudge on the exact channel that is the product.
+//
+// Time is frozen so the "today vs. tomorrow" local-calendar boundary the fix uses
+// (tomorrow-midnight in the recipient's zone, not a fixed offset) is deterministic
+// regardless of when CI runs. Only Date is faked; timers stay real so the async
+// route resolves normally.
+describe('a second in-app resolve never consumes tomorrow\'s occurrence', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 2026-07-08 12:00 America/New_York (EDT, UTC-4). "Today" = Jul 8.
+    vi.setSystemTime(new Date('2026-07-08T16:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('leaves TOMORROW\'s pending row untouched and writes no second streak credit', async () => {
+    // today's word already kept earlier today; tomorrow's occurrence pending.
+    const today = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'kept',
+      scheduled_for: '2026-07-08T13:00:00Z', responded_at: 'earlier' };
+    const tomorrow = { id: 'ckB', commitment_id: 'cm1', user_id: 'u1', status: 'pending',
+      scheduled_for: '2026-07-09T13:00:00Z', responded_at: null };
+    const db = makeDB([today, tomorrow]);
+    const call = buildCall(db);
+
+    const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Warm, blameless, and NOT a second streak number.
+    expect(typeof body.message).toBe('string');
+    expect(body.message.length).toBeGreaterThan(0);
+
+    // Tomorrow's check-in is still there to fire tomorrow — never pre-resolved.
+    expect(tomorrow.status).toBe('pending');
+    expect(tomorrow.responded_at).toBeNull();
+    // Nothing was written: no commitment move, no streak credit, no re-arm.
+    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /INSERT INTO accountability_streaks/.test(x.sql))).toBe(false);
+    expect(db.runs.some((x) => /INSERT INTO commitment_checkins/.test(x.sql))).toBe(false);
+  });
+
+  it('still resolves a future-scheduled occurrence that is due LATER TODAY (early completion)', async () => {
+    // finished the taxes at noon though the check-in is set for 6pm today.
+    const todayLater = { id: 'ckA', commitment_id: 'cm1', user_id: 'u1', status: 'pending',
+      scheduled_for: '2026-07-08T22:00:00Z', responded_at: null }; // 18:00 EDT, still Jul 8
+    const db = makeDB([todayLater]);
+    const call = buildCall(db);
+
+    const res = await call('POST', '/api/commitments/cm1/checkin', { body: { outcome: 'kept' } });
+    expect(res.status).toBe(200);
+    // A later-today pending row is before tomorrow's midnight boundary → resolvable.
+    expect(todayLater.status).toBe('kept');
+    expect(todayLater.responded_at).not.toBeNull();
+    expect(db.runs.some((x) => /UPDATE commitments SET status/.test(x.sql))).toBe(true);
   });
 });
 

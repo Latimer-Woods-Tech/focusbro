@@ -505,6 +505,13 @@ const MAX_EVENTS_PER_BATCH = 100;
  * `session_complete` event always has one, but requiring it here is what silently
  * dropped valid events before.
  *
+ * There is NO type whitelist, by design. The client's vocabulary
+ * (`session_complete`, `sound_start`, `sound_stop`, `sound_share`, …) moves with
+ * the product, and a server-side list would silently drop the next one — which is
+ * exactly what `config.api.validEventTypes` claimed to do while nothing read it
+ * (focusbro#352). What bounds a batch is its SIZE (MAX_EVENTS_PER_BATCH), the
+ * in-batch dedup, and recordEvent's own guards; a type is free-form text.
+ *
  * @returns {Promise<object>} { success, synced } (synced = events accepted this
  *   batch; a deduped replay is idempotent, not an error)
  */

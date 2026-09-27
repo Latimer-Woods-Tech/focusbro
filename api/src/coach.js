@@ -186,6 +186,39 @@ export function rosterNextCheckinLine({ iso, timezone, nowISO } = {}) {
   return nextCheckinCopy({ iso, timezone, nowISO });
 }
 
+/**
+ * The next-check-in label for a single active commitment on the coach's
+ * client-DETAIL rhythm panel (GET /api/coach/clients/:id → active_commitments,
+ * rendered by index.js renderRhythm). The drill-in twin of the person's own
+ * per-word detail line (me.js `renderDetail`): the caller passes the soonest
+ * OUTSTANDING check-in (pending/sent/deferred/awaiting_time), which — because a
+ * slipped, quiet-hours-, or night-deferred delivery is left pending with its
+ * `scheduled_for` UNCHANGED (in the past) — CAN already be past. When it is,
+ * this reads as the warm "still here whenever they're ready" (the door held
+ * open), NEVER a stale past time that would read as the ally having no-showed on
+ * that word — exactly the reliability-undermining signal THE DESIGN LAW forbids.
+ * A future moment is still named outright; nothing queued falls to
+ * nextCheckinCopy's "lining up" line.
+ *
+ * Reuses rosterNextCheckinWaitingCopy() (the passed-but-open line) and
+ * nextCheckinCopy() (the future / nothing-queued lines) verbatim so the coach
+ * ROSTER (rosterNextCheckinLine), this DETAIL label, and the person's own detail
+ * panel can never diverge on how a held-open check-in reads — one source of
+ * truth per THE DESIGN LAW (Contender #10, Phase A). Unlike rosterNextCheckinLine
+ * (which returns '' when nothing is queued so the at-a-glance card stays clean),
+ * the detail panel keeps the warm "Next check-in lining up." for a commitment the
+ * cron is about to re-arm.
+ * @param {object} p { iso, timezone, nowISO }
+ * @returns {string}
+ */
+export function detailNextCheckinCopy({ iso, timezone, nowISO } = {}) {
+  if (iso && !Number.isNaN(Date.parse(iso))) {
+    const now = nowISO && !Number.isNaN(Date.parse(nowISO)) ? Date.parse(nowISO) : Date.now();
+    if (Date.parse(iso) <= now) return rosterNextCheckinWaitingCopy();
+  }
+  return nextCheckinCopy({ iso, timezone, nowISO });
+}
+
 // ── RE-ENGAGEMENT CUE (the operator-side twin of the return nudge) ─
 // The product already reaches out to a person who has gone quiet across the
 // whole app on its own (the return nudge — Wingspan W4 / #40). A human coach
@@ -250,6 +283,43 @@ export function backAfterReachCopy({ back } = {}) {
   return 'Back and moving again — a great moment to tell them you noticed, and that you’re glad they’re here.';
 }
 
+// ── "JUST WELCOMED BACK" CUE — the operator-roster twin of the reach-out ────
+// The bro's return nudge fires automatically the moment an active person has
+// been quiet for a stretch (`runReturnNudges` → a RETURN_NUDGE_SENT marker). Off
+// the roster that outreach was invisible to the coach: the automated warm hello
+// went out and the coach never knew to add their own. This is that signal on the
+// operator-backed roster — WHICH of the coach's people the bro just reached out
+// to, so the coach can pile their personal touch onto the automated one at the
+// good moment. It reads the RETURN_NUDGE_SENT marker only (see the roster query),
+// never who did or didn't answer it.
+//
+// DESIGN LAW, by construction: this fires ONLY on a fresh outreach and the copy
+// celebrates the reconnection — it names no quiet stretch, no gap, no count, and
+// nothing owed. It returns '' whenever there is no recent outreach, so a card
+// carries it only while the moment is live — never as a "this one went quiet"
+// prompt. It is the joyful twin of the person-side welcome and sits beside any
+// other cue on the card.
+
+/** Trailing window (days) the roster's "just welcomed back" cue looks back over
+ * for a RETURN_NUDGE_SENT outreach — matches the roster's other trailing windows. */
+export const WELCOMED_BACK_WINDOW_DAYS = 7;
+
+/**
+ * The warm coach-voice cue for an active client the bro's return nudge just
+ * reached out to (a RETURN_NUDGE_SENT inside {@link WELCOMED_BACK_WINDOW_DAYS}).
+ * Returns '' unless the caller passes an explicit `welcomed: true` (the roster
+ * query owns the decision; any falsy/garbage input is silent) so a card only
+ * ever carries it while the outreach is live. Purely a celebration and an
+ * invitation to reconnect; it names nothing about the quiet stretch that
+ * preceded the outreach.
+ * @param {object} p { welcomed }
+ * @returns {string} the cue, or '' when there is no recent outreach to add to
+ */
+export function coachWelcomedBackCopy({ welcomed } = {}) {
+  if (welcomed !== true) return '';
+  return 'The bro just reached out with a warm hello to reconnect — a lovely moment to add your own note and let them know you’re in their corner.';
+}
+
 // ── KEPT-WORD MILESTONE CUE (the coach twin of the person-side badge) ──────
 // The person's own /me/ streak card shows a discrete "you just reached it"
 // badge the moment a kept-word run crosses a meaningful count (3/7/14/30/100 —
@@ -279,6 +349,50 @@ export function clientMilestoneCopy({ streak } = {}) {
   const cur = Number(streak?.current_streak) || 0;
   if (!STREAK_MILESTONES.includes(cur)) return '';
   return `🎯 ${cur} kept words in a row — a milestone just landed. A great moment to send a word.`;
+}
+
+// ── "NEW PERSONAL BEST" CUE (the coach twin of the person-side best-run badge) ─
+// The person's own /me/ streak card shows a "you're at your best" badge the moment
+// their CURRENT kept-word run becomes the longest they've ever kept going
+// (`personalBestCopy`, cur >= 2 && cur === longest). This is its operator mirror:
+// when a client is setting a fresh all-time record right now, the roster surfaces a
+// warm coach-voice cue so the coach can send a word at the peak — the single
+// highest-value moment to reach out. It reads the streak already loaded for the
+// card (current + longest) — no extra query, no schema change.
+//
+// PURELY ADDITIVE, by construction: it fires ONLY when the record run is NOT itself
+// on a fixed milestone rung (3/7/14/30/100). Those exact counts are already
+// celebrated by `clientMilestoneCopy`, so this cue can never stack a second
+// celebration on the same card — it fills only the BETWEEN-milestone records
+// (5, 6, 8, 9, 11, …) that the milestone cue leaves silent. The two are exact
+// complements: at any all-time-best moment exactly one of them speaks, and every
+// such moment is now covered.
+//
+// DESIGN LAW, by construction: this reads `current_streak` / `longest_streak`
+// (kept words ONLY), fires exactly at an all-time-best moment, and names only the
+// record reached and the invitation to celebrate — never a gap, a distance to the
+// next mark, a "not there yet", or anything owed. It returns '' everywhere else,
+// so between records the card carries nothing and it is never a "this one is
+// slipping" prompt. Independent of the milestone / return / moving cues — a
+// personal best is its own good news and can sit beside any of them.
+
+/**
+ * The warm coach-voice cue for an active client whose CURRENT kept-word run is a
+ * fresh all-time best ({@link personalBestCopy}'s condition: `cur >= 2 &&
+ * cur === longest`) that is NOT already a fixed milestone rung
+ * ({@link STREAK_MILESTONES}, celebrated by {@link clientMilestoneCopy}). Returns
+ * '' unless that holds, so a card carries it ONLY at a genuine between-milestone
+ * record and never doubles up with the milestone cue. Purely a celebration and an
+ * invitation to send a word; it names the record reached and nothing about a gap.
+ * @param {object} p { streak } — the client streak row ({ current_streak, longest_streak })
+ * @returns {string} the cue, or '' when the run is not a between-milestone all-time best
+ */
+export function clientPersonalBestCopy({ streak } = {}) {
+  const cur = Number(streak?.current_streak) || 0;
+  const best = Number(streak?.longest_streak) || 0;
+  if (cur < 2 || cur !== best) return '';
+  if (STREAK_MILESTONES.includes(cur)) return ''; // the milestone cue already owns this moment
+  return `🏆 A new personal best — ${cur} kept words in a row, the most they’ve ever strung together. A perfect moment to send a word.`;
 }
 
 // ── "SHARES THEIR REFLECTIONS" INDICATOR (client-controlled, opt-in) ─────────
@@ -416,6 +530,54 @@ export const ROSTER_ENGAGED_WINDOW_DAYS = 7;
 export function clientRosterEngagedCopy({ engaged } = {}) {
   if (engaged !== true) return '';
   return 'Leaning in this week — they’re staying with their words. 💪';
+}
+
+/**
+ * Whether an active client is MOVING this week — at least one kept word inside
+ * the trailing {@link ROSTER_ENGAGED_WINDOW_DAYS} days, read straight off the
+ * kept-word momentum block already built for the card. This is the operator
+ * dashboard's twin of the Phase-A `engaged_this_week` rung: Phase A reads the
+ * two-way "I'm on it" lean-in off the snooze channel; the operator-backed roster
+ * has no such channel wired, so it derives live engagement from the momentum it
+ * already computes — no extra query, engine-independent.
+ *
+ * DESIGN LAW, by construction: momentum.js buckets `status='kept'` instants ONLY,
+ * so this reads the PRESENCE of wins and nothing else — never a miss, a gap, or a
+ * quiet stretch. A client with no kept word in the window is simply not "moving
+ * this week": that is the neutral default (a clean, calm card), never surfaced as
+ * falling behind. Pure.
+ * @param {object} momentum a built momentum block ({ buckets: Array<{count:number}> })
+ * @param {object} [p]
+ * @param {number} [p.windowDays=ROSTER_ENGAGED_WINDOW_DAYS] trailing days to read
+ * @returns {boolean} true iff ≥1 kept word landed inside the window
+ */
+export function momentumMovingThisWeek(momentum, { windowDays = ROSTER_ENGAGED_WINDOW_DAYS } = {}) {
+  const buckets = momentum && Array.isArray(momentum.buckets) ? momentum.buckets : [];
+  if (!buckets.length) return false;
+  const n = Math.max(1, Math.floor(windowDays) || ROSTER_ENGAGED_WINDOW_DAYS);
+  let kept = 0;
+  for (const b of buckets.slice(-n)) kept += Number(b && b.count) || 0;
+  return kept > 0;
+}
+
+/**
+ * The at-a-glance ROSTER cue for an active client who is MOVING this week — the
+ * operator-dashboard twin of Phase A's `clientRosterEngagedCopy`. Where the
+ * Phase-A cue celebrates a lean-in on the two-way channel, this celebrates kept
+ * words actually landing this week, read off the momentum the card already
+ * carries. Non-numeric like every roster cue, so the glance never drifts from —
+ * or contradicts — the exact sparkline beside it. Returns '' unless `moving` is
+ * exactly true.
+ *
+ * DESIGN LAW, by construction: it can only ever name the PRESENCE of kept words —
+ * never a count, a distance to go, or a quiet day. A client not moving this week
+ * gets '' (a clean card, the neutral default), never a "slowing down" line.
+ * @param {object} p { moving } — true iff ≥1 kept word this week (momentumMovingThisWeek)
+ * @returns {string} the cue, or '' when there is no kept word this week
+ */
+export function clientMovingThisWeekCopy({ moving } = {}) {
+  if (moving !== true) return '';
+  return 'Moving this week — kept words are landing. A lovely moment to cheer them on. 🌱';
 }
 
 /**
@@ -777,6 +939,87 @@ export function buildMomentum({ timestamps, days = MOMENTUM_WINDOW_DAYS, nowISO,
   });
 }
 
+/**
+ * The design-LAW copy surface for the WHOLE coach/operator voice.
+ *
+ * Every coach-facing string this module can render, enumerated in one place so it
+ * can be swept through the single `scanDesignLaw` source of truth (design-law.js)
+ * exactly like `meCopySurface`, `reportCopySurface`, and the other consumer
+ * surfaces — the same bar, no hand-rolled per-surface banned-word list. This is a
+ * coach-PITCH surface, so callers sweep it with `allowAdhd: true` (guardrail:
+ * "ADHD lives in SEO and the coach pitch, not in a clinical promise"); shame,
+ * treatment claims, and "AI" branding are still banned here the same as anywhere.
+ *
+ * Test-only enumeration: it renders each copy helper on its NON-empty branch
+ * (and, where a helper has distinct copy per branch — a milestone count, a
+ * momentum peak, a quiet vs. active week — a representative sample of each) so the
+ * sweep is not vacuously clean. Every `*Copy` export in this file is referenced
+ * below by construction; the design-LAW test pins that completeness so a future
+ * coach copy helper cannot ship swept by nothing (Factory Standing Law #1).
+ *
+ * @returns {string[]} every coach-facing copy string, non-empty branches.
+ */
+export function coachCopySurface() {
+  const strings = [
+    dashboardIntroCopy(),
+    rosterEmptyCopy(),
+    invitePendingCopy(),
+    inviteSentCopy({ email: 'coach@example.com' }),
+    inviteSentCopy({}),
+    rhythmIntroCopy(),
+    rhythmEmptyCopy(),
+    rosterNextCheckinWaitingCopy(),
+    nextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: '2026-07-12T13:40:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    nextCheckinCopy({ iso: null }),
+    // The coach client-DETAIL next-check-in label — its three branches:
+    // future→named, passed-but-open→warm waiting line, nothing-queued→lining up.
+    detailNextCheckinCopy({ iso: '2026-07-11T20:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    detailNextCheckinCopy({ iso: '2026-07-11T09:00:00Z', timezone: 'UTC', nowISO: '2026-07-11T12:00:00Z' }),
+    detailNextCheckinCopy({ iso: null }),
+    reachOutCueCopy({ quietDays: COACH_REACH_OUT_QUIET_DAYS }),
+    reachOutCueCopy({ quietDays: 30 }),
+    backAfterReachCopy({ back: true }),
+    coachWelcomedBackCopy({ welcomed: true }),
+    clientSharesReflectionsCopy({ shares: true }),
+    clientRosterEngagedCopy({ engaged: true }),
+    clientMovingThisWeekCopy({ moving: true }),
+    clientWeeklyKeptCopy({ keptThisWeek: 0 }),
+    clientWeeklyKeptCopy({ keptThisWeek: 4 }),
+    clientWeeklyShowedUpCopy({ showedUp: 3 }),
+    clientWeeklyEngagedCopy({ snoozedThisWeek: 2 }),
+    clientNoteKeptCopy({ keptThisWeek: 0 }),
+    clientNoteKeptCopy({ keptThisWeek: 5 }),
+    clientNotePeakDayCopy({ count: 4, whenPhrase: 'Wednesday' }),
+    clientNoteOwnWordsLabelCopy(),
+    homecomingDigestIntroCopy(),
+    homecomingDigestSummaryCopy({ count: 0 }),
+    homecomingDigestSummaryCopy({ count: 1, names: ['Sam'] }),
+    homecomingDigestSummaryCopy({ count: 3, names: ['Sam', 'Ari', 'Jo'] }),
+    homecomingOwnWordsLabelCopy(),
+    momentumIntroCopy(),
+    momentumSummaryCopy({ total: 0, days: MOMENTUM_WINDOW_DAYS }),
+    momentumSummaryCopy({ total: 1, days: MOMENTUM_WINDOW_DAYS, peak: { count: 1 } }),
+    momentumSummaryCopy({ total: 9, days: MOMENTUM_WINDOW_DAYS, peak: { count: 3 } }),
+    // clientStatusLine is a copy helper (roster status voice) though not *Copy-named.
+    clientStatusLine({ streak: { current_streak: 0, longest_streak: 0 } }),
+    clientStatusLine({ streak: { current_streak: 1, longest_streak: 1 } }),
+    clientStatusLine({ streak: { current_streak: 12, longest_streak: 20 } }),
+  ];
+  // Every milestone rung of the roster celebration cue (returns '' off-milestone).
+  for (const cur of STREAK_MILESTONES) {
+    strings.push(clientMilestoneCopy({ streak: { current_streak: cur } }));
+  }
+  // The between-milestone all-time-best cue at a few record counts (returns ''
+  // at milestones and when not a fresh best), so a shame word edited into it
+  // fails the build.
+  for (const cur of [2, 5, 6, 8, 9, 42]) {
+    strings.push(clientPersonalBestCopy({ streak: { current_streak: cur, longest_streak: cur } }));
+  }
+  // Drop the neutral-default '' renders; the sweep only judges what a coach reads.
+  return strings.filter((s) => typeof s === 'string' && s.length > 0);
+}
+
 // ── ROUTES ───────────────────────────────────────────────────
 // Registered from index.js so the module-private helpers (getAuthToken,
 // verifyToken, jsonResponse, generateUUID) stay in one scope.
@@ -911,6 +1154,12 @@ export function registerCoachRoutes(router, ctx) {
           // count. Reads the streak already loaded above — no extra query. ''
           // between milestones, so it is never a nag.
           entry.milestone_line = clientMilestoneCopy({ streak });
+          // Coach twin of the person-side "you're at your best" badge: a warm cue
+          // exactly when this client's current run is a fresh all-time best that
+          // isn't already a milestone rung (those are owned by milestone_line
+          // above). Reads the same already-loaded streak — no extra query. ''
+          // between records and at milestones, so the two cues never double up.
+          entry.personal_best_line = clientPersonalBestCopy({ streak });
         } else {
           entry.status_line = invitePendingCopy();
         }
@@ -1301,7 +1550,14 @@ export function registerCoachRoutes(router, ctx) {
           timezone: c.timezone || 'UTC',
           cadence: describeCadence({ recurrence: c.recurrence, localTime: c.local_time }),
           next_checkin: nextCheckin,
-          next_checkin_label: nextCheckinCopy({ iso: nextCheckin, timezone: c.timezone || 'UTC', nowISO }),
+          // A passed-but-open outstanding check-in (a slipped / quiet-hours- /
+          // night-deferred delivery left pending with `scheduled_for` in the
+          // past — see the MIN(scheduled_for) query above) must read as the warm
+          // "still here", never a stale "Next up <time already gone>" that reads
+          // as the ally no-showing. detailNextCheckinCopy branches passed→warm /
+          // future→named / none→lining-up, matching the roster and the person's
+          // own detail panel (one source of truth). THE DESIGN LAW.
+          next_checkin_label: detailNextCheckinCopy({ iso: nextCheckin, timezone: c.timezone || 'UTC', nowISO }),
         };
       });
 

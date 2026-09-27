@@ -1,3 +1,4 @@
+import { cspModeFor } from '../index.js';
 import { describe, expect, it } from 'vitest';
 import worker, { generateToken, isBillingEnabled } from '../index.js';
 
@@ -46,6 +47,41 @@ describe('Worker routing', () => {
       expect(csp, path).toContain("default-src 'self'");
       expect(csp, path).toContain("frame-ancestors 'none'");
     }
+  });
+
+  it('ENFORCES the CSP on the guides layer and the Index, and only reports it on the app shell', async () => {
+    // The clean surfaces run no inline script (every script is first-party
+    // under /guides/*.js), so there a violation is a bug the browser should
+    // refuse. The app shell still carries the legacy inline scripts; the same
+    // policy is report-only there until Stage 3 extracts them.
+    const enforced = ['/guides/', '/guides/box-breathing.html', '/guides/breath.js?v=x', '/follow-through-index.html', '/api/public/follow-through'];
+    const reported = ['/', '/me/', '/health', '/not-a-route', '/about.html'];
+    for (const path of enforced) {
+      const r = await call('GET', path);
+      const csp = r.headers.get('Content-Security-Policy');
+      expect(csp, path).toBeTruthy();
+      expect(r.headers.get('Content-Security-Policy-Report-Only'), path).toBeNull();
+      expect(csp, path).toContain("script-src 'self' https://pagead2.googlesyndication.com");
+      expect(csp, path).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+      expect(csp, path).not.toContain('unsafe-eval');
+      // the three live blockers, allowlisted from observation, not guessed
+      expect(csp, path).toContain("style-src 'self' 'unsafe-inline'");
+      expect(csp, path).toMatch(/script-src[^;]*https:\/\/ep2\.adtrafficquality\.google/);
+      expect(csp, path).toMatch(/img-src[^;]*https:\/\/ep1\.adtrafficquality\.google/);
+      expect(csp, path).toMatch(/script-src[^;]*https:\/\/static\.cloudflareinsights\.com/);
+      expect(csp, path).toMatch(/connect-src[^;]*https:\/\/cloudflareinsights\.com/);
+    }
+    for (const path of reported) {
+      const r = await call('GET', path);
+      expect(r.headers.get('Content-Security-Policy'), path).toBeNull();
+      expect(r.headers.get('Content-Security-Policy-Report-Only'), path).toContain("default-src 'self'");
+    }
+    // the mode is decided by the normalised path alone; a path that merely
+    // starts with a clean prefix, or climbs out of one, does not inherit it
+    expect(cspModeFor('https://focusbro.net/guides/x.html')).toBe('enforce');
+    expect(cspModeFor('https://focusbro.net/guidesx')).toBe('report-only');
+    expect(cspModeFor('https://focusbro.net/guides/../me/')).toBe('report-only');
+    expect(cspModeFor('not a url')).toBe('report-only');
   });
 
   it('uses an AA-contrast action color on the accountability CTA', async () => {

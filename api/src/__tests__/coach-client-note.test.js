@@ -26,8 +26,63 @@ import {
 } from '../coach.js';
 import { buildWeeklyReport } from '../report.js';
 import { generateUUID } from '../middleware.js';
+import { scanDesignLaw } from '../design-law.js';
 
-const banned = /\b(late|overdue|missed|miss|behind|fail|failed|failure|slack(ing)?|lazy|should have|guilt|shame|slipping|excuse|AI|diagnos|treat(ment)?|cure|disorder|symptom|ADHD|medication)\b/i;
+// THE DESIGN LAW is one lexicon now (design-law.js). This surface used to
+// hand-roll its own banned-word union, which had drifted WEAKER than canonical:
+// it missed `disappoint`, `ashamed`, `pathetic`, `worthless`, `unrespons`,
+// `fall behind`, the incredulous `again?!`, `therapy`, and the `you didn't`
+// framing. Route the guard through `scanDesignLaw` (shame + clinical + "AI" +
+// consumer-ADHD in one pass) so this client-facing note is held to the same bar
+// as every other surface — while preserving the three genuine per-surface extras
+// the canonical list intentionally does NOT carry:
+//   • `late` / `overdue` — miss-framing this coach note must never use
+//   • bare `slack(ing)` — canonical only bans "slack off" (so "Slack" the app
+//     stays sayable elsewhere); this note never names the app, so the stricter
+//     form is kept here
+//   • bare `should have` — canonical anchors it to "you should have"
+const localExtras = /\b(late|overdue|slack(ing)?|should have)\b/i;
+const hasBanned = (s) => scanDesignLaw(String(s)).length > 0 || localExtras.test(String(s));
+
+// ── proof-of-rejection (Standing Law #1): the fold STRENGTHENS this surface ──
+// Pins that routing through scanDesignLaw catches shame/clinical framings the old
+// hand-rolled union silently missed, that the preserved per-surface extras still
+// fire, and — the load-bearing one — that the warm reschedule / kept-word copy
+// stays clean, so the anti-shame reschedule LAW line is protected by construction.
+describe('the note is guarded by the ONE canonical design-LAW scanner (never shame)', () => {
+  it('catches shame/clinical framings the old per-surface union silently missed', () => {
+    // None of these were in the old `banned` list; all are caught by scanDesignLaw now.
+    for (const bad of [
+      'you disappointed me',      // disappoint
+      'that was pathetic',        // pathetic
+      'you feel worthless',       // worthless
+      'you keep falling behind',  // fall behind
+      'not this again?!',         // the incredulous again?! (the R-331 dead-regex class)
+      'this is therapy for you',  // therapy (clinical)
+      'you didn’t start it',      // the "you didn't" framing
+      'a quiet, unresponsive client', // unrespons
+    ]) {
+      expect(hasBanned(bad), `should be caught: ${bad}`).toBe(true);
+    }
+  });
+
+  it('still fires on the genuine per-surface extras kept out of the canonical list', () => {
+    for (const bad of ['you are late', 'the taxes are overdue', 'stop slacking', 'you should have started']) {
+      expect(hasBanned(bad), `per-surface extra should fire: ${bad}`).toBe(true);
+    }
+  });
+
+  it('leaves the warm reschedule + kept-word copy clean (the anti-shame LAW line survives)', () => {
+    for (const good of [
+      'when do you want to try again?', // single "?" — the warm reschedule, NOT the eye-roll
+      'You kept 3 words this week',
+      'A quiet week is a clean page',
+      'I’ll be there for it',
+    ]) {
+      expect(hasBanned(good), `warm copy must stay clean: ${good}`).toBe(false);
+    }
+  });
+});
 
 // ── pure helper: the second-person kept-word headline of the note ──
 describe('clientNoteKeptCopy — the note\'s kept-word line', () => {
@@ -35,7 +90,7 @@ describe('clientNoteKeptCopy — the note\'s kept-word line', () => {
     const s = clientNoteKeptCopy({ keptThisWeek: 0 });
     expect(s.toLowerCase()).toContain('clean page');
     expect(s).not.toMatch(/\b0\b/);
-    expect(banned.test(s)).toBe(false);
+    expect(hasBanned(s)).toBe(false);
   });
   it('names the count, singular for one, plural for many', () => {
     expect(clientNoteKeptCopy({ keptThisWeek: 1 })).toContain('1 word ');
@@ -60,7 +115,7 @@ describe('clientNotePeakDayCopy — a warm anchor for the shape', () => {
     expect(s).toContain('Wednesday');
     expect(s).toContain('4 words kept');
     expect(s.toLowerCase()).toContain('strongest day');
-    expect(banned.test(s), `banned word: ${s}`).toBe(false);
+    expect(hasBanned(s), `banned word: ${s}`).toBe(false);
   });
   it('stays silent for an all-singles window (no arbitrary best day)', () => {
     expect(clientNotePeakDayCopy({ count: 1, whenPhrase: 'Monday' })).toBe('');
@@ -97,7 +152,7 @@ describe('clientNoteOwnWordsLabelCopy — the framing for the client\'s own word
     expect(typeof s).toBe('string');
     expect(s.length).toBeGreaterThan(0);
     expect(s.toLowerCase()).toContain('kept');
-    expect(banned.test(s), `banned word in label: ${s}`).toBe(false);
+    expect(hasBanned(s), `banned word in label: ${s}`).toBe(false);
   });
 });
 
@@ -142,7 +197,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
   it('a quiet week is a clean page — no miss, no shame, nowhere in the note', () => {
     const note = buildClientNote({ kept_this_week: 0 }, { label: 'Bo' });
     expect(note.toLowerCase()).toContain('clean page');
-    expect(banned.test(note)).toBe(false);
+    expect(hasBanned(note)).toBe(false);
   });
 
   it('includes the milestone line only when the report carries one', () => {
@@ -179,7 +234,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     const note = buildClientNote({ kept_this_week: 1, rhythms: [{ title: 'Taxes', cadence: 'Weekly', next_checkin: past }] }, { label: 'Fin' });
     expect(note).toContain('"Taxes" on the books');
     expect(note).toContain('I’ll be there for it');
-    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+    expect(hasBanned(note), `banned word in note:\n${note}`).toBe(false);
   });
 
   it('is defensive: a garbage weekly still yields a clean, sendable note', () => {
@@ -187,7 +242,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     expect(typeof note).toBe('string');
     expect(note).toContain('Hi Gus —');
     expect(note.toLowerCase()).toContain('clean page');
-    expect(banned.test(note)).toBe(false);
+    expect(hasBanned(note)).toBe(false);
   });
 
   it('carries the momentum sparkline (the week\'s shape) when the weekly has one', () => {
@@ -197,7 +252,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     }, { label: 'Ivy' });
     expect(note).toContain('shape of your last 14 days');
     expect(note).toContain('▁▂▃▄▅▆▇█');
-    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+    expect(hasBanned(note), `banned word in note:\n${note}`).toBe(false);
   });
 
   it('omits the sparkline line entirely when the weekly has no momentum', () => {
@@ -215,7 +270,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     expect(spark).toBeGreaterThan(-1);
     expect(peak).toBeGreaterThan(spark); // sits directly under the shape line
     expect(note).toContain('Wednesday — 3 words kept');
-    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+    expect(hasBanned(note), `banned word in note:\n${note}`).toBe(false);
   });
 
   it('omits the callout when the peak is only a single kept day', () => {
@@ -247,7 +302,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
     // buildWeeklyReport always builds a momentum block with a sparkline string.
     expect(note).toContain('shape of your last');
     expect(note).toContain(weekly.momentum.sparkline);
-    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+    expect(hasBanned(note), `banned word in note:\n${note}`).toBe(false);
   });
 
   it('the whole note is clean when built from a real buildWeeklyReport at a milestone', () => {
@@ -261,7 +316,7 @@ describe('buildClientNote — the copy-pasteable between-session note', () => {
       timezone: 'UTC',
     });
     const note = buildClientNote(weekly, { label: 'Hana' });
-    expect(banned.test(note), `banned word in note:\n${note}`).toBe(false);
+    expect(hasBanned(note), `banned word in note:\n${note}`).toBe(false);
     expect(note).toContain('You kept 3 words this week');
     expect(note).toContain('milestone'); // current run is exactly 3 → a milestone
   });
@@ -337,7 +392,7 @@ describe('GET /api/coach/clients/:clientId — the between-session note artifact
     expect(body.note_text).toContain('Hi Alex —');
     expect(body.note_text).toContain('You kept 3 words this week');
     expect(body.note_text).toContain('"Taxes" on the books');
-    expect(banned.test(body.note_text), `banned word in note:\n${body.note_text}`).toBe(false);
+    expect(hasBanned(body.note_text), `banned word in note:\n${body.note_text}`).toBe(false);
   });
 
   it('a quiet week still yields a clean-page note (no miss anywhere)', async () => {
@@ -352,7 +407,7 @@ describe('GET /api/coach/clients/:clientId — the between-session note artifact
     const body = await res.json();
     expect(body.note_text.toLowerCase()).toContain('clean page');
     expect(body.note_text).not.toContain('on the books');
-    expect(banned.test(body.note_text)).toBe(false);
+    expect(hasBanned(body.note_text)).toBe(false);
   });
 
   it('does not leak a note for a link that is not active (consent gate)', async () => {

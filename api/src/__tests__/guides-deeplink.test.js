@@ -19,9 +19,14 @@ import { describe, it, expect } from 'vitest';
 import { guides, renderGuidePage, renderGuidesIndex, TOOL_DEEPLINK_IDS } from '../guides/index.js';
 import servedHtml from '../html.js';
 
-// Pull every app-cta href out of a rendered guide page.
+// Pull every app-cta href out of a rendered guide page. CTAs carry the content
+// ledger's `?ref=cf_focusbro_<slug>` (Content Factory §7), so compare by the
+// tool id, not the raw string — the ref is instrumentation, not a destination.
 function ctaHrefs(html) {
-  return [...html.matchAll(/class="app-cta" href="([^"]+)"/g)].map((m) => m[1]);
+  return [...html.matchAll(/class="app-cta" href="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+}
+function ctaTools(html) {
+  return ctaHrefs(html).map((h) => new URL(h, 'https://focusbro.net').searchParams.get('tool'));
 }
 
 describe('TOOL_DEEPLINK_IDS', () => {
@@ -34,13 +39,21 @@ describe('TOOL_DEEPLINK_IDS', () => {
 });
 
 describe('guide CTAs are tool deep-links', () => {
-  it('every guide renders exactly one CTA and it is a valid /?tool=<id> link', () => {
+  it('every guide renders exactly one CTA: a valid /?tool=<id> link carrying its content-ledger ref', () => {
+    // The CTA is a deep-link into the app PLUS the Content Factory §7
+    // attribution (`ref=cf_focusbro_<slug>`) that credits the guide for an
+    // activation. Nothing else may ride on it — the shape is pinned so a stray
+    // param can never turn a guide CTA into a tracking surface.
     for (const g of guides) {
       const hrefs = ctaHrefs(renderGuidePage(g));
       expect(hrefs.length, `guide ${g.slug} should have one app CTA`).toBe(1);
-      const m = hrefs[0].match(/^\/\?tool=([a-z]+)$/);
-      expect(m, `guide ${g.slug} CTA "${hrefs[0]}" must be /?tool=<id>`).not.toBeNull();
-      expect(TOOL_DEEPLINK_IDS, `guide ${g.slug} targets unknown tool ${m && m[1]}`).toContain(m[1]);
+      const u = new URL(hrefs[0], 'https://focusbro.net');
+      expect(u.pathname, `guide ${g.slug} CTA must point at the app root`).toBe('/');
+      const tool = u.searchParams.get('tool');
+      expect(tool, `guide ${g.slug} CTA "${hrefs[0]}" must carry a tool id`).toMatch(/^[a-z]+$/);
+      expect(TOOL_DEEPLINK_IDS, `guide ${g.slug} targets unknown tool ${tool}`).toContain(tool);
+      expect(u.searchParams.get('ref'), `guide ${g.slug} CTA must credit itself`).toBe(`cf_focusbro_${g.slug}`);
+      expect([...u.searchParams.keys()].sort(), `guide ${g.slug} CTA carries an unexpected param`).toEqual(['ref', 'tool']);
     }
   });
 
@@ -56,9 +69,9 @@ describe('guide CTAs are tool deep-links', () => {
     // Eye Rest is the 20-20-20 Break Reminder; it must land there.
     const g = guides.find((x) => x.slug === 'the-20-20-20-rule');
     expect(g, 'the 20-20-20 guide should exist').toBeTruthy();
-    const hrefs = ctaHrefs(renderGuidePage(g));
-    expect(hrefs).toContain('/?tool=eyerest');
-    expect(hrefs).not.toContain('/?tool=movement');
+    const tools = ctaTools(renderGuidePage(g));
+    expect(tools).toContain('eyerest');
+    expect(tools).not.toContain('movement');
     expect(TOOL_DEEPLINK_IDS).toContain('eyerest');
   });
 
@@ -69,9 +82,9 @@ describe('guide CTAs are tool deep-links', () => {
     // /?tool=sounds, which rings the Ambient Sounds card specifically.
     const g = guides.find((x) => x.slug === 'music-and-noise-for-focus');
     expect(g, 'the music-and-noise guide should exist').toBeTruthy();
-    const hrefs = ctaHrefs(renderGuidePage(g));
-    expect(hrefs).toContain('/?tool=sounds');
-    expect(hrefs).not.toContain('/?tool=rest');
+    const tools = ctaTools(renderGuidePage(g));
+    expect(tools).toContain('sounds');
+    expect(tools).not.toContain('rest');
     expect(TOOL_DEEPLINK_IDS).toContain('sounds');
   });
 });
@@ -124,8 +137,8 @@ describe('the served app can honor every deep-link a guide uses', () => {
     const usedIds = new Set();
     for (const g of guides) {
       for (const href of ctaHrefs(renderGuidePage(g))) {
-        const m = href.match(/^\/\?tool=([a-z]+)$/);
-        if (m) usedIds.add(m[1]);
+        const id = new URL(href, 'https://focusbro.net').searchParams.get('tool');
+        if (id && /^[a-z]+$/.test(id)) usedIds.add(id);
       }
     }
     for (const id of usedIds) {

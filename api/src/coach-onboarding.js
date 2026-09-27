@@ -27,6 +27,7 @@
 
 import { OperatorIdentityService } from '@latimer-woods-tech/operator';
 import { D1OperatorStore } from './operator-store.js';
+import { scanDesignLaw } from './design-law.js';
 
 /** Check-in cadences a coach can pick. Kept deliberately small and legible. */
 export const COACH_CADENCES = ['daily', 'weekdays', 'weekly'];
@@ -40,33 +41,50 @@ export const COACH_VOICE_PERSONAS = ['hype_bro', 'calm_ally'];
 
 const MAX_SCRIPT = 400;
 const MAX_DISPLAY_NAME = 120;
+const MAX_BRAND = 80;
 
-// ── ANTI-SHAME BATTERIES ─────────────────────────────────────
-// Mirrors the batteries the consumer-copy suites enforce (me.test.js /
-// coach.test.js), applied here to COACH-AUTHORED text at the write boundary.
-const SHAME_PATTERNS = [
-  /\bfail(ed|ure|ing|s)?\b/i,
-  /\blaz(y|iness)\b/i,
-  /\bdisappoint/i,
-  /\bguilt/i,
-  /\bashamed\b/i,
-  /\bshame\b/i,
-  /\byou (didn.?t|should have|should.?ve)\b/i,
-  /\bfall(ing|en)? behind\b/i,
-  /\bbehind\b/i,
-  /\bexcuse/i,
-  /\bslack(ing|er|ed)? off\b/i,
-  /\bpathetic\b/i,
-  /\bworthless\b/i,
-  /\bmiss(ed|es|ing)?\b/i,
-];
-const CLINICAL_PATTERNS = [/\btreat(s|ment|ing)?\b/i, /\bcure/i, /\bdiagnos/i, /\bdisorder/i, /\bsymptom/i, /\bADHD\b/i, /\bmedication\b/i];
-const AI_WORD = /\bAI\b/; // case-sensitive: the banned branding, not "again"/"said"
+/**
+ * Map a coach's configured voice persona (`COACH_VOICE_PERSONAS`) onto the copy
+ * engine's persona vocabulary (`accountability.js` `PERSONAS`: 'hype' | 'ally').
+ * Both coach voices are ride-or-die allies — this only carries the *energy*
+ * across to the warm nudge the client actually hears, never the care. Anything
+ * unrecognised falls back to the calm ally, the product's gentlest default.
+ * @param {string} voicePersona
+ * @returns {'hype'|'ally'}
+ */
+export function mapCoachPersona(voicePersona) {
+  return voicePersona === 'hype_bro' ? 'hype' : 'ally';
+}
+
+// ── ANTI-SHAME BATTERY ───────────────────────────────────────
+// The coach's opening line is the WORD THE BRO SAYS ON A CLIENT'S PHONE — a
+// consumer-facing string authored by the coach. It is held to the SAME design
+// LAW as every other user-facing surface, via the ONE canonical scanner
+// (`design-law.js`), never a hand-rolled local list. This closed a real drift:
+// the old local list here checked for shame + "AI" + a partial clinical set but
+// OMITTED `therapy` (a clinical word the canonical law bans) and the
+// `unrespons` shame catch — so a coach could once save a line saying "therapy"
+// or "unresponsive" at this write boundary. `allowAdhd` stays false: this is the
+// line the client hears, not the coach pitch, so naming a diagnosis is banned.
+
+/**
+ * Warm, banned-word-free feedback per violation kind. The reason itself must
+ * pass the design LAW (a rejection message can never shame or go clinical), so
+ * these are curated and mapped from `scanDesignLaw`'s `kind`.
+ */
+const CHECKIN_SCRIPT_REASON = Object.freeze({
+  shame: 'Let’s keep it on their side — rewrite this warm, with no blame in it.',
+  treatment: 'Keep the line everyday and warm — no clinical wording.',
+  'adhd-in-consumer-copy': 'Keep the line everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — the bro is a person to them, warm and human.',
+});
 
 /**
  * Validate a coach-authored opening line. Returns `{ ok: true, value }` for a
  * warm line, or `{ ok: false, reason }` (a warm, banned-word-free explanation)
- * for one that shames, brands "AI", or makes a clinical claim.
+ * for one that shames, brands "AI", or makes a clinical claim — enforced through
+ * the canonical `scanDesignLaw` so this write boundary can never drift weaker
+ * than the surfaces the rest of the suite guards.
  * @param {unknown} text
  */
 export function validateCheckinScript(text) {
@@ -77,18 +95,171 @@ export function validateCheckinScript(text) {
   if (t.length > MAX_SCRIPT) {
     return { ok: false, reason: `Keep the opening line under ${MAX_SCRIPT} characters.` };
   }
-  for (const p of SHAME_PATTERNS) {
-    if (p.test(t)) {
-      return { ok: false, reason: 'Let’s keep it on their side — rewrite this warm, with no blame in it.' };
-    }
+  const violations = scanDesignLaw(t, { allowAdhd: false });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: CHECKIN_SCRIPT_REASON[kind] || CHECKIN_SCRIPT_REASON.shame,
+    };
   }
-  for (const p of CLINICAL_PATTERNS) {
-    if (p.test(t)) {
-      return { ok: false, reason: 'Keep the line everyday and warm — no clinical wording.' };
-    }
+  return { ok: true, value: t };
+}
+
+// The coach's PRACTICE (display) name is the FIRST coach-authored string in the
+// same onboarding handler, and — unlike the brand name and support email beside
+// it — it is REQUIRED. It is rendered back on the coach dashboard
+// (GET /api/coach/onboarding) and derives the operator slug, yet it rode into
+// `svc.createOperator` guarded by a presence + length check ONLY: the sibling
+// drift hole R-327/R-328 left after routing the OPTIONAL brand name and support
+// email through the canonical scanner. So the one required identity field was
+// held to a WEAKER bar than the two optional strings next to it — a practice
+// named "AI Accountability" or "ADHD Cure Coaching" ("cure" is a treatment claim)
+// passed the length check and reached the store and the dashboard unscanned. It
+// is now held to the SAME ONE canonical design LAW, before any operator is
+// created. `allowAdhd: true`, mirroring the brand: a practice name IS the coach
+// pitch, the one place the guardrail permits naming ADHD ("ADHD lives in SEO and
+// the coach pitch"), while shame, "AI", and clinical/treatment claims stay
+// banned. The warm presence + length copy is preserved verbatim from the inline
+// check it replaces.
+
+/**
+ * Warm, banned-word-free feedback per violation kind for a rejected practice
+ * (display) name. Each string must itself pass the design LAW.
+ */
+const DISPLAY_NAME_REASON = Object.freeze({
+  shame: 'Pick a name that stays on their side — no blame in it.',
+  treatment: 'Keep the name everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — your practice reads warm and human here.',
+});
+
+/**
+ * Validate a coach-authored practice (display) name. Returns `{ ok: true, value }`
+ * for a clean, trimmed name, or `{ ok: false, reason }` (a warm, banned-word-free
+ * explanation) for an empty/over-long one or one that shames, brands "AI", or
+ * makes a clinical claim — enforced through the canonical `scanDesignLaw` so this
+ * write boundary can never drift weaker than the brand-name guard beside it.
+ * `allowAdhd: true`: a practice name is the coach pitch, where naming ADHD is
+ * permitted.
+ * @param {unknown} text
+ */
+export function validateDisplayName(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'What should we call your coaching practice?' };
   }
-  if (AI_WORD.test(t)) {
-    return { ok: false, reason: 'Skip that word — the bro is a person to them, warm and human.' };
+  const t = text.trim();
+  if (t.length > MAX_DISPLAY_NAME) {
+    return { ok: false, reason: `Keep the name under ${MAX_DISPLAY_NAME} characters.` };
+  }
+  const violations = scanDesignLaw(t, { allowAdhd: true });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: DISPLAY_NAME_REASON[kind] || DISPLAY_NAME_REASON.shame,
+    };
+  }
+  return { ok: true, value: t };
+}
+
+// The white-label brand name is the OTHER coach-authored, client-facing string:
+// it's the name the person sees on their accountability space. Like the opening
+// line (validateCheckinScript), it must pass the ONE canonical design LAW — a
+// brand can never shame, brand itself "AI", or make a clinical/treatment claim
+// on a user-facing surface. It was the sibling drift hole R-327 left open: the
+// opening line was routed through the scanner while the brand name reached
+// `svc.updateWhiteLabel` unscanned on BOTH write paths (onboarding + the
+// white-label PUT). `allowAdhd: true` here — a brand IS the coach pitch, the one
+// place the guardrail permits naming ADHD ("ADHD lives in SEO and the coach
+// pitch") — but shame, "AI", and clinical claims stay banned, brand or not.
+
+/**
+ * Warm, banned-word-free feedback per violation kind for a rejected brand name.
+ * Each string must itself pass the design LAW.
+ */
+const BRAND_NAME_REASON = Object.freeze({
+  shame: 'Pick a name that stays on their side — no blame in it.',
+  treatment: 'Keep the name everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — your brand reads warm and human here.',
+});
+
+/**
+ * Validate a coach-authored white-label brand name. Returns `{ ok: true, value }`
+ * for a clean brand, or `{ ok: false, reason }` (a warm, banned-word-free
+ * explanation) for one that shames, brands "AI", or makes a clinical claim —
+ * enforced through the canonical `scanDesignLaw` so this write boundary can never
+ * drift weaker than the opening-line guard beside it. `allowAdhd: true`: a brand
+ * is the coach pitch, where naming ADHD is permitted.
+ * @param {unknown} text
+ */
+export function validateBrandName(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'Add the name that goes on it.' };
+  }
+  const t = text.trim();
+  if (t.length > MAX_BRAND) {
+    return { ok: false, reason: `Keep the brand name under ${MAX_BRAND} characters.` };
+  }
+  const violations = scanDesignLaw(t, { allowAdhd: true });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: BRAND_NAME_REASON[kind] || BRAND_NAME_REASON.shame,
+    };
+  }
+  return { ok: true, value: t };
+}
+
+// The white-label SUPPORT EMAIL is the THIRD coach-authored, client-facing
+// white-label string — the address the person sees on their accountability
+// space to reach their coach. It rode into `svc.updateWhiteLabel` (the same
+// config object as brandName) UNSCANNED on BOTH write paths, the sibling drift
+// hole R-327/R-328 left after routing the opening line and the brand name
+// through the canonical scanner. The operator package format-validates it as an
+// email, but a *valid* email can still carry the exact wording the design LAW
+// bans on a user-facing surface — `dont-be-lazy@coach.com`, `cure-your-adhd@
+// clinic.com`, `therapy@coach.com` all pass the email check yet shame or make a
+// clinical claim to the client. So it is held to the SAME canonical design LAW,
+// before it reaches the store. `allowAdhd: true`, mirroring the brand: a support
+// address is part of the coach's pitch/market brand (naming ADHD is permitted),
+// while shame, "AI", and clinical/treatment claims stay banned. Email *format*
+// and length stay owned by the operator package's `validateWhiteLabel` — this
+// guard adds only the design-LAW scan the package does not do.
+
+/**
+ * Warm, banned-word-free feedback per violation kind for a rejected support
+ * email. Each string must itself pass the design LAW.
+ */
+const SUPPORT_EMAIL_REASON = Object.freeze({
+  shame: 'Use a support address that stays on their side — no blame in it.',
+  treatment: 'Keep the support address everyday and warm — no clinical wording.',
+  'ai-branding': 'Skip that word — your support address reads warm and human here.',
+});
+
+/**
+ * Validate a coach-authored white-label support email for the design LAW only
+ * (format/length are the operator package's job). Returns `{ ok: true, value }`
+ * for a clean address, or `{ ok: false, reason }` (a warm, banned-word-free
+ * explanation) for one that shames, brands "AI", or makes a clinical claim —
+ * so a valid-but-design-dirty address (e.g. `dont-be-lazy@coach.com`) can never
+ * reach the client. Callers pass only a non-empty value (the field is optional).
+ * `allowAdhd: true`: a support address is the coach pitch, where naming ADHD is
+ * permitted.
+ * @param {unknown} text
+ */
+export function validateSupportEmail(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'Add a support email, or leave it blank.' };
+  }
+  const t = text.trim();
+  const violations = scanDesignLaw(t, { allowAdhd: true });
+  if (violations.length > 0) {
+    const { kind } = violations[0];
+    return {
+      ok: false,
+      reason: SUPPORT_EMAIL_REASON[kind] || SUPPORT_EMAIL_REASON.shame,
+    };
   }
   return { ok: true, value: t };
 }
@@ -126,12 +297,29 @@ export function coachOnboardingCopySurface() {
     ...COACH_VOICE_PERSONAS.map(personaLabel),
     ...COACH_VOICE_PERSONAS.map(personaDescription),
     scriptFieldHelpCopy(),
+    // Practice (display) name validation feedback (must themselves be warm + banned-word-free):
+    validateDisplayName('').reason,
+    validateDisplayName('x'.repeat(MAX_DISPLAY_NAME + 1)).reason,
+    validateDisplayName('Lazy No More Coaching').reason,
+    validateDisplayName('ADHD Cure Coaching').reason,
+    validateDisplayName('AI Accountability').reason,
     // Validation feedback lines (must themselves be warm + banned-word-free):
     validateCheckinScript('').reason,
     validateCheckinScript('x'.repeat(MAX_SCRIPT + 1)).reason,
     validateCheckinScript('you failed again').reason,
     validateCheckinScript('let us treat your disorder').reason,
     validateCheckinScript('the AI will call you').reason,
+    // Brand-name validation feedback (must themselves be warm + banned-word-free):
+    validateBrandName('').reason,
+    validateBrandName('x'.repeat(MAX_BRAND + 1)).reason,
+    validateBrandName('Lazy No More Coaching').reason,
+    validateBrandName('ADHD Cure Partners').reason,
+    validateBrandName('AI Accountability').reason,
+    // Support-email validation feedback (must themselves be warm + banned-word-free):
+    validateSupportEmail('').reason,
+    validateSupportEmail('lazy-no-more@coaching.com').reason,
+    validateSupportEmail('cure-your-adhd@clinic.com').reason,
+    validateSupportEmail('the-AI-desk@coaching.com').reason,
   ];
 }
 
@@ -226,12 +414,33 @@ export function registerCoachOnboardingRoutes(router, ctx) {
 
       let body;
       try { body = await request.json(); } catch { body = null; }
-      const displayName = body && typeof body.displayName === 'string' ? body.displayName.trim() : '';
-      if (!displayName) {
-        return jsonResponse({ error: 'What should we call your coaching practice?' }, 400);
+      // THE DESIGN LAW at the write boundary, on the coach's REQUIRED practice
+      // name — the same canonical scanner the brand name and support email ride,
+      // so this identity field can never be held to a weaker bar than the optional
+      // strings beside it. Presence + length feedback is unchanged; a shaming /
+      // "AI" / clinical practice name is now rejected here too, before any operator
+      // is created. (`allowAdhd: true` inside the validator — a practice name is
+      // the coach pitch.)
+      const displayNameCheck = validateDisplayName(body && body.displayName);
+      if (!displayNameCheck.ok) {
+        return jsonResponse({ error: displayNameCheck.reason }, 400);
       }
-      if (displayName.length > MAX_DISPLAY_NAME) {
-        return jsonResponse({ error: `Keep the name under ${MAX_DISPLAY_NAME} characters.` }, 400);
+      const displayName = displayNameCheck.value;
+
+      // THE DESIGN LAW at the write boundary: a shaming / "AI" / clinical brand
+      // name — or support email — is rejected up front, before any operator is
+      // created. Both are client-facing white-label strings and ride the same
+      // config object; both are held to the one canonical scanner. (The support
+      // email is only stored alongside a brand, so it is only checked then.)
+      const rawBrand = body && typeof body.brandName === 'string' ? body.brandName.trim() : '';
+      const rawSupport = body && typeof body.supportEmail === 'string' ? body.supportEmail.trim() : '';
+      if (rawBrand) {
+        const brand = validateBrandName(rawBrand);
+        if (!brand.ok) return jsonResponse({ error: brand.reason }, 400);
+        if (rawSupport) {
+          const support = validateSupportEmail(rawSupport);
+          if (!support.ok) return jsonResponse({ error: support.reason }, 400);
+        }
       }
 
       const svc = service(env);
@@ -259,14 +468,14 @@ export function registerCoachOnboardingRoutes(router, ctx) {
          ON CONFLICT(user_id) DO UPDATE SET operator_id = excluded.operator_id`,
       ).bind(auth.userId, operator.id).run();
 
-      // Optional white-label in the same step.
+      // Optional white-label in the same step (brand name already design-LAW
+      // validated above, before the operator was created).
       let whiteLabel = null;
-      const brandName = body && typeof body.brandName === 'string' ? body.brandName.trim() : '';
-      if (brandName) {
-        const config = { brandName };
+      if (rawBrand) {
+        const config = { brandName: rawBrand };
         if (body.primaryColor) config.primaryColor = body.primaryColor;
         if (body.secondaryColor) config.secondaryColor = body.secondaryColor;
-        if (body.supportEmail) config.supportEmail = body.supportEmail;
+        if (rawSupport) config.supportEmail = rawSupport; // design-LAW validated above
         const updated = await svc.updateWhiteLabel(operator.id, config);
         whiteLabel = updated.whiteLabel;
       }
@@ -323,11 +532,22 @@ export function registerCoachOnboardingRoutes(router, ctx) {
       let body;
       try { body = await request.json(); } catch { body = null; }
       const brandName = body && typeof body.brandName === 'string' ? body.brandName.trim() : '';
-      if (!brandName) return jsonResponse({ error: 'Add the name that goes on it.' }, 400);
-      const config = { brandName };
+      // THE DESIGN LAW at the write boundary: reject a shaming / "AI" / clinical
+      // brand name (empty is caught by the same guard's non-empty check).
+      const brand = validateBrandName(brandName);
+      if (!brand.ok) return jsonResponse({ error: brand.reason }, 400);
+      const config = { brandName: brand.value };
       if (body.primaryColor) config.primaryColor = body.primaryColor;
       if (body.secondaryColor) config.secondaryColor = body.secondaryColor;
-      if (body.supportEmail) config.supportEmail = body.supportEmail;
+      // THE DESIGN LAW at the write boundary: the support email is client-facing
+      // white-label copy — scan it the same as the brand before it is stored, so
+      // a valid-but-design-dirty address never reaches the client.
+      const rawSupport = body && typeof body.supportEmail === 'string' ? body.supportEmail.trim() : '';
+      if (rawSupport) {
+        const support = validateSupportEmail(rawSupport);
+        if (!support.ok) return jsonResponse({ error: support.reason }, 400);
+        config.supportEmail = support.value;
+      }
 
       const svc = service(env);
       const updated = await svc.updateWhiteLabel(operatorId, config);

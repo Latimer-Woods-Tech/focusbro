@@ -26,12 +26,35 @@ import {
   momentumSelfHeadingCopy,
   momentumSelfIntroCopy,
   momentumSelfSummaryCopy,
+  powerHoursHeadingCopy,
+  powerHoursIntroCopy,
+  powerHoursCopy,
+  bestDayHeadingCopy,
+  bestDayIntroCopy,
+  bestDayCopy,
+  showedUpDaysHeadingCopy,
+  showedUpDaysIntroCopy,
+  showedUpDaysCopy,
+  powerDayHeadingCopy,
+  powerDayIntroCopy,
+  powerDayCopy,
+  typicalDayHeadingCopy,
+  typicalDayIntroCopy,
+  typicalDayCopy,
+  bestWeekHeadingCopy,
+  bestWeekIntroCopy,
+  bestWeekCopy,
+  keepingSinceHeadingCopy,
+  keepingSinceIntroCopy,
+  keepingSinceCopy,
   detailMomentumHeadingCopy,
   detailMomentumIntroCopy,
   detailMomentumSummaryCopy,
   detailPeakDayCopy,
   personalBestCopy,
   milestoneCopy,
+  keptTotalLandmarkCopy,
+  personalRecordCopy,
   inAppWhenExamplesText,
 } from './accountability.js';
 
@@ -302,6 +325,32 @@ export function snoozeLengthPromptCopy() {
   return 'On it. How long do you need? (Optional — “20 min”, “an hour”… or just OK and I’ll check back soon.)';
 }
 
+/**
+ * The in-app "when do you want to try again?" prompt — shown when a person taps
+ * "Not yet" on a check-in or "Move it" on an active word. A missed moment is an
+ * opening, never a terminal failure: this asks for the next workable time in the
+ * SAME warm words the SMS reschedule path uses, and the answer rides the one
+ * shared when-parser (R-233). Extracted into a named copy fn so this — the single
+ * most anti-shame-critical string in the product — is swept by `meCopySurface()`
+ * and the design-LAW gate, and can never be edited into a scold unseen.
+ * DESIGN LAW: an open door, never a tally, never "AI", never clinical.
+ */
+export function reschedulePromptCopy() {
+  return `No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})`;
+}
+
+/**
+ * The confirm shown when a person sets a word down — a blameless exit, not a miss.
+ * Setting a word down never touches the kept-word streak, and the copy says so
+ * plainly so the action never reads as a loss. Extracted into a named copy fn so
+ * it is swept by `meCopySurface()` and the design-LAW gate rather than hiding as
+ * an inline client literal.
+ * DESIGN LAW: a calm, on-your-side exit, never a tally, never "AI", never clinical.
+ */
+export function releaseConfirmCopy() {
+  return 'Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.';
+}
+
 /** Suspend a repeating rhythm without ending the word — "life happens." */
 export function pauseActionLabel() {
   return 'Pause';
@@ -419,18 +468,26 @@ export function meCopySurface() {
     personalBestCopy({ streak: { current_streak: 12, longest_streak: 12 } }),
     milestoneCopy({ streak: { current_streak: 3 } }),
     milestoneCopy({ streak: { current_streak: 100 } }),
+    keptTotalLandmarkCopy({ streak: { total_kept: 10 } }),
+    keptTotalLandmarkCopy({ streak: { total_kept: 1000 } }),
+    personalRecordCopy({ streak: { current_streak: 0, longest_streak: 2 } }),
+    personalRecordCopy({ streak: { current_streak: 0, longest_streak: 42 } }),
     labels.kept, labels.missed, labels.reschedule,
     keptWithNoteActionLabel(),
     keptNotePromptCopy(),
     releaseActionLabel(),
     snoozeActionLabel(),
     snoozeLengthPromptCopy(),
+    reschedulePromptCopy(),
+    releaseConfirmCopy(),
     pauseActionLabel(),
     resumeActionLabel(),
     editActionLabel(),
     detailActionLabel(),
     detailKeptHeadingCopy(),
     detailNextLabelCopy(),
+    listNextCheckinLabelCopy(),
+    listNextCheckinWaitingCopy(),
     detailMomentumHeadingCopy(),
     detailMomentumIntroCopy(),
     detailMomentumSummaryCopy({ total: 0, days: 14 }),
@@ -445,6 +502,44 @@ export function meCopySurface() {
     momentumSelfSummaryCopy({ total: 0, days: 14 }),
     momentumSelfSummaryCopy({ total: 1, days: 14, peak: { count: 1 } }),
     momentumSelfSummaryCopy({ total: 9, days: 14, peak: { count: 3 } }),
+    powerHoursHeadingCopy(),
+    powerHoursIntroCopy(),
+    powerHoursCopy({ peak: { hour: 9, count: 5 } }),
+    powerHoursCopy({ peak: { hour: 14, count: 8 } }),
+    powerHoursCopy({ peak: { hour: 22, count: 4 } }),
+    powerHoursCopy({ peak: { hour: 0, count: 3 } }),
+    powerHoursCopy({ peak: { hour: 12, count: 6 } }),
+    bestDayHeadingCopy(),
+    bestDayIntroCopy(),
+    bestDayCopy({ best: { date: '2026-07-02', count: 7 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestDayCopy({ best: { date: '2026-08-16', count: 3 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestDayCopy({ best: { date: '2026-08-17', count: 5 }, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    showedUpDaysHeadingCopy(),
+    showedUpDaysIntroCopy(),
+    showedUpDaysCopy({ days: 3 }),
+    showedUpDaysCopy({ days: 28, persona: 'hype' }),
+    showedUpDaysCopy({ days: 150, persona: 'ally' }),
+    powerDayHeadingCopy(),
+    powerDayIntroCopy(),
+    powerDayCopy({ peak: { weekday: 0, count: 5 } }),
+    powerDayCopy({ peak: { weekday: 2, count: 9 }, persona: 'hype' }),
+    powerDayCopy({ peak: { weekday: 5, count: 6 }, persona: 'ally' }),
+    powerDayCopy({ peak: { weekday: 6, count: 4 } }),
+    typicalDayHeadingCopy(),
+    typicalDayIntroCopy(),
+    typicalDayCopy({ typical: { perDay: 2, total: 12, days: 6 } }),
+    typicalDayCopy({ typical: { perDay: 3.4, total: 34, days: 10 }, persona: 'hype' }),
+    typicalDayCopy({ typical: { perDay: 5, total: 60, days: 12 }, persona: 'ally' }),
+    bestWeekHeadingCopy(),
+    bestWeekIntroCopy(),
+    bestWeekCopy({ best: { weekStart: '2026-06-29', count: 18 }, bestDayCount: 7, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC' }),
+    bestWeekCopy({ best: { weekStart: '2026-08-10', count: 9 }, bestDayCount: 3, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'hype' }),
+    bestWeekCopy({ best: { weekStart: '2026-08-17', count: 6 }, bestDayCount: 4, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
+    keepingSinceHeadingCopy(),
+    keepingSinceIntroCopy(),
+    keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 6, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
+    keepingSinceCopy({ firstKeptISO: '2026-07-08T14:00:00Z', count: 40, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'hype' }),
+    keepingSinceCopy({ firstKeptISO: '2025-11-20T09:00:00Z', count: 120, nowISO: '2026-08-17T12:00:00Z', timezone: 'UTC', persona: 'ally' }),
     latestKeptNoteLabelCopy(),
     mePageFootnoteCopy(),
     ...COMMITMENT_STATUSES.map((s) => statusPresentation(s).label),
@@ -463,6 +558,8 @@ export function renderMePage() {
   const RELEASE = releaseActionLabel();
   const SNOOZE = snoozeActionLabel();
   const SNOOZE_LEN_PROMPT = snoozeLengthPromptCopy();
+  const RESCHEDULE_PROMPT = reschedulePromptCopy();
+  const RELEASE_CONFIRM = releaseConfirmCopy();
   const PAUSE = pauseActionLabel();
   const RESUME = resumeActionLabel();
   const EDIT = editActionLabel();
@@ -492,6 +589,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 </div>
 
 <div id="app" class="hidden">
+  <p class="muted hidden" id="anonNote">No account needed. Give your word and I’ll hold it in this browser. <a href="#" id="signinLink">Have an account? Sign in</a></p>
   <div id="firstRun" class="card firstrun hidden">
     <h2>${firstRunHeadingCopy()}</h2>
     <p class="streakmsg">${firstRunBodyCopy()}</p>
@@ -520,6 +618,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     </div>
     <div class="streakbest hidden" id="streakBest"></div>
     <div class="streakmilestone hidden" id="streakMilestone"></div>
+    <div class="streaklandmark hidden" id="streakLandmark"></div>
+    <div class="streakrecord hidden" id="streakRecord"></div>
   </div>
 
   <div class="card">
@@ -571,6 +671,48 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <p class="latest-note hidden" id="latestNote"></p>
   </div>
 
+  <div class="card hidden" id="powerHoursCard">
+    <h2>${powerHoursHeadingCopy()}</h2>
+    <p class="muted">${powerHoursIntroCopy()}</p>
+    <p class="powerhours" id="powerHours"></p>
+  </div>
+
+  <div class="card hidden" id="bestDayCard">
+    <h2>${bestDayHeadingCopy()}</h2>
+    <p class="muted">${bestDayIntroCopy()}</p>
+    <p class="bestday" id="bestDay"></p>
+  </div>
+
+  <div class="card hidden" id="keepingSinceCard">
+    <h2>${keepingSinceHeadingCopy()}</h2>
+    <p class="muted">${keepingSinceIntroCopy()}</p>
+    <p class="keepingsince" id="keepingSince"></p>
+  </div>
+
+  <div class="card hidden" id="showedUpDaysCard">
+    <h2>${showedUpDaysHeadingCopy()}</h2>
+    <p class="muted">${showedUpDaysIntroCopy()}</p>
+    <p class="showedupdays" id="showedUpDays"></p>
+  </div>
+
+  <div class="card hidden" id="powerDayCard">
+    <h2>${powerDayHeadingCopy()}</h2>
+    <p class="muted">${powerDayIntroCopy()}</p>
+    <p class="powerday" id="powerDay"></p>
+  </div>
+
+  <div class="card hidden" id="typicalDayCard">
+    <h2>${typicalDayHeadingCopy()}</h2>
+    <p class="muted">${typicalDayIntroCopy()}</p>
+    <p class="typicalday" id="typicalDay"></p>
+  </div>
+
+  <div class="card hidden" id="bestWeekCard">
+    <h2>${bestWeekHeadingCopy()}</h2>
+    <p class="muted">${bestWeekIntroCopy()}</p>
+    <p class="bestweek" id="bestWeek"></p>
+  </div>
+
   <div class="card" id="keptLog">
     <h2>${keptLogHeadingCopy()}</h2>
     <p class="streakmsg" id="keptMsg"></p>
@@ -597,6 +739,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       <span>${noteSharingToggleLabelCopy()}</span>
     </label>
     <p class="ok hidden" id="noteSharingMsg"></p>
+  </div>
+
+  <div class="card hidden" id="claimCard">
+    <h2>Keep this word everywhere</h2>
+    <p class="muted">Your word lives in this browser for now. Add an email and a password and it follows you to any device — and I can email you a way back in.</p>
+    <form id="claimForm">
+      <label for="claimEmail">Email</label>
+      <input id="claimEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+      <label for="claimPassword">Password</label>
+      <input id="claimPassword" type="password" placeholder="at least 8 characters" autocomplete="new-password" minlength="8" required />
+      <div class="actions"><button type="submit" id="claimSubmit">Save my account</button></div>
+    </form>
+    <p class="err hidden" id="claimErr"></p>
+    <p class="next-step hidden" id="claimMsg"></p>
   </div>
 
   <div class="card" id="consentCard">
@@ -748,12 +904,51 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       mile.textContent = mline;
       if (mline) { mile.classList.remove('hidden'); } else { mile.classList.add('hidden'); }
     }
+    // Lifetime landmark: shown ONLY when the server sends a non-empty line (the
+    // lifetime kept-word TOTAL is exactly at a landmark — 10/25/50/100/…). Unlike
+    // the best/milestone lines above (both read the current run, which a miss can
+    // zero), this reads total_kept, which only ever grows — so once it shows, no
+    // reset can take it back. Independent of the other two: all three can show at
+    // once, each a distinct, true win. Anti-shame by construction — the API
+    // returns '' between landmarks, so this never nags.
+    var land = el('streakLandmark');
+    if (land) {
+      var lline = (data && data.landmark) || '';
+      land.textContent = lline;
+      if (lline) { land.classList.remove('hidden'); } else { land.classList.add('hidden'); }
+    }
+    // Standing all-time record: shown ONLY when the server sends a non-empty line
+    // (current run is at zero AND there's a best run of 2+ on record). This is the
+    // one line that speaks at a fresh start, where message/best/milestone all go
+    // quiet — the strongest run held as a permanent record a reset can't revoke.
+    // Anti-shame by construction: it fires only with no current run to compare
+    // against, and the API returns '' the instant a run is going, so it never sits
+    // beside — or nags about — a live streak.
+    var rec = el('streakRecord');
+    if (rec) {
+      var rline = (data && data.record) || '';
+      rec.textContent = rline;
+      if (rline) { rec.classList.remove('hidden'); } else { rec.classList.add('hidden'); }
+    }
   }
 
+  // Pre-select the person's remembered companion tone (calm ally vs. hype) once,
+  // on first load, so a returning person doesn't re-pick their voice every time —
+  // the vision's "persona ... per user." Applied a single time so it never fights
+  // a mid-session change; the form still overrides per word, and an unset default
+  // simply leaves the standing calm ally selected.
+  var personaHydrated = false;
+  function applyDefaultPersona(data) {
+    if (personaHydrated) return;
+    var sel = el('persona');
+    var pref = data && data.default_persona;
+    if (sel && (pref === 'ally' || pref === 'hype')) { sel.value = pref; }
+    personaHydrated = true;
+  }
   function loadStreak() {
     fetch('/api/accountability/streak', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(renderStreak)
+      .then(function (data) { applyDefaultPersona(data); renderStreak(data); })
       .catch(function () {});
   }
 
@@ -842,10 +1037,130 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     host.classList.remove('hidden');
   }
 
+  // Your power hours: the warm one-line read of WHEN in the day your kept words
+  // tend to land. The server sends a non-empty string ONLY when there's enough
+  // kept history to name a trustworthy peak (design-LAW-scanned, strengths-only);
+  // a thin or flat history sends '' and the card simply stays hidden — never a
+  // blank panel, never a guess.
+  function renderPowerHours(line) {
+    var card = el('powerHoursCard');
+    var host = el('powerHours');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Your best day: the warm one-line read of the most words you ever kept in a
+  // single day — a standing record. The server sends a non-empty string ONLY when
+  // there's a real high-water mark to crown (a day that cleared the floor,
+  // design-LAW-scanned, record-only); a thin history sends '' and the card simply
+  // stays hidden — never a blank panel, never a hollow "best day: 1".
+  function renderBestDay(line) {
+    var card = el('bestDayCard');
+    var host = el('bestDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Keeping your word since …: the account-level longevity anchor — the day you
+  // first kept your word here, across all your words. The server sends a non-empty
+  // string ONLY when there's a real practice to name (a lifetime kept floor AND a
+  // week+ of history, design-LAW-scanned, longevity-only); a young or thin account
+  // sends '' and the card simply stays hidden — never a "since today", never a "0
+  // days".
+  function renderKeepingSince(line) {
+    var card = el('keepingSinceCard');
+    var host = el('keepingSince');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Days you showed up: the account-level BREADTH read — how many separate days
+  // you've kept your word here. The server sends a non-empty string ONLY when
+  // there's a real spread to name (3+ distinct active days, design-LAW-scanned,
+  // breadth-only); a barely-started account sends '' and the card stays hidden —
+  // never a hollow "1 day", never a zero.
+  function renderShowedUpDays(line) {
+    var card = el('showedUpDaysCard');
+    var host = el('showedUpDays');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Your power day: the warm one-line read of WHICH DAY OF THE WEEK your kept words
+  // most often land — the weekday sibling of power hours. The server sends a
+  // non-empty string ONLY when there's enough kept history to name a trustworthy
+  // peak weekday (design-LAW-scanned, strengths-only); a thin, flat, or tied
+  // history sends '' and the card simply stays hidden — never a blank panel, never
+  // a guess.
+  function renderPowerDay(line) {
+    var card = el('powerDayCard');
+    var host = el('powerDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Your typical day: the warm one-line read of about how many words you keep on a
+  // day you show up — the INTENSITY read beside the count/peak/breadth cards. The
+  // server sends a non-empty string ONLY when there's enough kept history for an
+  // honest average AND it clears the ~2-a-day floor (design-LAW-scanned, kept-days
+  // only); a thin, flat, or ~1-a-day history sends '' and the card stays hidden —
+  // never a blank panel, never a hollow average.
+  function renderTypicalDay(line) {
+    var card = el('typicalDayCard');
+    var host = el('typicalDay');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
+  // Your best week: the warm one-line read of the biggest week you ever put
+  // together — the week-scale peer of the best-day record. The server sends a
+  // non-empty string ONLY when there's a real record to crown (past the floor AND
+  // strictly bigger than your best single day, design-LAW-scanned, record-only); a
+  // thin history, or a week no larger than one day, sends '' and the card simply
+  // stays hidden — never a blank panel, never an echo of the best-day card.
+  function renderBestWeek(line) {
+    var card = el('bestWeekCard');
+    var host = el('bestWeek');
+    if (!card || !host) return;
+    var s = typeof line === 'string' ? line.trim() : '';
+    if (!s) { card.classList.add('hidden'); host.textContent = ''; return; }
+    host.textContent = s;
+    card.classList.remove('hidden');
+  }
+
   function loadKept() {
     fetch('/api/accountability/kept', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(function (data) { renderKept(data); renderMomentum(data && data.momentum); renderLatestNote(data && data.latest_note); })
+      .then(function (data) {
+        renderKept(data);
+        renderMomentum(data && data.momentum);
+        renderLatestNote(data && data.latest_note);
+        renderPowerHours(data && data.power_hours);
+        renderBestDay(data && data.best_day);
+        renderKeepingSince(data && data.keeping_since);
+        renderShowedUpDays(data && data.showed_up_days);
+        renderPowerDay(data && data.power_day);
+        renderTypicalDay(data && data.typical_day);
+        renderBestWeek(data && data.best_week);
+      })
       .catch(function () {});
   }
 
@@ -1032,6 +1347,39 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (w) { try { w.focus(); } catch (e) {} }
   }
 
+  // Collapse the double gesture (R-314). A person who typed a word and a time on
+  // the homepage and pressed "Give my word" arrived here to the SAME form and had
+  // to press it AGAIN — 0 of every visitor ever crossed that dead-end. The homepage
+  // leaves a one-shot, ~60s, same-tab token proving that press; when it matches the
+  // word this page was opened for, we give the word for them — the same path the
+  // button runs — so they land on the warm confirmation, not a second form. Guests
+  // are still created only on a real human gesture (the homepage press); a bare
+  // /me/?task= load carries no token and creates nothing. One-shot: consumed before
+  // use, so a reload never re-fires; any failure just leaves the prefilled form.
+  var AUTO_WORD_TRIED = false;
+  function readWordHandoff() {
+    try {
+      var raw = sessionStorage.getItem('focusbro_word_handoff');
+      if (!raw) return null;
+      sessionStorage.removeItem('focusbro_word_handoff');
+      var h = JSON.parse(raw);
+      if (!h || typeof h.ts !== 'number' || (Date.now() - h.ts) > 60000) return null;
+      return h;
+    } catch (e) { return null; }
+  }
+  function maybeAutoGiveWord() {
+    if (AUTO_WORD_TRIED) return;
+    AUTO_WORD_TRIED = true;
+    var h = readWordHandoff();
+    if (!h) return;
+    // Only honor a token for the very word this page was opened for — never fire a
+    // stale gesture against a different task carried in the URL.
+    if (PREFILL_TASK && h.t && h.t !== PREFILL_TASK) return;
+    var t = el('title'), w = el('startAt');
+    if (!t || !t.value.trim() || !w || !w.value.trim()) return;
+    giveWord({ auto: true });
+  }
+
   // The next-word bridge never guesses a task, time, or channel and never
   // auto-commits. One tap simply moves the person into the composer, preserving
   // anything they have already typed.
@@ -1092,7 +1440,74 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () {});
   }
 
-  function enterApp() { hide(el('signin')); show(el('app')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); }
+  // The door, measured. An anonymous visitor is shown the FORM — the first word
+  // creates a guest account on submit (a gesture, rate-limited server-side),
+  // never on page load. A guest sees the claim card; a claimed account does not.
+  var ANONYMOUS = false, GUEST = false;
+  function enterAnonymous() {
+    ANONYMOUS = true; GUEST = false;
+    hide(el('signin')); show(el('app')); show(el('anonNote'));
+    hide(el('signout')); hide(el('consentCard')); hide(el('claimCard')); hide(el('founderMetrics'));
+    updateFirstRun([]);
+    applyPrefill();
+    maybeAutoGiveWord();
+  }
+  function startGuest() {
+    return fetch('/auth/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.b.error || 'Could not start');
+        ANONYMOUS = false; GUEST = true;
+        hide(el('anonNote')); show(el('signout')); show(el('consentCard')); show(el('claimCard'));
+        return res.b;
+      });
+  }
+  // Check-ins are delivered by push. Ask on the gesture that earned it — the
+  // first word — never on load; record what the browser said, so the funnel
+  // shows how many words CAN be followed up. Best-effort: a word is saved
+  // whether or not this succeeds.
+  function urlBase64ToUint8Array(base64) {
+    var padding = '='.repeat((4 - base64.length % 4) % 4);
+    var raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function recordPushPermission(result) {
+    try {
+      fetch('/sync/events', { method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ events: [{ id: 'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), type: 'push_permission', at: new Date().toISOString(), result: result }] }) })
+        .catch(function () {});
+    } catch (e) {}
+  }
+  function ensurePush() {
+    try {
+      if (sessionStorage.getItem('focusbro_push_asked')) return;
+      sessionStorage.setItem('focusbro_push_asked', '1');
+    } catch (e) {}
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { recordPushPermission('unsupported'); return; }
+    if (Notification.permission === 'denied') { recordPushPermission('denied'); return; }
+    navigator.serviceWorker.register('/sw.js')
+      .then(function (reg) {
+        return Notification.requestPermission().then(function (perm) {
+          if (perm !== 'granted') { recordPushPermission(perm === 'denied' ? 'denied' : 'dismissed'); return null; }
+          return fetch('/vapid/public-key').then(function (r) { return r.ok ? r.json() : null; }).then(function (k) {
+            if (!k || !k.public_key) { recordPushPermission('not_configured'); return null; }
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(k.public_key) });
+          });
+        });
+      })
+      .then(function (sub) {
+        if (!sub) return;
+        var label = 'Web';
+        try { label = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || 'Web'; } catch (e) {}
+        return fetch('/notifications/subscribe', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ subscription: sub.toJSON ? sub.toJSON() : sub, device_label: label }) })
+          .then(function (r) { recordPushPermission(r.ok ? 'granted' : 'failed'); });
+      })
+      .catch(function () { recordPushPermission('failed'); });
+  }
+
+  function enterApp(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); maybeAutoGiveWord(); }
 
   function metricRate(rate) {
     return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
@@ -1448,6 +1863,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // The API returns kept check-ins only, so there is never a miss list here.
   var DETAIL_KEPT_HEADING = ${JSON.stringify(detailKeptHeadingCopy())};
   var DETAIL_NEXT_LABEL = ${JSON.stringify(detailNextLabelCopy())};
+  // Same warm "the door is still held" line the /me/ list card uses (R-233) —
+  // reused verbatim so the list and this detail panel can never diverge on how a
+  // passed-but-open check-in reads. NEVER "late"/"overdue".
+  var DETAIL_NEXT_WAITING = ${JSON.stringify(listNextCheckinWaitingCopy())};
   var DETAIL_MOMENTUM_HEADING = ${JSON.stringify(detailMomentumHeadingCopy())};
   function openDetail(id) {
     var host = document.querySelector('[data-detail="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
@@ -1469,8 +1888,25 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var kept = (d && d.kept) || [];
     var html = '<div class="detailbody">';
     if (cadence) { html += '<div class="when">' + esc(cadence) + '</div>'; }
-    if (next) { html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>'; }
+    // The next moment the bro shows up on THIS word. If that moment has already
+    // passed but the check-in is still open (a slipped, quiet-hours- or
+    // night-deferred delivery — the row stays pending, the door held), NEVER show
+    // a stale past time that reads as a no-show: fall to the same warm "still
+    // here" line the /me/ list card, coach roster, and report already use. A
+    // future moment is still named outright. (Matches nextCheckinLineHTML.)
+    if (next) {
+      var nt = new Date(next).getTime();
+      if (!isNaN(nt) && nt <= Date.now()) {
+        html += '<div class="when waiting">' + esc(DETAIL_NEXT_WAITING) + '</div>';
+      } else {
+        html += '<div class="when">' + esc(DETAIL_NEXT_LABEL) + ': ' + esc(fmtWhen(next)) + '</div>';
+      }
+    }
     if (d && d.message) { html += '<p class="streakmsg">' + esc(d.message) + '</p>'; }
+    // How long you've been keeping THIS word — the server sends a non-empty line
+    // ONLY once it's a standing practice (kept-only, design-LAW-scanned); a young
+    // or thin word sends '' and nothing shows, never a "since today".
+    if (d && d.kept_since) { html += '<p class="keptsince">' + esc(d.kept_since) + '</p>'; }
     // This word's own momentum — the same shared sparkline as the /me/ card,
     // scoped to this one word. Shown only once it has a kept word, so a
     // never-yet-kept word isn't a chart of nothing.
@@ -1537,17 +1973,17 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (act === 'missed') {
       // “Not yet” is an opening, never a terminal failure state. Ask for the
       // next workable moment and use the same warm reschedule path as “Move it.”
-      var notYetWhen = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
+      var notYetWhen = prompt(${JSON.stringify(RESCHEDULE_PROMPT)});
       if (!notYetWhen || !notYetWhen.trim()) return;
       resolve(id, 'reschedule', { when_text: notYetWhen.trim() });
       return;
     }
     if (act === 'release') {
-      if (window.confirm('Set this word down? No problem at all — your streak stays as it is, and you can start a new one whenever you’re ready.')) { release(id); }
+      if (window.confirm(${JSON.stringify(RELEASE_CONFIRM)})) { release(id); }
       return;
     }
     if (act === 'reschedule') {
-      var when = prompt('No problem — when do you want to try again? (e.g. ${inAppWhenExamplesText()})');
+      var when = prompt(${JSON.stringify(RESCHEDULE_PROMPT)});
       if (!when || !when.trim()) return;
       // Send the words as typed — the server reads them with the SAME parser as a
       // text reply, so a relative offset, a clock time, a weekday, and a date all
@@ -1578,13 +2014,19 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .then(function (res) {
         if (!res.ok) { throw new Error(res.b.error || 'Sign in failed'); }
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp();
+        enterApp({ guest: false });
       })
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
   });
 
-  el('commitForm').addEventListener('submit', function (ev) {
-    ev.preventDefault();
+  // The word, given. Shared by the manual submit and the homepage-handoff auto-
+  // complete (maybeAutoGiveWord) so both travel exactly ONE path — guest creation,
+  // the POST, the warm confirmation, and the push ask never diverge. Returns a
+  // Promise so the auto path can stay quiet on the one failure it must not shout:
+  // a missing time (that only happens on a manual submit; the auto path never
+  // fires without a prefilled "when").
+  function giveWord(opts) {
+    var auto = !!(opts && opts.auto);
     hide(el('commitMsg')); hide(el('commitErr'));
     // The very first "when" now speaks the same warm language as the reschedule
     // and the text channel — a relative offset, a clock time, a weekday, and a
@@ -1592,31 +2034,56 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     // repeating word it derives the same-time-each-day anchor from the resolved
     // instant, so no separate local_time here.
     var whenText = el('startAt').value.trim();
-    if (!whenText) { var e = el('commitErr'); e.textContent = 'When do you want to start? Try something like ${inAppWhenExamplesText()}.'; show(e); return; }
+    if (!whenText) {
+      if (!auto) { var e0 = el('commitErr'); e0.textContent = 'When do you want to start? Try something like ${inAppWhenExamplesText()}.'; show(e0); }
+      return Promise.resolve();
+    }
     var tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (x) {}
     var repeat = el('repeat').value;
-    fetch('/api/commitments', {
-      method: 'POST', headers: authHeaders(),
-      body: JSON.stringify({
-        title: el('title').value.trim(),
-        when_text: whenText,
-        persona: el('persona').value,
-        channel: el('channel').value,
-        recurrence: repeat,
-        timezone: tz,
-        attribution: ATTRIBUTION
+    var payload = {
+      title: el('title').value.trim(),
+      when_text: whenText,
+      persona: el('persona').value,
+      channel: el('channel').value,
+      recurrence: repeat,
+      timezone: tz,
+      attribution: ATTRIBUTION
+    };
+    return (ANONYMOUS ? startGuest() : Promise.resolve(null))
+      .then(function () {
+        return fetch('/api/commitments', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       })
-    })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (!res.ok) { var e = el('commitErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
         var m = el('commitMsg'); m.textContent = res.b.message || 'Got it — I’ll check in.'; show(m);
         el('title').value = ''; el('startAt').value = ''; hide(el('carryNote'));
-        loadStreak(); loadList();
+        loadStreak(); loadList(); loadKept(); loadConsent();
+        if (payload.channel === 'push') ensurePush();
       })
-      .catch(function () { var e = el('commitErr'); e.textContent = 'Could not save that commitment. Try again in a moment.'; show(e); });
+      .catch(function (err) { var e = el('commitErr'); e.textContent = (err && err.message) || 'Could not save that commitment. Try again in a moment.'; show(e); });
+  }
+  el('commitForm').addEventListener('submit', function (ev) { ev.preventDefault(); giveWord(); });
+
+  el('claimForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    hide(el('claimErr')); hide(el('claimMsg'));
+    fetch('/auth/claim', {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ email: el('claimEmail').value.trim(), password: el('claimPassword').value })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) { var e = el('claimErr'); e.textContent = res.b.error || 'Could not save the account.'; show(e); return; }
+        GUEST = false;
+        el('claimForm').classList.add('hidden');
+        var m = el('claimMsg'); m.textContent = 'Saved. Your word now follows you — check your inbox to confirm your email.'; show(m);
+      })
+      .catch(function () { var e = el('claimErr'); e.textContent = 'Could not save the account. Try again in a moment.'; show(e); });
   });
+
+  el('signinLink').addEventListener('click', function (ev) { ev.preventDefault(); hide(el('app')); show(el('signin')); });
 
   el('signout').addEventListener('click', function (ev) {
     ev.preventDefault();
@@ -1632,17 +2099,11 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     }).then(toSignin);
   });
 
-  function showSigninDoor() {
-    // Challenge/homepage traffic already gave us a word. Put new people directly
-    // on account creation; returning people can still switch to sign-in in one tap.
-    if (PREFILL_TASK) {
-      mode = 'register';
-      el('signinTitle').textContent = 'Create an account';
-      el('signinSubmit').textContent = 'Create account';
-      el('toggleMode').textContent = 'I already have an account';
-      el('password').setAttribute('autocomplete', 'new-password');
-    }
-    toSignin();
+  // No session: the FORM, not a password. The first word creates the guest
+  // account on submit (see startGuest). Returning people take the sign-in link.
+  function showSigninDoor() { enterAnonymous(); }
+  function enterFromSession(response) {
+    return response.json().then(function (body) { enterApp(body); }).catch(function () { enterApp(null); });
   }
 
   function restoreSession() {
@@ -1654,20 +2115,20 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       }).then(function (response) {
         if (!response.ok) throw new Error('Legacy exchange rejected');
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp();
+        enterApp({ guest: false });
       }).catch(function () {
         // A rejected legacy token is no longer useful or safe to retain. The
         // cookie check still recovers a session created in another tab.
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
         fetch('/auth/session').then(function (response) {
-          if (response.ok) enterApp(); else showSigninDoor();
+          if (response.ok) enterFromSession(response); else showSigninDoor();
         }).catch(showSigninDoor);
       });
       return;
     }
 
     fetch('/auth/session').then(function (response) {
-      if (response.ok) enterApp(); else showSigninDoor();
+      if (response.ok) enterFromSession(response); else showSigninDoor();
     }).catch(showSigninDoor);
   }
 
