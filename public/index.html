@@ -472,12 +472,14 @@
   /* ── MEETING COUNTDOWN ── */
   .meeting-input-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 12px;
   }
 
   .meeting-input-row input {
-    flex: 1;
+    flex: 1 1 120px;
+    min-width: 0;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -1070,6 +1072,7 @@
 
   .intention-input {
     flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     border-bottom: 2px solid rgba(34,197,94,0.25);
@@ -1344,8 +1347,8 @@
 
   /* ── PROFESSIONAL RESPONSIVE ── */
   @media (max-width: 960px) {
-    .dashboard { grid-template-columns: 1fr; padding: 24px 20px 32px; gap: 20px; }
-    .top-row { grid-template-columns: 1fr; }
+    .dashboard { grid-template-columns: minmax(0, 1fr); padding: 24px 20px 32px; gap: 20px; }
+    .top-row { grid-template-columns: minmax(0, 1fr); }
     .header { padding: 20px 24px; }
     .logo-text { font-size: 20px; }
     .logo-icon { width: 38px; height: 38px; font-size: 18px; }
@@ -1605,6 +1608,8 @@
     box-shadow: var(--shadow);
   }
   .nav-item:hover .nav-label { opacity: 1; transform: translateX(0); }
+  .nav-item .nav-label-mobile { display: none; }
+  @media (max-width: 680px) { .nav-item .nav-label-mobile { display: inline; } }
 
   /* ── THEME TOGGLE ── */
   .theme-toggle {
@@ -1681,9 +1686,9 @@
 
   /* ── VIEW SYSTEM ── */
   body[data-view="focus"] .sidebar { display: none !important; }
-  body[data-view="focus"] .dashboard { grid-template-columns: 1fr !important; max-width: 860px; }
+  body[data-view="focus"] .dashboard { grid-template-columns: minmax(0, 1fr) !important; max-width: 860px; }
   body[data-view="stats"] .main-area { display: none !important; }
-  body[data-view="stats"] .dashboard { grid-template-columns: 1fr !important; }
+  body[data-view="stats"] .dashboard { grid-template-columns: minmax(0, 1fr) !important; }
   body[data-view="stats"] .sidebar { max-width: 640px; margin: 0 auto; display: flex !important; }
   /* Hide elements not in current view */
   body[data-view="focus"]  [data-views]:not([data-views*="focus"])  { display: none !important; }
@@ -1809,11 +1814,23 @@
     .app-nav .logo-icon { display: none; }
     .app-nav .nav-divider { display: none; }
     .app-shell { margin-left: 0; padding-bottom: 56px; }
-    .nav-item { width: 56px; height: 48px; border-radius: 8px; }
-    .nav-item .nav-label { display: none; }
+    .nav-item {
+      flex: 1 1 0; min-width: 0; max-width: 84px; height: 52px; border-radius: 8px;
+      flex-direction: column; gap: 2px; font-size: 18px;
+    }
+    .nav-item .nav-label {
+      position: static; opacity: 1; transform: none; display: block;
+      background: none; border: 0; box-shadow: none; padding: 0;
+      font-size: 10px; font-weight: 600; letter-spacing: .01em; color: inherit;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nav-item:hover .nav-label { transform: none; }
+    .nav-item .nav-label-desktop { display: none; }
+    #themeToggle { display: none; }
+    .main-area, .sidebar { min-width: 0; }
     .dashboard { padding: 20px 12px 28px; }
     .header { padding: 14px 16px; }
-    .intention-banner { margin: 0 12px; }
+    .intention-banner { margin: 0 12px; padding: 12px 14px; gap: 10px; }
     .time-bar-wrap { margin: 8px 12px 0; }
     .pomo-ring-wrap { width: 160px; height: 160px; }
     .pomo-time { font-size: 38px; }
@@ -2004,7 +2021,7 @@
   <div class="logo-icon">🧠</div>
   <div class="nav-divider"></div>
   <button class="nav-item active" id="navHome" data-view="home" onclick="setView('home')" aria-label="Dashboard">
-    🏠<span class="nav-label">Dashboard</span>
+    🏠<span class="nav-label"><span class="nav-label-desktop">Dashboard</span><span class="nav-label-mobile">Home</span></span>
   </button>
   <button class="nav-item" id="navFocus" data-view="focus" onclick="setView('focus')" aria-label="Focus mode">
     ⚡<span class="nav-label">Focus</span>
@@ -2016,14 +2033,14 @@
     📊<span class="nav-label">Stats</span>
   </button>
   <a class="nav-item" href="/me/" id="navWord" style="text-decoration:none;" aria-label="Your word — accountability check-ins">
-    🤝<span class="nav-label">Your word</span>
+    🤝<span class="nav-label"><span class="nav-label-desktop">Your word</span><span class="nav-label-mobile">My word</span></span>
   </a>
   <div class="nav-divider"></div>
   <button class="nav-item" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark/light theme">
     🌙<span class="nav-label">Theme</span>
   </button>
   <button class="nav-item" onclick="openCmdPalette()" aria-label="Command palette (Ctrl+K)">
-    ⌘<span class="nav-label">Search  ⌃K</span>
+    ⌘<span class="nav-label"><span class="nav-label-desktop">Search  ⌃K</span><span class="nav-label-mobile">More</span></span>
   </button>
 </nav>
 
@@ -6193,6 +6210,7 @@ const TOOL_DEEPLINKS = {
 // ══════════════════════════════════════
 const CMD_LIST = [
   { icon:'👋', name:'How FocusBro works', desc:'A quick tour: views, One Thing, and shortcuts',        action:()=>document.getElementById('onboardingModal').classList.add('show'), keys:'help tour onboarding welcome how works guide getting started new here', group:'Help' },
+  { icon:'🌙', name:'Light / dark theme', desc:'Switch between the dark and light look',              action:()=>toggleTheme(), keys:'theme dark light mode appearance', group:'Views' },
   { icon:'🏠', name:'Dashboard',         desc:'All tools — full view',                                  action:()=>setView('home'),  keys:'home dashboard', group:'Views' },
   { icon:'⚡', name:'Focus mode',         desc:'Pomodoro + Tasks only, no distractions',                action:()=>setView('focus'), keys:'focus mode pomodoro', group:'Views' },
   { icon:'🌿', name:'Restore mode',       desc:'Sounds, breathing, fidgets, meditation',               action:()=>setView('rest'),  keys:'rest restore relax wellness', group:'Views' },
@@ -6590,6 +6608,12 @@ document.addEventListener('keydown', (e) => {
 .cookie-consent__btn--accept:hover{background:#1d4ed8;}
 .cookie-consent__btn--link{background:transparent;color:#d1d5db;border:1px solid #374151;}
 .cookie-consent__btn--link:hover{color:#fff;border-color:#6b7280;}
+@media (max-width:680px){
+  .cookie-consent{bottom:56px;}
+  .cookie-consent__inner{padding:12px 16px;gap:10px;}
+  .cookie-consent__text{font-size:13px;flex-basis:100%;}
+  .cookie-consent__btn{padding:8px 14px;font-size:13px;}
+}
 </style>
 <div id="cookieConsent" class="cookie-consent" role="dialog" aria-live="polite" aria-label="Cookie notice" style="display:none;">
   <div class="cookie-consent__inner">
