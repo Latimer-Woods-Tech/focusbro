@@ -509,7 +509,9 @@ export async function runEscalations(env, opts = {}) {
   const quiet = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.delivered_at,
             m.title, m.persona, m.timezone AS commitment_timezone,
-            COALESCE(ep.ceiling, 'text') AS ceiling
+            COALESCE(ep.ceiling, 'text') AS ceiling,
+            EXISTS (SELECT 1 FROM pro_purchases pp
+                     WHERE pp.user_id = c.user_id AND pp.status = 'paid') AS is_pro
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
        LEFT JOIN escalation_prefs ep ON ep.user_id = c.user_id
@@ -532,6 +534,13 @@ export async function runEscalations(env, opts = {}) {
       // is never allowed to climb to a text for them. Latch so it's never
       // rescanned. A chosen ceiling is not a failure — it counts as skipped.
       outcome = { status: 'skipped', detail: 'ceiling_none' };
+    } else if (!Number(row.is_pro)) {
+      // PRO (2026-10-01): the text follow-up is a FocusBro Pro feature. A free
+      // person's EFFECTIVE ceiling is the push nudge alone, whatever they stored
+      // (their 'text' choice is kept and starts working the moment Pro is on).
+      // Latched like a chosen ceiling — a skip, never a failure. Checked BEFORE
+      // the consent gate so a free person's phone is never even looked up.
+      outcome = { status: 'skipped', detail: 'not_pro' };
     } else {
       // NIGHT GUARD (R-291) — the escalation is UNSCHEDULED, MORE intrusive
       // outreach: a second knock on a moment the person did NOT pick for this

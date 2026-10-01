@@ -143,7 +143,7 @@ const cand = (over = {}) => ({ user_id: 'u9', last_event_at: '2026-07-01T09:00:0
 const RET_SEED = 'u9:2026-07-01T09:00:00.000Z';
 const escRow = (over = {}) => ({
   checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
-  delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ceiling: 'text', ...over,
+  delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ceiling: 'text', is_pro: 1, ...over, // the text rung is Pro (pro.js)
 });
 
 /** Run one pass and return the single text body Telnyx was asked to send. */

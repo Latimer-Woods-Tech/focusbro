@@ -430,7 +430,7 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
   const NOW = '2026-07-06T14:00:00.000Z';
   const escRow = (over = {}) => ({
     checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
-    delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ...over,
+    delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', is_pro: 1, ...over, // the text rung is Pro (pro.js)
   });
   const okFetch = () => vi.fn(async () => ({ ok: true, status: 200 }));
 

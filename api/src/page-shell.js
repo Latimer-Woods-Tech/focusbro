@@ -12,6 +12,14 @@
 // Pure, dependency-free, Worker-safe (a plain template-string builder).
 
 /**
+ * Google Play policy (FocusBro Pro is sold on the website only): inside the
+ * native app — `html[data-native-app]`, set by /native-bridge.js — every buy /
+ * upgrade control (`.pro-buy`) is hidden. Pro bought on the web still unlocks
+ * in the app; only the way to buy is absent.
+ */
+export const PRO_BUY_HIDE_CSS = 'html[data-native-app] .pro-buy{display:none !important}';
+
+/**
  * The shared brand stylesheet + design tokens, themed to the home app.
  * Covers the union of class names used across /me/, /me/report, and /coach/,
  * so a single sheet skins all three. Unused selectors on a given page are inert.
@@ -138,6 +146,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .rhythm-next { color: var(--text-dim); font-size: 13px; margin: 0 0 6px; }
   .rhythm-toggle { font-size: 13px; }
   .next-step { background: var(--primary-dim); border: 1px solid var(--border-light); border-radius: 10px; padding: 12px 14px; color: var(--text); margin-top: 12px; }
+  ${PRO_BUY_HIDE_CSS}
 </style>`;
 }
 

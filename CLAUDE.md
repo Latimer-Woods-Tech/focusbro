@@ -11,7 +11,10 @@ wellness tools. Users track focus sessions, breathing exercises, grounding pract
 body scans, meditations, movement breaks, and more. Cloud sync, push notifications,
 analytics, Slack integration, and team features are provided for Pro and Enterprise tiers.
 
-Tiers: Free / Pro ($5/month or $49/year) / Enterprise ($15/user/month).
+Tiers: Free / **FocusBro Pro — $9.99 one-time, sold on the website only** (`api/src/pro.js`,
+`/pro/`: text follow-ups, the full weekly report, saved mixes; never sold inside the native
+app — Google Play policy). The older "Cloud Sync Pro $3/mo" subscription in `api/src/billing.js`
+is dormant (`BILLING_ENABLED`).
 
 ## Stack
 

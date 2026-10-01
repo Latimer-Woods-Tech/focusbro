@@ -11,6 +11,8 @@ import { renderMePage } from '../src/me.js';
 import { guides, renderGuidePage } from '../src/guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from '../src/guides/scripts.js';
 import { NATIVE_BRIDGE_SCRIPT } from '../src/native-bridge.js';
+import { renderProPage, PRO_PAGE_SCRIPT, isNativeAppRequest } from '../src/pro.js';
+import { renderReportPage } from '../src/report.js';
 import { renderFollowThroughPage, SAMPLE_FIGURES } from '../src/guides/follow-through.js';
 
 const port = Number(process.env.PORT) || 4173;
@@ -63,6 +65,39 @@ http
       // The same bytes the Worker serves; in a browser it returns on line one.
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
       res.end(NATIVE_BRIDGE_SCRIPT);
+    } else if (path === '/pro/') {
+      // The same renderer the Worker uses. No D1/Stripe here: the state comes
+      // from ?fixture= (buy | signed-out | pro | unavailable), and the app is
+      // recognised exactly as the Worker recognises it — by the UA marker.
+      const fixture = new URL(req.url, 'http://x').searchParams.get('fixture') || 'buy';
+      const native = isNativeAppRequest({ headers: { get: (h) => req.headers[h.toLowerCase()] || null } });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(renderProPage({
+        native,
+        available: fixture !== 'unavailable',
+        signedIn: fixture !== 'signed-out',
+        pro: fixture === 'pro',
+        guest: fixture === 'pro',
+        buildSha: 'smoke',
+      }));
+    } else if (path === '/pro.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+      res.end(PRO_PAGE_SCRIPT);
+    } else if (path === '/me/report') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(renderReportPage());
+    } else if (path === '/api/pro/status') {
+      // A smoke can be Pro by cookie; otherwise a signed-out free visitor.
+      const pro = /(?:^|;\s*)smoke_pro=1/.test(req.headers.cookie || '');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(pro ? { pro: true, since: '2026-10-01T00:00:00.000Z', signedIn: true } : { pro: false, signedIn: false }));
+    } else if (path === '/api/pro/checkout' && req.method === 'POST') {
+      // Stands in for Stripe: hands back a local URL so the smoke can see the redirect.
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ url: `http://localhost:${port}/__smoke/checkout` }));
+    } else if (path === '/__smoke/checkout') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<!doctype html><title>smoke checkout</title><p>checkout stand-in</p>');
     } else if (path === '/follow-through-index.html') {
       // No D1 here: the page renders its "unavailable" state, or the published
       // sample when the smoke asks for it (?fixture=published) — the same

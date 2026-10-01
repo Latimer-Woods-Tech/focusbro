@@ -38,7 +38,7 @@ function escalationRow(delivered_at) {
   return {
     checkin_id: 'ck1', commitment_id: 'c1', user_id: 'u1',
     delivered_at, title: 'file the taxes', persona: 'calm_ally',
-    commitment_timezone: 'America/New_York', ceiling: 'text',
+    commitment_timezone: 'America/New_York', ceiling: 'text', is_pro: 1, // the text rung is Pro
   };
 }
 

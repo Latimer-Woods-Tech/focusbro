@@ -241,6 +241,22 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_stripe ON subscriptions(stripe_customer_id);
 
+-- FocusBro Pro — one-time unlock (migrations/0008_pro_purchases.sql). One row
+-- per Stripe Checkout Session; reconciled by reading the session back (no
+-- webhook). Pro = at least one 'paid' row.
+CREATE TABLE IF NOT EXISTS pro_purchases (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  stripe_session_id TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'expired')),
+  amount_total INTEGER,
+  currency TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  paid_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_pro_purchases_user ON pro_purchases(user_id);
+
 -- ── WEBHOOK INBOX (durable provider idempotency) ──
 CREATE TABLE IF NOT EXISTS webhook_inbox (
   provider TEXT NOT NULL,

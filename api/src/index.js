@@ -20,6 +20,7 @@ import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { serveAudio } from './audio.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
+import { registerProRoutes } from './pro.js';
 import {
   deliverEmailVerification,
   normalizeAccountEmail,
@@ -41,7 +42,7 @@ const router = Router();
 // The newest migration this build EXPECTS. A test pins it to the newest file
 // in migrations/, so it cannot drift again (it sat at 0006 while 0007 was live).
 // /health reports, beside it, what the database held on the last cron tick.
-const D1_SCHEMA_VERSION = '0007_guest_accounts';
+const D1_SCHEMA_VERSION = '0008_pro_purchases';
 export { D1_SCHEMA_VERSION };
 // Runs on the CRON (which already touches D1), never on a request.
 async function readAppliedSchemaVersion(env) {
@@ -110,7 +111,7 @@ const CONTENT_SECURITY_POLICY = [
 // should refuse it. The app shell (/) and the signed-in pages still carry the
 // legacy inline scripts that Stage 3 is to extract; there the same policy is
 // report-only, so a regression is visible without breaking the app.
-const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*)$/;
+const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*|\/pro\/|\/pro\.js)$/;
 export function cspModeFor(url) {
   let pathname = '';
   try { pathname = new URL(url).pathname; } catch { pathname = ''; }
@@ -2579,6 +2580,13 @@ router.get('/guides/breath.js', (request, env) => scriptResponse(request, env, B
 // Loaded by the app shell and /me/. Returns on its first line in a browser; in
 // the app it schedules check-in notifications and keeps the soundscape alive.
 router.get('/native-bridge.js', (request, env) => scriptResponse(request, env, NATIVE_BRIDGE_SCRIPT));
+
+// ── FOCUSBRO PRO (one-time $9.99 unlock, website only — see pro.js) ──
+// POST /api/pro/checkout · GET /api/pro/status · GET /pro/ · GET /pro.js.
+// No webhook: a pending purchase is reconciled by reading the Checkout Session
+// back from Stripe whenever status is checked. /pro/ runs no inline script, so
+// its CSP is ENFORCED (CSP_ENFORCED_PATH).
+registerProRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID, scriptResponse });
 
 // ── ANDROID APP LINKS (Digital Asset Links for net.focusbro.app) ──
 router.get('/.well-known/assetlinks.json', () => assetLinksResponse());

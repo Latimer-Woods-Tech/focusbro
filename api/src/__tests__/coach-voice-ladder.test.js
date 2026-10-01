@@ -135,7 +135,7 @@ const NOW_ESC = '2026-07-06T14:00:00.000Z';
 const NOW_RET = '2026-07-14T15:00:00.000Z'; // inside the return-nudge daytime window
 const escRow = (over = {}) => ({
   checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
-  delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ceiling: 'text', ...over,
+  delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ceiling: 'text', is_pro: 1, ...over, // the text rung is Pro (pro.js)
 });
 const cand = (over = {}) => ({ user_id: 'u9', last_event_at: '2026-07-01T09:00:00.000Z', ...over });
 
