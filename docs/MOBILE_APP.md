@@ -153,8 +153,8 @@ rejects the project ID with 400), upload-key SHA-256 registered.
    → *Add app* → FocusBro (release + store-presence permissions). After this
    every remaining step below except the App content forms can be done by machine.
 3. **App content** forms (console-only, forever): Privacy policy URL
-   (`https://focusbro.net/privacy.html`) · Ads (**No** once AdSense retirement
-   ships) · App access (sign-in needed for check-ins → provide a test account) ·
+   (`https://focusbro.net/privacy.html`) · Ads (**No** — AdSense was
+   retired in #371) · App access (sign-in needed for check-ins → provide a test account) ·
    Content rating questionnaire · Target audience (18+) · News app (No) ·
    Health apps declaration (a wellness tool — *not* a medical device) ·
    Government / Financial features (No) · **Exact alarm** permission

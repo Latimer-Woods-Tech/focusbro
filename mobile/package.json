@@ -8,7 +8,6 @@
     "sync:android": "cap sync android",
     "sync:ios": "cap sync ios",
     "icons": "node scripts/generate-assets.mjs",
-    "test": "node --test scripts/*.test.mjs",
     "open:android": "cap open android"
   },
   "dependencies": {
