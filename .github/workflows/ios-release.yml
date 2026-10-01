@@ -1,0 +1,143 @@
+name: iOS Release — build (signing gated on App Store Connect key)
+
+# FocusBro iOS shell (mobile/ios — Capacitor, Swift Package Manager, remote-URL).
+#
+# Always: compiles the app for the iOS Simulator with signing disabled, so the
+# iOS project is proven buildable on every run.
+#
+# Gated: archive + sign + TestFlight upload runs ONLY when all three App Store
+# Connect API key secrets exist in GCP Secret Manager (factory-495015), fetched
+# via WIF — never GitHub secrets (Standing Law 3):
+#   ASC_KEY_ID        App Store Connect API key ID (10 chars)
+#   ASC_ISSUER_ID     issuer UUID (Users and Access → Integrations → App Store Connect API)
+#   ASC_PRIVATE_KEY   contents of the AuthKey_<KEYID>.p8 file
+# They do not exist yet: the APPLE_* secrets in SM are SELF:PRIME's Sign in with
+# Apple key, not an App Store Connect API key (no issuer ID). Founder steps:
+# docs/MOBILE_APP.md → "iOS".
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name (e.g. 0.1.0) — blank = mobile/package.json'
+        required: false
+  push:
+    tags:
+      - 'ios-v[0-9]+.[0-9]+.[0-9]+'
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write   # WIF → GCP Secret Manager
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/891842778224/locations/global/workloadIdentityPools/github-factory/providers/github
+          service_account: factory-sa@factory-495015.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+      - name: Resolve App Store Connect key (gate)
+        id: asc
+        run: |
+          set -euo pipefail
+          have=true
+          for s in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
+            if gcloud secrets versions access latest --secret="$s" --project=factory-495015 > "$RUNNER_TEMP/$s" 2>/dev/null && [ -s "$RUNNER_TEMP/$s" ]; then
+              echo "$s: present ($(wc -c < "$RUNNER_TEMP/$s") bytes)"
+            else
+              echo "$s: absent"; have=false
+            fi
+          done
+          if [ "$have" = true ]; then
+            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
+            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
+            mkdir -p "$HOME/.appstoreconnect/private_keys"
+            KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
+            cp "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+            echo "key_path=$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::App Store Connect API key not in Secret Manager — simulator build only. See docs/MOBILE_APP.md (iOS)."
+          fi
+          rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY"
+          echo "signing=$have" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies + sync iOS
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync ios
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version_name }}" ]; then V="${{ inputs.version_name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then V="${GITHUB_REF_NAME#ios-v}"
+          else V=$(node -p "require('./mobile/package.json').version"); fi
+          echo "VERSION_NAME=$V" >> "$GITHUB_OUTPUT"
+          echo "BUILD_NUMBER=$(( 10000 + ${{ github.run_number }} ))" >> "$GITHUB_OUTPUT"
+
+      - name: Simulator build (no signing) — proves the project compiles
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -20
+
+      # ── Gated: only with an App Store Connect API key ──────────────────────
+      - name: Archive (automatic signing via the ASC API key)
+        if: ${{ steps.asc.outputs.signing == 'true' }}
+        working-directory: mobile/ios/App
+        run: |
+          set -euo pipefail
+          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "${{ steps.asc.outputs.key_path }}" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" \
+            MARKETING_VERSION=${{ steps.version.outputs.VERSION_NAME }} \
+            CURRENT_PROJECT_VERSION=${{ steps.version.outputs.BUILD_NUMBER }} \
+            archive | tail -30
+
+      - name: Export IPA + upload to TestFlight
+        if: ${{ steps.asc.outputs.signing == 'true' }}
+        run: |
+          set -euo pipefail
+          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
+            -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
+            "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "${{ steps.asc.outputs.key_path }}" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
+          echo "Uploaded to App Store Connect (destination=upload); it appears in TestFlight after processing."
+
+      - name: Remove key material
+        if: always()
+        run: rm -rf "$HOME/.appstoreconnect" "$RUNNER_TEMP"/ASC_*
