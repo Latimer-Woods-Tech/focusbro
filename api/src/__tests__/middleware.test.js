@@ -15,24 +15,16 @@ import {
   validateDeviceId,
   validateEmail,
   validatePassword,
-  verifyAuth,
 } from '../middleware.js';
-
-function bearer(payload) {
-  return `Bearer x.${btoa(JSON.stringify(payload))}.z`;
-}
+import * as middleware from '../middleware.js';
 
 describe('middleware primitives', () => {
-  it('validates the lightweight bearer envelope without accepting malformed or expired tokens', async () => {
-    await expect(verifyAuth(new Request('https://focusbro.net/'), {})).resolves.toMatchObject({ valid: false });
-    await expect(verifyAuth(new Request('https://focusbro.net/', { headers: { Authorization: 'Bearer bad' } }), {}))
-      .resolves.toMatchObject({ valid: false, error: 'Invalid token format (must be 3 parts)' });
-    await expect(verifyAuth(new Request('https://focusbro.net/', { headers: { Authorization: 'Bearer x.not-json.z' } }), {}))
-      .resolves.toMatchObject({ valid: false, error: 'Invalid token payload' });
-    await expect(verifyAuth(new Request('https://focusbro.net/', { headers: { Authorization: bearer({ exp: 1 }) } }), {}))
-      .resolves.toMatchObject({ valid: false, error: 'Token expired' });
-    await expect(verifyAuth(new Request('https://focusbro.net/', { headers: { Authorization: bearer({ sub: 'u1', iat: 10, exp: 4102444800 }) } }), {}))
-      .resolves.toMatchObject({ valid: true, userId: 'u1' });
+  it('exports no token check that skips the signature', () => {
+    // verifyAuth base64-decoded the payload and trusted it without verifying the
+    // HMAC — `Bearer x.<any payload>.z` came back valid. It was unused, but any
+    // route that wired it in would have accepted forged tokens. Live routes use
+    // requireUser (accountability.js), which verifies the signature.
+    expect(middleware).not.toHaveProperty('verifyAuth');
   });
 
   it('enforces a KV-backed rate limit and feature flags', async () => {

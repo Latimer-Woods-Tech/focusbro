@@ -3,55 +3,6 @@
 // Authentication, validation, error handling
 // ════════════════════════════════════════════════════════════
 
-// ── JWT VERIFICATION MIDDLEWARE ──
-export async function verifyAuth(request, _env) {
-  const authHeader = request.headers.get('Authorization');
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return {
-      valid: false,
-      error: 'Missing or invalid Authorization header'
-    };
-  }
-  
-  const token = authHeader.slice(7);
-  
-  try {
-    // Verify 3-part JWT: header.payload.signature
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return { valid: false, error: 'Invalid token format (must be 3 parts)' };
-    }
-    
-    let payload;
-    try {
-      const decodedPayload = atob(parts[1]);
-      payload = JSON.parse(decodedPayload);
-    } catch {
-      return { valid: false, error: 'Invalid token payload' };
-    }
-    
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (payload.exp < now) {
-      return { valid: false, error: 'Token expired' };
-    }
-    
-    return {
-      valid: true,
-      userId: payload.sub,
-      token,
-      issuedAt: payload.iat,
-      expiresAt: payload.exp
-    };
-  } catch {
-    return {
-      valid: false,
-      error: 'Token verification failed'
-    };
-  }
-}
-
 // ── RATE LIMITING ──
 export async function checkRateLimit(env, userId, limit = 100, windowMs = 60000) {
   const key = `ratelimit:${userId}`;
