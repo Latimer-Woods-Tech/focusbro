@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Check-ins are scheduled with interruptionLevel "timeSensitive" so they can
+	     break through a Focus mode. Requires the Time Sensitive Notifications
+	     capability on the App ID net.focusbro.app (see docs/MOBILE_APP.md). -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,6 @@
+node_modules/
+# Signing material never lives in the repo — CI pulls it from GCP Secret Manager.
+*.jks
+*.keystore
+*.p8
+google-services.json

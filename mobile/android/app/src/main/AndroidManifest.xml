@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- HTTPS App Links for focusbro.net, verified against
+                 https://focusbro.net/.well-known/assetlinks.json (served by the
+                 Worker, api/src/assetlinks.js).
+
+                 Deliberately NARROW. An App Link matches on PATH ONLY (a ?query
+                 is invisible to the match), and once a build claims a path, that
+                 build intercepts every link under it for as long as it is
+                 installed. Claiming "/" would route every focusbro.net link —
+                 guides, /coach/, billing returns, email-verify links — into the
+                 app. So v0.1 claims only the surface the app is FOR: the person's
+                 own page (/me and everything under /me/, where check-ins are
+                 answered). "/me" is matched exactly and "/me/" as a prefix, so
+                 an unrelated future path such as /media is NOT claimed. Because this app is remote-URL (it loads the
+                 live site), a claimed path always renders whatever the website
+                 serves today — there is no bundled client that can go stale and
+                 swallow a route (the SELF:PRIME /open/* trap). Widen only on
+                 purpose. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="focusbro.net" />
+                <data android:path="/me" />
+                <data android:pathPrefix="/me/" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- Soundscape keeps playing with the screen off: a mediaPlayback
+             foreground service (with its ongoing "Soundscape playing" notification
+             and a Stop button) holds the process out of the cached-app freezer.
+             Started by the web bridge (/native-bridge.js) when a media element on
+             the page starts playing; stopped when it stops. -->
+        <receiver android:name="io.capawesome.capacitorjs.plugins.foregroundservice.NotificationActionBroadcastReceiver" />
+        <service
+            android:name="io.capawesome.capacitorjs.plugins.foregroundservice.AndroidForegroundService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+    </application>
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Check-in reminders (local notifications). POST_NOTIFICATIONS is the
+         Android 13+ runtime permission; SCHEDULE_EXACT_ALARM lets a check-in fire
+         at the minute the person chose instead of inside a doze window. Both
+         are also merged in from @capacitor/local-notifications; declared here
+         so the intent is reviewable in one place. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Background soundscape -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+</manifest>

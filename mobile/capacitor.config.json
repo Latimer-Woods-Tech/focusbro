@@ -1,0 +1,44 @@
+{
+  "appId": "net.focusbro.app",
+  "appName": "FocusBro",
+  "webDir": "www",
+  "server": {
+    "url": "https://focusbro.net",
+    "allowNavigation": [
+      "focusbro.net"
+    ],
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0a0e27",
+    "appendUserAgent": "FocusBroApp/0.1"
+  },
+  "ios": {
+    "backgroundColor": "#0a0e27",
+    "appendUserAgent": "FocusBroApp/0.1",
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 800,
+      "backgroundColor": "#0a0e27",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "Dark",
+      "backgroundColor": "#0a0e27",
+      "overlaysWebView": false
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_focusbro",
+      "iconColor": "#14b8a6"
+    },
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}
