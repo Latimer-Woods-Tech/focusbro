@@ -25,6 +25,12 @@ binding = "KV_CACHE"
 id = "732d985fd2b84650aa828f7982ba0f87"
 preview_id = "732d985fd2b84650aa828f7982ba0f87"
 
+# R2: the ambient recordings (scripts/audio/build.py -> audio/manifest.json),
+# served by GET /audio/<name>.<sha10>.m4a in api/src/audio.js.
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "focusbro-audio"
+
 # Environment-specific config
 [env.production]
 routes = [
@@ -33,6 +39,7 @@ routes = [
 ]
 d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db", migrations_dir = "migrations" }]
 kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
+r2_buckets = [{ binding = "AUDIO", bucket_name = "focusbro-audio" }]
 vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com" }
 triggers = { crons = ["* * * * *"] }
 

@@ -28,3 +28,7 @@ api/playwright-report/
 # Claude Code agent worktrees (never commit)
 .claude/
 node_modules
+
+# Built ambient audio (lives in R2; see docs/AUDIO_SETUP.md)
+audio/dist/
+__pycache__/

@@ -18,6 +18,7 @@ import { registerConsentRoutes } from './consent.js';
 import { registerRoomRoutes } from './room.js';
 import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
+import { serveAudio } from './audio.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
 import {
   deliverEmailVerification,
@@ -2824,6 +2825,10 @@ router.get('/health', async (_request, env) => {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 });
+
+// ── AMBIENT RECORDINGS (R2) ──
+// Content-hashed loops built by scripts/audio/build.py; see api/src/audio.js.
+router.get('/audio/:file', (request, env) => serveAudio(request, env));
 
 // ── ICON-192.PNG ──
 router.get('/icon-192.png', async (_request, _env) => {
