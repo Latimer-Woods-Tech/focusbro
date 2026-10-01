@@ -1,0 +1,190 @@
+name: Android Release — build + sign (AAB + APK)
+
+# FocusBro native app (mobile/ — Capacitor shell of https://focusbro.net in
+# remote-URL mode). No web build step: the app browses the live site, so web
+# deploys ARE its updates. This workflow only builds the native shell.
+#
+# Triggers:
+#   - workflow_dispatch: signed AAB + APK; optional Firebase App Distribution
+#     to the emails in `distribute_to`.
+#   - tags android-vX.Y.Z: signed AAB + APK (versionName from the tag).
+#   - pull_request touching mobile/** or this file: the same signed build, so a
+#     native change proves the build + signing rail before merge. Never distributes.
+#
+# Secrets: GCP Secret Manager (factory-495015) via WIF ONLY — no GitHub secrets
+# (Standing Law 3). factory-sa needs secretAccessor on:
+#   focusbro-android-keystore-b64       base64 PKCS12 upload keystore (alias focusbro-upload)
+#   focusbro-android-keystore-password  store password == key password (PKCS12)
+#
+# Play upload is deliberately absent: the Play app record for net.focusbro.app
+# must be created once in Play Console by the founder (no API creates an app).
+# See docs/MOBILE_APP.md → "Founder steps".
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name (e.g. 0.1.0) — blank = mobile/package.json'
+        required: false
+      distribute_to:
+        description: 'Comma-separated tester emails for Firebase App Distribution (blank = build only)'
+        required: false
+        default: ''
+      release_notes:
+        description: 'Release notes shown in the tester invite'
+        required: false
+        default: 'FocusBro for Android — test build.'
+  push:
+    tags:
+      - 'android-v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-release.yml'
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write   # WIF → GCP Secret Manager
+
+jobs:
+  build:
+    # Android SDK build tools (aapt2) are x86_64-only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/891842778224/locations/global/workloadIdentityPools/github-factory/providers/github
+          service_account: factory-sa@factory-495015.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+      - name: Fetch the upload keystore from Secret Manager
+        run: |
+          set -euo pipefail
+          umask 077
+          KS="$RUNNER_TEMP/focusbro-upload.jks"
+          gcloud secrets versions access latest --secret=focusbro-android-keystore-b64 --project=factory-495015 | base64 -d > "$KS"
+          PW="$(gcloud secrets versions access latest --secret=focusbro-android-keystore-password --project=factory-495015)"
+          echo "::add-mask::$PW"
+          [ -s "$KS" ] || { echo "::error::keystore secret empty"; exit 1; }
+          [ "${#PW}" -ge 16 ] || { echo "::error::keystore password secret missing/short"; exit 1; }
+          {
+            echo "KEYSTORE_FILE=$KS"
+            echo "KEYSTORE_PASSWORD=$PW"
+            echo "KEY_PASSWORD=$PW"
+            echo "KEY_ALIAS=focusbro-upload"
+          } >> "$GITHUB_ENV"
+          echo "keystore: $(wc -c < "$KS") bytes; password length ${#PW}"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version_name }}" ]; then
+            VERSION_NAME="${{ inputs.version_name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            VERSION_NAME="${GITHUB_REF_NAME#android-v}"
+          else
+            VERSION_NAME=$(node -p "require('./mobile/package.json').version")
+          fi
+          # Strictly monotonic: Play rejects a reused versionCode.
+          VERSION_CODE=$(( 10000 + ${{ github.run_number }} ))
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Building v$VERSION_NAME (code $VERSION_CODE)"
+
+      - name: Capacitor sync
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Build signed release AAB + APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease assembleRelease \
+            -PVERSION_CODE=${{ steps.version.outputs.VERSION_CODE }} \
+            -PVERSION_NAME=${{ steps.version.outputs.VERSION_NAME }} \
+            --no-daemon
+
+      # A build that is unsigned, signed with the wrong key, or carries the wrong
+      # package/App Link must not be reported as a release.
+      - name: Verify signature, package, and App Links
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          APK=mobile/android/app/build/outputs/apk/release/app-release.apk
+          AAB=mobile/android/app/build/outputs/bundle/release/app-release.aab
+          EXPECT=$(node -e "import('./api/src/assetlinks.js').then(m=>console.log(m.ANDROID_CERT_FINGERPRINTS[0].replace(/:/g,'').toLowerCase()))")
+          "$BT/apksigner" verify --print-certs "$APK" | tee "$RUNNER_TEMP/certs.txt"
+          grep -q "SHA-256 digest: $EXPECT" "$RUNNER_TEMP/certs.txt" || { echo "::error::APK not signed with the upload key in assetlinks.js"; exit 1; }
+          jarsigner -verify "$AAB" | grep -q "jar verified" || { echo "::error::AAB signature does not verify"; exit 1; }
+          "$BT/aapt2" dump badging "$APK" | grep -q "^package: name='net.focusbro.app' versionCode='${{ steps.version.outputs.VERSION_CODE }}'" \
+            || { echo "::error::wrong package or versionCode"; exit 1; }
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -q 'host(0x01010028)="focusbro.net"' \
+            || { echo "::error::App Link host missing from the manifest"; exit 1; }
+          echo "verified: signed by the upload key, net.focusbro.app v${{ steps.version.outputs.VERSION_NAME }} (${{ steps.version.outputs.VERSION_CODE }})"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        continue-on-error: true   # diagnostics — the org artifact quota can be exhausted
+        with:
+          name: focusbro-${{ steps.version.outputs.VERSION_NAME }}-${{ steps.version.outputs.VERSION_CODE }}-release.aab
+          path: mobile/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        continue-on-error: true
+        with:
+          name: focusbro-${{ steps.version.outputs.VERSION_NAME }}-${{ steps.version.outputs.VERSION_CODE }}-sideload.apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Distribute via Firebase App Distribution
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.distribute_to != '' }}
+        env:
+          NOTES: ${{ inputs.release_notes }}
+          TO: ${{ inputs.distribute_to }}
+        run: |
+          bash mobile/scripts/firebase-distribute.sh \
+            mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "$NOTES (v${{ steps.version.outputs.VERSION_NAME }}, build ${{ steps.version.outputs.VERSION_CODE }})" \
+            "$TO"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/focusbro-upload.jks"

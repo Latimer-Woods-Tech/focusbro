@@ -2135,5 +2135,6 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   restoreSession();
 })();
 </script>
+<script src="/native-bridge.js" defer></script>
 </body></html>`;
 }

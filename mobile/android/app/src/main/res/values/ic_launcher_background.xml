@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand surfaces (public/index.html :root tokens). -->
+    <color name="ic_launcher_background">#0EA5E9</color>
+    <color name="focusbro_bg">#0A0E27</color>
+    <color name="focusbro_teal">#14B8A6</color>
+</resources>

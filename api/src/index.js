@@ -7,6 +7,8 @@ import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
+import { NATIVE_BRIDGE_SCRIPT } from './native-bridge.js';
+import { assetLinksResponse } from './assetlinks.js';
 import { FOLLOW_THROUGH, followThroughFigures, renderFollowThroughPage } from './guides/follow-through.js';
 import { registerAccountabilityRoutes, nextOccurrenceISO } from './accountability.js';
 import { registerCoachRoutes } from './coach.js';
@@ -2571,6 +2573,14 @@ const scriptResponse = (request, env, body) => {
 router.get('/guides/view.js', (request, env) => scriptResponse(request, env, GUIDE_VIEW_SCRIPT));
 router.get('/guides/caffeine.js', (request, env) => scriptResponse(request, env, CAFFEINE_SCRIPT));
 router.get('/guides/breath.js', (request, env) => scriptResponse(request, env, BREATH_SCRIPT));
+
+// ── NATIVE APP BRIDGE (mobile/ — Capacitor shell of this site) ──
+// Loaded by the app shell and /me/. Returns on its first line in a browser; in
+// the app it schedules check-in notifications and keeps the soundscape alive.
+router.get('/native-bridge.js', (request, env) => scriptResponse(request, env, NATIVE_BRIDGE_SCRIPT));
+
+// ── ANDROID APP LINKS (Digital Asset Links for net.focusbro.app) ──
+router.get('/.well-known/assetlinks.json', () => assetLinksResponse());
 
 // ── GUIDE VIEW (content ledger §7: "content live ≠ content read") ──
 // The same guards as the landing visit: JSON only, small, same-origin. The slug
