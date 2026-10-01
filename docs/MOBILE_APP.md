@@ -142,6 +142,13 @@ Firebase: Android app `net.focusbro.app` = `1:891842778224:android:be1f87f7a29fa
 in project `factory-495015` (number **891842778224** — the App Distribution API
 rejects the project ID with 400), upload-key SHA-256 registered.
 
+> Trap: right after an Android app is registered in Firebase, App Distribution
+> answers `releases:upload` with **503** and `releases` with **404** for roughly
+> half an hour. It is propagation, not a broken recipe — the same call returned
+> 200 about 30 minutes later. First build distributed 2026-10-01: CI run
+> 36894659397, v0.1.0 (10001), release `4os3te96nsnn8`. The upload operation ID
+> equals the APK's SHA-256, so it is provably the CI artifact.
+
 ## Founder steps (console-only — no API exists for these)
 
 ### Google Play (app `net.focusbro.app`)
