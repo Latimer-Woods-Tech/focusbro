@@ -74,18 +74,6 @@ function responseWithoutBody(response) {
   });
 }
 
-// The hosts AdSense actually reaches, derived from report-only violations
-// observed in headless Chromium on /guides/ (G299). Without these the policy
-// contradicts the site's own free-tier revenue model: `script-src 'self'`
-// blocks the loader and every ad frame dies the moment CSP is enforced — with
-// no signal visible to curl, to CI, or to a /health probe.
-// The ad-traffic-quality hosts appear in every directive AdSense reaches them
-// through: sodar2.js is a SCRIPT from ep2, its probe an IMAGE from ep1 — both
-// observed as report-only violations on a live guide page (2026-09-04).
-const AD_SCRIPT_HOSTS = 'https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com https://ep2.adtrafficquality.google';
-const AD_FRAME_HOSTS = 'https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep2.adtrafficquality.google';
-const AD_CONNECT_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com';
-const AD_IMG_HOSTS = 'https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google';
 // Cloudflare Web Analytics is injected at the ZONE (not by this code); its
 // beacon is a script from static.cloudflareinsights.com that reports to
 // cloudflareinsights.com. Allowlisted rather than switched off: the zone
@@ -99,18 +87,17 @@ const CONTENT_SECURITY_POLICY = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  `script-src 'self' ${AD_SCRIPT_HOSTS} ${ANALYTICS_SCRIPT_HOSTS}`,
-  `frame-src ${AD_FRAME_HOSTS}`,
+  `script-src 'self' ${ANALYTICS_SCRIPT_HOSTS}`,
+  "frame-src 'none'",
   // 'unsafe-inline' for STYLES only, and deliberately: the guide shell inlines
-  // its stylesheet, and AdSense auto ads set style attributes on the elements
-  // they inject — neither can be nonced from here. Inline style is not the
+  // its stylesheet, which cannot be nonced from here. Inline style is not the
   // injection class this policy exists to stop; script-src stays strict, with
   // no 'unsafe-inline' and no 'unsafe-eval', which is what makes enforcing
   // worth anything.
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: ${AD_IMG_HOSTS}`,
+  "img-src 'self' data:",
   "font-src 'self'",
-  `connect-src 'self' ${AD_CONNECT_HOSTS} ${ANALYTICS_CONNECT_HOSTS}`,
+  `connect-src 'self' ${ANALYTICS_CONNECT_HOSTS}`,
   "form-action 'self'",
 ].join('; ');
 
@@ -2877,7 +2864,7 @@ router.get('/index.html', async () => {
 router.get('/privacy.html', async () => {
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FocusBro Privacy Policy</title><meta name="description" content="How FocusBro handles your data, cookies, and third-party advertising, plus your GDPR and CCPA rights and ad opt-out links." /></head>
+<title>FocusBro Privacy Policy</title><meta name="description" content="How FocusBro handles your data, cookies, plus your GDPR and CCPA rights and ad opt-out links." /></head>
 <body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
 <nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
 <h1>Privacy Policy</h1>
@@ -2897,26 +2884,11 @@ router.get('/privacy.html', async () => {
 <li><strong>Basic request logs</strong>: like most websites, our servers may temporarily log IP address, browser type, and requested pages for security and reliability.</li>
 </ul>
 
-<h2>Cookies and advertising</h2>
-<p>FocusBro displays ads served by <strong>Google AdSense</strong>. To do this, Google and its partners use cookies and similar technologies. Specifically:</p>
-<ul>
-<li>Third-party vendors, <strong>including Google</strong>, use cookies to serve ads based on a user's prior visits to this website and other websites on the internet.</li>
-<li>Google's use of advertising cookies &mdash; including the <strong>DoubleClick</strong> advertising cookie &mdash; enables it and its partners to serve ads to you based on your visit to this site and/or other sites on the internet.</li>
-<li>These cookies may be used to measure ad performance and to limit how often you see the same ad.</li>
-</ul>
-
-<h2>Your advertising choices &amp; opt-out</h2>
-<p>You can control or opt out of personalized advertising:</p>
-<ul>
-<li>Manage Google's ad personalization at <a href="https://adssettings.google.com" rel="noopener noreferrer" target="_blank">https://adssettings.google.com</a>.</li>
-<li>Opt out of interest-based advertising from participating third-party vendors at <a href="https://www.aboutads.info/choices" rel="noopener noreferrer" target="_blank">https://www.aboutads.info/choices</a> (Digital Advertising Alliance).</li>
-<li>European users can review vendor choices at <a href="https://www.youronlinechoices.eu" rel="noopener noreferrer" target="_blank">https://www.youronlinechoices.eu</a>.</li>
-<li>Most browsers also let you block or delete cookies in their settings.</li>
-</ul>
-<p>You can read more about how Google uses information from sites that use its services at <a href="https://policies.google.com/technologies/partner-sites" rel="noopener noreferrer" target="_blank">policies.google.com/technologies/partner-sites</a>.</p>
+<h2>Cookies</h2>
+<p>FocusBro shows no ads and uses no advertising or tracking cookies. If you sign in, we set one essential session cookie so you stay signed in; it is not used for anything else. Visit counts come from Cloudflare Web Analytics, which does not use cookies or identify you.</p>
 
 <h2>Your rights (GDPR)</h2>
-<p>If you are in the European Economic Area or the UK, you have the right to access, correct, export, restrict, or delete the personal data we hold, to object to certain processing, and to withdraw consent for advertising cookies at any time. To exercise these rights, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
+<p>If you are in the European Economic Area or the UK, you have the right to access, correct, export, restrict, or delete the personal data we hold, to object to certain processing, and to withdraw consent at any time. To exercise these rights, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
 
 <h2>Your rights (CCPA)</h2>
 <p>If you are a California resident, you have the right to know what personal information is collected, to request deletion, and to opt out of the "sale" or "sharing" of personal information as those terms are defined by the CCPA/CPRA. We do not sell your personal information for money. To make a request, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
@@ -3478,13 +3450,6 @@ guides.forEach((guide) => {
   // itty-router passes (request, env, ctx); the version stamp needs env.
   router.get(`/guides/${guide.slug}.html`, async (request, env) => {
     return new Response(renderGuidePage(guide, { version: (env && env.BUILD_SHA) || 'development' }), { status: 200, headers: GUIDE_HTML_HEADERS });
-  });
-});
-
-router.get('/ads.txt', async () => {
-  return new Response('google.com, pub-1346297152611586, DIRECT, f08c47fec0942fa0\n', {
-    status: 200,
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }
   });
 });
 

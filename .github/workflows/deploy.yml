@@ -95,13 +95,14 @@ jobs:
       # G299: the policy is enforced on the guides layer (no inline script
       # there) and report-only on the app shell. If a deploy ever flips that,
       # ads or the app break with nothing visible to /health — so read the
-      # live headers.
+      # live headers. AdSense was retired 2026-10-01 (Factory#4641), so the
+      # policy must not allowlist ad hosts any more.
       run: |
         set -euo pipefail
         g=$(curl -sI -H 'Cache-Control: no-cache' https://focusbro.net/guides/box-breathing.html)
         echo "$g" | grep -qi '^content-security-policy: ' || { echo "::error::guide page is not enforcing CSP"; exit 1; }
         if echo "$g" | grep -qi '^content-security-policy-report-only:'; then echo "::error::guide page still carries a report-only policy"; exit 1; fi
-        echo "$g" | grep -i '^content-security-policy: ' | grep -q "script-src 'self' https://pagead2.googlesyndication.com" || { echo "::error::enforced policy lost the ad loader host"; exit 1; }
+        if echo "$g" | grep -i '^content-security-policy: ' | grep -qi 'googlesyndication\|doubleclick'; then echo "::error::enforced policy still allowlists ad hosts — AdSense was retired (Factory#4641)"; exit 1; fi
         h=$(curl -sI -H 'Cache-Control: no-cache' https://focusbro.net/)
         echo "$h" | grep -qi '^content-security-policy-report-only:' || { echo "::error::app shell lost its report-only policy"; exit 1; }
         if echo "$h" | grep -qi '^content-security-policy: '; then echo "::error::app shell is enforcing CSP — the legacy inline scripts would be blocked"; exit 1; fi

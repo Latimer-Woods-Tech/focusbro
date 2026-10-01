@@ -61,13 +61,12 @@ describe('Worker routing', () => {
       const csp = r.headers.get('Content-Security-Policy');
       expect(csp, path).toBeTruthy();
       expect(r.headers.get('Content-Security-Policy-Report-Only'), path).toBeNull();
-      expect(csp, path).toContain("script-src 'self' https://pagead2.googlesyndication.com");
+      expect(csp, path).toMatch(/script-src 'self'[ ;]/);
+      expect(csp, path).not.toMatch(/googlesyndication|doubleclick|adtrafficquality/);
+      expect(csp, path).toContain("frame-src 'none'");
       expect(csp, path).not.toMatch(/script-src[^;]*'unsafe-inline'/);
       expect(csp, path).not.toContain('unsafe-eval');
-      // the three live blockers, allowlisted from observation, not guessed
       expect(csp, path).toContain("style-src 'self' 'unsafe-inline'");
-      expect(csp, path).toMatch(/script-src[^;]*https:\/\/ep2\.adtrafficquality\.google/);
-      expect(csp, path).toMatch(/img-src[^;]*https:\/\/ep1\.adtrafficquality\.google/);
       expect(csp, path).toMatch(/script-src[^;]*https:\/\/static\.cloudflareinsights\.com/);
       expect(csp, path).toMatch(/connect-src[^;]*https:\/\/cloudflareinsights\.com/);
     }
