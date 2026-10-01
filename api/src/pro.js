@@ -49,7 +49,7 @@ export const NATIVE_APP_UA = /\bFocusBroApp\//;
 
 export function proFeatureList() {
   return [
-    { title: 'Text follow-ups', desc: 'If a check-in nudge goes quiet, I send one warm text — only with your OK to texts, and never more than one.' },
+    { title: 'Check-ins by text', desc: 'Get check-ins as a text, and if a nudge goes quiet, one warm text follow-up — only with your OK to texts, and never more than one.' },
     { title: 'Your full weekly report', desc: 'The shape of your week, your rhythms and what’s next, your own notes read back, and a copy you can share with a coach.' },
     { title: 'Saved mixes', desc: 'Name the soundscapes that work for you and bring them back in one tap.' },
   ];
@@ -66,6 +66,7 @@ export function proClaimCopy() { return 'Add an email and a password so Pro stay
 export function proCheckoutErrorCopy() { return 'Checkout could not start just now — nothing was charged. Try again in a moment.'; }
 export function proReportPreviewCopy() { return 'The full weekly report is part of Pro: the shape of your week, your rhythms and what’s next, your own notes read back, and a copy you can share with a coach.'; }
 export function proCeilingNoteCopy() { return 'Text follow-ups are part of Pro. Your choice is saved, and it starts working the moment Pro is on.'; }
+export function proChannelNoteCopy() { return 'Text check-ins are part of Pro. Until then this check-in arrives as a push notification.'; }
 
 /** Every user-facing Pro string — scanned by the design-law test. */
 export function proCopySurface() {
@@ -74,7 +75,7 @@ export function proCopySurface() {
     proPriceCopy(), proFreeStaysCopy(), proUnavailableCopy(), proActiveCopy(),
     proActiveNativeCopy(), proInactiveNativeCopy(), proSignedOutCopy(),
     proConfirmingCopy(), proClaimCopy(), proCheckoutErrorCopy(),
-    proReportPreviewCopy(), proCeilingNoteCopy(),
+    proReportPreviewCopy(), proCeilingNoteCopy(), proChannelNoteCopy(),
   ];
 }
 

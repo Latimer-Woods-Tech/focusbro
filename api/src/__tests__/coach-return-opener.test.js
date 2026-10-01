@@ -94,6 +94,7 @@ function makeReturnDB({ candidates = [], pref = { persona: 'ally', timezone: 'UT
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM coach_clients cc/.test(sql)) return resolveCoach(params[0]);
           if (/FROM commitments/.test(sql)) return pref;
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return null; // force text channel
@@ -122,6 +123,7 @@ function makeEscDB({ esc = [], phone = '+15550002222', consent = GRANTED, coach 
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM coach_clients cc/.test(sql)) return resolveCoach(params[0]);
           if (/FROM contact_consent/.test(sql)) return consent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};

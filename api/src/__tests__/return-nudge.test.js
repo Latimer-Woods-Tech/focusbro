@@ -43,6 +43,7 @@ function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, 
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM commitments/.test(sql)) return pref;
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return pushSub ? { 1: 1 } : null;
           if (/SELECT timezone FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { timezone: textConsent.timezone ?? null } : null;

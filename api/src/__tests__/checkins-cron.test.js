@@ -32,11 +32,12 @@ function makeDB({ due = [], subs = [], esc = [], phone = null, consent = { statu
         async all() {
           // The escalation scan is the more specific commitment_checkins query.
           if (/escalated_at IS NULL/.test(sql)) return { results: esc, _params: params };
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due, _params: params };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
           if (/FROM push_subscriptions/.test(sql)) return { results: subs };
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM contact_consent/.test(sql)) return consent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;

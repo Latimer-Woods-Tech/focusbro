@@ -24,6 +24,7 @@ import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO,
 import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { evaluateContactGate, localHour } from './consent.js';
+import { isProUser } from './pro.js';
 import { generateUUID } from './middleware.js';
 import { recordEvent, EVENTS } from './events.js';
 
@@ -287,7 +288,9 @@ export async function runDueCheckins(env, opts = {}) {
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
             c.scheduled_for, COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
-            m.recurrence, m.timezone, m.local_time, m.status AS commitment_status
+            m.recurrence, m.timezone, m.local_time, m.status AS commitment_status,
+            EXISTS (SELECT 1 FROM pro_purchases pp
+                     WHERE pp.user_id = c.user_id AND pp.status = 'paid') AS is_pro
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
       WHERE c.status = 'pending' AND c.scheduled_for <= ?
@@ -296,8 +299,18 @@ export async function runDueCheckins(env, opts = {}) {
   ).bind(now, limit).all();
 
   const rows = (due && due.results) || [];
-  for (const row of rows) {
+  for (const scanned of rows) {
     summary.scanned++;
+
+    // PRO (2026-10-01): a text check-in is a FocusBro Pro feature — every SMS
+    // costs money. A free person's text check-in is delivered as a PUSH instead
+    // (same nudge, same moment). The stored channel is left as the person chose
+    // it, so it starts texting the moment Pro is on. With no push subscription
+    // the row parks with an explicit reason — never dropped silently, never a
+    // text. Decided BEFORE the consent gate, so a free person's phone and
+    // consent row are never even read on this path.
+    const textNotPro = scanned.channel === 'text' && !Number(scanned.is_pro);
+    const row = textNotPro ? { ...scanned, channel: 'push' } : scanned;
 
     // CONSENT BY CONSTRUCTION (TCPA): text/voice cannot send without granted
     // consent, inside recipient quiet hours, or after opt-out. Push is app UX,
@@ -369,6 +382,10 @@ export async function runDueCheckins(env, opts = {}) {
         outcome = await deliverCheckin(env, row);
       } catch (err) {
         outcome = { status: 'failed', detail: (err && err.message) || 'deliver_error' };
+      }
+      // Name WHY a free person's text check-in could not be delivered as push.
+      if (textNotPro && outcome.status === 'skipped') {
+        outcome = { ...outcome, detail: `text_is_pro_${outcome.detail}` };
       }
     }
 
@@ -937,7 +954,9 @@ export async function runReturnNudges(env, opts = {}) {
       `SELECT 1 FROM push_subscriptions WHERE user_id = ? AND is_active = 1 LIMIT 1`
     ).bind(userId).first();
     if (sub) channel = 'push';
-    else {
+    // PRO (2026-10-01): the text fallback is a Pro feature — a free person with
+    // no push subscription is simply not reached (latched below, no SMS).
+    else if (await isProUser(env, userId)) {
       const consented = await env.DB.prepare(
         `SELECT timezone FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted' LIMIT 1`
       ).bind(userId).first();

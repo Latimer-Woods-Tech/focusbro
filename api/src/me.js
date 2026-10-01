@@ -60,7 +60,7 @@ import {
 
 /** The commitment lifecycle states the consumer view can render. */
 import { pageHead, pageNav } from './page-shell.js';
-import { proCeilingNoteCopy } from './pro.js';
+import { proCeilingNoteCopy, proChannelNoteCopy } from './pro.js';
 
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
 
@@ -452,6 +452,7 @@ export function meCopySurface() {
     ...escalationCeilingOptions().flatMap((o) => [o.label, o.desc]),
     escalationCeilingVoiceSoonCopy(),
     proCeilingNoteCopy(),
+    proChannelNoteCopy(),
     noteSharingHeadingCopy(),
     noteSharingIntroCopy(),
     noteSharingToggleLabelCopy(),
@@ -648,6 +649,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
             <option value="push">Push notification</option>
             <option value="text">Text</option>
           </select>
+          <p class="muted hidden" id="channelPro">${proChannelNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
         </div>
         <div>
           <label for="repeat">Repeat</label>
@@ -1603,7 +1605,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       }
     }
     if (note) { if (!data.pro && data.ceiling !== 'none') show(note); else hide(note); }
+    // The same for the check-in channel picker: a text check-in is Pro too (a
+    // free person's text check-in arrives as a push — enforced in the cron).
+    PRO_KNOWN = data.pro;
+    var ch = el('channel');
+    if (ch) {
+      for (var j = 0; j < ch.options.length; j++) {
+        var co = ch.options[j];
+        if (!co.getAttribute('data-label')) co.setAttribute('data-label', co.textContent);
+        co.textContent = co.getAttribute('data-label') + (!data.pro && co.value === 'text' ? ' (Pro)' : '');
+      }
+    }
+    paintChannelPro();
   }
+  var PRO_KNOWN = null;
+  function paintChannelPro() {
+    var ch = el('channel'); var cn = el('channelPro');
+    if (!ch || !cn) return;
+    if (PRO_KNOWN === false && ch.value === 'text') show(cn); else hide(cn);
+  }
+  if (el('channel')) el('channel').addEventListener('change', paintChannelPro);
   function loadCeiling() {
     var sel = el('ceiling');
     if (!sel) return;

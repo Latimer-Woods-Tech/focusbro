@@ -14,7 +14,8 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import worker from '../index.js';
-import { runEscalations } from '../checkins-cron.js';
+import { runEscalations, runDueCheckins, runReturnNudges } from '../checkins-cron.js';
+import { bytesToB64url, b64ToBytes } from '../webpush.js';
 import { registerConsentRoutes, proCeilingView } from '../consent.js';
 import { previewWeeklyReport, buildWeeklyReport } from '../report.js';
 import {
@@ -258,5 +259,104 @@ describe('Pro units', () => {
     expect(html).not.toContain('id="proBuy"');
     expect(PRO_PAGE_SCRIPT).toContain("postJSON('/auth/guest'");
     expect(PRO_PAGE_SCRIPT).toContain("postJSON('/auth/claim'");
+  });
+});
+
+// ── Check-ins by text and the return-nudge text fallback are Pro too ──
+// Every SMS costs money, so a free person is never texted on ANY path: a text
+// check-in arrives as a PUSH instead (or parks with a named reason when there is
+// no push subscription), and the return nudge never falls back to text.
+async function realPushKeys() {
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const jwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  const ua = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const uaRaw = new Uint8Array(await crypto.subtle.exportKey('raw', ua.publicKey));
+  return {
+    env: { VAPID_PUBLIC_KEY: bytesToB64url(pubRaw), VAPID_PRIVATE_KEY: bytesToB64url(b64ToBytes(jwk.d)) },
+    sub: { p256dh: bytesToB64url(uaRaw), auth: bytesToB64url(crypto.getRandomValues(new Uint8Array(16))) },
+  };
+}
+
+realSuite('check-ins by text are Pro — runDueCheckins on the real schema', () => {
+  const NOW = DAYTIME;
+  let db;
+  beforeEach(() => {
+    db = makeMigratedD1();
+    const s = db.sqlite;
+    s.exec(`INSERT INTO users (id, email, password_hash, phone) VALUES ('free', 'f@example.com', 'x', '+15557650001'), ('paid', 'p@example.com', 'x', '+15557650002')`);
+    for (const u of ['free', 'paid']) {
+      s.prepare(`INSERT INTO commitments (id, user_id, title, start_at, channel, timezone, status) VALUES (?, ?, 'open the tax folder', '2026-07-06T15:59:00.000Z', 'text', 'UTC', 'active')`).run('cm-' + u, u);
+      s.prepare(`INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status) VALUES (?, ?, ?, '2026-07-06T15:59:00.000Z', 'text', 'pending')`).run('ci-' + u, 'cm-' + u, u);
+      s.prepare(`INSERT INTO contact_consent (id, user_id, channel, status, timezone, granted_at) VALUES (?, ?, 'text', 'granted', 'UTC', '2026-07-01T00:00:00Z')`).run('cc-' + u, u);
+    }
+    s.exec(`INSERT INTO pro_purchases (id, user_id, stripe_session_id, status, paid_at) VALUES ('pp1', 'paid', 'cs_paid', 'paid', '2026-07-01T00:00:00.000Z')`);
+  });
+  const only = (u) => db.sqlite.exec(`DELETE FROM commitment_checkins WHERE user_id <> '${u}'`);
+  const checkin = (u) => db.sqlite.prepare(`SELECT status, last_error, channel FROM commitment_checkins WHERE id = ?`).get('ci-' + u);
+
+  it('FREE + text channel + a push subscription → delivered as PUSH, no Telnyx call', async () => {
+    only('free');
+    const keys = await realPushKeys();
+    db.sqlite.prepare(`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES ('ps1', 'free', 'https://fcm.googleapis.com/fcm/send/abc', ?, ?)`).run(keys.sub.p256dh, keys.sub.auth);
+    const spy = vi.fn(async () => ({ ok: true, status: 201 }));
+    vi.stubGlobal('fetch', spy);
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV, ...keys.env }, { now: NOW });
+    expect(telnyxCalls(spy)).toHaveLength(0);
+    expect(spy.mock.calls.filter(([u]) => String(u).startsWith('https://fcm.googleapis.com/'))).toHaveLength(1);
+    expect(s.sent).toBe(1);
+    expect(checkin('free')).toMatchObject({ status: 'sent', channel: 'text' }); // their choice is kept for when Pro is on
+  });
+
+  it('FREE + text channel + no push subscription → parked with a named reason, never texted', async () => {
+    only('free');
+    const keys = await realPushKeys();
+    const spy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV, ...keys.env }, { now: NOW });
+    expect(spy).not.toHaveBeenCalled();
+    expect(s.skipped).toBe(1);
+    expect(checkin('free')).toMatchObject({ status: 'skipped', last_error: 'text_is_pro_no_subscription' });
+  });
+
+  it('PRO + text channel → exactly one SMS', async () => {
+    only('paid');
+    const spy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    const calls = telnyxCalls(spy);
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0][1].body).to).toBe('+15557650002');
+    expect(s.sent).toBe(1);
+  });
+
+  it('in one pass: only the Pro person is texted', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    expect(telnyxCalls(spy).map(([, init]) => JSON.parse(init.body).to)).toEqual(['+15557650002']);
+  });
+});
+
+realSuite('the return-nudge text fallback is Pro — runReturnNudges on the real schema', () => {
+  let db;
+  beforeEach(() => {
+    db = makeMigratedD1();
+    const s = db.sqlite;
+    s.exec(`INSERT INTO users (id, email, password_hash, phone) VALUES ('free', 'f@example.com', 'x', '+15557650001'), ('paid', 'p@example.com', 'x', '+15557650002')`);
+    for (const u of ['free', 'paid']) {
+      s.prepare(`INSERT INTO commitments (id, user_id, title, start_at, channel, timezone, status) VALUES (?, ?, 'stretch', '2026-06-20T15:00:00.000Z', 'push', 'UTC', 'active')`).run('cm-' + u, u);
+      s.prepare(`INSERT INTO analytics_events (user_id, event_type, created_at) VALUES (?, 'commitment_created', '2026-06-20 15:00:00')`).run(u);
+      s.prepare(`INSERT INTO contact_consent (id, user_id, channel, status, timezone, granted_at) VALUES (?, ?, 'text', 'granted', 'UTC', '2026-06-01T00:00:00Z')`).run('cc-' + u, u);
+    }
+    s.exec(`INSERT INTO pro_purchases (id, user_id, stripe_session_id, status, paid_at) VALUES ('pp1', 'paid', 'cs_paid', 'paid', '2026-06-01T00:00:00.000Z')`);
+  });
+
+  it('a FREE person with no push subscription is never texted; a PRO person is', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    const s = await runReturnNudges({ DB: db, KV_CACHE: makeKV(), ...TELNYX_ENV }, { now: DAYTIME });
+    expect(s.scanned).toBe(2);
+    expect(telnyxCalls(spy).map(([, init]) => JSON.parse(init.body).to)).toEqual(['+15557650002']);
   });
 });
