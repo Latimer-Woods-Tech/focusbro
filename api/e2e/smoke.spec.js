@@ -282,7 +282,7 @@ test.describe('FocusBro client smoke', () => {
     // add a layer — it is the person's own mix now, shared with its levels
     await page.locator('.sound-btn[data-sound="wind"]').click();
     await share.click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://focusbro.net/?tool=sounds&sound=cafe:0.5,rain:0.7,wind');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://focusbro.net/?tool=sounds&sound=cafe:0.57,rain:0.8,wind');
     // that link arms exactly those layers at those levels — one tap, never autoplay
     await page.goto('/?tool=sounds&sound=cafe:0.5,rain:0.7,wind', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#soundResume')).toHaveText('▶ Start Café + Rain + Wind');
@@ -290,6 +290,81 @@ test.describe('FocusBro client smoke', () => {
     await page.locator('#soundResume').click();
     expect(await page.evaluate(() => Object.keys(activeSounds).sort().map((n) => [n, activeSounds[n].mix]))).toEqual([['cafe', 0.5], ['rain', 0.7], ['wind', 1]]);
     await expect(share).toBeEnabled();
+  });
+
+  test('a recording is fetched on first tap, plays through the media element, and is really audible', async ({ page }) => {
+    // The sounds are recordings in R2 now. One tap must: fetch that sound's file,
+    // light the tile while it loads, put real signal on the master bus, and keep
+    // the bus routed through <audio id="soundscapeOut"> — the media element is what
+    // a phone treats as playing media (lock screen, background playback, and the
+    // Android app's foreground service, which detects playback ONLY through a
+    // media element). Stopping must bring the bus back to silence.
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    const audioRequests = [];
+    page.on('request', (r) => { if (r.url().includes('/audio/')) audioRequests.push(new URL(r.url()).pathname); });
+    await page.goto('/?tool=sounds', { waitUntil: 'domcontentloaded' });
+    const consent = page.getByRole('button', { name: 'Got it' });
+    if (await consent.isVisible().catch(() => false)) await consent.click();
+    await expect(page.locator('.card.deeplink-flash')).toHaveCount(0, { timeout: 3000 });
+    const rainFile = await page.evaluate(() => SOUND_FILES.rain.file);
+    expect(rainFile).toMatch(/^rain\.[0-9a-f]{10}\.m4a$/);
+    // nothing is fetched before anyone asks for it
+    await page.waitForTimeout(300);
+    expect(audioRequests).toEqual([]);
+
+    const rain = page.locator('.sound-btn[data-sound="rain"]');
+    await rain.scrollIntoViewIfNeeded();
+    const fetched = page.waitForRequest((r) => r.url().endsWith(`/audio/${rainFile}`));
+    await rain.click();
+    await fetched;
+    await expect(rain).toHaveAttribute('aria-pressed', 'true');
+    await expect(rain).not.toHaveClass(/loading/, { timeout: 10000 });   // decoded and playing
+
+    // the bus is routed through the media element, and that element is playing
+    const route = await page.evaluate(() => {
+      const el = document.getElementById('soundscapeOut');
+      return { route: outputRoute, paused: el.paused, stream: el.srcObject instanceof MediaStream };
+    });
+    expect(route).toEqual({ route: 'element', paused: false, stream: true });
+
+    // real signal on the master bus (an analyser tapped on the limiter)
+    const level = () => page.evaluate(() => new Promise((resolve) => {
+      const a = getAudioCtx().createAnalyser();
+      a.fftSize = 2048;
+      masterBus.connect(a);
+      const buf = new Float32Array(a.fftSize);
+      let sum = 0, n = 0;
+      const t = setInterval(() => {
+        a.getFloatTimeDomainData(buf);
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        n += buf.length;
+      }, 50);
+      setTimeout(() => { clearInterval(t); masterBus.disconnect(a); resolve(10 * Math.log10(sum / Math.max(n, 1) + 1e-20)); }, 1200);
+    }));
+    await page.waitForTimeout(600);                                   // past the fade-in
+    const on = await level();
+    expect(on, `rain on the bus at ${on.toFixed(1)} dBFS`).toBeGreaterThan(-50);
+
+    // stop: the layer fades out and the bus goes quiet
+    await rain.click();
+    await expect(rain).toHaveAttribute('aria-pressed', 'false');
+    await page.waitForTimeout(800);
+    const off = await level();
+    expect(off, `bus after stop at ${off.toFixed(1)} dBFS`).toBeLessThan(on - 40);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a recording that cannot load says so and leaves the mix honest', async ({ page }) => {
+    await page.route('**/audio/**', (r) => r.fulfill({ status: 404, body: 'not found' }));
+    await page.goto('/?tool=sounds', { waitUntil: 'domcontentloaded' });
+    const forest = page.locator('.sound-btn[data-sound="forest"]');
+    await forest.scrollIntoViewIfNeeded();
+    await forest.click();
+    await expect(page.locator('#soundNowPlaying')).toContainText('Could not load Forest', { timeout: 5000 });
+    await expect(forest).toHaveAttribute('aria-pressed', 'false');
+    await expect(forest).not.toHaveClass(/loading/);
+    expect(await page.evaluate(() => Object.keys(activeSounds))).toEqual([]);
   });
 
   test('the caffeine calculator computes the cited arithmetic in a real browser', async ({ page }) => {

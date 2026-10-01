@@ -692,6 +692,10 @@
   }
 
   .sound-btn .sound-icon { font-size: 22px; }
+  /* A recording is fetched the first time it is played: the tile says so. */
+  .sound-btn.loading .sound-icon { animation: soundLoading 0.9s ease-in-out infinite alternate; }
+  @keyframes soundLoading { from { opacity: 0.3; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .sound-btn.loading .sound-icon { animation: none; opacity: 0.5; } }
 
   .sound-volume {
     display: flex;
@@ -3632,15 +3636,19 @@ function clearNotes() {
 // ══════════════════════════════════════
 // SOUNDSCAPE ENGINE (Web Audio API)
 // ══════════════════════════════════════
-// Every texture here is SYNTHESISED — no audio files, and nothing loops back on
-// itself in a way the ear can learn. That is the point. A short looped bed
-// becomes wallpaper the brain stops hearing, which is the same reason the
-// check-in text rotates instead of repeating (see checkin-prompt-rotation).
-// The old version was six labels over three signals: rain, fireplace and ocean
-// were one brown-noise buffer at three filter cutoffs, so they genuinely did
-// all sound the same. Each source below now has its own structure — a bed plus
-// the events that make it that place: droplets, crackle, swell, murmur, birds.
-// Layers combine freely, so the palette is a mix, not a menu.
+// Every place-sound is a RECORDING. Rain, Ocean, Stream, Forest, Night, Wind,
+// Fireplace, Café and Train are field recordings their recordists dedicated to
+// the public domain; Keys, Fan and the Bowl strikes were generated as recordings;
+// the Drone is rendered offline from code. audio/SOURCES.md names every file's
+// origin and licence, audio/MEASUREMENTS.md shows how each was checked, and
+// scripts/audio/ rebuilds them. Each is a 1.5–2.5 minute seamless loop mastered
+// to one loudness (-23 LUFS), served from R2 at /audio/*, fetched the first time
+// the sound is played and kept after. Only the three hushes are synthesised here:
+// noise is noise, and a file would add bytes and nothing else.
+// The engine this replaced synthesised every sound from filtered noise and
+// oscillators. It was distinct and it never repeated — and it still did not sound
+// like rain, or a café, or a fire. Layering, presets, the ritual, sharing and the
+// lock-screen path below are unchanged; only where the sound comes from changed.
 
 let audioCtx = null;
 let masterBus = null;
@@ -3651,23 +3659,28 @@ let schedJobs = [];
 const SCHED_LOOKAHEAD = 0.4;   // seconds of events queued on the audio clock
 const SCHED_TICK = 120;        // ms between scheduler wakeups
 const NOISE_SECONDS = 30;      // long enough that the bed never sounds periodic
+const NOISE_XFADE = 1;        // seconds of the generator's own continuation crossfaded into the head
 
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
 
-// A brick-wall safety limiter. Layering six beds must never clip or hurt —
-// this is hearing protection, not tone.
+// A brick-wall safety limiter. Layering beds must never clip or hurt — this is
+// hearing protection, not tone. The recordings are mastered to -23 LUFS with true
+// peak under -1 dBTP, so at the default volume one layer peaks near -4 dBFS and
+// never reaches the threshold; it engages on stacked layers or a volume near the
+// top. (At -8 dB with a 250 ms release it ducked the whole bed after every
+// raindrop and log crackle — pumping on exactly the transients a recording is for.)
 function getMaster() {
   const ctx = getAudioCtx();
   if (!masterBus) {
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -8;
+    limiter.threshold.value = -3;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.003;
-    limiter.release.value = 0.25;
+    limiter.release.value = 0.12;
     routeOutput(limiter);
     masterBus = limiter;
   }
@@ -3779,23 +3792,34 @@ function noiseBuffer(colour) {
   if (noiseCache[colour]) return noiseCache[colour];
   const ctx = getAudioCtx();
   const len = NOISE_SECONDS * ctx.sampleRate;
+  const xf = Math.floor(NOISE_XFADE * ctx.sampleRate);
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
   const d = buf.getChannelData(0);
+  const tail = new Float32Array(xf);
   let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, last = 0;
-  for (let i = 0; i < len; i++) {
+  for (let i = 0; i < len + xf; i++) {
     const w = Math.random() * 2 - 1;
+    let v;
     if (colour === 'white') {
-      d[i] = w * 0.5;
+      v = w * 0.5;
     } else if (colour === 'pink') {
       b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
       b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
       b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+      v = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
       b6 = w * 0.115926;
     } else {
       last = (last + 0.02 * w) / 1.02;
-      d[i] = last * 3.5;
+      v = last * 3.5;
     }
+    if (i < len) d[i] = v; else tail[i - len] = v;
+  }
+  // The generator runs on past the end and that continuation is crossfaded
+  // (equal power) into the head, so the wrap is one more step of the same noise.
+  // Without it the brown bed jumped at the loop point: a soft tick every 30 s.
+  for (let i = 0; i < xf; i++) {
+    const t = ((i + 0.5) / xf) * Math.PI / 2;
+    d[i] = d[i] * Math.sin(t) + tail[i] * Math.cos(t);
   }
   noiseCache[colour] = buf;
   return buf;
@@ -3821,76 +3845,13 @@ function filt(type, freq, q) {
   return f;
 }
 
-// A slow oscillator driving an AudioParam — swell, breeze, blade wobble.
-function lfo(rate, depth, param, base) {
-  const ctx = getAudioCtx();
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.frequency.value = rate;
-  g.gain.value = depth;
-  param.value = base;
-  o.connect(g);
-  g.connect(param);
-  o.start();
-  return o;
-}
-
-// ── event primitives ──────────────────────────────────────────────
-// Short filtered noise transient: a droplet, a crackle, a cup, a keypress.
-function burst(out, at, dur, freq, q, level, colour) {
-  const ctx = getAudioCtx();
-  const src = ctx.createBufferSource();
-  src.buffer = noiseBuffer(colour || 'white');
-  src.loop = true;
-  src.playbackRate.value = 0.8 + Math.random() * 0.4;
-  const bp = filt('bandpass', freq, q == null ? 6 : q);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, at);
-  g.gain.exponentialRampToValueAtTime(Math.max(level, 0.0002), at + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-  src.connect(bp); bp.connect(g); g.connect(out);
-  src.start(at, Math.random() * NOISE_SECONDS);
-  src.stop(at + dur + 0.05);
-}
-
-// A swept sine — birdsong, a bubble rising, a cricket's rasp.
-function chirp(out, at, f0, f1, dur, level) {
-  const ctx = getAudioCtx();
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(f0, at);
-  o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), at + dur);
-  g.gain.setValueAtTime(0.0001, at);
-  g.gain.exponentialRampToValueAtTime(level, at + dur * 0.2);
-  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-  o.connect(g); g.connect(out);
-  o.start(at); o.stop(at + dur + 0.05);
-}
-
-// A struck resonator with inharmonic partials — a bowl, a chime.
-function struck(out, at, root, partials, dur, level) {
-  const ctx = getAudioCtx();
-  partials.forEach(function (mult, idx) {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    const lv = level / (idx + 1.6);
-    o.type = 'sine';
-    o.frequency.value = root * mult * (1 + (Math.random() - 0.5) * 0.004);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(lv, at + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur * (1 - idx * 0.12));
-    o.connect(g); g.connect(out);
-    o.start(at); o.stop(at + dur + 0.1);
-  });
-}
-
 // ── scheduler ─────────────────────────────────────────────────────
 // Events are placed on the AUDIO clock ahead of time, not fired by setInterval.
-// setInterval jitters by tens of milliseconds, which is audible on a crackle.
+// setInterval jitters by tens of milliseconds. The bowl uses this: its strikes
+// are recordings, placed at random gaps so the texture never repeats.
 function addJob(name, minGap, maxGap, fn, atOnce) {
-  // A sparse texture (a bowl every 20s, crickets every 2s) must be audible the
-  // moment it is switched on. Waiting out the first random gap reads as broken.
+  // A sparse texture (a bowl every 20s) must be audible the moment it is
+  // switched on. Waiting out the first random gap reads as broken.
   const ctx = getAudioCtx();
   const first = atOnce ? ctx.currentTime + 0.08 : ctx.currentTime + Math.random() * maxGap;
   schedJobs.push({ name: name, next: first, min: minGap, max: maxGap, fn: fn });
@@ -3917,272 +3878,168 @@ function stopScheduler() {
 }
 
 // ── the sources ───────────────────────────────────────────────────
-// Each builder returns { out, extra, level }. `out` is the node that carries
-// the layer; `level` normalises perceived loudness so stacking stays balanced.
-const SOUND_BUILDERS = {
+// <audio-manifest> — generated by scripts/audio/build.py from audio/manifest.json; do not edit by hand
+const SOUND_FILES = {"bowl":{"file":"bowl.ce4cf94093.m4a","strikes":[{"at":0.0,"dur":14.5},{"at":14.5,"dur":14.5},{"at":29.0,"dur":14.5}],"bytes":850826},"cafe":{"file":"cafe.89d7d873f8.m4a","loopStart":1,"loopEnd":151.0,"bytes":3079663},"drone":{"file":"drone.1c490e340d.m4a","loopStart":1,"loopEnd":151.0,"bytes":3108234},"fan":{"file":"fan.36c3ca3d8f.m4a","loopStart":1,"loopEnd":61.0,"bytes":1255051},"fire":{"file":"fire.56a07b5030.m4a","loopStart":1,"loopEnd":153.0,"bytes":3472283},"forest":{"file":"forest.0dbc2efdcd.m4a","loopStart":1,"loopEnd":151.0,"bytes":3081360},"keyboard":{"file":"keyboard.f9f8bf74ed.m4a","loopStart":1,"loopEnd":115.0,"bytes":2440928},"night":{"file":"night.31cc034630.m4a","loopStart":1,"loopEnd":151.0,"bytes":3094239},"ocean":{"file":"ocean.e246a5ecb0.m4a","loopStart":1,"loopEnd":151.0,"bytes":3076410},"rain":{"file":"rain.c49e71d567.m4a","loopStart":1,"loopEnd":151.0,"bytes":3141426},"stream":{"file":"stream.2946e5497b.m4a","loopStart":1,"loopEnd":151.0,"bytes":3083122},"train":{"file":"train.c70ab6192d.m4a","loopStart":1,"loopEnd":151.0,"bytes":3077725},"wind":{"file":"wind.06c4dd5a17.m4a","loopStart":1,"loopEnd":151.0,"bytes":3076698}};
+// </audio-manifest>
+const AUDIO_BASE = '/audio/';
+// Every file is mastered to the same integrated loudness (-23 LUFS), so one
+// level serves them all, and the hush levels below give each hush that same
+// loudness: switching between any two sounds does not read as the volume
+// changing, and presets' mix values are plain relative levels. +3 dB keeps the
+// default volume where the previous engine sat (about -26 LUFS at 50%), with a
+// single layer's peaks still under the limiter's threshold.
+const RECORDED_LEVEL = 1.41;
+// A decoded 150 s stereo loop is ~55 MB of PCM. Keep the few most recent; the
+// compressed bytes are kept regardless, and the file is immutable in the HTTP
+// cache, so bringing one back costs a decode, not a download.
+const DECODED_KEEP = 4;
+const soundBytes = {};
+const decodedSounds = new Map();
 
-  // — steady beds: masking, no events to catch the ear —
-  brown: function () { const s = noiseSource('brown'); const f = filt('lowpass', 900); s.connect(f); return { out: f, level: 0.467 }; },
-  pink:  function () { const s = noiseSource('pink');  const f = filt('lowpass', 3200); s.connect(f); return { out: f, level: 0.537 }; },
-  white: function () { const s = noiseSource('white'); const f = filt('lowpass', 9000); s.connect(f); return { out: f, level: 0.319 }; },
-
-  fan: function () {
-    const s = noiseSource('brown');
-    const f = filt('lowpass', 1400);
-    const am = getAudioCtx().createGain();
-    s.connect(f); f.connect(am);
-    // Blade rate — a slow wobble is what separates a fan from plain noise.
-    const o = lfo(6.2, 0.07, am.gain, 0.93);
-    const hum = getAudioCtx().createOscillator();
-    const hg = getAudioCtx().createGain();
-    hum.frequency.value = 62; hg.gain.value = 0.05;
-    hum.connect(hg); hg.connect(am); hum.start();
-    return { out: am, level: 0.488, extra: [o, hum] };
-  },
-
-  // — rain: a bed is not rain. Droplets are rain. —
-  rain: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('pink');
-    const f = filt('lowpass', 1900);
-    const bus = ctx.createGain();
-    s.connect(f); f.connect(bus);
-    bus.gain.value = 0.55;
-    addJob('rain', 0.012, 0.055, function (at) {
-      burst(bus, at, 0.02 + Math.random() * 0.03, 1200 + Math.random() * 4200, 9, 0.05 + Math.random() * 0.06);
-    });
-    addJob('rain', 40, 110, function (at) {   // distant thunder, rare
-      const ts = noiseSource('brown');
-      const lp = filt('lowpass', 160);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(0.5, at + 0.7);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + 4.5);
-      ts.connect(lp); lp.connect(g); g.connect(bus);
-      ts.stop(at + 5);
-    });
-    return { out: bus, level: 1.033, jobs: ['rain'] };
-  },
-
-  // — ocean: the swell IS the sound. Gain and cutoff ride one slow LFO. —
-  ocean: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('brown');
-    const f = filt('lowpass', 500);
-    const swell = ctx.createGain();
-    s.connect(f); f.connect(swell);
-    const period = 9 + Math.random() * 5;               // one wave every 9-14s
-    const a = lfo(1 / period, 0.42, swell.gain, 0.5);
-    const b = lfo(1 / period, 260, f.frequency, 520);
-    const foamSrc = noiseSource('white');               // foam rides the crest
-    const hp = filt('highpass', 2400);
-    const fg = ctx.createGain();
-    fg.gain.value = 0.0;
-    foamSrc.connect(hp); hp.connect(fg); fg.connect(swell);
-    const c = lfo(1 / period, 0.05, fg.gain, 0.05);
-    return { out: swell, level: 0.572, extra: [a, b, c] };
-  },
-
-  fire: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('brown');
-    const f = filt('lowpass', 480);
-    const bus = ctx.createGain();
-    s.connect(f); f.connect(bus);
-    bus.gain.value = 0.6;
-    addJob('fire', 0.05, 0.42, function (at) {          // crackle
-      burst(bus, at, 0.012 + Math.random() * 0.05, 700 + Math.random() * 3600, 12, 0.08 + Math.random() * 0.22);
-    });
-    addJob('fire', 3, 11, function (at) {               // a log settling
-      burst(bus, at, 0.18, 220 + Math.random() * 400, 4, 0.16, 'brown');
-    });
-    return { out: bus, level: 0.766, jobs: ['fire'] };
-  },
-
-  // — company: human-adjacent texture, for when alone is the problem —
-  cafe: function () {
-    const ctx = getAudioCtx();
-    const bus = ctx.createGain();
-    const s = noiseSource('pink');
-    const f = filt('lowpass', 900);
-    const bed = ctx.createGain(); bed.gain.value = 0.35;
-    s.connect(f); f.connect(bed); bed.connect(bus);
-    // Murmur: band-passed formants drifting slowly = voices without words.
-    const mods = [];
-    [320, 620, 1150, 1900].forEach(function (hz, i) {
-      const ms = noiseSource('pink', 0.9 + i * 0.05);
-      const bp = filt('bandpass', hz, 3.5);
-      const g = ctx.createGain();
-      ms.connect(bp); bp.connect(g); g.connect(bus);
-      mods.push(lfo(0.07 + Math.random() * 0.16, 0.16, g.gain, 0.2));
-    });
-    addJob('cafe', 4, 15, function (at) {               // a cup, a spoon
-      burst(bus, at, 0.09, 2600 + Math.random() * 3500, 18, 0.1);
-    }, true);
-    return { out: bus, level: 1.549, extra: mods, jobs: ['cafe'] };
-  },
-
-  keyboard: function () {
-    const ctx = getAudioCtx();
-    const bus = ctx.createGain();
-    bus.gain.value = 1;
-    // A room someone else is working in still has a room. Keys over pure
-    // silence reads as a glitch, not as company.
-    const room = noiseSource('pink');
-    const rf = filt('bandpass', 700, 0.8);
-    const rg = ctx.createGain(); rg.gain.value = 0.34;
-    room.connect(rf); rf.connect(rg); rg.connect(bus);
-    // Irregular typing: bursts of keys, then a pause to think.
-    let inBurst = true, left = 6;
-    addJob('keyboard', 0.07, 0.16, function (at) {
-      if (left-- <= 0) { inBurst = !inBurst; left = inBurst ? 4 + Math.random() * 14 : 3 + Math.random() * 10; }
-      if (!inBurst) return;
-      burst(bus, at, 0.02, 1800 + Math.random() * 3200, 10, 0.3 + Math.random() * 0.22);
-    }, true);
-    return { out: bus, level: 3.0, jobs: ['keyboard'] };
-  },
-
-  train: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('brown');
-    const f = filt('lowpass', 170);
-    const bus = ctx.createGain();
-    s.connect(f); f.connect(bus);
-    bus.gain.value = 0.95;
-    const sway = lfo(0.14, 0.16, bus.gain, 0.95);
-    addJob('train', 1.55, 1.75, function (at) {         // rail joints, in pairs
-      burst(bus, at, 0.05, 150, 5, 0.2, 'brown');
-      burst(bus, at + 0.19, 0.05, 140, 5, 0.16, 'brown');
-    }, true);
-    return { out: bus, level: 0.588, extra: [sway], jobs: ['train'] };
-  },
-
-  // — nature: attention restoration, per our own guide —
-  forest: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('pink');
-    const f = filt('bandpass', 1500, 0.7);
-    const bus = ctx.createGain();
-    const leaves = ctx.createGain();
-    s.connect(f); f.connect(leaves); leaves.connect(bus);
-    const breeze = lfo(0.09, 0.14, leaves.gain, 0.26);
-    addJob('forest', 2.5, 9, function (at) {            // birdsong, sparse
-      const n = 1 + Math.floor(Math.random() * 3);
-      const base = 2200 + Math.random() * 2600;
-      for (let i = 0; i < n; i++) {
-        const t = at + i * (0.09 + Math.random() * 0.1);
-        chirp(bus, t, base, base * (0.6 + Math.random() * 0.9), 0.07 + Math.random() * 0.09, 0.05);
-      }
-    }, true);
-    return { out: bus, level: 2.48, extra: [breeze], jobs: ['forest'] };
-  },
-
-  stream: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('white');
-    const f = filt('bandpass', 2600, 0.6);
-    const bus = ctx.createGain();
-    const bed = ctx.createGain(); bed.gain.value = 0.32;
-    s.connect(f); f.connect(bed); bed.connect(bus);
-    const churn = lfo(0.23, 0.06, bed.gain, 0.32);
-    addJob('stream', 0.06, 0.3, function (at) {         // bubbles
-      const f0 = 500 + Math.random() * 900;
-      chirp(bus, at, f0, f0 * (1.6 + Math.random()), 0.05 + Math.random() * 0.05, 0.035);
-    });
-    return { out: bus, level: 1.514, extra: [churn], jobs: ['stream'] };
-  },
-
-  night: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('brown');
-    const f = filt('lowpass', 220);
-    const bus = ctx.createGain();
-    const bed = ctx.createGain(); bed.gain.value = 0.3;
-    s.connect(f); f.connect(bed); bed.connect(bus);
-    // The high shimmer is what makes a night sound like a night rather than a
-    // low rumble — without it this was indistinguishable from the train bed.
-    const air = noiseSource('white');
-    const hp = filt('bandpass', 6200, 1.1);
-    const ag = ctx.createGain(); ag.gain.value = 0.1;
-    air.connect(hp); hp.connect(ag); ag.connect(bus);
-    const shimmer = lfo(0.13, 0.04, ag.gain, 0.1);
-    addJob('night', 0.9, 2.6, function (at) {           // crickets, in clusters
-      const reps = 3 + Math.floor(Math.random() * 4);
-      const hz = 3900 + Math.random() * 900;
-      for (let i = 0; i < reps; i++) burst(bus, at + i * 0.075, 0.03, hz, 26, 0.06);
-    }, true);
-    return { out: bus, level: 1.56, extra: [shimmer], jobs: ['night'] };
-  },
-
-  wind: function () {
-    const ctx = getAudioCtx();
-    const s = noiseSource('pink');
-    const bp = filt('bandpass', 260, 0.9);
-    const bus = ctx.createGain();
-    s.connect(bp); bp.connect(bus);
-    bus.gain.value = 0.6;
-    // Real wind is a low moan AND a high hiss. Without the hiss this sat inside
-    // the cafe formant range and the two measured 1.6 dB apart.
-    const hiss = noiseSource('white');
-    const hf = filt('highpass', 5200);
-    const hg = ctx.createGain(); hg.gain.value = 0.12;
-    hiss.connect(hf); hf.connect(hg); hg.connect(bus);
-    // A random walk on the resonance is what makes wind read as wind rather
-    // than as a filter setting.
-    addJob('wind', 1.2, 3.4, function (at) {
-      const target = 130 + Math.random() * 470;
-      hg.gain.cancelScheduledValues(at);
-      hg.gain.setValueAtTime(hg.gain.value, at);
-      hg.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.22, at + 1.5 + Math.random() * 2);
-      bp.frequency.cancelScheduledValues(at);
-      bp.frequency.setValueAtTime(bp.frequency.value, at);
-      bp.frequency.linearRampToValueAtTime(target, at + 1.6 + Math.random() * 2.2);
-      bus.gain.cancelScheduledValues(at);
-      bus.gain.setValueAtTime(bus.gain.value, at);
-      bus.gain.linearRampToValueAtTime(0.35 + Math.random() * 0.5, at + 1.4 + Math.random() * 2);
-    }, true);
-    return { out: bus, level: 1.41, jobs: ['wind'] };
-  },
-
-  // — calm: slow, low-information, nothing that grabs attention —
-  drone: function () {
-    const ctx = getAudioCtx();
-    const bus = ctx.createGain();
-    const oscs = [];
-    [55, 82.5, 110, 164.8].forEach(function (hz, i) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = hz * (1 + (Math.random() - 0.5) * 0.008); // slow beating
-      g.gain.value = 0.16 / (i * 0.7 + 1);
-      o.connect(g); g.connect(bus); o.start();
-      oscs.push(o);
-    });
-    const breathe = lfo(0.05, 0.18, bus.gain, 0.62);
-    return { out: bus, level: 1.456, extra: oscs.concat([breathe]) };
-  },
-
-  bowl: function () {
-    const ctx = getAudioCtx();
-    const bus = ctx.createGain();
-    bus.gain.value = 1;
-    addJob('bowl', 11, 26, function (at) {
-      const root = 180 + Math.random() * 140;
-      struck(bus, at, root, [1, 2.76, 5.4, 8.9], 9 + Math.random() * 5, 0.22);
-    }, true);
-    return { out: bus, level: 1.231, jobs: ['bowl'] };
+function fetchSoundBytes(name) {
+  if (!soundBytes[name]) {
+    soundBytes[name] = fetch(AUDIO_BASE + SOUND_FILES[name].file)
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      })
+      .catch(function (e) { delete soundBytes[name]; throw e; });
   }
+  return soundBytes[name];
+}
+
+// decodeAudioData DETACHES its input, so hand it a copy and keep the original.
+// Older Safari only has the callback form; both are honoured.
+function decodeSoundBytes(bytes) {
+  return new Promise(function (resolve, reject) {
+    const p = getAudioCtx().decodeAudioData(bytes.slice(0), resolve, reject);
+    if (p && typeof p.then === 'function') p.then(resolve, reject);
+  });
+}
+
+function loadSoundBuffer(name) {
+  if (decodedSounds.has(name)) {
+    const hit = decodedSounds.get(name);
+    decodedSounds.delete(name);
+    decodedSounds.set(name, hit);             // most recently used
+    return Promise.resolve(hit);
+  }
+  return fetchSoundBytes(name).then(decodeSoundBytes).then(function (buf) {
+    decodedSounds.set(name, buf);
+    decodedSounds.forEach(function (_b, key) {
+      if (decodedSounds.size > DECODED_KEEP && !activeSounds[key]) decodedSounds.delete(key);
+    });
+    return buf;
+  });
+}
+
+function setSoundLoading(name, on) {
+  const btn = document.querySelector('.sound-btn[data-sound="' + name + '"]');
+  if (!btn) return;
+  btn.classList.toggle('loading', !!on);
+  if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+}
+
+// A recording as a layer. The layer exists at once — it is in the mix, its
+// button is lit, the ritual and sharing see it — and is silent until the file
+// arrives, then fades in. The loop runs between the manifest's loopStart and
+// loopEnd: the file carries a second of circular padding each side, so whatever
+// a browser's AAC decoder does at the edges of the file is never heard.
+function recordedSound(name) {
+  const ctx = getAudioCtx();
+  const meta = SOUND_FILES[name];
+  const bus = ctx.createGain();
+  bus.gain.value = 0;
+  const built = { out: bus, level: RECORDED_LEVEL, extra: [], stopped: false };
+  setSoundLoading(name, true);
+  built.ready = loadSoundBuffer(name).then(function (buf) {
+    setSoundLoading(name, false);
+    if (built.stopped) return;
+    const now = ctx.currentTime;
+    if (meta.strikes) {
+      startStrikes(name, buf, meta, bus);
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.loopStart = meta.loopStart;
+      src.loopEnd = Math.min(meta.loopEnd, buf.duration);
+      src.connect(bus);
+      // Start somewhere new each time: a restart is never the same moment.
+      src.start(now, meta.loopStart + Math.random() * (src.loopEnd - meta.loopStart));
+      built.extra.push(src);
+    }
+    bus.gain.setValueAtTime(0, now);
+    bus.gain.linearRampToValueAtTime(1, now + FADE);
+  }).catch(function (e) {
+    setSoundLoading(name, false);
+    console.warn('soundscape: could not load ' + name + ':', e && e.message);
+    if (built.stopped || !activeSounds[name] || activeSounds[name].built !== built) return;
+    stopSound(name);
+    persistMix();
+    const live = document.getElementById('soundNowPlaying');
+    if (live) live.textContent = 'Could not load ' + prettySoundName(name) + ' — check the connection and tap it again.';
+  });
+  return built;
+}
+
+// The bowl is struck, not looped: recorded strikes at random gaps, never the
+// same one twice running, each a little louder or softer and placed a little
+// left or right. Nothing in it repeats.
+function startStrikes(name, buf, meta, bus) {
+  const ctx = getAudioCtx();
+  let last = -1;
+  addJob(name, 14, 26, function (at) {
+    let i = Math.floor(Math.random() * meta.strikes.length);
+    if (i === last) i = (i + 1) % meta.strikes.length;
+    last = i;
+    const s = meta.strikes[i];
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = 0.8 + Math.random() * 0.4;
+    let tail = g;
+    if (typeof ctx.createStereoPanner === 'function') {
+      const p = ctx.createStereoPanner();
+      p.pan.value = (Math.random() - 0.5) * 0.6;
+      g.connect(p);
+      tail = p;
+    }
+    src.connect(g);
+    tail.connect(bus);
+    src.start(at, s.at, s.dur);
+  }, true);
+}
+
+// Each builder returns { out, level, extra }. `out` carries the layer; `level`
+// sets its place in the mix. The hushes are synthesised; every other sound is
+// a recording from SOUND_FILES.
+const SOUND_BUILDERS = {
+  // — steady beds: masking, no events to catch the ear. Each level puts the
+  // hush at the same integrated loudness as a recording at RECORDED_LEVEL
+  // (measured on an offline twin of this generator + filter; see
+  // scripts/audio/measure.py hush()). —
+  brown: function () { const s = noiseSource('brown'); const f = filt('lowpass', 900); s.connect(f); return { out: f, level: 0.484, extra: [s] }; },
+  pink:  function () { const s = noiseSource('pink');  const f = filt('lowpass', 3200); s.connect(f); return { out: f, level: 0.537, extra: [s] }; },
+  white: function () { const s = noiseSource('white'); const f = filt('lowpass', 9000); s.connect(f); return { out: f, level: 0.288, extra: [s] }; }
 };
+Object.keys(SOUND_FILES).forEach(function (name) {
+  SOUND_BUILDERS[name] = function () { return recordedSound(name); };
+});
 
 // Named blends. The point of the palette is not fifteen buttons — it is that
 // a person can say what they need rather than guess which texture delivers it.
+// Every sound sits at the same loudness, so a mix value is a plain relative
+// level; the totals are matched by measurement (scripts/audio/measure.py
+// presets_report: each blend within 0.5 LU of -23.3 LUFS) so switching blends is
+// never a volume jump.
 const SOUND_PRESETS = {
   deepwork:  { label: 'Deep work',   icon: '🎯', mix: { brown: 0.9, wind: 0.35 } },
   masking:   { label: 'Block it out', icon: '🔇', mix: { pink: 0.8, fan: 0.55 } },
   winddown:  { label: 'Wind down',   icon: '🌙', mix: { ocean: 0.9, drone: 0.3 } },
-  notalone:  { label: 'Not alone',   icon: '👥', mix: { cafe: 0.75, keyboard: 0.4 } },
-  rainycafe: { label: 'Rainy café',  icon: '🌦️', mix: { rain: 0.7, cafe: 0.5 } },
-  sleep:     { label: 'Sleep',       icon: '😴', mix: { brown: 0.55, night: 0.5, bowl: 0.3 } }
+  notalone:  { label: 'Not alone',   icon: '👥', mix: { cafe: 0.91, keyboard: 0.49 } },
+  rainycafe: { label: 'Rainy café',  icon: '🌦️', mix: { rain: 0.8, cafe: 0.57 } },
+  sleep:     { label: 'Sleep',       icon: '😴', mix: { brown: 0.71, night: 0.65, bowl: 0.39 } }
 };
 
 // ── control ───────────────────────────────────────────────────────
@@ -4223,6 +4080,7 @@ function stopSound(name) {
   schedJobs = schedJobs.filter(function (j) { return j.name !== name; });
   delete activeSounds[name];
   const built = s.built;
+  built.stopped = true;          // a file still downloading must not start later
   setTimeout(function () {
     try {
       s.gain.disconnect();
@@ -6228,7 +6086,7 @@ const CMD_LIST = [
   { icon:'🌧️', name:'Rain sounds',       desc:'Toggle ambient rain audio',                            action:()=>document.querySelector('.sound-btn[onclick*="rain"]')?.click(), keys:'rain ambient sound audio', group:'Audio' },
   { icon:'☕', name:'Café sounds',         desc:'Toggle coffee shop ambient audio',                     action:()=>document.querySelector('.sound-btn[onclick*="cafe"]')?.click(), keys:'cafe coffee ambient sound', group:'Audio' },
   { icon:'🌊', name:'Ocean sounds',        desc:'Toggle ocean waves audio',                             action:()=>document.querySelector('.sound-btn[onclick*="ocean"]')?.click(), keys:'ocean waves ambient sound', group:'Audio' },
-  { icon:'🔥', name:'Fireplace sounds',    desc:'Toggle fireplace crackle audio',                       action:()=>document.querySelector('.sound-btn[onclick*="fireplace"]')?.click(), keys:'fire fireplace crackle ambient', group:'Audio' },
+  { icon:'🔥', name:'Fireplace sounds',    desc:'Toggle fireplace crackle audio',                       action:()=>document.querySelector('.sound-btn[data-sound="fire"]')?.click(), keys:'fire fireplace crackle ambient', group:'Audio' },
 ];
 
 let cmdSelectedIndex = 0;

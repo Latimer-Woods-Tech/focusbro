@@ -1,0 +1,279 @@
+{
+  "sounds": {
+    "bowl": {
+      "file": "bowl.ce4cf94093.m4a",
+      "kind": "strikes",
+      "strikes": [
+        {
+          "at": 0.0,
+          "dur": 14.5
+        },
+        {
+          "at": 14.5,
+          "dur": 14.5
+        },
+        {
+          "at": 29.0,
+          "dur": 14.5
+        }
+      ],
+      "bytes": 850826,
+      "sha256": "ce4cf94093e2251a02748191e3f579581d313d2b015cbf75e39ee8cd396d0cbf",
+      "sources": [
+        "el_bowl_1",
+        "el_bowl_0",
+        "el_bowl_3"
+      ]
+    },
+    "cafe": {
+      "file": "cafe.89d7d873f8.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3079663,
+      "sha256": "89d7d873f84f94706eb8174963886bcb254dc1e3adb04d2995526e98ea71756d",
+      "sources": [
+        "blume_restaurant"
+      ]
+    },
+    "drone": {
+      "file": "drone.1c490e340d.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3108234,
+      "sha256": "1c490e340d0484bb52d119dfb5d8daceb20fb9b14f491c0f3648a68ff841dcef",
+      "sources": [
+        "synth_drone"
+      ]
+    },
+    "fan": {
+      "file": "fan.36c3ca3d8f.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 61.0,
+      "bytes": 1255051,
+      "sha256": "36c3ca3d8f4ffe64df017e10336be853859fe43352dde8cb07201ff55739a301",
+      "sources": [
+        "el_fan_2"
+      ]
+    },
+    "fire": {
+      "file": "fire.56a07b5030.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 153.0,
+      "bytes": 3472283,
+      "sha256": "56a07b5030537b31dcd009c67cf8b7a41124cbc0471d33ce3e8c04292bae1493",
+      "sources": [
+        "hoerma_fireplace"
+      ]
+    },
+    "forest": {
+      "file": "forest.0dbc2efdcd.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3081360,
+      "sha256": "0dbc2efdcd5b2f92642b78c85761174a681a2a15d42f5beddb60181597ca1a42",
+      "sources": [
+        "beckenham_wood"
+      ]
+    },
+    "keyboard": {
+      "file": "keyboard.f9f8bf74ed.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 115.0,
+      "bytes": 2440928,
+      "sha256": "f9f8bf74ed3808d0a07f2e80700b6759d8f4c610fc030fe4899e1f3bc0a0191f",
+      "sources": [
+        "el_keys_4",
+        "el_keys_5",
+        "el_keys_1",
+        "el_keys_2"
+      ]
+    },
+    "night": {
+      "file": "night.31cc034630.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3094239,
+      "sha256": "31cc03463090ca474f5e7b7e45fd59f438c1b76459c53f7c253db4aafd8f4cf6",
+      "sources": [
+        "leesburg_night"
+      ]
+    },
+    "ocean": {
+      "file": "ocean.e246a5ecb0.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3076410,
+      "sha256": "e246a5ecb006da2566c9533a0397616a4c0598591586b11fec1b6595f96de591",
+      "sources": [
+        "germain_waves"
+      ]
+    },
+    "rain": {
+      "file": "rain.c49e71d567.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3141426,
+      "sha256": "c49e71d567e007448a3dd15f19f56be35972a3fee50ad87948fac693da922094",
+      "sources": [
+        "blume_rain"
+      ]
+    },
+    "stream": {
+      "file": "stream.2946e5497b.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3083122,
+      "sha256": "2946e5497b12921f442959b705c3c9f83985a5bd587a349b6dcb69484c409229",
+      "sources": [
+        "moss_creek"
+      ]
+    },
+    "train": {
+      "file": "train.c70ab6192d.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3077725,
+      "sha256": "c70ab6192d0eb833eb4489e7a75f2ba44db22819b1f5b3f021478f9a6873d623",
+      "sources": [
+        "wu_train"
+      ]
+    },
+    "wind": {
+      "file": "wind.06c4dd5a17.m4a",
+      "kind": "loop",
+      "loopStart": 1,
+      "loopEnd": 151.0,
+      "bytes": 3076698,
+      "sha256": "06c4dd5a177fd688a8f9333e1afddd5461339c353bd0fb909cce166aa55ab2db",
+      "sources": [
+        "janasik_birches"
+      ]
+    }
+  },
+  "_notes": {
+    "rain": [
+      "blume_rain 440–598 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=70:poles=2",
+      "gain +5.8 dB (from -28.8 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was 5.1 dBTP; 0.34% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "keyboard": [
+      "el_keys_4 0–30 s",
+      "el_keys_5 0–30 s",
+      "el_keys_1 0–30 s",
+      "el_keys_2 0–30 s",
+      "takes joined with 1.5 s equal-power crossfades",
+      "seam: 1.5 s equal-power crossfade of tail into head",
+      "filters: highpass=f=150:poles=2",
+      "gain +24.0 dB (from -47.0 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was 4.5 dBTP; 0.71% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 115.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "fan": [
+      "el_fan_2 0–30 s",
+      "palindrome loop (forward then reversed): sample-continuous at both turns, doubles the period",
+      "filters: highpass=f=40:poles=2",
+      "gain +16.8 dB (from -39.8 LUFS)",
+      "1 s circular pad each side; app loops [1, 61.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "drone": [
+      "synthesised, exactly periodic over 150 s (no crossfade needed)",
+      "gain -22.4 dB (from -0.6 LUFS)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "bowl": [
+      "el_bowl_1: onset at 0.00 s, 14 s kept, 3 s fade-out, levelled",
+      "el_bowl_0: onset at 0.00 s, 14 s kept, 3 s fade-out, levelled",
+      "el_bowl_3: onset at 0.00 s, 14 s kept, 3 s fade-out, levelled",
+      "set gain +0.4 dB so a strike every 20 s measures -23 LUFS",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "ocean": [
+      "germain_waves 1–157 s",
+      "seam: 6 s equal-power crossfade of tail into head",
+      "filters: highpass=f=35:poles=2",
+      "gain +11.4 dB (from -34.4 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was -1.7 dBTP; 0.01% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "stream": [
+      "moss_creek 42–200 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=60:poles=2",
+      "gain +12.6 dB (from -35.6 LUFS)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "forest": [
+      "beckenham_wood 38–196 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=120:poles=2,adeclick",
+      "gain +7.4 dB (from -30.4 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was 1.5 dBTP; 0.25% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "night": [
+      "leesburg_night 194–352 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=80:poles=2",
+      "gain +17.0 dB (from -40.0 LUFS)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "wind": [
+      "janasik_birches 14–172 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=60:poles=2",
+      "gain +3.5 dB (from -26.5 LUFS)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "fire": [
+      "hoerma_fireplace 46–204 s",
+      "seam: 6 s equal-power crossfade of tail into head",
+      "filters: highpass=f=60:poles=2",
+      "gain +10.4 dB (from -33.4 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was 9.8 dBTP; 0.63% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 153.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "cafe": [
+      "blume_restaurant 2–160 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=80:poles=2",
+      "gain -1.6 dB (from -21.4 LUFS)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ],
+    "train": [
+      "wu_train 130–288 s",
+      "seam: 8 s equal-power crossfade of tail into head",
+      "filters: highpass=f=30:poles=2,lowpass=f=14000:poles=2",
+      "gain +4.7 dB (from -27.7 LUFS)",
+      "circular peak limiter at -3.0 dBFS (true peak was -0.1 dBTP; 0.02% of 10 ms windows reduced by >1 dB)",
+      "1 s circular pad each side; app loops [1, 151.0] s",
+      "AAC-LC 160k, 48000 Hz stereo (.m4a)"
+    ]
+  },
+  "version": 1,
+  "target_lufs": -23
+}
