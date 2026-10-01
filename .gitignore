@@ -27,3 +27,4 @@ api/playwright-report/
 
 # Claude Code agent worktrees (never commit)
 .claude/
+node_modules

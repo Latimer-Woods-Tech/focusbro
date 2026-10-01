@@ -37,7 +37,7 @@
 | Auth | HMAC-SHA256 JWT (30-day tokens) | No external auth dependency |
 | Deployment | Wrangler CLI + Git | One-command deploys |
 | Production URL | https://focusbro.net | |
-| AdSense | ca-pub-1346297152611586 | Passive revenue while building (must match /ads.txt) |
+| ~~AdSense~~ | retired 2026-10-01 | Rejected twice ("low value content"); revenue moved to a one-time Pro unlock — Factory#4641 |
 
 ### Guiding Principles
 1. **Data ownership** — User data never leaves the stack without explicit export action

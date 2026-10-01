@@ -10,9 +10,6 @@
 import { SOURCES, SOURCE_TYPES, AUTHOR, sourceUrl } from './sources.js';
 import { renderBreathPacer } from './breath-pacer.js';
 
-const AD_CLIENT_SCRIPT =
-  '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1346297152611586" crossorigin="anonymous"></script>';
-
 export const SHELL_CSS = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -340,7 +337,6 @@ ${sourceItems.map((src) => {
 <meta name="twitter:description" content="${esc(guide.description)}" />
 <script type="application/ld+json">${jsonLd}</script>
 ${extraLd}
-${AD_CLIENT_SCRIPT}
 <style>${SHELL_CSS}</style>
 </head><body>
 ${SITE_HEADER}
@@ -463,7 +459,6 @@ export function renderGuidesIndex(list) {
 <meta name="twitter:description" content="${indexDesc}" />
 <script type="application/ld+json">${collectionLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
-${AD_CLIENT_SCRIPT}
 <style>${SHELL_CSS}</style>
 </head><body>
 ${SITE_HEADER}
