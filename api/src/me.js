@@ -60,6 +60,7 @@ import {
 
 /** The commitment lifecycle states the consumer view can render. */
 import { pageHead, pageNav } from './page-shell.js';
+import { proCeilingNoteCopy, proChannelNoteCopy } from './pro.js';
 
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
 
@@ -450,6 +451,8 @@ export function meCopySurface() {
     escalationCeilingIntroCopy(),
     ...escalationCeilingOptions().flatMap((o) => [o.label, o.desc]),
     escalationCeilingVoiceSoonCopy(),
+    proCeilingNoteCopy(),
+    proChannelNoteCopy(),
     noteSharingHeadingCopy(),
     noteSharingIntroCopy(),
     noteSharingToggleLabelCopy(),
@@ -568,7 +571,7 @@ export function renderMePage() {
   const NEXT_WAITING = listNextCheckinWaitingCopy();
   return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}
 <body>
-${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/about.html', label: 'About' }])}
+${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/pro/', label: 'Pro' }, { href: '/about.html', label: 'About' }])}
 <h1>Your word</h1>
 <p class="intro">${mePageIntroCopy()}</p>
 
@@ -646,6 +649,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
             <option value="push">Push notification</option>
             <option value="text">Text</option>
           </select>
+          <p class="muted hidden" id="channelPro">${proChannelNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
         </div>
         <div>
           <label for="repeat">Repeat</label>
@@ -727,6 +731,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .map((o) => `<option value="${o.value}">${o.label.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`)
       .join('')}</select>
     <p class="muted" id="ceilingDesc"></p>
+    <p class="muted hidden" id="ceilingPro">${proCeilingNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
     <p class="muted">${escalationCeilingVoiceSoonCopy()}</p>
     <p class="ok hidden" id="ceilingMsg"></p>
   </div>
@@ -1586,12 +1591,46 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var sel = el('ceiling'); var d = el('ceilingDesc');
     if (sel && d) d.textContent = ceilingDescFor(sel.value);
   }
+  // FocusBro Pro: the text rung is a Pro feature. A free person's choice is
+  // still saved; the option reads "(Pro)" and a quiet note links to /pro/
+  // (hidden inside the native app by the shared .pro-buy rule).
+  function paintCeilingPro(data) {
+    if (!data || typeof data.pro !== 'boolean') return;
+    var sel = el('ceiling'); var note = el('ceilingPro');
+    if (sel) {
+      for (var i = 0; i < sel.options.length; i++) {
+        var o = sel.options[i];
+        if (!o.getAttribute('data-label')) o.setAttribute('data-label', o.textContent);
+        o.textContent = o.getAttribute('data-label') + (!data.pro && o.value !== 'none' ? ' (Pro)' : '');
+      }
+    }
+    if (note) { if (!data.pro && data.ceiling !== 'none') show(note); else hide(note); }
+    // The same for the check-in channel picker: a text check-in is Pro too (a
+    // free person's text check-in arrives as a push — enforced in the cron).
+    PRO_KNOWN = data.pro;
+    var ch = el('channel');
+    if (ch) {
+      for (var j = 0; j < ch.options.length; j++) {
+        var co = ch.options[j];
+        if (!co.getAttribute('data-label')) co.setAttribute('data-label', co.textContent);
+        co.textContent = co.getAttribute('data-label') + (!data.pro && co.value === 'text' ? ' (Pro)' : '');
+      }
+    }
+    paintChannelPro();
+  }
+  var PRO_KNOWN = null;
+  function paintChannelPro() {
+    var ch = el('channel'); var cn = el('channelPro');
+    if (!ch || !cn) return;
+    if (PRO_KNOWN === false && ch.value === 'text') show(cn); else hide(cn);
+  }
+  if (el('channel')) el('channel').addEventListener('change', paintChannelPro);
   function loadCeiling() {
     var sel = el('ceiling');
     if (!sel) return;
     fetch('/api/escalation', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
-      .then(function (data) { if (data && data.ceiling) { sel.value = data.ceiling; } updateCeilingDesc(); })
+      .then(function (data) { if (data && data.ceiling) { sel.value = data.ceiling; } paintCeilingPro(data); updateCeilingDesc(); })
       .catch(function () { updateCeilingDesc(); });
   }
   var ceilingSel = el('ceiling');
@@ -1606,6 +1645,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
         .then(function (res) {
           var m = el('ceilingMsg');
+          if (res.ok) paintCeilingPro(res.b);
           m.textContent = res.ok ? 'Got it — that’s the most I’ll do.' : (res.b.error || 'Could not save that just now — try again.');
           m.className = res.ok ? 'ok' : 'err';
           show(m);

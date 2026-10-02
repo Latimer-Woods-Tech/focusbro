@@ -33,6 +33,7 @@
 // Phase B integration syncs to it. We do NOT hand-roll a competing CRM here.
 // ════════════════════════════════════════════════════════════
 
+import { isProUser } from './pro.js';
 import {
   detectCheckinReply,
   parseSnoozeMinutes,
@@ -75,6 +76,20 @@ export const CONSENT_VERSION = '2026-07-06.1';
  */
 export const CEILING_LEVELS = ['none', 'text', 'call'];
 export const DEFAULT_CEILING = 'text';
+
+/**
+ * FocusBro Pro (2026-10-01): the text rung of the ladder is a Pro feature. The
+ * STORED ceiling is always the person's choice; the EFFECTIVE ceiling for a free
+ * person is 'none' (the push nudge alone). The delivery cron enforces it too
+ * (runEscalations → is_pro), so this view is display, not the guard.
+ * @param {string} ceiling  the stored ceiling
+ * @param {boolean} pro
+ * @returns {{pro:boolean, effective:string, upgrade?:string}}
+ */
+export function proCeilingView(ceiling, pro) {
+  if (pro || ceiling === 'none') return { pro: Boolean(pro), effective: ceiling };
+  return { pro: false, effective: 'none', upgrade: '/pro/' };
+}
 
 /**
  * Read a user's chosen escalation ceiling. Defaults to 'text' when unset or on
@@ -946,7 +961,8 @@ export function registerConsentRoutes(router, ctx) {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
       const ceiling = await getEscalationCeiling(env, auth.userId);
-      return jsonResponse({ ceiling, levels: CEILING_LEVELS }, 200, 'short');
+      const pro = await isProUser(env, auth.userId);
+      return jsonResponse({ ceiling, levels: CEILING_LEVELS, ...proCeilingView(ceiling, pro) }, 200);
     } catch (err) {
       console.error('[escalation] get error:', err && err.message);
       return jsonResponse({ error: 'Could not load your nudge settings.' }, 500);
@@ -972,7 +988,10 @@ export function registerConsentRoutes(router, ctx) {
               VALUES (?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET ceiling = excluded.ceiling, updated_at = CURRENT_TIMESTAMP`
       ).bind(auth.userId, ceiling).run();
-      return jsonResponse({ ok: true, ceiling }, 200);
+      // Stored as chosen; a free person's text rung is shown as Pro and does
+      // nothing until Pro is on (the cron enforces the same rule).
+      const pro = await isProUser(env, auth.userId);
+      return jsonResponse({ ok: true, ceiling, ...proCeilingView(ceiling, pro) }, 200);
     } catch (err) {
       console.error('[escalation] set error:', err && err.message);
       return jsonResponse({ error: 'Could not save that just now — try again.' }, 500);

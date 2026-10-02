@@ -1,4 +1,5 @@
 import { pageHead, pageNav } from './page-shell.js';
+import { readProStatus, proReportPreviewCopy } from './pro.js';
 // ════════════════════════════════════════════════════════════
 // FOCUSBRO — WEEKLY REPORT  (Contender track, issue #10, Phase A · R-237)
 // ════════════════════════════════════════════════════════════
@@ -437,6 +438,21 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
 // Registered from index.js so the module-private auth helpers stay in one scope.
 
 /**
+ * The free preview of a weekly report: the headline and this week's kept count,
+ * plus the Pro framing. Nothing else from the full report crosses the wire.
+ * @param {object} report  a buildWeeklyReport() result
+ * @returns {{intro:string, headline:string, kept_this_week:number, pro_preview:string}}
+ */
+export function previewWeeklyReport(report = {}) {
+  return {
+    intro: report.intro || reportPageIntroCopy(),
+    headline: report.headline || '',
+    kept_this_week: Number(report.kept_this_week) || 0,
+    pro_preview: proReportPreviewCopy(),
+  };
+}
+
+/**
  * Register the weekly-report API on an itty-router instance.
  * @param {object} router itty-router instance
  * @param {object} ctx  { getAuthToken, verifyToken, jsonResponse }
@@ -553,9 +569,19 @@ export function registerReportRoutes(router, ctx) {
       }));
 
       const report = buildWeeklyReport({ streak, keptTimestamps, deliveredTimestamps, rhythms, latestNote, timezone, nowISO });
+
+      // FocusBro Pro (2026-10-01): the FULL report is a Pro feature. A free
+      // person gets the week's headline and kept-this-week number — framed as
+      // what Pro adds, never as something withheld from them. Enforced HERE,
+      // server-side: the preview response carries no momentum, rhythms, notes,
+      // or shareable text at all, so nothing is merely hidden by the page.
+      const { pro } = await readProStatus(env, auth.userId);
+      if (!pro) {
+        return jsonResponse({ report: previewWeeklyReport(report), text: '', preview: true, pro: false }, 200, 'nocache');
+      }
       const text = renderReportText(report);
 
-      return jsonResponse({ report, text }, 200, 'nocache');
+      return jsonResponse({ report, text, preview: false, pro: true }, 200, 'nocache');
     } catch (err) {
       console.error('[report] weekly report error:', err && err.message);
       return jsonResponse({ error: 'Could not build your weekly report just now.' }, 500);
@@ -586,8 +612,8 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     <p class="headline" id="headline"></p>
     <div class="stats">
       <div class="stat"><b id="s-week">0</b><small>kept this week</small></div>
-      <div class="stat"><b id="s-run">0</b><small>current run</small></div>
-      <div class="stat"><b id="s-total">0</b><small>kept all time</small></div>
+      <div class="stat full-only"><b id="s-run">0</b><small>current run</small></div>
+      <div class="stat full-only"><b id="s-total">0</b><small>kept all time</small></div>
     </div>
     <div class="spark" id="spark" aria-hidden="true"></div>
     <p class="momentum-summary" id="momentum-summary"></p>
@@ -603,12 +629,17 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
 
   <p class="next-step" id="next-step"></p>
 
-  <div class="actions">
+  <div class="actions" id="report-actions">
     <button id="copy">Copy report</button>
     <button id="share" class="secondary">Share with coach</button>
     <button id="download" class="secondary">Download (.txt)</button>
   </div>
   <p class="muted" id="action-note"></p>
+</div>
+
+<div id="pro-preview" class="card hidden">
+  <p class="muted" id="pro-preview-copy" style="margin-top:0;"></p>
+  <div class="actions"><a class="pro-buy" href="/pro/">See FocusBro Pro</a></div>
 </div>
 
 <p class="err hidden" id="err"></p>
@@ -632,6 +663,22 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
       var rep = data && data.report;
       if (!rep) throw new Error('load');
       reportText = (data && data.text) || '';
+
+      // Free preview (FocusBro Pro): the server sent only the headline and this
+      // week's number. Show those, frame the rest as what Pro adds, and stop.
+      if (data.preview) {
+        el('intro').textContent = rep.intro || ${JSON.stringify(reportPageIntroCopy())};
+        el('headline').textContent = rep.headline || '';
+        el('s-week').textContent = String(rep.kept_this_week || 0);
+        var fo = document.querySelectorAll('#report .full-only');
+        for (var q = 0; q < fo.length; q++) fo[q].classList.add('hidden');
+        ['spark', 'momentum-summary', 'kept-note', 'showed-up', 'milestone', 'next-step', 'report-actions', 'action-note'].forEach(function (id) { hide(id); });
+        var rc = el('rhythms') && el('rhythms').parentNode; if (rc) rc.classList.add('hidden');
+        el('pro-preview-copy').textContent = rep.pro_preview || '';
+        show('pro-preview');
+        show('report');
+        return;
+      }
 
       el('intro').textContent = rep.intro || ${JSON.stringify(reportPageIntroCopy())};
       el('headline').textContent = rep.headline || '';
@@ -771,5 +818,6 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
   });
 })();
 </script>
+<script src="/native-bridge.js" defer></script>
 </body></html>`;
 }

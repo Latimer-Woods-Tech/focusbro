@@ -6447,6 +6447,152 @@ document.addEventListener('keydown', (e) => {
 </script>
 
 
+<!-- ═══ FOCUSBRO PRO (client) — ONE self-contained block, by design ═══
+     Everything Pro adds to this page lives here, so the sound-engine rewrite
+     (feat/real-sounds) never conflicts with it: the "Save this mix" control is
+     INJECTED into #soundsCard after #soundNowPlaying, and the command-palette
+     entry is pushed onto CMD_LIST. It touches the sound engine only through
+     its public functions (startSound, stopAllSounds, persistMix, activeSounds).
+     Pro status comes from GET /api/pro/status, cached in sessionStorage.
+     Google Play: inside the app (html[data-native-app]) every .pro-buy control
+     is hidden; a free person in the app simply does not see "Save this mix". -->
+<style>
+  html[data-native-app] .pro-buy{display:none !important}
+  .saved-mixes { margin-top: 8px; }
+  .saved-mixes .save-mix-btn { width: 100%; }
+  .saved-mixes .pro-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(14,165,233,0.15); color: #38bdf8; }
+  .saved-mixes form { display: flex; gap: 6px; margin-top: 6px; }
+  .saved-mixes input { flex: 1 1 auto; min-width: 0; }
+  .saved-mix-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .saved-mix { display: inline-flex; align-items: center; gap: 2px; }
+  .saved-mix .saved-mix-del { padding: 2px 8px; opacity: 0.7; }
+  .saved-mixes [hidden] { display: none !important; }
+</style>
+<script>
+(function () {
+  'use strict';
+  var STATUS_KEY = 'fb_pro_status';
+  var MIXES_KEY = 'fb_saved_mixes';
+  var MAX_MIXES = 12;
+  var proState = { pro: false, signedIn: false, known: false };
+
+  function readCachedStatus() {
+    try {
+      var c = JSON.parse(sessionStorage.getItem(STATUS_KEY) || 'null');
+      if (c && typeof c.pro === 'boolean' && Date.now() - (c.at || 0) < 10 * 60 * 1000) return c;
+    } catch (e) { /* storage unavailable */ }
+    return null;
+  }
+  function loadProStatus() {
+    var cached = readCachedStatus();
+    if (cached) { proState = { pro: cached.pro, signedIn: !!cached.signedIn, known: true }; paint(); return; }
+    fetch('/api/pro/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        if (!s) return;
+        proState = { pro: !!s.pro, signedIn: !!s.signedIn, known: true };
+        try { sessionStorage.setItem(STATUS_KEY, JSON.stringify({ pro: proState.pro, signedIn: proState.signedIn, at: Date.now() })); } catch (e) { /* ignore */ }
+        paint();
+      })
+      .catch(function () { /* offline: stay free-looking; nothing breaks */ });
+  }
+
+  function readMixes() {
+    try { var m = JSON.parse(localStorage.getItem(MIXES_KEY) || '[]'); return Array.isArray(m) ? m : []; } catch (e) { return []; }
+  }
+  function writeMixes(m) { try { localStorage.setItem(MIXES_KEY, JSON.stringify(m.slice(0, MAX_MIXES))); } catch (e) { /* private mode */ } }
+  function currentMix() {
+    var mix = {};
+    try { Object.keys(activeSounds).forEach(function (n) { mix[n] = activeSounds[n].mix == null ? 1 : activeSounds[n].mix; }); } catch (e) { /* engine not ready */ }
+    return mix;
+  }
+  function say(text) { var live = document.getElementById('soundNowPlaying'); if (live) live.textContent = text; }
+
+  function playSaved(entry) {
+    try {
+      stopAllSounds(true);
+      Object.keys(entry.mix || {}).forEach(function (n) { startSound(n, entry.mix[n]); });
+      persistMix();
+      say('Playing your mix: ' + entry.name);
+    } catch (e) { console.warn('saved mix:', e && e.message); }
+  }
+
+  var wrap = null;
+  function build() {
+    var card = document.getElementById('soundsCard');
+    var anchor = document.getElementById('soundNowPlaying');
+    if (!card || !anchor || document.getElementById('savedMixes')) return false;
+    wrap = document.createElement('div');
+    wrap.className = 'saved-mixes';
+    wrap.id = 'savedMixes';
+    wrap.innerHTML =
+      '<button type="button" class="btn btn-sm save-mix-btn" id="saveMixBtn">💾 Save this mix<span class="pro-badge" id="saveMixBadge" hidden>Pro</span></button>' +
+      '<form id="saveMixForm" hidden><input id="saveMixName" maxlength="40" placeholder="Name this mix" aria-label="Name this mix" /><button type="submit" class="btn btn-sm">Save</button></form>' +
+      '<div class="saved-mix-list" id="savedMixList"></div>';
+    anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    document.getElementById('saveMixBtn').addEventListener('click', function () {
+      if (!proState.pro) { window.location.href = '/pro/'; return; }
+      if (!Object.keys(currentMix()).length) { say('Start a sound first, then save it.'); return; }
+      var f = document.getElementById('saveMixForm'); f.hidden = false;
+      document.getElementById('saveMixName').focus();
+    });
+    document.getElementById('saveMixForm').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var mix = currentMix();
+      var name = (document.getElementById('saveMixName').value || '').trim().slice(0, 40);
+      if (!name || !Object.keys(mix).length) return;
+      var list = readMixes().filter(function (m) { return m && m.name !== name; });
+      list.unshift({ name: name, mix: mix, savedAt: new Date().toISOString() });
+      writeMixes(list);
+      document.getElementById('saveMixName').value = '';
+      this.hidden = true;
+      say('Saved: ' + name);
+      paint();
+    });
+    return true;
+  }
+
+  function paint() {
+    if (!wrap && !build()) return;
+    var btn = document.getElementById('saveMixBtn');
+    var badge = document.getElementById('saveMixBadge');
+    // Free: the action shows with a Pro badge and opens /pro/ — a buy control,
+    // so .pro-buy (hidden inside the native app). Pro: a plain action.
+    btn.classList.toggle('pro-buy', !proState.pro);
+    badge.hidden = proState.pro;
+    var listEl = document.getElementById('savedMixList');
+    listEl.textContent = '';
+    if (!proState.pro) return;
+    readMixes().forEach(function (entry, i) {
+      if (!entry || !entry.name || !entry.mix) return;
+      var item = document.createElement('span');
+      item.className = 'saved-mix';
+      var play = document.createElement('button');
+      play.type = 'button'; play.className = 'btn btn-sm';
+      play.textContent = '▶ ' + entry.name;
+      play.addEventListener('click', function () { playSaved(entry); });
+      var del = document.createElement('button');
+      del.type = 'button'; del.className = 'btn btn-sm saved-mix-del';
+      del.setAttribute('aria-label', 'Remove ' + entry.name);
+      del.textContent = '×';
+      del.addEventListener('click', function () { var l = readMixes(); l.splice(i, 1); writeMixes(l); paint(); });
+      item.appendChild(play); item.appendChild(del);
+      listEl.appendChild(item);
+    });
+  }
+
+  try {
+    if (typeof CMD_LIST !== 'undefined' && Array.isArray(CMD_LIST)) {
+      CMD_LIST.push({ icon: '⭐', name: 'FocusBro Pro', desc: 'Text follow-ups, the full weekly report, saved mixes', action: function () { window.location.href = '/pro/'; }, keys: 'pro upgrade saved mixes weekly report text follow up', group: 'Account' });
+    }
+  } catch (e) { /* palette not present */ }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { paint(); loadProStatus(); });
+  else { paint(); loadProStatus(); }
+})();
+</script>
+<!-- ═══ /FOCUSBRO PRO ═══ -->
+
 <!-- Native app bridge (mobile/): a no-op in a browser. Kept as ONE isolated line. -->
 <script src="/native-bridge.js" defer></script>
 </body>

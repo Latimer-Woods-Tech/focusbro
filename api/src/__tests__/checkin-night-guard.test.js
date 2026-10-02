@@ -46,10 +46,11 @@ function makeDB({ due = [], consent = CONSENT_NO_QUIET, phone = '+15557654321' }
         bind(...a) { params = a; return stmt; },
         async all() {
           if (/escalated_at IS NULL/.test(sql)) return { results: [] };
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */ };
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           // Both the night-guard clock probe (SELECT timezone ...) and
           // evaluateContactGate read contact_consent — both want this row.
           if (/FROM contact_consent/.test(sql)) return consent;

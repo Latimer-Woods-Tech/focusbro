@@ -87,7 +87,7 @@ describe('GET/POST /api/escalation', () => {
     const db = makeDB();
     const r = await escalationRoutes(db).post({ ceiling: 'none' });
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ok: true, ceiling: 'none' });
+    expect(r.body).toEqual({ ok: true, ceiling: 'none', pro: false, effective: 'none' });
     const upsert = db.calls.find((c) => /INSERT INTO escalation_prefs/.test(c.sql));
     expect(upsert).toBeTruthy();
     expect(upsert.sql).toMatch(/ON CONFLICT\(user_id\) DO UPDATE/);

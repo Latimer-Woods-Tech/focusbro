@@ -32,11 +32,12 @@ function makeDB({ due = [], subs = [], esc = [], phone = null, consent = { statu
         async all() {
           // The escalation scan is the more specific commitment_checkins query.
           if (/escalated_at IS NULL/.test(sql)) return { results: esc, _params: params };
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due, _params: params };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
           if (/FROM push_subscriptions/.test(sql)) return { results: subs };
           return { results: [] };
         },
         async first() {
+          if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM contact_consent/.test(sql)) return consent;
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
@@ -430,7 +431,7 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
   const NOW = '2026-07-06T14:00:00.000Z';
   const escRow = (over = {}) => ({
     checkin_id: 'ci9', commitment_id: 'cm9', user_id: 'u9',
-    delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', ...over,
+    delivered_at: '2026-07-06T13:30:00.000Z', title: 'start the taxes', persona: 'ally', is_pro: 1, ...over, // the text rung is Pro (pro.js)
   });
   const okFetch = () => vi.fn(async () => ({ ok: true, status: 200 }));
 
