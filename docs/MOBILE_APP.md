@@ -153,6 +153,11 @@ rejects the project ID with 400), upload-key SHA-256 registered.
 
 ### Google Play (app `net.focusbro.app`)
 
+> **The full launch checklist and the store kit live in [`PLAY_LAUNCH.md`](./PLAY_LAUNCH.md)**
+> (listing, graphics, data-safety CSV, console answers, `mobile/store/push-listing.mjs`).
+> Where the summary below differs (for example App access: the guest flow needs no
+> test account), PLAY_LAUNCH.md and `mobile/store/app-content-checklist.md` are current.
+
 1. **Create the app** in Play Console: name *FocusBro*, default language
    English (US), App, Free. The package name is fixed by the first upload and must
    be exactly `net.focusbro.app`.
