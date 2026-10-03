@@ -22,6 +22,9 @@ export const ANDROID_PACKAGE = 'net.focusbro.app';
 export const ANDROID_CERT_FINGERPRINTS = [
   // Upload key, generated 2026-10-01 (RSA 4096, valid to 2054).
   '74:D3:5D:4A:79:4D:4B:A9:20:2C:14:63:0E:8D:28:76:97:85:4A:03:80:D3:0D:37:F4:70:F2:0D:1C:37:A6:E5',
+  // Play App Signing key — read 2026-10-03 from generatedApks/10005
+  // (certificateSha256Hash). Signs every Play-installed build.
+  'A5:D4:46:EE:9A:89:39:23:EA:79:66:0E:7F:51:74:92:38:30:96:9F:3A:5C:52:8B:9C:95:EE:DE:46:66:F8:D3',
 ];
 
 export const ASSET_LINKS = [

@@ -70,7 +70,9 @@ const FLAT = [
   ['PSL_ACCOUNT_DELETION_URL', '', ACCOUNT_DELETE_URL],
   ['PSL_SUPPORT_DATA_DELETION_BY_USER', 'DATA_DELETION_YES', 'TRUE'],
   ['PSL_DATA_DELETION_URL', '', ACCOUNT_DELETE_URL],
-  ['PSL_HAS_OUTSIDE_APP_ACCOUNTS', '', 'FALSE'],
+  // PSL_HAS_OUTSIDE_APP_ACCOUNTS must be left blank: Play 400s "You cannot answer" it
+  // when the app has no outside-app accounts (verified against the live API 2026-10-03).
+  ['PSL_HAS_OUTSIDE_APP_ACCOUNTS', '', ''],
 ];
 
 /** The data-type category each declared type is answered under. */
