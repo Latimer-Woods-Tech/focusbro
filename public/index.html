@@ -2432,8 +2432,10 @@
       <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openGroundingExercise()">🧭 5-4-3-2-1 Grounding</button>
     </div>
 
-    <!-- MEDICATION REMINDER -->
-    <div class="card" data-views="home">
+    <!-- MEDICATION REMINDER — website only. Inside the native app it is hidden
+         (html[data-native-app]) so Google Play does not classify FocusBro as a
+         medication-management health app. -->
+    <div class="card" id="medCard" data-views="home">
       <div class="card-header">
         <div class="card-title"><span class="icon">💊</span> Med Reminder</div>
       </div>
@@ -6495,6 +6497,7 @@ document.addEventListener('keydown', (e) => {
      is hidden; a free person in the app simply does not see "Save this mix". -->
 <style>
   html[data-native-app] .pro-buy{display:none !important}
+  html[data-native-app] #medCard{display:none !important}
   .saved-mixes { margin-top: 8px; }
   .saved-mixes .save-mix-btn { width: 100%; }
   .saved-mixes .pro-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(14,165,233,0.15); color: #38bdf8; }
