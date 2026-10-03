@@ -1238,7 +1238,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         // A kept word opens the next loop in one tap. Moved / released words stay
         // quiet; every finished word can still open its momentum-only detail.
         html += '<div class="actions">'
-          + (c.status === 'kept' ? '<button class="small" data-act="next-word" data-id="' + esc(c.id) + '">' + esc(NEXT_WORD) + '</button>' : '')
+          + (c.status === 'kept' ? '<button class="small" data-act="next-word" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(nextWordActionLabel())}) + '</button>' : '')
           + '<button class="small secondary" data-act="view" data-id="' + esc(c.id) + '">' + esc(${JSON.stringify(VIEW)}) + '</button>'
           + '</div>';
       }
