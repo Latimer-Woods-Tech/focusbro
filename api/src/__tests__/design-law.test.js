@@ -15,6 +15,7 @@ import { coachOperatorRosterCopySurface } from '../coach-operator-roster.js';
 import { accountabilityCopySurface, alreadyLoggedCopy } from '../accountability.js';
 import { reportCopySurface } from '../report.js';
 import { coachCopySurface } from '../coach.js';
+import { accountDeleteCopySurface } from '../account-delete.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -56,6 +57,9 @@ const SURFACES = [
   // end. Now swept through the one source of truth like every other surface.
   // Coach-pitch voice, so bare ADHD is permitted; shame / treatment / "AI" are not.
   { label: 'coachCopySurface', strings: coachCopySurface(), allowAdhd: true },
+  // Account deletion (/me/ card, /account/delete, /account/deleted): consumer
+  // voice — plain, no guilt on the way out.
+  { label: 'accountDeleteCopySurface', strings: accountDeleteCopySurface(), allowAdhd: false },
 ];
 
 describe('THE DESIGN LAW — every copy surface, one source of truth', () => {

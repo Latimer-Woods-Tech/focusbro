@@ -21,6 +21,8 @@ import { renderMePage } from './me.js';
 import { serveAudio } from './audio.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
 import { registerProRoutes } from './pro.js';
+import { registerAccountDeleteRoutes } from './account-delete.js';
+import { renderPrivacyPage } from './privacy.js';
 import {
   deliverEmailVerification,
   normalizeAccountEmail,
@@ -111,7 +113,7 @@ const CONTENT_SECURITY_POLICY = [
 // should refuse it. The app shell (/) and the signed-in pages still carry the
 // legacy inline scripts that Stage 3 is to extract; there the same policy is
 // report-only, so a regression is visible without breaking the app.
-const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*|\/pro\/|\/pro\.js)$/;
+const CSP_ENFORCED_PATH = /^(\/guides\/[A-Za-z0-9._-]*|\/follow-through-index\.html|\/api\/public\/.*|\/pro\/|\/pro\.js|\/account\/delete|\/account\/deleted|\/account-delete\.js)$/;
 export function cspModeFor(url) {
   let pathname = '';
   try { pathname = new URL(url).pathname; } catch { pathname = ''; }
@@ -2588,6 +2590,11 @@ router.get('/native-bridge.js', (request, env) => scriptResponse(request, env, N
 // its CSP is ENFORCED (CSP_ENFORCED_PATH).
 registerProRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUUID, scriptResponse });
 
+// ── ACCOUNT DELETION (Google Play User Data policy) ──
+// POST /api/account/delete · GET /account/delete (public request page, the Play
+// Console "Delete account URL") · GET /account/deleted · GET /account-delete.js.
+registerAccountDeleteRoutes(router, { getAuthToken, verifyToken, jsonResponse, responseWithCookie, expiredSessionCookie, scriptResponse });
+
 // ── ANDROID APP LINKS (Digital Asset Links for net.focusbro.app) ──
 router.get('/.well-known/assetlinks.json', () => assetLinksResponse());
 
@@ -2884,49 +2891,8 @@ router.get('/index.html', async () => {
   });
 });
 
-router.get('/privacy.html', async () => {
-  const page = `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FocusBro Privacy Policy</title><meta name="description" content="How FocusBro handles your data, cookies, plus your GDPR and CCPA rights and ad opt-out links." /></head>
-<body style="font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:0 auto;padding:24px;line-height:1.65;color:#111827;">
-<nav style="font-size:14px;color:#374151;"><a href="/">Home</a> | <a href="/terms.html">Terms</a> | <a href="/about.html">About</a> | <a href="/contact.html">Contact</a></nav>
-<h1>Privacy Policy</h1>
-<p><strong>Last updated: July 25, 2026</strong></p>
-
-<p>FocusBro (focusbro.net) is a browser-first focus and wellness app operated by Latimer Woods Tech. This policy explains what data we handle, how cookies and third-party advertising work on the site, and the choices and rights you have.</p>
-
-<h2>Data stored in your browser</h2>
-<p>By default, the content you create in FocusBro &mdash; timer history, notes, gratitude entries, check-ins, and preferences &mdash; is stored locally in your browser using <em>localStorage</em>. This data stays on your device, is not transmitted to us, and is cleared when you clear your browser storage.</p>
-
-<h2>Data sent to our servers</h2>
-<p>Some data reaches our servers only when you deliberately use a connected feature:</p>
-<ul>
-<li><strong>Account &amp; cloud sync</strong> (optional): if you create an account, we store an email address and the synced data you choose to back up, so your sessions are available across devices.</li>
-<li><strong>Campaign measurement</strong>: Aggregate campaign visit counts come from tagged links. We store the campaign labels, not a visitor ID, fingerprint, task, email, or contact information.</li>
-<li><strong>Payments</strong> (optional): paid plans are processed by Stripe. We do not store full card numbers; Stripe handles card data under its own privacy policy.</li>
-<li><strong>Basic request logs</strong>: like most websites, our servers may temporarily log IP address, browser type, and requested pages for security and reliability.</li>
-</ul>
-
-<h2>Cookies</h2>
-<p>FocusBro shows no ads and uses no advertising or tracking cookies. If you sign in, we set one essential session cookie so you stay signed in; it is not used for anything else. Visit counts come from Cloudflare Web Analytics, which does not use cookies or identify you.</p>
-
-<h2>Your rights (GDPR)</h2>
-<p>If you are in the European Economic Area or the UK, you have the right to access, correct, export, restrict, or delete the personal data we hold, to object to certain processing, and to withdraw consent at any time. To exercise these rights, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
-
-<h2>Your rights (CCPA)</h2>
-<p>If you are a California resident, you have the right to know what personal information is collected, to request deletion, and to opt out of the "sale" or "sharing" of personal information as those terms are defined by the CCPA/CPRA. We do not sell your personal information for money. To make a request, email <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
-
-<h2>Children</h2>
-<p>FocusBro is not directed to children under 13, and we do not knowingly collect personal information from them.</p>
-
-<h2>Changes to this policy</h2>
-<p>We may update this policy as the service evolves. Material changes will be reflected by updating the "Last updated" date above.</p>
-
-<h2>Contact</h2>
-<p>Privacy questions or data requests: <a href="mailto:support@focusbro.net">support@focusbro.net</a>.</p>
-</body></html>`;
-  return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
-});
+router.get('/privacy.html', async () =>
+  new Response(renderPrivacyPage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }));
 
 router.get('/terms.html', async () => {
   const page = `<!doctype html>
@@ -3003,7 +2969,7 @@ router.get('/contact.html', async () => {
 <p>Questions about using the app, bug reports, or feature ideas: <a href="mailto:support@focusbro.net">support@focusbro.net</a>. We aim to reply within two business days.</p>
 
 <h2>Privacy &amp; data requests</h2>
-<p>To access, export, or delete your data, or to ask a privacy question, email <a href="mailto:support@focusbro.net">support@focusbro.net</a> with "Privacy" in the subject line. See our <a href="/privacy.html">Privacy Policy</a> for the rights available to you.</p>
+<p>To access, export, or delete your data, or to ask a privacy question, email <a href="mailto:support@focusbro.net">support@focusbro.net</a> with "Privacy" in the subject line. See our <a href="/privacy.html">Privacy Policy</a> for the rights available to you. To delete your account and its data, see <a href="/account/delete">Delete your account</a>.</p>
 
 <h2>Business inquiries</h2>
 <p>Partnerships and other business matters: <a href="mailto:hello@focusbro.net">hello@focusbro.net</a>.</p>

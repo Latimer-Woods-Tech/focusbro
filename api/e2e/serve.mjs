@@ -14,6 +14,7 @@ import { NATIVE_BRIDGE_SCRIPT } from '../src/native-bridge.js';
 import { renderProPage, PRO_PAGE_SCRIPT, isNativeAppRequest } from '../src/pro.js';
 import { renderReportPage } from '../src/report.js';
 import { renderFollowThroughPage, SAMPLE_FIGURES } from '../src/guides/follow-through.js';
+import { ACCOUNT_DELETE_SCRIPT, renderAccountDeletePublicPage, renderAccountDeletedPage } from '../src/account-delete.js';
 
 const port = Number(process.env.PORT) || 4173;
 
@@ -46,6 +47,7 @@ function audioFixture() {
   return fixtureWav;
 }
 const receivedViews = [];
+const receivedDeletes = [];
 
 http
   .createServer((req, res) => {
@@ -129,6 +131,34 @@ http
       const body = real ? fs.readFileSync(file) : audioFixture();
       res.writeHead(200, { 'Content-Type': real ? 'audio/mp4' : 'audio/wav', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
       res.end(body);
+    } else if (path === '/account-delete.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+      res.end(ACCOUNT_DELETE_SCRIPT);
+    } else if (path === '/account/delete') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderAccountDeletePublicPage());
+    } else if (path === '/account/deleted') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(renderAccountDeletedPage());
+    } else if (path === '/auth/session') {
+      // Signed in only when the smoke sets the stand-in cookie; no D1 here.
+      const signedIn = /(?:^|;\s*)smoke_session=1/.test(req.headers.cookie || '');
+      res.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(signedIn ? { authenticated: true, user_id: 'smoke-user', guest: true, email: null } : { authenticated: false }));
+    } else if (path === '/api/account/delete' && req.method === 'POST') {
+      // Records what the page sent; the real deletion is proven in vitest on a real schema.
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = null; try { body = JSON.parse(raw); } catch { body = null; }
+        receivedDeletes.push({ body, contentType: req.headers['content-type'] || '' });
+        const ok = body && body.confirm === 'DELETE';
+        res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json', ...(ok ? { 'Set-Cookie': 'smoke_session=; Path=/; Max-Age=0' } : {}) });
+        res.end(JSON.stringify(ok ? { deleted: true } : { error: 'confirm' }));
+      });
+    } else if (path === '/__smoke/deletes') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(receivedDeletes));
     } else if (path === '/__smoke/views') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(receivedViews));
