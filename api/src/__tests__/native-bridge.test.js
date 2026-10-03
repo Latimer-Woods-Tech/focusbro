@@ -283,6 +283,10 @@ describe('Android App Links', () => {
     expect(await res.json()).toEqual(ASSET_LINKS);
     expect(ANDROID_CERT_FINGERPRINTS.length).toBeGreaterThan(0); // an empty list verifies nothing, silently
     for (const fp of ANDROID_CERT_FINGERPRINTS) expect(fp).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+    // Both the upload key (CI / Firebase builds) and the Play App Signing key
+    // (Play installs) — drop either and that half of installs opens links in the browser.
+    expect(ANDROID_CERT_FINGERPRINTS).toContain('74:D3:5D:4A:79:4D:4B:A9:20:2C:14:63:0E:8D:28:76:97:85:4A:03:80:D3:0D:37:F4:70:F2:0D:1C:37:A6:E5');
+    expect(ANDROID_CERT_FINGERPRINTS).toContain('A5:D4:46:EE:9A:89:39:23:EA:79:66:0E:7F:51:74:92:38:30:96:9F:3A:5C:52:8B:9C:95:EE:DE:46:66:F8:D3');
   });
 
   it('agrees with the native project: same package, and the manifest claims only /me', () => {
