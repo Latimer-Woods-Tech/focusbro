@@ -61,6 +61,7 @@ import {
 /** The commitment lifecycle states the consumer view can render. */
 import { pageHead, pageNav } from './page-shell.js';
 import { proCeilingNoteCopy, proChannelNoteCopy } from './pro.js';
+import { renderMeDeleteSection } from './account-delete.js';
 
 export const COMMITMENT_STATUSES = ['active', 'kept', 'missed', 'rescheduled', 'released', 'paused'];
 
@@ -809,6 +810,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   </div>
 
   <p class="muted"><a href="#" id="signout">Sign out</a></p>
+
+  ${renderMeDeleteSection()}
 </div>
 
 <p class="footnote">${mePageFootnoteCopy()}</p>
@@ -2175,6 +2178,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   restoreSession();
 })();
 </script>
+<script src="/account-delete.js" defer></script>
 <script src="/native-bridge.js" defer></script>
 </body></html>`;
 }

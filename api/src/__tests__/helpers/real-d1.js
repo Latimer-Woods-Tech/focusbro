@@ -21,6 +21,19 @@ export function makeMigratedD1() {
   const norm = (v) => (v === undefined ? null : typeof v === 'boolean' ? Number(v) : v);
   return {
     sqlite: sdb,
+    // D1's batch(): every statement in one implicit transaction — all or nothing.
+    async batch(statements) {
+      sdb.exec('BEGIN');
+      try {
+        const out = [];
+        for (const st of statements) out.push(await st.run());
+        sdb.exec('COMMIT');
+        return out;
+      } catch (err) {
+        sdb.exec('ROLLBACK');
+        throw err;
+      }
+    },
     prepare(sql) {
       const stmt = sdb.prepare(sql);
       let params = [];
