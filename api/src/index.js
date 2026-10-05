@@ -1697,16 +1697,24 @@ router.post('/auth/exchange', async (request, env) => {
 });
 
 router.get('/auth/session', async (request, env) => {
+  // FBQ-23: a plain GET answers an anonymous caller 401 (the contract the coach
+  // page, the delete card and the native app read). The browser logs every 401
+  // as a console error and Playwright/CDP never reports that response finished,
+  // so an anonymous first visit had a red console and never reached network
+  // idle. `?probe=1` is the quiet door: same question, answered 200
+  // {authenticated:false}. Opt-in so no existing caller's meaning changes.
+  const probe = new URL(request.url).searchParams.get('probe') === '1';
+  const anonymous = () => jsonResponse({ authenticated: false }, probe ? 200 : 401);
   try {
     const auth = await authenticatedSession(request, env);
     if (!auth) {
-      return jsonResponse({ authenticated: false }, 401);
+      return anonymous();
     }
     const user = await env.DB.prepare(
       'SELECT email, email_verified_at, is_guest FROM users WHERE id = ? AND is_active = 1'
     ).bind(auth.payload.sub).first();
     if (!user) {
-      return jsonResponse({ authenticated: false }, 401);
+      return anonymous();
     }
     const guest = Boolean(Number(user.is_guest));
     return jsonResponse({
@@ -1716,11 +1724,14 @@ router.get('/auth/session', async (request, env) => {
       // a guest's address is synthetic and non-routable; it is never shown
       email: guest ? null : user.email,
       email_verified: !guest && Boolean(user.email_verified_at),
-      guest
+      guest,
+      // FBQ-23: lets /me/ ask for the founder metrics only when it can have
+      // them, instead of probing /api/internal/metrics and logging a 401.
+      founder: !guest && (await authorizeMetricsRequest(request, env).catch(() => null))?.authorized === true
     }, 200);
   } catch (error) {
     console.error('[AUTH] Session status error:', error.message);
-    return jsonResponse({ authenticated: false }, 401);
+    return anonymous();
   }
 });
 
@@ -3535,14 +3546,14 @@ router.get('/manifest.json', async (_request, _env) => {
         "name": "Pomodoro Timer",
         "short_name": "Pomodoro",
         "description": "Start a focused work session",
-        "url": "/?view=pomodoro",
+        "url": "/?tool=pomodoro",
         "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
       },
       {
         "name": "Breathing Exercise",
         "short_name": "Breathing",
         "description": "Guided breathing exercises",
-        "url": "/?view=breathing",
+        "url": "/?tool=breathing",
         "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
       }
     ]

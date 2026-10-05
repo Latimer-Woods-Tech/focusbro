@@ -285,8 +285,11 @@ export const ACCOUNT_DELETE_SCRIPT = `(function () {
   function show(n) { if (n) n.classList.remove('hidden'); }
   function hide(n) { if (n) n.classList.add('hidden'); }
   function check() {
-    fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
-      if (!r.ok) { hide(card); return; }
+    // ?probe=1: a signed-out visitor gets 200 {authenticated:false}, not a 401 console error (FBQ-23).
+    fetch('/auth/session?probe=1', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (b) {
+      if (!b || !b.authenticated) { hide(card); return; }
       show(card);
       if (window.location.hash === '#delete') { try { card.scrollIntoView(); } catch (e) {} }
     }).catch(function () {});

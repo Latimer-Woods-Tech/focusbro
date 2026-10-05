@@ -74,7 +74,7 @@ test.describe('FocusBro client smoke', () => {
       guestStarts.push(route.request().method());
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, user_id: 'g1', guest: true, session_id: 's1' }) });
     });
-    await page.route('**/auth/session', async (route) => {
+    await page.route('**/auth/session*', async (route) => {
       await route.fulfill({ status: guestStarts.length ? 200 : 401, contentType: 'application/json', body: JSON.stringify(guestStarts.length ? { authenticated: true, user_id: 'g1', guest: true, email: null } : { authenticated: false }) });
     });
     await page.route('**/sync/events', async (route) => {
@@ -127,8 +127,8 @@ test.describe('FocusBro client smoke', () => {
 
   test('turns an honest “not yet” into a warm reschedule instead of a dead end', async ({ page }) => {
     const checkinBodies = [];
-    await page.route('**/auth/session', async (route) => {
-      await route.fulfill({ contentType: 'application/json', body: '{}' });
+    await page.route('**/auth/session*', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ authenticated: true, guest: true }) });
     });
     await page.route('**/api/**', async (route) => {
       const request = route.request();

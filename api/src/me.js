@@ -965,7 +965,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     personaHydrated = true;
   }
   function loadStreak() {
-    fetch('/api/accountability/streak', { headers: authHeaders(), cache: 'no-store' })
+    return fetch('/api/accountability/streak', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) { applyDefaultPersona(data); renderStreak(data); })
       .catch(function () {});
@@ -1166,7 +1166,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   }
 
   function loadKept() {
-    fetch('/api/accountability/kept', { headers: authHeaders(), cache: 'no-store' })
+    return fetch('/api/accountability/kept', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) {
         renderKept(data);
@@ -1291,7 +1291,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   }
 
   function loadList() {
-    fetch('/api/commitments', { headers: authHeaders(), cache: 'no-store' })
+    return fetch('/api/commitments', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) {
         var commitments = (data && data.commitments) || [];
@@ -1475,7 +1475,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // re-greet). Non-fatal: any failure just leaves the ordinary re-entry door in place.
   var HOMECOMING = false;
   function loadHomecoming() {
-    fetch('/api/accountability/homecoming', { headers: authHeaders(), cache: 'no-store' })
+    return fetch('/api/accountability/homecoming', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (data && data.homecoming) {
@@ -1554,7 +1554,26 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .catch(function () { recordPushPermission('failed'); });
   }
 
-  function enterApp(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadHomecoming(); loadStreak(); loadList(); loadKept(); loadConsent(); loadCeiling(); loadNoteSharing(); loadFounderMetrics(); maybeAutoGiveWord(); }
+  // FBQ-23 (CLS 0.123): the page lays out as data lands (streak line, words,
+  // kept log, welcome-back card) and pushes everything below it down. On the
+  // first entry the app is laid out but not painted until the first batch of
+  // reads has settled (or 1.5s, whichever is first) — no shift, because nothing
+  // visible moves. Later entries (sign-in, first word) are already on screen.
+  function revealWhenSettled(reads) {
+    var app = el('app'), done = false;
+    function reveal() { if (done) return; done = true; app.classList.remove('loading'); }
+    app.classList.add('loading');
+    Promise.all(reads.map(function (p) { return Promise.resolve(p).catch(function () {}); })).then(reveal);
+    setTimeout(reveal, 1500);
+  }
+  function enterApp(session) {
+    var first = el('app').classList.contains('hidden');
+    var reads = [loadHomecoming(), loadStreak(), loadList(), loadKept()];
+    if (first) revealWhenSettled(reads);
+    enterAppShell(session);
+    if (session && session.founder) loadFounderMetrics();
+  }
+  function enterAppShell(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadConsent(); loadCeiling(); loadNoteSharing(); maybeAutoGiveWord(); }
 
   function metricRate(rate) {
     return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
@@ -2096,7 +2115,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .then(function (res) {
         if (!res.ok) { throw new Error(res.b.error || 'Sign in failed'); }
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp({ guest: false });
+        enterProbed({ guest: false });
       })
       .catch(function (e) { var n = el('signinErr'); n.textContent = e.message || 'Sign in failed'; show(n); });
   });
@@ -2185,8 +2204,21 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // No session: the FORM, not a password. The first word creates the guest
   // account on submit (see startGuest). Returning people take the sign-in link.
   function showSigninDoor() { enterAnonymous(); }
-  function enterFromSession(response) {
-    return response.json().then(function (body) { enterApp(body); }).catch(function () { enterApp(null); });
+  // ?probe=1 answers "no session" as 200 {authenticated:false}: a 401 is a red
+  // console line on every anonymous visit (FBQ-23). Resolves to the session
+  // body, or null for no session / any failure.
+  function probeSession() {
+    return fetch('/auth/session?probe=1', { cache: 'no-store' })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (body) { return body && body.authenticated ? body : null; })
+      .catch(function () { return null; });
+  }
+  // Enter the app from the live session; if the probe fails, fall back to what
+  // the caller already knows (a just-completed sign-in) or to the door.
+  function enterProbed(fallback) {
+    return probeSession().then(function (body) {
+      if (body) enterApp(body); else if (fallback) enterApp(fallback); else showSigninDoor();
+    });
   }
 
   function restoreSession() {
@@ -2198,21 +2230,17 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       }).then(function (response) {
         if (!response.ok) throw new Error('Legacy exchange rejected');
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        enterApp({ guest: false });
+        return enterProbed({ guest: false });
       }).catch(function () {
         // A rejected legacy token is no longer useful or safe to retain. The
         // cookie check still recovers a session created in another tab.
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
-          if (response.ok) enterFromSession(response); else showSigninDoor();
-        }).catch(showSigninDoor);
+        return enterProbed(null);
       });
       return;
     }
 
-    fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
-      if (response.ok) enterFromSession(response); else showSigninDoor();
-    }).catch(showSigninDoor);
+    enterProbed(null);
   }
 
   restoreSession();
