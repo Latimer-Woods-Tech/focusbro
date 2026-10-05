@@ -148,6 +148,12 @@ function zonedWallToUtcMs(y, mo, d, h, mi, timeZone) {
   const guess = Date.UTC(y, mo - 1, d, h, mi, 0);
   const utc1 = guess - tzOffsetMs(guess, timeZone);
   const utc2 = guess - tzOffsetMs(utc1, timeZone);
+  // FBQ-18 R4 — a wall time inside a spring-forward gap (02:30 on 2026-03-08 in
+  // America/New_York) does not exist. The two reads above then disagree, and
+  // `utc2` is the EARLIER one (01:30 EST) — an hour before the person asked.
+  // Convention: resolve FORWARD (03:30 EDT = `utc1`). A valid time round-trips,
+  // and the fall-back repeated hour does too (first pass, unchanged).
+  if (utc2 + tzOffsetMs(utc2, timeZone) !== guess) return Math.max(utc1, utc2);
   return utc2;
 }
 
@@ -368,6 +374,23 @@ function clockTo24(m) {
   return [hh, mm];
 }
 
+// FBQ-18 R2/R3 — the ONE reading of a clock match when the DAY is already known
+// (tomorrow / weekday / date forms): [h, m] 24h, or null when impossible or when
+// it would land in 00:00-05:59 local without an explicit "am".
+//  - am/pm given: literal ("3am" is a deliberate 3 AM; "12am" is midnight).
+//  - literal 24h: an hour >= 13, a leading zero ("05:30", "08"), or hour 0.
+//  - otherwise (hour 1..12, bare or h:mm): 1..6 reads PM ("5:30" = 17:30),
+//    7..11 stay AM, 12 is noon. Same rule with or without minutes.
+function clockHM(m) {
+  const [h24, mi] = clockTo24(m);
+  if (h24 == null) return null;
+  if (m[3]) return [h24, mi];
+  const hh = parseInt(m[1], 10);
+  const literal = hh === 0 || hh >= 13 || (m[1].length === 2 && m[1][0] === '0');
+  const h = (!literal && hh >= 1 && hh <= 6) ? hh + 12 : hh;
+  return (h * 60 + mi < 6 * 60) ? null : [h, mi];
+}
+
 /**
  * Turn a natural-language "when do you want to try again?" SMS reply into a
  * future ISO instant, DST-correct in the recipient's timezone. Returns null when
@@ -397,6 +420,21 @@ function clockTo24(m) {
  * "7/8 3pm" (a "/" or "-" separator is required so a lone number stays a clock,
  * and an out-of-horizon numeric date falls through to the clock reading rather
  * than re-asking).
+ *
+ * FBQ-18 rules (pinned by parse-when-table.test.js):
+ *  - UNITS: only min/h/d/w (and their spellings) are durations. A count followed
+ *    by anything else — seconds, months, years — returns null (re-ask), never
+ *    minutes. Seconds are null on purpose: the floor is one minute, so "in 10
+ *    secs" cannot be honoured and rounding it up would be a time nobody said.
+ *    A bare "in 20" (count alone, ± "ish"/"please") stays minutes.
+ *  - BARE HOUR ("3", "5:30", h 1..12, no am/pm): the next DAYTIME instance —
+ *    soonest future among the AM/PM readings that fall in 07:00-21:59 (so 1..6
+ *    read PM, 12 is noon, 10 at 7:30 PM waits for 10 AM). The day-qualified
+ *    forms use the same reading: 1..6 PM, 7..11 AM, 12 noon, with or without
+ *    minutes.
+ *  - 24h: an hour >= 13 or a leading zero ("14:00", "08:15") is literal.
+ *  - SMALL HOURS: no parsed time lands in 00:00-05:59 without an explicit "am"
+ *    (or the word "midnight"); otherwise null so the person is re-asked.
  *
  * @param {object} p { nowISO, timezone, defaultTime }  defaultTime='HH:MM' usual check-in time
  * @returns {string|null}
@@ -435,6 +473,10 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     .replace(/\s+/g, ' ')
     .trim();
 
+  // FBQ-18 R1 — a count with a unit we do not support (seconds, months, years) is
+  // not a clock hour and not minutes: re-ask rather than guess.
+  if (/\b\d{1,4}\s*(?:sec|secs|second|seconds|mo|mos|month|months|yr|yrs|year|years)\b/.test(t)) return null;
+
   // A second, separator-preserving normalization: the pass above strips "/" and
   // "-" (so "7/20" collapses to "7 20"), but a numeric MM/DD date needs the
   // separator to be readable. Keep it here for the numeric-date branch only.
@@ -461,6 +503,9 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     else {
       const m = t.match(/^in\s+(\d{1,4})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)?\b/);
       if (m) {
+        // FBQ-18 R1 — no known unit: only a bare count (± a filler) means minutes;
+        // "in 5 whatever" is a re-ask, not 5 minutes.
+        if (!m[2] && t.slice(m[0].length).replace(/\b(ish|or so|or two|please|pls|thanks|thx|ok|okay|maybe)\b/g, ' ').trim()) return null;
         const n = parseInt(m[1], 10);
         const u = m[2] || 'm';
         mins = /^w/.test(u) ? n * 7 * 24 * 60
@@ -722,11 +767,10 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     const [dy, dmo, dd] = wantsDayAfterTomorrow ? addDay(y0, mo0, d0, 2) : [ty, tm, td];
     let h, mi;
     if (clock) {
-      const [ch, cm] = clockTo24(clock);
-      if (ch == null) return null;
       // A bare small hour "tomorrow 3" reads as afternoon; "tomorrow 9" as morning.
-      h = (!clock[3] && !clock[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
-      mi = cm;
+      const hm = clockHM(clock);
+      if (!hm) return null;
+      [h, mi] = hm;
     } else if (partOfDay) { [h, mi] = partOfDay; }
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
     return inRange(at(dy, dmo, dd, h, mi));
@@ -759,11 +803,10 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
 
     let h, mi;
     if (clock) {
-      const [ch, cm] = clockTo24(clock);
-      if (ch == null) return null;
       // A bare small hour "monday 3" reads as afternoon; "monday 9" as morning.
-      h = (!clock[3] && !clock[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
-      mi = cm;
+      const hm = clockHM(clock);
+      if (!hm) return null;
+      [h, mi] = hm;
     } else if (partOfDay) { [h, mi] = partOfDay; }
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
 
@@ -817,11 +860,10 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
     const clock2 = rest.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
     let h, mi;
     if (clock2) {
-      const [ch, cm] = clockTo24(clock2);
-      if (ch == null) return null;
       // A bare small hour "the 20th 3" reads as afternoon; "9" as morning.
-      h = (!clock2[3] && !clock2[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
-      mi = cm;
+      const hm = clockHM(clock2);
+      if (!hm) return null;
+      [h, mi] = hm;
     } else if (partOfDay) { [h, mi] = partOfDay; }
     else { const dt = parseLocalTime(defaultTime) || { h: 9, m: 0 }; h = dt.h; mi = dt.m; }
 
@@ -867,11 +909,11 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
       const clockN = rest.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
       let h = null, mi = 0;
       if (clockN) {
-        const [ch, cm] = clockTo24(clockN);
-        if (ch != null) {
+        if (clockTo24(clockN)[0] != null) {
           // A bare small hour "7/20 3" reads as afternoon; "9" as morning.
-          h = (!clockN[3] && !clockN[2] && ch >= 1 && ch <= 6) ? ch + 12 : ch;
-          mi = cm;
+          const hm = clockHM(clockN);
+          if (!hm) return null; // small hours need an explicit am
+          [h, mi] = hm;
         }
       }
       if (h == null) {
@@ -923,15 +965,20 @@ export function parseWhenReply(text, { nowISO, timezone, defaultTime } = {}) {
       return inRange(at(y0, mo0, d0, h, mm)) || inRange(at(ty, tm, td, h, mm));
     }
     if (hh > 23) return null;
-    if (hh >= 13 || clock[2]) {
-      // 24h reading ("14:00", "15") or explicit :mm — literal, roll if past.
+    const literal = hh === 0 || hh >= 13 || (clock[1].length === 2 && clock[1][0] === '0');
+    if (literal) {
+      // 24h reading ("14:00", "08:15", "15") — literal, roll if past. The small
+      // hours ("05:30", "0:30") are never guessed: null re-asks (FBQ-18 R3).
+      if (hh * 60 + mm < 6 * 60) return null;
       return inRange(at(y0, mo0, d0, hh, mm)) || inRange(at(ty, tm, td, hh, mm));
     }
-    // Ambiguous 0..12 with no minutes → soonest future among AM/PM, today or tomorrow.
+    // Bare 1..12 (± minutes): soonest future AM/PM reading, today or tomorrow,
+    // that falls in the daytime window 07:00-21:59 (FBQ-18 R2). 1..6 → PM only,
+    // 12 → noon only, 10/11 → AM only, 7..9 → whichever is next.
     const amH = hh % 12, pmH = (hh % 12) + 12;
     const cands = [];
     for (const [yy, mm2, dd] of [[y0, mo0, d0], [ty, tm, td]]) {
-      cands.push(at(yy, mm2, dd, amH, mm), at(yy, mm2, dd, pmH, mm));
+      for (const h of [amH, pmH]) if (h * 60 + mm >= 7 * 60 && h * 60 + mm < 22 * 60) cands.push(at(yy, mm2, dd, h, mm));
     }
     const future = cands.filter((ms) => ms > soonest && ms <= nowMs + HORIZON_MS).sort((a, b) => a - b);
     return future.length ? new Date(future[0]).toISOString() : null;

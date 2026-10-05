@@ -153,6 +153,27 @@ describe('in-app reschedule shares parseWhenReply with the SMS channel', () => {
     expect(db.runs).toHaveLength(0);
   });
 
+  // FBQ-18 - the in-app "Move it / Not yet" prompt: an unsupported unit re-asks
+  // with the shared copy (400, no writes); "5:30" lands in the daytime.
+  it('FBQ-18: "in 5 years" re-asks warmly and writes nothing; "5:30" never lands in the small hours', async () => {
+    const db = makeDB({ commitment: oneShot });
+    const res = await buildRouter(db)('POST', '/api/commitments/cm1/checkin', {
+      body: { outcome: 'reschedule', when_text: 'in 5 years' },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(smsWhenUnclearCopy({ persona: 'ally' }));
+    expect(db.runs).toHaveLength(0);
+
+    const db2 = makeDB({ commitment: oneShot });
+    const ok = await buildRouter(db2)('POST', '/api/commitments/cm1/checkin', {
+      body: { outcome: 'reschedule', when_text: '5:30' },
+    });
+    expect(ok.status).toBe(200);
+    const hour = +new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23' })
+      .format(new Date(insertedCommitment(db2.runs).start_at));
+    expect(hour).toBeGreaterThanOrEqual(7);
+  });
+
   // Two-way parity with SMS (PR #130): answering the in-app "Move it → when?"
   // prompt with "I'm on it" is a SNOOZE, not a reschedule — the engaged person,
   // mid-task, meets the same warmth the text channel gives, never the cold
