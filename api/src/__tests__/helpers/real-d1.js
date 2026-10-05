@@ -14,6 +14,9 @@ const MIGRATIONS_DIR = fileURLToPath(new URL('../../../../migrations', import.me
 
 export function makeMigratedD1() {
   const sdb = new DatabaseSync(':memory:');
+  // D1 enforces foreign keys; SQLite does not unless asked. Without this a test
+  // can seed an orphan row (or delete a parent) that production would reject.
+  sdb.exec('PRAGMA foreign_keys = ON');
   for (const f of readdirSync(MIGRATIONS_DIR).filter((n) => /^\d{4}_.*\.sql$/.test(n)).sort()) {
     sdb.exec(readFileSync(`${MIGRATIONS_DIR}/${f}`, 'utf8'));
   }
