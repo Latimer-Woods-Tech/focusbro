@@ -29,8 +29,10 @@ import { renderPrivacyPage } from './privacy.js';
 import {
   deliverEmailVerification,
   normalizeAccountEmail,
+  passwordPolicyError,
   registerAccountRecoveryRoutes
 } from './account-recovery.js';
+import { spendLimits, refundLimit, clearLimits, retryAfterSeconds } from './rate-limit.js';
 import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
@@ -169,105 +171,91 @@ const dbLog = (msg, ...args) => {
 };
 
 // ── RATE LIMITING ──
-/**
- * Rate limiter for auth endpoints using KV storage
- * Limits requests per IP to prevent brute force attacks
- */
+// FBQ-13: every limit is spent atomically in D1 (./rate-limit.js). The old KV
+// get-then-put let 40 concurrent guest creates through a limit of 10.
+function clientIP(request) {
+  const forwarded = request.headers.get('CF-Connecting-IP')
+    || request.headers.get('X-Forwarded-For')
+    || 'unknown';
+  return forwarded.split(',')[0].trim() || 'unknown';
+}
+
+/** Per-IP create limit (register, guest): config.auth.maxLoginAttempts per window. */
 async function checkRateLimit(request, env, endpoint) {
-  // Get client IP from CF headers
-  const clientIP = request.headers.get('CF-Connecting-IP') || 
-                   request.headers.get('X-Forwarded-For') || 
-                   'unknown';
-  
-  const rateLimitKey = `ratelimit:${endpoint}:${clientIP}`;
-  
+  const key = `${endpoint}:ip:${await hashSessionCredential(clientIP(request))}`;
   try {
-    // Get current count from KV
-    const countStr = await env.KV_CACHE.get(rateLimitKey);
-    const count = countStr ? parseInt(countStr) : 0;
-    
-    const MAX_ATTEMPTS = config.auth.maxLoginAttempts;
-    const TIME_WINDOW = config.auth.rateLimitWindowSeconds;
-    
-    if (count >= MAX_ATTEMPTS) {
-      return {
-        limited: true,
-        retryAfter: TIME_WINDOW,
-        message: 'Too many login attempts. Please try again in 15 minutes.'
-      };
-    }
-    
-    // Increment counter and set expiration
-    await env.KV_CACHE.put(rateLimitKey, (count + 1).toString(), { expirationTtl: TIME_WINDOW });
-    
-    return { limited: false };
+    const hit = (await spendLimits(env, [key], config.auth.rateLimitWindowSeconds))[key];
+    if (hit.count <= config.auth.maxLoginAttempts) return { limited: false };
+    return {
+      limited: true,
+      retryAfter: retryAfterSeconds([hit.resetAt]),
+      message: 'Too many attempts. Please try again in a few minutes.',
+    };
   } catch (e) {
-    // If KV fails, allow the request (fail open)
     console.warn('Rate limit check failed (allowing request):', e.message);
     return { limited: false };
   }
 }
 
-async function loginRateLimitKeys(request, normalizedEmail) {
-  const clientIP = request.headers.get('CF-Connecting-IP')
-    || request.headers.get('X-Forwarded-For')
-    || 'unknown';
-  const accountHash = await hashSessionCredential(normalizedEmail);
-  const networkHash = await hashSessionCredential(clientIP.split(',')[0].trim() || 'unknown');
-  return [
-    `ratelimit:login:account:${accountHash}`,
-    `ratelimit:login:account-network:${accountHash}:${networkHash}`,
-  ];
+// FBQ-13 login limit. Each attempt SPENDS from three windows BEFORE the password
+// is checked, so a correct guess past a budget gets 429 like any other:
+//   account+IP  config.auth.loginAccountNetworkFailures (10) — the tight key;
+//               an attacker on another network cannot lock the owner out
+//   account     config.auth.loginAccountFailures (50) — backstop for a spread attack
+//   IP          config.auth.loginNetworkFailures (30) — one address spraying accounts
+// A rejected attempt is refunded (it checked no password, so it must not push
+// the account-wide count toward a lockout). A success clears the account windows
+// (only the owner can succeed) and refunds the IP window by one — never clears
+// it, or logging into your own account would reset a spray. A password reset
+// also clears the account windows (onPasswordReset below).
+async function loginLimitKeys(request, normalizedEmail) {
+  const account = `login:acct:${await hashSessionCredential(normalizedEmail)}`;
+  const network = await hashSessionCredential(clientIP(request));
+  return { account, accountNetwork: `${account}:ip:${network}`, network: `login:ip:${network}` };
 }
 
-async function failedLoginLimit(request, env, normalizedEmail) {
+/** Spend one login attempt. Returns Retry-After seconds when limited, else 0. */
+async function spendLoginAttempt(env, keys) {
   try {
-    const keys = await loginRateLimitKeys(request, normalizedEmail);
-    const counts = await Promise.all(keys.map(async (key) => (
-      Number.parseInt(await env.KV_CACHE.get(key), 10) || 0
-    )));
-    return {
-      limited: counts.some((count) => count >= config.auth.maxLoginAttempts),
-      keys,
-    };
+    const hits = await spendLimits(env, [keys.accountNetwork, keys.account, keys.network], config.auth.rateLimitWindowSeconds);
+    const over = [
+      [keys.accountNetwork, config.auth.loginAccountNetworkFailures],
+      [keys.account, config.auth.loginAccountFailures],
+      [keys.network, config.auth.loginNetworkFailures],
+    ].filter(([key, max]) => hits[key].count > max).map(([key]) => hits[key].resetAt);
+    if (!over.length) return 0;
+    await refundLimit(env, [keys.accountNetwork, keys.account, keys.network]);
+    return retryAfterSeconds(over);
   } catch (error) {
-    console.warn('[AUTH] Failed-login limit unavailable:', error.message);
-    return { limited: false, keys: [] };
+    console.warn('[AUTH] Login limit unavailable (allowing request):', error.message);
+    return 0;
   }
 }
 
-async function recordFailedLogin(env, keys) {
+async function settleSuccessfulLogin(env, keys) {
   try {
-    await Promise.all(keys.map(async (key) => {
-      const count = Number.parseInt(await env.KV_CACHE.get(key), 10) || 0;
-      await env.KV_CACHE.put(key, String(count + 1), {
-        expirationTtl: config.auth.rateLimitWindowSeconds,
-      });
-    }));
+    await clearLimits(env, keys.account);
+    await refundLimit(env, [keys.network]);
   } catch (error) {
-    console.warn('[AUTH] Failed-login recording unavailable:', error.message);
+    console.warn('[AUTH] Login limit reset unavailable:', error.message);
   }
 }
 
-async function clearFailedLoginBudget(env, keys) {
-  if (typeof env.KV_CACHE?.delete !== 'function') return;
-  try {
-    await Promise.all(keys.map((key) => env.KV_CACHE.delete(key)));
-  } catch (error) {
-    console.warn('[AUTH] Failed-login reset unavailable:', error.message);
-  }
+async function clearLoginLimitsForUser(env, userId) {
+  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(userId).first();
+  if (user) await clearLimits(env, `login:acct:${await hashSessionCredential(normalizeAccountEmail(user.email))}`);
 }
 
-function failedLoginLimitedResponse() {
+function failedLoginLimitedResponse(retryAfter) {
   return new Response(JSON.stringify({
-    error: 'Too many failed login attempts. Please try again later.',
+    error: 'Too many failed login attempts. Please try again later, or reset your password.',
   }), {
     status: 429,
     headers: {
       ...corsHeaders,
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
-      'Retry-After': String(config.auth.rateLimitWindowSeconds),
+      'Retry-After': String(retryAfter),
     },
   });
 }
@@ -1213,7 +1201,7 @@ async function verifyToken(token, jwtSecret, env = null) {
 // AUTHENTICATION ENDPOINTS
 // ════════════════════════════════════════════════════════════
 
-registerAccountRecoveryRoutes(router, { hashPassword, authenticatedSession });
+registerAccountRecoveryRoutes(router, { hashPassword, authenticatedSession, onPasswordReset: clearLoginLimitsForUser });
 
 // ── REGISTER ──
 router.post('/auth/register', async (request, env) => {
@@ -1260,8 +1248,9 @@ router.post('/auth/register', async (request, env) => {
       });
     }
     
-    if (!password || password.length < 8) {
-      return new Response(JSON.stringify({ error: 'Password must be at least 8 characters' }), {
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) {
+      return new Response(JSON.stringify({ error: passwordError }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -1386,7 +1375,8 @@ router.post('/auth/claim', async (request, env) => {
     const password = body && body.password;
     if (!email || !password) return jsonResponse({ error: 'Email and password required' }, 400);
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || isGuestEmail(email)) return jsonResponse({ error: 'Invalid email format' }, 400);
-    if (typeof password !== 'string' || password.length < 8) return jsonResponse({ error: 'Password must be at least 8 characters' }, 400);
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return jsonResponse({ error: passwordError }, 400);
     const user = await env.DB.prepare('SELECT id, is_guest FROM users WHERE id = ? AND is_active = 1').bind(auth.payload.sub).first();
     if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!Number(user.is_guest)) return jsonResponse({ error: 'This account already has an email' }, 409);
@@ -1439,40 +1429,24 @@ router.post('/auth/login', async (request, env) => {
       });
     }
 
-    // Read, but do not spend, the failed-attempt budget. A correct password is
-    // always allowed to prove ownership and clears earlier failures; only an
-    // invalid credential increments either account-scoped counter.
-    const loginLimit = await failedLoginLimit(request, env, email);
-    
+    // FBQ-13: spend the attempt BEFORE the password is checked; past a budget
+    // even the correct password gets 429 (see spendLoginAttempt).
+    const limitKeys = await loginLimitKeys(request, email);
+    const retryAfter = await spendLoginAttempt(env, limitKeys);
+    if (retryAfter) return failedLoginLimitedResponse(retryAfter);
+
     // Find user
     const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE email = ? AND is_active = 1').bind(email).first();
-    
-    if (!user) {
-      if (loginLimit.limited) {
-        return failedLoginLimitedResponse();
-      }
-      await recordFailedLogin(env, loginLimit.keys);
-      // Generic error to prevent email enumeration attacks
-      return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Verify password
-    const isValid = await verifyPassword(password, user.password_hash);
-    if (!isValid) {
-      if (loginLimit.limited) {
-        return failedLoginLimitedResponse();
-      }
-      await recordFailedLogin(env, loginLimit.keys);
+
+    // Generic error for an unknown email or a wrong password (no enumeration).
+    if (!user || !(await verifyPassword(password, user.password_hash))) {
       return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    await clearFailedLoginBudget(env, loginLimit.keys);
+    await settleSuccessfulLogin(env, limitKeys);
 
     // Upgrade legacy or stale-cost hashes before issuing a new session. The
     // compare-and-swap WHERE clause makes simultaneous logins safe.
@@ -1484,7 +1458,7 @@ router.post('/auth/login', async (request, env) => {
     await createSessionRecord(env, sessionId, user.id, token);
     
     // Update last_login
-    await env.DB.prepare('UPDATE users SET last_login = datetime("now"), updated_at = datetime("now") WHERE id = ?').bind(user.id).run();
+    await env.DB.prepare(`UPDATE users SET last_login = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(user.id).run();
     
     // Log audit
     await env.DB.prepare(

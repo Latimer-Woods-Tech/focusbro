@@ -85,8 +85,11 @@ describe('POST /auth/guest — the first word creates the account', () => {
 
   it('is rate-limited per connection like registration, and never sends an email', async () => {
     const db = makeDB();
-    const kv = { get: async () => '10', put: async () => {} };      // at the cap
-    const res = await post('/auth/guest', makeEnv(db, { KV_CACHE: kv }), {});
+    // FBQ-13: the limit is spent in D1; this spend comes back as the 11th in the window.
+    db.prepare = ((prepare) => (sql) => (/INSERT INTO rate_limits/.test(sql)
+      ? { bind(...a) { this.key = a[2]; return this; }, async all() { return { results: [{ key: this.key, count: 11, reset_at: Math.floor(Date.now() / 1000) + 600 }] }; } }
+      : prepare(sql)))(db.prepare);
+    const res = await post('/auth/guest', makeEnv(db), {});
     expect(res.status).toBe(429);
     expect(inserted(db, 'users').length).toBe(0);
     // nothing in the guest path composes or sends mail — there is no address to send to

@@ -9,7 +9,7 @@
  * workerd refuses to start on any other named export ("Incorrect type for map
  * entry 'D1_SCHEMA_VERSION'"), which is what broke `wrangler dev --local` (G798).
  */
-export const D1_SCHEMA_VERSION = '0012_checkin_next_attempt';
+export const D1_SCHEMA_VERSION = '0013_rate_limits';
 
 /** A guest account's synthetic, non-routable address domain (also not an entry-module export, same reason). */
 export const GUEST_EMAIL_DOMAIN = 'guest.invalid';
@@ -19,10 +19,18 @@ export const config = {
   auth: {
     // JWT token expiration (30 days)
     tokenExpirationSeconds: 30 * 24 * 60 * 60,
-    // Max password attempts per IP per window
+    // Max register / guest creates per IP per window
     maxLoginAttempts: 10,
     // Rate limit window (15 minutes)
     rateLimitWindowSeconds: 15 * 60,
+    // FBQ-13 login budgets: unsuccessful attempts per 15-minute window. Past a
+    // budget the login answers 429 BEFORE the password is checked — even a
+    // correct one. Account+IP is the tight key (an attacker elsewhere cannot
+    // lock the owner out); account-wide is a high backstop against a spread
+    // attack; IP-wide stops one address spraying many accounts.
+    loginAccountNetworkFailures: 10,
+    loginAccountFailures: 50,
+    loginNetworkFailures: 30,
   },
 
   // ── Data Limits ──
