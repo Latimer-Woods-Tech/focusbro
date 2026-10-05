@@ -1,8 +1,12 @@
 name = "focusbro"
 compatibility_date = "2026-07-26"
 main = "api/src/index.js"
-workers_dev = true
-preview_urls = true
+# FBQ-16: a preview URL / workers.dev route of the production worker runs with
+# the PRODUCTION D1 + KV, so both stay off. Production is served only by the
+# focusbro.net routes in [env.production]. Guarded by
+# api/src/__tests__/wrangler-isolation.test.js.
+workers_dev = false
+preview_urls = false
 account_id = "a1c8a33cbe8a3c9e260480433a0dbb06"
 
 # Cron: accountability check-in delivery (Contender #10, Phase A · R-205).
@@ -12,18 +16,22 @@ triggers = { crons = ["* * * * *"] }
 # Note: Removed 'site' config - Worker handles all routes including static HTML serving
 # This prevents conflicts between Worker routes and static file serving
 
-# Cloudflare D1 Database (SQLite)
+# Default (non-production) scope: used by `wrangler dev` and any bare
+# `wrangler deploy` / `versions upload` WITHOUT --env. It must never carry a
+# production id (FBQ-16). `wrangler dev --local` simulates D1/KV on disk and
+# ignores these ids; a remote run against them fails closed instead of
+# touching prod. Production bindings live ONLY in [env.production].
+# A real staging D1/KV would replace these placeholders (see PR #FBQ-16).
 [[d1_databases]]
 binding = "DB"
-database_name = "focusbro-db"
-database_id = "f6b1685b-a879-4d42-9c23-a30da614be01"
+database_name = "focusbro-db-local"
+database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 # Cloudflare KV Store (for user data caching)
 [[kv_namespaces]]
 binding = "KV_CACHE"
-id = "732d985fd2b84650aa828f7982ba0f87"
-preview_id = "732d985fd2b84650aa828f7982ba0f87"
+id = "00000000000000000000000000000000"
 
 # R2: the ambient recordings (scripts/audio/build.py -> audio/manifest.json),
 # served by GET /audio/<name>.<sha10>.m4a in api/src/audio.js.
@@ -38,7 +46,7 @@ routes = [
   { pattern = "*.focusbro.net/*", zone_name = "focusbro.net" }
 ]
 d1_databases = [{ binding = "DB", database_id = "f6b1685b-a879-4d42-9c23-a30da614be01", database_name = "focusbro-db", migrations_dir = "migrations" }]
-kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87", preview_id = "732d985fd2b84650aa828f7982ba0f87" }]
+kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87" }]
 r2_buckets = [{ binding = "AUDIO", bucket_name = "focusbro-audio" }]
 # PRO_PRICE_ID: the FocusBro Pro one-time $9.99 price (Stripe prod_VMZ14lnJeKeFIM).
 # A price id is not a secret. STRIPE_SECRET_KEY is a worker SECRET, never here.
