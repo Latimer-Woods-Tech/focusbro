@@ -47,6 +47,7 @@ function audioFixture() {
   return fixtureWav;
 }
 const receivedViews = [];
+const receivedVisits = [];
 const receivedDeletes = [];
 
 http
@@ -54,7 +55,9 @@ http
     const path = (req.url || '/').split('?')[0];
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(htmlContent);
+      // Same stamping as shellHtml() in src/index.js: the server decides the home variant before first paint.
+      const home = new URL(req.url, 'http://x').searchParams.get('home');
+      res.end(home === 'promise' ? htmlContent.replace('<body>', '<body data-home="promise">') : htmlContent);
     } else if (path === '/me/' || path === '/me') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(renderMePage());
@@ -88,6 +91,24 @@ http
     } else if (path === '/me/report') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(renderReportPage());
+    } else if (path === '/api/acquisition/visit' && req.method === 'POST') {
+      // Byte-for-byte what prod answers (FBQ-23b): 202, 11-byte JSON body. Records the Origin
+      // header, which the Worker's beacon guard requires (a missing Origin is a 403, FBQ-15).
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let campaign = null;
+        try { campaign = JSON.parse(raw).attribution.campaign || null; } catch { campaign = null; }
+        receivedVisits.push({ origin: req.headers.origin || null, campaign });
+      });
+      // Headers and body in separate writes, as they cross a real network: a response whose body
+      // arrives after its headers is what exposes a client that never reads it.
+      res.writeHead(202, { 'Content-Type': 'application/json', 'Content-Length': 11 });
+      res.flushHeaders();
+      setTimeout(() => res.end('{"ok":true}'), 40);
+    } else if (path === '/__smoke/visits') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(receivedVisits));
     } else if (path === '/api/pro/status') {
       // A smoke can be Pro by cookie; otherwise a signed-out free visitor.
       const pro = /(?:^|;\s*)smoke_pro=1/.test(req.headers.cookie || '');
