@@ -316,13 +316,14 @@ CREATE TABLE IF NOT EXISTS commitment_checkins (
   user_id       TEXT NOT NULL,
   scheduled_for DATETIME NOT NULL,
   channel       TEXT DEFAULT 'push',
-  status        TEXT DEFAULT 'pending',        -- pending | sent | kept | missed | reschedule
+  status        TEXT DEFAULT 'pending',        -- pending | sending | sent | kept | missed | reschedule
   responded_at  DATETIME,
   note          TEXT DEFAULT '',
   delivered_at  DATETIME,
   attempts      INTEGER DEFAULT 0,
   last_error    TEXT,
   escalated_at  DATETIME,
+  lease_until   TEXT,                          -- delivery claim expiry while 'sending' (FBQ-05)
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE

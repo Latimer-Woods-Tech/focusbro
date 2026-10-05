@@ -175,7 +175,7 @@ const UNREACHABLE_IN = UNREACHABLE_SKIPS.map((s) => `'${s}'`).join(', ');
 // next-morning "I did it" still lands, and still credits once. Tomorrow's
 // `pending` row is outside every branch, so neither an answer nor a snooze can
 // touch it.
-export const DUE_OPEN_SQL = `( status IN ('sent', 'deferred', 'awaiting_time')
+export const DUE_OPEN_SQL = `( status IN ('sending', 'sent', 'deferred', 'awaiting_time')
          OR (status = 'pending' AND scheduled_for < ?)
          OR (status = 'skipped' AND last_error IN (${UNREACHABLE_IN})
              AND scheduled_for >= ? AND scheduled_for < ?) )`;

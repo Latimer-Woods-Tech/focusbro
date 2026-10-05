@@ -1,0 +1,18 @@
+-- FBQ-05 (focusbro#391): the delivery cron claims a check-in before sending it.
+-- runDueCheckins moves a due row 'pending' -> 'sending' with lease_until set,
+-- sends, then finishes it ('sent' / 'skipped' / 'failed', or back to 'pending'
+-- for a retry) ONLY while it is still 'sending' under that same lease, so an
+-- answer recorded during the send is never overwritten and two overlapping
+-- ticks cannot both send. A row whose lease has passed (the claiming invocation
+-- died mid-send) is returned to 'pending' by the next tick. lease_until is an
+-- ISO-8601 UTC instant, the same format as scheduled_for, so they compare as
+-- strings.
+-- Additive: one nullable column, NULL on every existing row; no row is
+-- rewritten and no index is added (the sweep reads status = 'sending', a prefix
+-- of idx_checkins_due).
+-- ROLLBACK: safe to leave in place; the pre-FBQ-05 code never reads the column.
+--           Reverting the CODE while a row is mid-send leaves it 'sending',
+--           which the old cron never picks up. Release such rows with:
+--           UPDATE commitment_checkins SET status = 'pending', lease_until = NULL
+--            WHERE status = 'sending';
+ALTER TABLE commitment_checkins ADD COLUMN lease_until TEXT;

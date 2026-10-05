@@ -42,7 +42,7 @@ function makeDB({ due = [], subs = [], esc = [], phone = null, consent = { statu
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
         },
-        async run() { runs.push({ sql, params }); return { success: true }; },
+        async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },
       };
       return stmt;
     },
@@ -60,7 +60,7 @@ const pushRow = (over = {}) => ({
 const textRow = (over = {}) => ({ ...pushRow(), channel: 'text', ...over });
 
 function updateFor(db, checkinId) {
-  return db.runs.find((r) => /UPDATE commitment_checkins/.test(r.sql) && r.params.includes(checkinId));
+  return db.runs.findLast((r) => /UPDATE commitment_checkins/.test(r.sql) && r.params.includes(checkinId));
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -78,7 +78,7 @@ describe('runDueCheckins — scan query shape', () => {
   it('reports an all-zero summary when nothing is due', async () => {
     const db = makeDB({ due: [] });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
-    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0 });
+    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: expect.any(Number), contended: 0, superseded: 0 });
   });
 });
 

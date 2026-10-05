@@ -662,7 +662,7 @@ export function registerConsentRoutes(router, ctx) {
            JOIN commitments m ON m.id = c.commitment_id
           WHERE c.user_id = ? AND c.channel = 'text' AND c.responded_at IS NULL
             AND m.status = 'active'
-            AND ( c.status IN ('sent', 'awaiting_time')
+            AND ( c.status IN ('sending', 'sent', 'awaiting_time')
                   OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
           ORDER BY (c.status = 'pending') ASC, c.scheduled_for DESC LIMIT 1`
       ).bind(user.id).first();
