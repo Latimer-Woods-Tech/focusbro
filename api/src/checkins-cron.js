@@ -150,6 +150,9 @@ async function holdUntil(env, checkinId, until) {
  * is still alive and still sending: an expired lease means the claimer is gone.
  * The cost is that a row whose tick died waits up to 15 minutes, well inside
  * the 24h staleness window (MAX_CHECKIN_LATENESS_MIN).
+ * FBQ-08: every push send now has a 5s timeout, so one row's delivery is bounded
+ * to seconds; 15 minutes is therefore generous, and deliberately left unchanged
+ * (a shorter lease would only add duplicate-send risk for no benefit).
  */
 export const SEND_LEASE_MIN = 15;
 
@@ -290,17 +293,55 @@ async function deliverPush(env, row, message) {
   let anySent = false;
   let lastErr = 'push_failed';
   const deactivate = [];
-  for (const sub of list) {
-    const r = await sendWebPush(env, sub, payload);
+  const suspect = [];
+  // FBQ-08 R3: bounded concurrent fan-out; each send carries its own timeout, so
+  // one hung endpoint costs at most PUSH_TIMEOUT_MS, not the whole tick.
+  const results = await sendAll(env, list, payload);
+  results.forEach((r, i) => {
     if (r.ok) anySent = true;
     else {
       lastErr = r.error || lastErr;
-      if (r.gone) deactivate.push(sub.endpoint);
+      if (r.gone) deactivate.push(list[i].endpoint);
+      else if (r.suspect) suspect.push(list[i].endpoint);
     }
-  }
+  });
 
-  if (anySent) return { status: 'sent', detail: 'push', deactivate };
-  return { status: 'failed', detail: lastErr, deactivate };
+  if (anySent) return { status: 'sent', detail: 'push', deactivate, suspect, pushOk: true };
+  return { status: 'failed', detail: lastErr, deactivate, suspect };
+}
+
+/** Max pushes in flight for one check-in (a user holds at most 5 active subscriptions). */
+const PUSH_CONCURRENCY = 5;
+
+/** sendWebPush over `subs`, PUSH_CONCURRENCY at a time, results in input order. */
+async function sendAll(env, subs, payload) {
+  const out = [];
+  for (let i = 0; i < subs.length; i += PUSH_CONCURRENCY) {
+    out.push(...await Promise.all(subs.slice(i, i + PUSH_CONCURRENCY).map((s) => sendWebPush(env, s, payload))));
+  }
+  return out;
+}
+
+/**
+ * FBQ-08 R5: retire 400/403 subscriptions only with proof the server side works.
+ * A 400/403 is what a dead subscription answers, but also what EVERY subscription
+ * answers if our VAPID key/subject or encryption is misconfigured, and a mass
+ * deactivation of the whole user base is unrecoverable (people would have to
+ * re-subscribe). So they are retired only when another push in the same pass
+ * succeeded (the config demonstrably works); otherwise they are kept and the
+ * condition is logged loudly. 404/410 never wait: those are unambiguous.
+ */
+async function settleSuspects(env, suspects, anyPushOk) {
+  if (!suspects.length) return;
+  if (!anyPushOk) {
+    console.error(`[checkins-cron] push_vapid_suspect: ${suspects.length} endpoint(s) answered 400/403 and NO push succeeded in this pass — kept active (check VAPID_* config)`);
+    return;
+  }
+  for (const endpoint of suspects) {
+    try {
+      await env.DB.prepare(`UPDATE push_subscriptions SET is_active = 0 WHERE endpoint = ?`).bind(endpoint).run();
+    } catch { /* non-fatal */ }
+  }
 }
 
 /** Deliver over SMS via Telnyx, if a number and credentials are present. */
@@ -389,6 +430,11 @@ export async function runDueCheckins(env, opts = {}) {
     // A row this tick already handled (left pending for a retry) is not re-run.
     return { rows: fetched.filter((r) => !seen.has(r.checkin_id)), full: fetched.length >= limit, held: 0 };
   };
+
+  // FBQ-08 R5: 400/403 endpoints seen this tick, retired at the end only if some
+  // push in the same tick succeeded (see settleSuspects).
+  let tickPushOk = false;
+  const tickSuspects = [];
 
   let page = { rows: [], full: true, held: -1 };
   for (let pages = 0; ;) {
@@ -515,6 +561,9 @@ export async function runDueCheckins(env, opts = {}) {
       }
     }
 
+    if (outcome.pushOk) tickPushOk = true;
+    if (outcome.suspect && outcome.suspect.length) tickSuspects.push(...outcome.suspect);
+
     // Disable any subscriptions the push service reported as gone.
     if (outcome.deactivate && outcome.deactivate.length) {
       for (const endpoint of outcome.deactivate) {
@@ -597,6 +646,7 @@ export async function runDueCheckins(env, opts = {}) {
     }
   }
 
+  await settleSuspects(env, tickSuspects, tickPushOk);
   return summary;
 }
 
@@ -1010,18 +1060,22 @@ async function deliverReturnPush(env, userId, message) {
   };
   let anySent = false;
   let lastErr = 'push_failed';
-  for (const sub of list) {
-    const r = await sendWebPush(env, sub, payload);
+  const suspects = [];
+  const results = await sendAll(env, list, payload);
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.ok) anySent = true;
     else {
       lastErr = r.error || lastErr;
+      if (r.suspect) suspects.push(list[i].endpoint);
       if (r.gone) {
         try {
-          await env.DB.prepare(`UPDATE push_subscriptions SET is_active = 0 WHERE endpoint = ?`).bind(sub.endpoint).run();
+          await env.DB.prepare(`UPDATE push_subscriptions SET is_active = 0 WHERE endpoint = ?`).bind(list[i].endpoint).run();
         } catch { /* non-fatal */ }
       }
     }
   }
+  await settleSuspects(env, suspects, anySent);
   return anySent ? { status: 'sent', detail: 'push' } : { status: 'failed', detail: lastErr };
 }
 

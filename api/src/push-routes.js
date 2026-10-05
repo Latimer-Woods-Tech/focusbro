@@ -22,6 +22,13 @@
 // so FocusBro stops re-implementing the shared Web Push + FCM surface.
 // ════════════════════════════════════════════════════════════
 
+import { isAllowedPushEndpoint } from './webpush.js';
+
+/** Max ACTIVE subscriptions per user; a newer one retires the oldest (FBQ-08 R2). */
+export const MAX_ACTIVE_SUBSCRIPTIONS = 5;
+const MAX_KEY_LEN = 256;
+const MAX_LABEL_LEN = 100;
+
 /**
  * Register the Web Push subscription intake routes on the shared router.
  *
@@ -64,6 +71,14 @@ export function registerPushRoutes(router, ctx) {
     if (!subscription || !subscription.endpoint || !keys || !keys.p256dh || !keys.auth) {
       return jsonResponse({ error: 'Invalid subscription data' }, 400);
     }
+    // FBQ-08 R1: only https endpoints on known push-service hosts, bounded sizes.
+    // Anything else would make the cron POST to a host the caller chose.
+    if (!isAllowedPushEndpoint(subscription.endpoint)
+        || typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string'
+        || keys.p256dh.length > MAX_KEY_LEN || keys.auth.length > MAX_KEY_LEN) {
+      return jsonResponse({ error: 'Invalid subscription endpoint' }, 400);
+    }
+    const label = String((body && body.device_label) || 'Unknown Device').slice(0, MAX_LABEL_LEN);
 
     const id = generateUUID();
     try {
@@ -82,8 +97,16 @@ export function registerPushRoutes(router, ctx) {
         subscription.endpoint,
         keys.p256dh,
         keys.auth,
-        (body && body.device_label) || 'Unknown Device'
+        label
       ).run();
+      // FBQ-08 R2: keep the newest N active rows (the one just written always
+      // survives); retire the rest, oldest first. Soft — never rejects a device.
+      await env.DB.prepare(
+        `UPDATE push_subscriptions SET is_active = 0
+          WHERE user_id = ? AND is_active = 1 AND id NOT IN (
+            SELECT id FROM push_subscriptions WHERE user_id = ? AND is_active = 1
+             ORDER BY (endpoint = ?) DESC, created_at DESC, rowid DESC LIMIT ${MAX_ACTIVE_SUBSCRIPTIONS})`
+      ).bind(auth.userId, auth.userId, subscription.endpoint).run();
     } catch {
       return jsonResponse({ error: 'Failed to save subscription' }, 500);
     }
