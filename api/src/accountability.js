@@ -221,7 +221,8 @@ const OPEN_TWIN_AT = `EXISTS (SELECT 1 FROM commitment_checkins o
 export async function rependCheckin(env, { checkinId, userId, scheduledFor }) {
   const moved = await env.DB.prepare(
     `UPDATE commitment_checkins
-        SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+        SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL,
+            next_attempt_at = NULL
       WHERE id = ? AND user_id = ? AND NOT ${OPEN_TWIN_AT}`
   ).bind(scheduledFor, checkinId, userId, scheduledFor).run();
   if (moved && moved.meta && moved.meta.changes > 0) return 'moved';
@@ -232,6 +233,23 @@ export async function rependCheckin(env, { checkinId, userId, scheduledFor }) {
       WHERE id = ? AND user_id = ? AND ${OPEN_TWIN_AT}`
   ).bind(checkinId, userId, scheduledFor).run();
   return merged && merged.meta && merged.meta.changes > 0 ? 'merged' : 'none';
+}
+
+/**
+ * Release every quiet-hours / night-guard hold on a person's pending check-ins
+ * (FBQ-06), so the next cron tick re-evaluates them against current settings.
+ * Called when the settings a hold was computed from change (a consent save).
+ * Best-effort: a failure leaves the hold, which still ends on its own.
+ */
+export async function clearHeldCheckins(env, userId) {
+  try {
+    await env.DB.prepare(
+      `UPDATE commitment_checkins SET next_attempt_at = NULL
+        WHERE user_id = ? AND status = 'pending' AND next_attempt_at IS NOT NULL`
+    ).bind(userId).run();
+  } catch (err) {
+    console.error('[checkins] clear holds failed:', err && err.message);
+  }
 }
 
 // FBQ-02 — the occurrence an answer was offered for. The reply ticket and the

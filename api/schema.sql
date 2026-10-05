@@ -324,6 +324,7 @@ CREATE TABLE IF NOT EXISTS commitment_checkins (
   last_error    TEXT,
   escalated_at  DATETIME,
   lease_until   TEXT,                          -- delivery claim expiry while 'sending' (FBQ-05)
+  next_attempt_at TEXT,                        -- a held row is not scanned before this instant (FBQ-06)
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -346,6 +347,8 @@ CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commit
 CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_checkins_escalation ON commitment_checkins(status, delivered_at);
+-- The delivery scan: rows by status, then the instant they become eligible (FBQ-06).
+CREATE INDEX IF NOT EXISTS idx_checkins_eligible ON commitment_checkins(status, COALESCE(next_attempt_at, scheduled_for));
 -- One OPEN occurrence per (word, instant) — partial, so cancelled/settled history never conflicts (FBQ-05 R4).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_checkins_open_occurrence ON commitment_checkins(commitment_id, scheduled_for) WHERE status IN ('pending', 'sending');
 -- Kept-word log: every word a user KEPT, newest first (GET /api/accountability/kept). Momentum-only.
