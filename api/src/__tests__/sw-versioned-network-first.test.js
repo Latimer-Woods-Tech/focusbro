@@ -203,8 +203,11 @@ describe('R4 · the kill switch, and an update check that is never stale', () =>
 });
 
 describe('push and notification actions are untouched', () => {
-  it('the push + notificationclick handlers are byte-identical to the focusbro-v1 worker', async () => {
-    const region = (s) => s.slice(s.indexOf('// Push notifications'), s.indexOf('// Fetch strategy'));
+  it('the push + notificationclick handlers are byte-identical to the focusbro-v1 worker (but FBQ-04b\'s recorded:false branch)', async () => {
+    // FBQ-04b added exactly one deliberate change: a ticket answer that wrote
+    // nothing opens the word (sw-shell-signout.test.js). Everything else stays v1.
+    const FBQ04B = /\n {10}\/\/ Nothing was written \(FBQ-01\/02\)[^\n]*\n {10}if \(res && res\.recorded === false\)[^\n]*/;
+    const region = (s) => s.slice(s.indexOf('// Push notifications'), s.indexOf('// Fetch strategy')).replace(FBQ04B, '');
     const v1 = readFileSync(new URL('../../e2e/fixtures/sw-focusbro-v1.js', import.meta.url), 'utf8');
     const { src } = await served();
     expect(region(v1).length).toBeGreaterThan(1000);

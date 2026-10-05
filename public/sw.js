@@ -15,6 +15,14 @@ const CACHE_FIRST = /^\/(audio\/|icon-192\.(png|svg)$|icon-512\.png$|mark\.svg$|
 // health, the worker itself. /api/ and /sync/ answer a JSON 503 when offline.
 const NEVER_CACHE = /^\/(api\/|sync\/|auth\/|health$|sw\.js$|reset-password|verify-email)/;
 const OFFLINE_JSON = /^\/(api|sync)\//;
+// /me/ is served no-store and shows a signed-in list, so it is never cached:
+// offline, a navigation there gets this page, not a copy of someone's list.
+const NEEDS_NETWORK = /^\/me(\/|$)/;
+const OFFLINE_ME = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Your word — FocusBro</title></head>' +
+  '<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.5">' +
+  '<h1>Your word</h1><p>Your list needs a connection. It opens again as soon as you are back online.</p>' +
+  '<p><a href="/me/">Try again</a> · <a href="/">Open the focus tools</a> (they work offline)</p></body></html>';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -26,6 +34,18 @@ self.addEventListener('install', (event) => {
         })
       )
       .then(() => self.skipWaiting())
+  );
+});
+
+// Sign-out (FBQ-04 R3): the page asks, every cache goes, then the page hears back.
+self.addEventListener('message', (event) => {
+  if (!event.data || event.data.type !== 'focusbro:forget') return;
+  const port = event.ports && event.ports[0];
+  event.waitUntil(
+    caches.keys()
+      .then(names => Promise.all(names.map(name => caches.delete(name))))
+      .catch(() => {})
+      .then(() => { if (port) port.postMessage({ forgotten: true }); })
   );
 });
 
@@ -78,6 +98,8 @@ self.addEventListener('notificationclick', (event) => {
       })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('reply ' + r.status)); })
         .then(function (res) {
+          // Nothing was written (FBQ-01/02): open the word, as the native bridge does.
+          if (res && res.recorded === false) return clients.openWindow ? clients.openWindow(data.url || '/me/') : null;
           return self.registration.showNotification('FocusBro', {
             body: (res && res.message) || 'Kept.',
             tag: event.notification.tag,
@@ -161,6 +183,9 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(err => {
         console.warn('SW network fetch failed, serving the last good copy:', err && err.message || err);
+        if (request.mode === 'navigate' && NEEDS_NETWORK.test(url.pathname)) {
+          return new Response(OFFLINE_ME, { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+        }
         return caches.match(request).then(cached => cached ||
           (request.mode === 'navigate' ? caches.match('/').then(shell => shell || Response.error()) : Response.error()));
       })

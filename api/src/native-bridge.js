@@ -407,7 +407,9 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
   if (AppP && typeof AppP.addListener === 'function') AppP.addListener('resume', function () { later(); });
   d.addEventListener('visibilitychange', function () { if (d.visibilityState === 'visible') later(); });
 
-  w.FocusBroNative = { platform: platform, sync: sync, plan: plan, hashId: hashId };
+  // clear(): sign-out empties this phone's schedule at once (/sw-client.js forget),
+  // not at the next resume's 401 — the next person on the phone gets no buzz of theirs.
+  w.FocusBroNative = { platform: platform, sync: sync, plan: plan, hashId: hashId, clear: cancelOurs };
   later();
 })();
 `;
