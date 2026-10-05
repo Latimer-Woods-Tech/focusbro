@@ -58,6 +58,8 @@ test.describe('/me/ signed in', () => {
     await page.route('**/api/escalation', later(100, () => json({ ceiling: 'text' })));
     await page.route('**/api/consent', later(100, () => json({ channels: {} })));
     await page.route('**/api/coach/note-consent', later(100, () => json({})));
+    await page.route('**/api/coach/links', later(100, () => json({ links: [] })));
+    await page.route('**/api/coach/invitations', later(100, () => json({ invitations: [] })));
     await page.route('**/api/internal/metrics*', async (route) => {
       if (onMetrics) onMetrics();
       await route.fulfill(json({ error: 'Unauthorized' }, 401));

@@ -1744,6 +1744,58 @@ export function registerCoachRoutes(router, ctx) {
     }
   }
 
+  // ── CLIENT side: the coaches I am currently sharing with ──
+  // Only what the client already saw on the invitation (the coach's email).
+  router.get('/api/coach/links', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const rows = await env.DB.prepare(
+        `SELECT cc.id AS link_id, cc.responded_at, u.email AS coach_email
+           FROM coach_clients cc
+           JOIN users u ON u.id = cc.coach_user_id
+          WHERE cc.client_user_id = ? AND cc.status = 'active'
+          ORDER BY cc.created_at ASC, cc.id ASC
+          LIMIT 20`
+      ).bind(auth.userId).all();
+      return jsonResponse({ links: (rows && rows.results) || [] }, 200);
+    } catch (err) {
+      console.error('[coach] links error:', err && err.message);
+      return jsonResponse({ error: 'Could not load that just now.' }, 500);
+    }
+  });
+
+  // ── CLIENT side: stop sharing with a coach (withdraw consent, any time) ──
+  // Only the client's OWN link (another person's id is a 404). Ending an
+  // already-ended link is a quiet 200. Once 'removed', every coach read and
+  // resolveCoachCheckin (status = 'active') stops matching; own-words sharing
+  // is switched off when no active coach link remains.
+  router.delete('/api/coach/links/:id', async (request, env) => {
+    try {
+      const auth = await requireUser(request, env);
+      if (auth.error) return auth.error;
+      const link = await env.DB.prepare(
+        'SELECT id, status FROM coach_clients WHERE id = ? AND client_user_id = ?'
+      ).bind(request.params.id, auth.userId).first();
+      if (!link) return jsonResponse({ error: 'Not found' }, 404);
+      if (link.status === 'active') {
+        await env.DB.prepare(
+          `UPDATE coach_clients SET status = 'removed', updated_at = datetime('now')
+            WHERE id = ? AND client_user_id = ? AND status = 'active'`
+        ).bind(link.id, auth.userId).run();
+        await env.DB.prepare(
+          `UPDATE coach_note_consent SET shared = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+              AND NOT EXISTS (SELECT 1 FROM coach_clients WHERE client_user_id = ? AND status = 'active')`
+        ).bind(auth.userId, auth.userId).run();
+      }
+      return jsonResponse({ ok: true, status: 'removed' }, 200);
+    } catch (err) {
+      console.error('[coach] unlink error:', err && err.message);
+      return jsonResponse({ error: 'Could not stop sharing just now — try again.' }, 500);
+    }
+  });
+
   // ── CLIENT side: read whether my own words may ride a coach note ──
   // Client-scoped: a person controls the sharing of THEIR free-text, and only
   // ever reads/writes their own row. Default OFF when no row exists yet.

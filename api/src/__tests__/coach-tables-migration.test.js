@@ -3,7 +3,7 @@
  *
  * `operators`, `operator_clients`, `coach_operators` and `coach_checkin_config`
  * were created only by `initializeDatabase` (api/src/index.js), which nothing
- * calls. No migration created them, and production's sqlite_master (read
+ * calls (FBQ-10 R5 has since deleted those dead statements). No migration created them, and production's sqlite_master (read
  * 2026-10-05) listed none of the four. Every other coach test runs on a mock
  * or seeds the runtime CREATEs first (RUNTIME_CREATES), so the gap was
  * invisible: coach onboarding, the roster's coach_operators lookup and the
@@ -40,34 +40,9 @@ const COACH_INDEXES = [
   'idx_operator_clients_external',
 ];
 
-const RUNTIME_SOURCE = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-/** The runtime (initializeDatabase) DDL for the coach tables and their indexes. */
-const RUNTIME_COACH_DDL = [...RUNTIME_SOURCE.matchAll(/`(CREATE (?:UNIQUE )?(?:TABLE|INDEX) IF NOT EXISTS\s+(\w+)[\s\S]*?)`/g)]
-  .filter((m) => COACH_TABLES.includes(m[2]) || COACH_INDEXES.includes(m[2]))
-  .map((m) => m[1]);
 const MIGRATION_0009 = new URL('../../../migrations/0009_coach_tables.sql', import.meta.url);
 
 const names = (sdb, type) => sdb.prepare('SELECT name FROM sqlite_master WHERE type = ? ORDER BY name').all(type).map((r) => r.name);
-/** Everything that defines a table's shape, normalised for comparison. */
-function shape(sdb, table) {
-  const cols = sdb.prepare(`PRAGMA table_info(${table})`).all()
-    .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt: c.dflt_value, pk: c.pk }));
-  const fks = sdb.prepare(`PRAGMA foreign_key_list(${table})`).all()
-    .map((f) => ({ table: f.table, from: f.from, to: f.to, on_delete: f.on_delete, on_update: f.on_update }))
-    .sort((a, b) => a.from.localeCompare(b.from));
-  const idx = sdb.prepare(`PRAGMA index_list(${table})`).all()
-    .filter((i) => i.origin === 'c')
-    .map((i) => ({
-      name: i.name,
-      unique: i.unique,
-      partial: i.partial,
-      cols: sdb.prepare(`PRAGMA index_info(${i.name})`).all().map((x) => x.name),
-      where: (sdb.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(i.name).sql.match(/WHERE\s+([\s\S]*)$/i) || [, null])[1]?.replace(/\s+/g, ' ').trim() ?? null,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  return { cols, fks, idx };
-}
-
 suite('FBQ-10: the coach tables come from migrations alone', () => {
   it('a database built only from migrations/ has the four coach tables and their indexes', () => {
     const { sqlite } = makeMigratedD1();
@@ -77,28 +52,23 @@ suite('FBQ-10: the coach tables come from migrations alone', () => {
     expect(COACH_INDEXES.filter((i) => !indexes.includes(i)), 'coach indexes missing from migrations').toEqual([]);
   });
 
-  it('their shape matches the runtime definitions exactly (columns, defaults, keys, foreign keys, indexes)', () => {
-    expect(RUNTIME_COACH_DDL.length, 'found the runtime coach DDL').toBe(COACH_TABLES.length + COACH_INDEXES.length);
-    const runtime = new DatabaseSync(':memory:');
-    runtime.exec('CREATE TABLE users (id TEXT PRIMARY KEY)');
-    for (const sql of RUNTIME_COACH_DDL) runtime.exec(sql);
+  it('their columns are exactly the ones the coach code reads and writes (the migration is the only definition now)', () => {
     const { sqlite } = makeMigratedD1();
-    for (const t of COACH_TABLES) expect(shape(sqlite, t), t).toEqual(shape(runtime, t));
+    const cols = (t) => sqlite.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name).join(',');
+    expect(cols('operators')).toBe('id,slug,display_name,status,connect_account_id,charge_mode,white_label,default_currency,metadata,created_at,updated_at');
+    expect(cols('operator_clients')).toBe('id,operator_id,external_org_id,name,status,retail_override,metadata,created_at,updated_at');
+    expect(cols('coach_operators')).toBe('user_id,operator_id,created_at');
+    expect(cols('coach_checkin_config')).toBe('operator_id,cadence,voice_persona,script,updated_at');
+    const fk = (t) => sqlite.prepare(`PRAGMA foreign_key_list(${t})`).all().map((f) => `${f.from}->${f.table}.${f.to}`).sort();
+    expect(fk('operator_clients')).toEqual(['operator_id->operators.id']);
   });
 
-  it('0009 is idempotent: it re-applies over itself and over runtime-created tables', () => {
+  it('0009 is idempotent: it re-applies over itself and keeps existing rows', () => {
     const sql = readFileSync(MIGRATION_0009, 'utf8');
     const { sqlite } = makeMigratedD1();
+    sqlite.exec("INSERT INTO operators (id, slug, display_name, created_at, updated_at) VALUES ('op1', 's', 'Sam', 'now', 'now')");
     expect(() => sqlite.exec(sql)).not.toThrow();
-
-    // A database that somehow already has the tables (e.g. an old cold-start
-    // init) keeps its rows and gains nothing twice.
-    const pre = new DatabaseSync(':memory:');
-    pre.exec('CREATE TABLE users (id TEXT PRIMARY KEY)');
-    for (const ddl of RUNTIME_COACH_DDL) pre.exec(ddl);
-    pre.exec("INSERT INTO operators (id, slug, display_name, created_at, updated_at) VALUES ('op1', 's', 'Sam', 'now', 'now')");
-    expect(() => pre.exec(sql)).not.toThrow();
-    expect(pre.prepare('SELECT COUNT(*) AS n FROM operators').get().n).toBe(1);
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM operators').get().n).toBe(1);
   });
 
   it('is additive only — no DROP, no ALTER … RENAME, no DELETE', () => {
