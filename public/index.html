@@ -1908,6 +1908,8 @@
     opacity: 1;
     pointer-events: auto;
   }
+  /* Closed, it was only transparent, and Tab still reached its button. */
+  #onboardingModal:not(.show) { display: none; }
 
   .onboarding-content {
     background: var(--bg);
@@ -2089,7 +2091,10 @@
   }
   .skip-link:focus { top: 10px; }
 
-  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  /* One ring for every focusable thing, in the token colour, drawn at once:
+     `transition: all` on buttons used to fade it in from the text colour, and
+     some inputs swapped it for a faint shadow (FBQ-22 R1). */
+  :focus-visible { outline: 3px solid var(--primary) !important; outline-offset: 2px; transition: none !important; }
 
   /* ── Brand mark ── */
   .fb-mark { width: 100%; height: 100%; display: block; }
@@ -2143,7 +2148,7 @@
     padding-top: 16px;
     gap: 4px;
   }
-  .nav-item { width: 40px; height: 40px; border-radius: 10px; font-size: 19px; color: var(--text-dim); }
+  .nav-item { width: 44px; height: 44px; border-radius: 10px; font-size: 19px; color: var(--text-dim); }
   .nav-item:hover { background: var(--bg-hover); color: var(--text); }
   .nav-item.active { background: var(--primary-dim); color: var(--primary); }
   .nav-item.active::before {
@@ -2376,7 +2381,7 @@
 
   /* ── Footer ── */
   .footer { border-top: 1px solid var(--border); color: var(--text-dim); }
-  .footer a { color: var(--text-muted); }
+  .footer a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
   .footer a:hover { color: var(--text); }
 
   ::-webkit-scrollbar-thumb { background: rgba(var(--line-rgb), 0.12); }
@@ -2445,7 +2450,8 @@
   .home-start { display: flex; gap: 10px; flex-wrap: wrap; }
   .home-start .btn { padding: 12px 18px; font-size: 14px; }
   @media (prefers-reduced-motion: reduce) {
-    .awake-ring.active::after, .status-dot { animation: none !important; }
+    .awake-ring.active::after, .status-dot, #fidgetSpinner { animation: none !important; }
+    .time-bar-fill { transition: none !important; }
   }
 
 </style>
@@ -2541,6 +2547,7 @@ function fbSyncThemeIcon() {
 </script>
 
 <!-- APP NAV -->
+<a href="#main" class="skip-link">Skip to main content</a>
 <nav class="app-nav" role="navigation" aria-label="Main navigation">
   <div class="logo-icon"><svg class="fb-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent-fill)"/><path d="M25 16.5A9 9 0 1 1 19.8 7.8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round"/><path d="M11.4 15.6l3.9 3.9 8.6-9.3" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="nav-divider"></div>
@@ -2574,7 +2581,6 @@ function fbSyncThemeIcon() {
   <!-- Floating ambient particles -->
   <div class="particles-bg" id="particlesBg"></div>
 
-  <a href="#intentionBanner" class="skip-link">Skip to main content</a>
 
 <!-- HEADER -->
 <header class="header">
@@ -2600,6 +2606,7 @@ function fbSyncThemeIcon() {
 </header>
 
 <!-- ACCOUNTABILITY FIRST: the toolkit supports the loop; it no longer hides it. -->
+<main id="main">
 <section class="accountability-hero" aria-labelledby="accountabilityHeroTitle">
   <h1 id="accountabilityHeroTitle">The check-in that follows up.</h1>
   <p>I have ADHD. I built reminders, then swiped them away. Give me one
@@ -3048,6 +3055,7 @@ function fbSyncThemeIcon() {
     </div>
   </div>
 </div>
+</main>
 
 <!-- BREAK MODAL -->
 <div class="break-modal" id="breakModal">
@@ -3513,7 +3521,7 @@ function fbSyncThemeIcon() {
 </div>
 
 <!-- FOOTER -->
-<div class="footer">
+<footer class="footer">
   FocusBro — built by <a href="/about.html">Latimer Woods Tech</a> &nbsp;|&nbsp;
   <a href="/guides/">Guides</a> &nbsp;|&nbsp;
   <a href="/me/">Accountability</a> &nbsp;|&nbsp;
@@ -3522,7 +3530,7 @@ function fbSyncThemeIcon() {
   <a href="/contact.html">Contact</a> &nbsp;|&nbsp;
   <a href="/account/delete">Delete account</a> &nbsp;|&nbsp;
   Local data stays in your browser by default. No ads, no tracking cookies.
-</div>
+</footer>
 
 </div><!-- /app-shell -->
 
@@ -6781,6 +6789,73 @@ function dismissOnboarding() {
   if (modal) modal.classList.remove('show');
   localStorage.setItem('fb_onboarded', 'true');
 }
+
+// ══════════════════════════════════════
+// TOOL DIALOGS — one helper makes every tool modal a real dialog, however it
+// was opened: labelled, focus moved in, Tab kept inside, Esc closes, and focus
+// handed back to whatever opened it (FBQ-22 R2).
+// ══════════════════════════════════════
+const TOOL_DIALOGS = {
+  breakModal: () => dismissBreak(),
+  hyperfocusModal: () => dismissHyperfocus(),
+  breathingModal: () => stopBreathing(),
+  groundingModal: (m) => m.classList.remove('show'),
+  dopamineModal: () => closeDopamineMenu(),
+  meditationModal: () => closeMeditationModal(),
+  movementModal: () => closeMovementModal(),
+  sleepModal: () => closeSleepModal(),
+  bodyScanModal: () => closeBodyScanModal(),
+  socialModal: () => closeSocialModal(),
+  onboardingModal: () => dismissOnboarding(),
+};
+const DIALOG_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const openDialogs = []; // [{ modal, opener }], newest last
+let lastFocusOutsideDialogs = null;
+const inToolDialog = (el) => Object.keys(TOOL_DIALOGS).some((id) => document.getElementById(id)?.contains(el));
+const dialogFocusables = (m) => [...m.querySelectorAll(DIALOG_FOCUSABLE)].filter((el) => el.getClientRects().length);
+document.addEventListener('focusin', (e) => { if (!inToolDialog(e.target)) lastFocusOutsideDialogs = e.target; });
+
+function syncToolDialog(modal) {
+  // Opened by a .show class or an inline display (both ways are in use).
+  const open = modal.classList.contains('show') || !['', 'none'].includes(modal.style.display);
+  const at = openDialogs.findIndex((d) => d.modal === modal);
+  if (open && at === -1) {
+    openDialogs.push({ modal, opener: lastFocusOutsideDialogs });
+    if (!modal.contains(document.activeElement)) dialogFocusables(modal)[0]?.focus();
+  } else if (!open && at !== -1) {
+    const [{ opener }] = openDialogs.splice(at, 1);
+    const active = document.activeElement;
+    if (opener?.isConnected && (!active || active === document.body || modal.contains(active))) opener.focus();
+  }
+}
+
+Object.keys(TOOL_DIALOGS).forEach((id) => {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  const title = modal.querySelector('h2, h3, .break-modal-title, .onboarding-title, .modal-kicker');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  if (title) {
+    title.id = title.id || id + 'Title';
+    modal.setAttribute('aria-labelledby', title.id);
+  }
+  new MutationObserver(() => syncToolDialog(modal)).observe(modal, { attributes: true, attributeFilter: ['class', 'style'] });
+});
+
+document.addEventListener('keydown', (e) => {
+  const top = openDialogs[openDialogs.length - 1];
+  if (!top || document.getElementById('cmdPalette')?.classList.contains('open')) return;
+  if (e.key === 'Escape') { e.preventDefault(); TOOL_DIALOGS[top.modal.id](top.modal); return; }
+  if (e.key !== 'Tab') return;
+  const items = dialogFocusables(top.modal);
+  const first = items[0], last = items[items.length - 1];
+  const active = document.activeElement;
+  if (!first) { e.preventDefault(); return; }
+  if (!top.modal.contains(active) || (e.shiftKey ? active === first : active === last)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  }
+});
 
 // Accountability-first acquisition bridge. Preserve campaign/challenge context
 // in the URL so it survives account creation and lands on commitment_created.

@@ -50,6 +50,9 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   h2 { font-size: 18px; margin: 0 0 8px; color: var(--text); }
   .pagenav { font-size: 14px; color: var(--text-muted); margin-bottom: 10px; }
   .pagenav a { color: var(--primary-light); }
+  /* 44px tap targets (FBQ-22 R6). */
+  .pagenav a { display: inline-block; padding: 11px 0; }
+  input, select, button:not(.small) { min-height: 44px; }
   .intro { color: var(--text-muted); margin-top: 0; }
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin: 12px 0; box-shadow: var(--shadow); }
   /* The word a tapped notification landed on — rung once, then it is just a card again. */

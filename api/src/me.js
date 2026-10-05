@@ -573,6 +573,7 @@ export function renderMePage() {
   return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}
 <body>
 ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/pro/', label: 'Pro' }, { href: '/about.html', label: 'About' }])}
+<main>
 <h1>Your word</h1>
 <p class="intro">${mePageIntroCopy()}</p>
 
@@ -816,6 +817,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 
 <p class="footnote">${mePageFootnoteCopy()}</p>
 
+</main>
 <script>
 (function () {
   var TOKEN_KEY = 'focusbro_token';

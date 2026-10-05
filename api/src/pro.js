@@ -354,8 +354,8 @@ ${pageShellStyle({ maxWidth: 640 })}
 </head>
 <body>
 ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your words' }, { href: '/me/report', label: 'Weekly report' }])}
-<h1>FocusBro Pro</h1>
 <main id="pro" data-view="${view}" data-pro="${pro ? '1' : '0'}" data-signed-in="${signedIn ? '1' : '0'}">
+<h1>FocusBro Pro</h1>
 ${body}
 </main>
 <script src="/pro.js?v=${esc(buildSha)}" defer></script>

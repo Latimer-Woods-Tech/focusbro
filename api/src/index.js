@@ -3026,6 +3026,7 @@ router.get('/coach/', async (request) => {
   const page = `${pageHead({ title: "Coach dashboard — FocusBro", description: "A read-only view of the people you support and the words they're keeping.", maxWidth: 880 })}
 <body>
 ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, { href: '/about.html', label: 'About' }])}
+<main>
 <h1>Coach dashboard</h1>
 <p class="intro" id="intro">The people you show up for, and the words they&rsquo;re keeping.</p>
 <style>
@@ -3073,6 +3074,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
   the ones they don&rsquo;t, for you or for them.
 </p>
 
+</main>
 <script>
 (function () {
   var TOKEN_KEY = 'focusbro_token';
