@@ -637,6 +637,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 </div>
 
 <div id="app" class="hidden">
+  <p class="muted"><a href="#" id="signout">Sign out</a></p>
   <p class="muted hidden" id="anonNote">No account needed. Give your word and I’ll hold it in this browser. <a href="#" id="signinLink">Have an account? Sign in</a></p>
   <div id="firstRun" class="card firstrun hidden">
     <h2>${firstRunHeadingCopy()}</h2>
@@ -865,8 +866,6 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       </table>
     </div>
   </div>
-
-  <p class="muted"><a href="#" id="signout">Sign out</a></p>
 
   ${renderMeDeleteSection()}
 </div>
