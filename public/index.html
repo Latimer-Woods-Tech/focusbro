@@ -1105,6 +1105,9 @@
     color: var(--text-muted);
   }
 
+  .account-link { color: var(--text-muted); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; padding: 11px 6px; }
+  .account-link:hover { color: var(--text); }
+  .account-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
   .footer a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
   .footer a:hover { color: var(--primary-light); }
 
@@ -2595,6 +2598,7 @@ function fbSyncThemeIcon() {
     <div class="logo-text">Focus<span>Bro</span></div>
   </div>
   <div class="header-status">
+    <a class="account-link" id="accountLink" href="/me/">Sign in</a>
     <button class="zen-btn" id="zenBtn" onclick="toggleZen()" title="Z — hide everything except Pomodoro + Tasks"><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg> Zen</button>
     <div class="status-pill inactive" id="awakePill">
       <div class="status-dot"></div>
@@ -3842,6 +3846,7 @@ fetch('/auth/session?probe=1', { cache: 'no-store' }).then(function (response) {
   return response.ok ? response.json() : null;
 }).then(function (body) {
   fbAuthenticated = !!(body && body.authenticated);
+  if (fbAuthenticated) { var acct = document.getElementById('accountLink'); if (acct) acct.textContent = 'Your word'; }
   if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); loadHomeWords(); }
 }).catch(function () {
   fbAuthenticated = false;
