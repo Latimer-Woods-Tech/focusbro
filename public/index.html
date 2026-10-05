@@ -4817,7 +4817,7 @@ function armSoundscape(presetKey, soundList) {
   } else {
     return false;
   }
-  btn.textContent = ' Start ' + label;
+  btn.textContent = 'Start ' + label;
   btn.insertAdjacentHTML('afterbegin', fbIcon('play'));
   btn.hidden = false;
   btn.classList.add('armed');
@@ -7102,7 +7102,7 @@ document.addEventListener('keydown', (e) => {
       item.className = 'saved-mix';
       var play = document.createElement('button');
       play.type = 'button'; play.className = 'btn btn-sm';
-      play.textContent = ' ' + entry.name;
+      play.textContent = entry.name;
       play.insertAdjacentHTML('afterbegin', fbIcon('play'));
       play.addEventListener('click', function () { playSaved(entry); });
       var del = document.createElement('button');
