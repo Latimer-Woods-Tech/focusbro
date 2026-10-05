@@ -63,7 +63,7 @@ function mount() {
 }
 
 const VALID_SUB = {
-  subscription: { endpoint: 'https://push.example/abc', keys: { p256dh: 'PPP', auth: 'AAA' } },
+  subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'PPP', auth: 'AAA' } },
   device_label: 'Pixel',
 };
 
@@ -81,10 +81,11 @@ describe('registerPushRoutes (unit)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true, subscription_id: 'uuid-fixed' });
 
-    expect(db.runs).toHaveLength(1);
+    expect(db.runs).toHaveLength(2); // upsert, then the FBQ-08 active-cap sweep
     expect(db.runs[0].sql).toContain('INSERT INTO push_subscriptions');
+    expect(db.runs[1].sql).toContain('UPDATE push_subscriptions SET is_active = 0');
     // id, user_id, endpoint, p256dh, auth, device_label
-    expect(db.runs[0].args).toEqual(['uuid-fixed', 'user-1', 'https://push.example/abc', 'PPP', 'AAA', 'Pixel']);
+    expect(db.runs[0].args).toEqual(['uuid-fixed', 'user-1', 'https://fcm.googleapis.com/fcm/send/abc', 'PPP', 'AAA', 'Pixel']);
   });
 
   it('rejects an unauthenticated subscribe with 401 and never touches the DB', async () => {
@@ -98,7 +99,7 @@ describe('registerPushRoutes (unit)', () => {
   it('rejects a malformed subscription body with 400', async () => {
     const router = mount();
     const db = recordingDB();
-    const bad = { subscription: { endpoint: 'https://push.example/x' } }; // no keys
+    const bad = { subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/x' } }; // no keys
     const res = await router.handlerFor('POST', '/notifications/subscribe')(post('/notifications/subscribe', bad, 'good'), { DB: db, JWT_SECRET: 's' });
     expect(res.status).toBe(400);
     expect(db.runs).toHaveLength(0);
@@ -117,8 +118,8 @@ describe('registerPushRoutes (unit)', () => {
   it('soft-deactivates on unsubscribe', async () => {
     const router = mount();
     const db = recordingDB();
-    const req = post('/notifications/subscribe', { endpoint: 'https://push.example/abc' }, 'good');
-    const del = new Request(req.url, { method: 'DELETE', headers: req.headers, body: JSON.stringify({ endpoint: 'https://push.example/abc' }) });
+    const req = post('/notifications/subscribe', { endpoint: 'https://fcm.googleapis.com/fcm/send/abc' }, 'good');
+    const del = new Request(req.url, { method: 'DELETE', headers: req.headers, body: JSON.stringify({ endpoint: 'https://fcm.googleapis.com/fcm/send/abc' }) });
     const res = await router.handlerFor('DELETE', '/notifications/subscribe')(del, { DB: db, JWT_SECRET: 's' });
     expect(res.status).toBe(200);
     expect(db.runs[0].sql).toContain('is_active = 0');

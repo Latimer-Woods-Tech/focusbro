@@ -166,20 +166,72 @@ export function vapidConfigured(env) {
   return !!(env && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
 }
 
+/** Push-service host suffixes a subscription endpoint may point at (FBQ-08 R1). */
+export const PUSH_HOST_SUFFIXES = [
+  'push.services.mozilla.com', // Mozilla autopush (updates.push.services.mozilla.com)
+  'notify.windows.com',        // WNS (*.notify.windows.com)
+  'push.apple.com',            // Apple (web.push.apple.com, *.push.apple.com)
+];
+/** Exact push-service hosts (no subdomain wildcard). */
+export const PUSH_HOSTS_EXACT = ['fcm.googleapis.com'];
+
+/** Longest endpoint we store or send to. Real FCM/WNS/Apple endpoints are well under this. */
+export const MAX_ENDPOINT_LEN = 512;
+
+/** Per-send network timeout. A hung push service must never stall the cron tick. */
+export const PUSH_TIMEOUT_MS = 5000;
+
+/**
+ * Default TTL (seconds). A check-in nudge is only meaningful near its moment:
+ * the cron itself drops a row older than 24h, and a push-service-held message
+ * delivered through Doze hours later is exactly the "late nudge" the product
+ * forbids. One hour: long enough to ride out a brief offline gap, short enough
+ * that a nudge never lands as a stale interruption. The in-app card stays answerable.
+ */
+export const PUSH_TTL_SECONDS = 60 * 60;
+
+/**
+ * True only for an https endpoint on a known push-service host: no credentials,
+ * default port, bounded length. Anything else is refused at intake AND at send
+ * time, so the Worker never POSTs to an arbitrary host.
+ * @param {unknown} endpoint
+ * @returns {boolean}
+ */
+export function isAllowedPushEndpoint(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint.length > MAX_ENDPOINT_LEN) return false;
+  let u;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  if (u.port && u.port !== '443') return false;
+  const h = u.hostname.toLowerCase();
+  return PUSH_HOSTS_EXACT.includes(h) || PUSH_HOST_SUFFIXES.some((x) => h === x || h.endsWith(`.${x}`));
+}
+
 /**
  * Send a Web Push message to a single subscription.
+ *
+ * Result flags: `gone` (404/410, or an endpoint off the allowlist) is safe to
+ * deactivate immediately. `suspect` (400/403) is probably a dead subscription but
+ * is ALSO what a server-side VAPID/encryption misconfiguration looks like for
+ * every subscription at once, so the caller must corroborate before deactivating.
+ * A timeout is a plain retryable failure (status 0).
  * @param {object} env  Worker env (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT)
  * @param {object} sub  { endpoint, p256dh, auth }
  * @param {object|string} payload  JSON-serializable message (or a string)
- * @param {object} [opts] { ttl }
- * @returns {Promise<{ok: boolean, status: number, gone?: boolean, error?: string}>}
+ * @param {object} [opts] { ttl, timeoutMs }
+ * @returns {Promise<{ok: boolean, status: number, gone?: boolean, suspect?: boolean, error?: string}>}
  */
 export async function sendWebPush(env, sub, payload, opts = {}) {
   if (!vapidConfigured(env)) return { ok: false, status: 0, error: 'vapid_not_configured' };
   if (!sub || !sub.endpoint || !sub.p256dh || !sub.auth) {
     return { ok: false, status: 0, error: 'invalid_subscription' };
   }
+  // A row that predates the allowlist is refused, never fetched, and retired.
+  if (!isAllowedPushEndpoint(sub.endpoint)) {
+    return { ok: false, status: 0, gone: true, error: 'endpoint_not_allowed' };
+  }
 
+  let timer;
   try {
     const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
     const body = await encryptPayload({
@@ -194,26 +246,42 @@ export async function sendWebPush(env, sub, payload, opts = {}) {
       subject: env.VAPID_SUBJECT,
     });
 
-    const res = await fetch(sub.endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': vapid.authorization,
-        'Content-Encoding': 'aes128gcm',
-        'Content-Type': 'application/octet-stream',
-        'TTL': String(opts.ttl || 12 * 60 * 60),
-      },
-      body,
-    }).catch((e) => ({ ok: false, status: 0, _netErr: e && e.message }));
+    const timeoutMs = opts.timeoutMs || PUSH_TIMEOUT_MS;
+    const ctl = new AbortController();
+    // Abort AND race: the abort frees the socket, the race guarantees we return
+    // even if a fetch implementation ignores the signal.
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => { ctl.abort(); resolve({ ok: false, status: 0, _netErr: 'push_timeout' }); }, timeoutMs);
+    });
+    const res = await Promise.race([
+      fetch(sub.endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': vapid.authorization,
+          'Content-Encoding': 'aes128gcm',
+          'Content-Type': 'application/octet-stream',
+          'TTL': String(opts.ttl || PUSH_TTL_SECONDS),
+          'Urgency': 'high',
+        },
+        body,
+        signal: ctl.signal,
+      }).catch((e) => ({ ok: false, status: 0, _netErr: e && e.message })),
+      timeout,
+    ]);
 
-    // 404/410 mean the subscription is gone and should be deactivated.
+    // 404/410: the subscription is gone. 400/403: probably dead, but unproven.
     const gone = res.status === 404 || res.status === 410;
+    const suspect = res.status === 400 || res.status === 403;
     return {
       ok: !!res.ok,
       status: res.status || 0,
       gone,
+      suspect,
       error: res.ok ? undefined : (res._netErr || `push_status_${res.status || 0}`),
     };
   } catch (err) {
     return { ok: false, status: 0, error: (err && err.message) || 'push_encrypt_error' };
+  } finally {
+    clearTimeout(timer);
   }
 }
