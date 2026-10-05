@@ -13,8 +13,6 @@ import {
   logEvent,
   successResponse,
   validateDeviceId,
-  validateEmail,
-  validatePassword,
 } from '../middleware.js';
 import * as middleware from '../middleware.js';
 
@@ -25,6 +23,11 @@ describe('middleware primitives', () => {
     // route that wired it in would have accepted forged tokens. Live routes use
     // requireUser (accountability.js), which verifies the signature.
     expect(middleware).not.toHaveProperty('verifyAuth');
+  });
+
+  it('keeps no dead credential validators here (the live ones are in index.js / coach.js)', () => {
+    expect(middleware).not.toHaveProperty('validateEmail');
+    expect(middleware).not.toHaveProperty('validatePassword');
   });
 
   it('enforces a KV-backed rate limit and feature flags', async () => {
@@ -41,10 +44,6 @@ describe('middleware primitives', () => {
   });
 
   it('validates basic inputs and generates stable-safe identifiers', () => {
-    expect(validateEmail('person@example.com')).toBe(true);
-    expect(validateEmail('not-an-email')).toBe(false);
-    expect(validatePassword('12345678')).toBe(true);
-    expect(validatePassword('short')).toBe(false);
     expect(validateDeviceId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
     expect(validateDeviceId('not-a-device')).toBe(false);
     expect(generateUUID()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
