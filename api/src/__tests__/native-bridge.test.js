@@ -245,6 +245,14 @@ describe('check-in schedule (device sync)', () => {
     expect(b.assigned).toEqual(['/me/?word=c1']);
   });
 
+  it('when "I did it" recorded nothing (recorded:false), it lands on the word instead of claiming success', async () => {
+    const b = boot();
+    b.fetch.mockImplementation(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ recorded: false }) }));
+    b.listeners['LN:localNotificationActionPerformed']({ actionId: 'kept', notification: { extra: { fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' } } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(b.assigned).toEqual(['/me/?word=c1']);
+  });
+
   it('"Not yet" lands on the word with the warm reschedule open', () => {
     const b = boot();
     b.listeners['LN:localNotificationActionPerformed']({ actionId: 'not-yet', notification: { extra: { fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' } } });
