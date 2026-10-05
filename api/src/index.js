@@ -5,7 +5,8 @@
 
 import { Router } from 'itty-router';
 import htmlContent from './html.js';
-import swSource from './sw-source.js';
+import swSource, { swContentHash } from './sw-source.js';
+import { SW_KILL_SOURCE, swKillSwitchOn } from './sw-kill.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
 import { NATIVE_BRIDGE_SCRIPT } from './native-bridge.js';
@@ -3531,15 +3532,21 @@ router.get('/manifest.json', async (_request, _env) => {
 });
 
 // ── SERVICE WORKER ──
-router.get('/sw.js', async (_request, _env) => {
+router.get('/sw.js', async (_request, env) => {
   // The service worker's one source is public/sw.js; `npm run build:html`
   // stringifies it into api/src/sw-source.js next to html.js (G797 — there
   // used to be an inline copy here and a mirror nobody served).
-  return new Response(swSource, {
+  // FBQ-04: stamped with this deploy's id so every deploy is new bytes (the
+  // browser only installs a worker whose bytes changed) and names its cache;
+  // never HTTP-cached, so an update check always sees the current build.
+  const id = String((env && env.BUILD_SHA && env.BUILD_SHA !== 'development') ? env.BUILD_SHA : swContentHash)
+    .replace(/[^A-Za-z0-9._-]/g, '');
+  const body = swKillSwitchOn(env) ? SW_KILL_SOURCE : swSource.split('__FOCUSBRO_BUILD_ID__').join(id);
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/javascript; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Service-Worker-Allowed': '/'
     }
   });
