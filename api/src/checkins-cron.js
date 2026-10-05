@@ -30,6 +30,61 @@ import { isProUser } from './pro.js';
 import { generateUUID } from './middleware.js';
 import { recordEvent, EVENTS } from './events.js';
 
+// ════════════════════════════════════════════════════════════
+// PER-TICK SUBREQUEST BUDGET  (FBQ-09)
+// ════════════════════════════════════════════════════════════
+// A scheduled invocation may make at most 1,000 subrequests on the paid plan (50
+// on free) and every D1 call and outbound fetch is one. A worst-case tick (100
+// deliveries + 50 escalations + 50 return nudges) made ~1,150, and the late stages
+// sit in try/catch, so they would have died silently behind a green heartbeat.
+// Now every D1 call and send is counted against ONE budget threaded through the
+// three stages; a stage that finds its ceiling reached finishes the row in hand
+// (a claimed row is never abandoned mid-send) and stops, leaving the rest due for
+// the next tick. Ceilings reserve a slice for the late stages so a deliveries
+// backlog can never starve them for good: deliveries stop at limit - 2R,
+// escalations at limit - R, return nudges at limit (R = 15% of limit).
+// A D1 batch() is one subrequest, so it is counted as one.
+
+/** Subrequests one tick may spend: well under the 1,000 cap, leaving room for the heartbeat + summary writes. */
+export const TICK_BUDGET = 800;
+const STAGE_RESERVE = 0.15;
+/** Worst-case calls one row may still make after the budget check passed (claim, lookups, <=5 pushes, writes). */
+const ROW_MARGIN = 12;
+const BUDGET = Symbol('tickBudget');
+
+/** A fresh tick budget. `hasRoom(stage)`: may that stage still START another row? */
+export function makeTickBudget(limit = TICK_BUDGET) {
+  const reserve = Math.floor(limit * STAGE_RESERVE);
+  const ceilings = { delivery: limit - 2 * reserve, escalation: limit - reserve, return_nudge: limit };
+  return {
+    limit, used: 0,
+    hasRoom(stage) { return this.used + ROW_MARGIN <= ceilings[stage]; },
+    summary() { return { limit, used: this.used, exhausted: this.used + ROW_MARGIN > limit }; },
+  };
+}
+
+/** Count `n` outbound fetches against the tick budget carried on `env` (no-op without one). */
+function spendFetch(env, n = 1) {
+  const b = env && env[BUDGET];
+  if (b) b.used += n;
+}
+
+/** `env` with a DB whose every query (and fetch, via spendFetch) counts against `budget`. */
+function meterEnv(env, budget) {
+  const wrap = (st) => ({
+    raw: st,
+    bind: (...a) => wrap(st.bind(...a)),
+    run: (...a) => { budget.used++; return st.run(...a); },
+    first: (...a) => { budget.used++; return st.first(...a); },
+    all: (...a) => { budget.used++; return st.all(...a); },
+  });
+  const DB = { prepare: (sql) => wrap(env.DB.prepare(sql)) };
+  if (typeof env.DB.batch === 'function') {
+    DB.batch = (list) => { budget.used++; return env.DB.batch(list.map((x) => x.raw || x)); };
+  }
+  return { ...env, DB, [BUDGET]: budget };
+}
+
 /**
  * Keep a recurring commitment's rhythm alive: once its due check-in has left
  * `pending` (sent / skipped / failed), queue the next occurrence if one isn't
@@ -41,30 +96,38 @@ import { recordEvent, EVENTS } from './events.js';
  * @returns {Promise<boolean>} true if a new occurrence was inserted.
  */
 export async function materializeNextOccurrence(env, row, nowISO) {
-  if (pickRecurrence(row.recurrence) === 'none') return false;
-  if (row.commitment_status && row.commitment_status !== 'active') return false;
-  const nextISO = nextOccurrenceISO({
+  const nextISO = nextOccurrenceFor(row, nowISO);
+  if (!nextISO) return false;
+  return changed(await occurrenceInsert(env, row, nextISO, nowISO).run());
+}
+
+/** The next occurrence's instant, or null for a one-shot / inactive commitment. */
+function nextOccurrenceFor(row, nowISO) {
+  if (pickRecurrence(row.recurrence) === 'none') return null;
+  if (row.commitment_status && row.commitment_status !== 'active') return null;
+  return nextOccurrenceISO({
     recurrence: row.recurrence,
     timezone: row.timezone,
     localTime: row.local_time,
     afterISO: nowISO,
-  });
-  if (!nextISO) return false;
+  }) || null;
+}
 
-  const existing = await env.DB.prepare(
-    `SELECT id FROM commitment_checkins
-      WHERE commitment_id = ? AND status = 'pending' AND scheduled_for > ? LIMIT 1`
-  ).bind(row.commitment_id, nowISO).first();
-  if (existing) return false;
-
-  // The SELECT above is a fast path, not the guarantee: the app's resolve path can
-  // insert the same occurrence between it and here, and the partial unique index
-  // (FBQ-05 R4) turns that lost race into a no-op instead of a second nudge.
-  const ins = await env.DB.prepare(
+/**
+ * The next-occurrence INSERT as ONE statement (FBQ-09: it was a SELECT then an
+ * INSERT). The NOT EXISTS is the fast path, the partial unique index (FBQ-05 R4)
+ * the guarantee: the app's resolve path inserting the same occurrence in between
+ * turns a lost race into a no-op instead of a second nudge. `andWhere` lets a
+ * batch condition it on the finishing write having landed.
+ */
+function occurrenceInsert(env, row, nextISO, nowISO, andWhere = { sql: '', binds: [] }) {
+  return env.DB.prepare(
     `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-     VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
-  ).bind(generateUUID(), row.commitment_id, row.user_id, nextISO, row.channel).run();
-  return changed(ins);
+     SELECT ?, ?, ?, ?, ?, 'pending'
+      WHERE NOT EXISTS (SELECT 1 FROM commitment_checkins
+             WHERE commitment_id = ? AND status = 'pending' AND scheduled_for > ?)${andWhere.sql}
+     ${ON_OPEN_OCCURRENCE_CONFLICT}`
+  ).bind(generateUUID(), row.commitment_id, row.user_id, nextISO, row.channel, row.commitment_id, nowISO, ...andWhere.binds);
 }
 
 /** True when a D1 write reports it changed at least one row. */
@@ -316,6 +379,7 @@ const PUSH_CONCURRENCY = 5;
 /** sendWebPush over `subs`, PUSH_CONCURRENCY at a time, results in input order. */
 async function sendAll(env, subs, payload) {
   const out = [];
+  spendFetch(env, subs.length);
   for (let i = 0; i < subs.length; i += PUSH_CONCURRENCY) {
     out.push(...await Promise.all(subs.slice(i, i + PUSH_CONCURRENCY).map((s) => sendWebPush(env, s, payload))));
   }
@@ -354,6 +418,7 @@ async function deliverText(env, row, message) {
   const to = user && typeof user.phone === 'string' ? user.phone.trim() : '';
   if (!to) return { status: 'skipped', detail: 'no_phone' };
 
+  spendFetch(env);
   const res = await fetch('https://api.telnyx.com/v2/messages', {
     method: 'POST',
     headers: {
@@ -386,11 +451,13 @@ async function deliverText(env, row, message) {
  * @param {object} [opts] { now?: ISO string, limit?: number }
  * @returns {Promise<{scanned:number, sent:number, skipped:number, failed:number, retry:number, deferred:number, reclaimed:number, contended:number, superseded:number}>}
  */
-export async function runDueCheckins(env, opts = {}) {
+export async function runDueCheckins(rawEnv, opts = {}) {
+  const budget = opts.budget || makeTickBudget();
+  const env = meterEnv(rawEnv, budget);
   const now = opts.now || new Date().toISOString();
   const nowMs = Date.parse(now);
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: 0, contended: 0, superseded: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: 0, contended: 0, superseded: 0, skipped_for_budget: 0 };
   const leaseUntil = new Date((Number.isNaN(nowMs) ? Date.now() : nowMs) + SEND_LEASE_MIN * 60 * 1000).toISOString();
 
   // FBQ-05 R3: a claim whose lease has passed belongs to an invocation that died
@@ -438,6 +505,9 @@ export async function runDueCheckins(env, opts = {}) {
 
   let page = { rows: [], full: true, held: -1 };
   for (let pages = 0; ;) {
+    // FBQ-09: out of budget → start no new row (the one in hand was finished
+    // last iteration); what is left stays 'pending' for the next tick.
+    if (!budget.hasRoom('delivery')) { summary.skipped_for_budget = page.rows.length; break; }
     if (!page.rows.length) {
       // Scan again only while the last page was full AND held rows filled it.
       if (!page.full || page.held === 0 || pages >= MAX_SCAN_PAGES) break;
@@ -593,13 +663,34 @@ export async function runDueCheckins(env, opts = {}) {
     }
 
     let leftPending = false;
+    let batchedNext = false;
     try {
       if (outcome.status === 'sent') {
-        const res = await env.DB.prepare(
+        const upd = env.DB.prepare(
           `UPDATE commitment_checkins
               SET status = 'sent', delivered_at = ?, attempts = COALESCE(attempts,0) + 1, last_error = NULL, lease_until = NULL
             WHERE id = ? AND ${ours.sql}`
-        ).bind(now, row.checkin_id, ...ours.binds).run();
+        ).bind(now, row.checkin_id, ...ours.binds);
+        // FBQ-09 R2: the finishing write and the next occurrence go in ONE batch
+        // (one subrequest, one transaction). The finishing write stays conditional
+        // on the lease; the insert only lands if it did. If the batch itself
+        // throws (the insert can never be allowed to cost the 'sent' mark: an
+        // unmarked row would be re-sent), fall back to the plain write alone.
+        const nextISO = nextOccurrenceFor(row, now);
+        let res, nextRes = null;
+        if (nextISO && env.DB.batch) {
+          try {
+            [res, nextRes] = await env.DB.batch([upd, occurrenceInsert(env, row, nextISO, now, {
+              sql: ` AND EXISTS (SELECT 1 FROM commitment_checkins WHERE id = ? AND status = 'sent' AND delivered_at = ?)`,
+              binds: [row.checkin_id, now],
+            })]);
+            batchedNext = true;
+          } catch (err) {
+            console.error('[checkins-cron] finish batch failed, writing alone:', err && err.message);
+          }
+        }
+        if (!res) res = await upd.run();
+        if (changed(nextRes)) summary.materialized++;
         if (changed(res)) { summary.sent++; leftPending = true; } else summary.superseded++;
       } else if (outcome.status === 'skipped') {
         // Terminal park, no shame, no retry storm: either no channel is available
@@ -637,7 +728,7 @@ export async function runDueCheckins(env, opts = {}) {
     // Once this occurrence is off the pending queue, keep a recurring
     // commitment's rhythm going by queuing the next one (idempotent no-op
     // otherwise). A materialize failure never aborts the batch.
-    if (leftPending) {
+    if (leftPending && !batchedNext) {
       try {
         if (await materializeNextOccurrence(env, row, now)) summary.materialized++;
       } catch (err) {
@@ -697,10 +788,12 @@ const ESCALATION_LIMIT = 50;
  * @param {object} [opts] { now?: ISO string, limit?: number }
  * @returns {Promise<{scanned:number, escalated:number, deferred:number, skipped:number, failed:number}>}
  */
-export async function runEscalations(env, opts = {}) {
+export async function runEscalations(rawEnv, opts = {}) {
+  const budget = opts.budget || makeTickBudget();
+  const env = meterEnv(rawEnv, budget);
   const now = opts.now || new Date().toISOString();
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : ESCALATION_LIMIT;
-  const summary = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
+  const summary = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0, skipped_for_budget: 0 };
 
   const cutoff = new Date(new Date(now).getTime() - ESCALATION_DELAY_MIN * 60 * 1000).toISOString();
   // The far edge of the window: a push that has been quiet longer than this has
@@ -731,6 +824,8 @@ export async function runEscalations(env, opts = {}) {
 
   const rows = (quiet && quiet.results) || [];
   for (const row of rows) {
+    // FBQ-09: stop before a new row when the stage's budget ceiling is reached; the rest stay eligible.
+    if (!budget.hasRoom('escalation')) { summary.skipped_for_budget = rows.length - summary.scanned; break; }
     summary.scanned++;
 
     let outcome = null;
@@ -863,6 +958,9 @@ export const CRON_HEALTH_KEYS = Object.freeze({
   // the newest APPLIED migration, read from d1_migrations on the tick (the
   // cron already touches D1) so /health can report it without touching D1
   schemaApplied: 'cron:schema_applied',
+  // consecutive ticks where a stage threw inside its try/catch (FBQ-09). Separate
+  // from failStreak: that one means "sends are failing" and drives delivery_degraded.
+  stageErrorStreak: 'cron:stage_error_streak',
 });
 
 /**
@@ -874,7 +972,7 @@ export const CRON_HEALTH_KEYS = Object.freeze({
  * or aborts the caller. Returns the new fail streak (for logging/tests).
  * @returns {Promise<number>} the fail streak after this tick
  */
-export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {}, schemaApplied = null } = {}) {
+export async function recordCronHealth(env, { nowISO, delivery = {}, escalation = {}, returnNudges = null, budget = null, stageErrors = [], schemaApplied = null } = {}) {
   const kv = env && env.KV_CACHE;
   const now = nowISO || new Date().toISOString();
   let streak = 0;
@@ -888,7 +986,20 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
     await kv.put(CRON_HEALTH_KEYS.failStreak, String(streak));
   } catch { /* best-effort */ }
   try {
-    await kv.put(CRON_HEALTH_KEYS.lastSummary, JSON.stringify({ at: now, delivery, escalation }));
+    // FBQ-09: what the tick did NOT do is part of the summary (budget, per-stage
+    // skipped_for_budget inside each stage object, stage_errors), so /health shows it.
+    await kv.put(CRON_HEALTH_KEYS.lastSummary, JSON.stringify({
+      at: now, delivery, escalation, return_nudges: returnNudges, budget, stage_errors: stageErrors,
+    }));
+  } catch { /* best-effort */ }
+  // STAGE ERRORS get their OWN streak. fail_streak means "deliveries are failing"
+  // and feeds delivery_degraded, which pages; a bug in the escalation SQL is not a
+  // failed delivery, and folding it in would raise a false delivery outage and
+  // change what the existing signal means. It must still be visible: a tick whose
+  // stage threw bumps this streak, a clean tick resets it.
+  try {
+    const prev = Number(await kv.get(CRON_HEALTH_KEYS.stageErrorStreak)) || 0;
+    await kv.put(CRON_HEALTH_KEYS.stageErrorStreak, String(stageErrors && stageErrors.length ? prev + 1 : 0));
   } catch { /* best-effort */ }
   if (schemaApplied) { try { await kv.put(CRON_HEALTH_KEYS.schemaApplied, String(schemaApplied)); } catch { /* best-effort */ } }
   return streak;
@@ -905,10 +1016,11 @@ export async function recordCronHealth(env, { nowISO, delivery = {}, escalation 
 export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
   const kv = env && env.KV_CACHE;
   const at = typeof nowMs === 'number' ? nowMs : Date.now();
-  let lastTick = null, failStreak = 0, lastSummary = null, schemaApplied = null;
+  let lastTick = null, failStreak = 0, stageErrorStreak = 0, lastSummary = null, schemaApplied = null;
   try { lastTick = kv ? await kv.get(CRON_HEALTH_KEYS.lastTick) : null; } catch { /* best-effort */ }
   try { schemaApplied = kv ? (await kv.get(CRON_HEALTH_KEYS.schemaApplied)) || null : null; } catch { /* best-effort */ }
   try { failStreak = kv ? (Number(await kv.get(CRON_HEALTH_KEYS.failStreak)) || 0) : 0; } catch { /* best-effort */ }
+  try { stageErrorStreak = kv ? (Number(await kv.get(CRON_HEALTH_KEYS.stageErrorStreak)) || 0) : 0; } catch { /* best-effort */ }
   try {
     const raw = kv ? await kv.get(CRON_HEALTH_KEYS.lastSummary) : null;
     lastSummary = raw ? JSON.parse(raw) : null;
@@ -925,6 +1037,7 @@ export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
     fail_streak: failStreak,
     delivery_degraded: failStreak >= DELIVERY_DEGRADED_STREAK,
     degraded_streak_threshold: DELIVERY_DEGRADED_STREAK,
+    stage_error_streak: stageErrorStreak,
     last_summary: lastSummary,
     schema_applied: schemaApplied,
   };
@@ -1089,11 +1202,13 @@ async function deliverReturnPush(env, userId, message) {
  * @param {object} [opts] { now?: ISO, limit?: number, quietDays?: number }
  * @returns {Promise<{scanned:number, nudged:number, deferred:number, skipped:number, failed:number}>}
  */
-export async function runReturnNudges(env, opts = {}) {
+export async function runReturnNudges(rawEnv, opts = {}) {
+  const budget = opts.budget || makeTickBudget();
+  const env = meterEnv(rawEnv, budget);
   const now = opts.now || new Date().toISOString();
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : RETURN_NUDGE_LIMIT;
   const quietDays = Number(opts.quietDays) > 0 ? Number(opts.quietDays) : RETURN_NUDGE_QUIET_DAYS;
-  const summary = { scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0 };
+  const summary = { scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0, skipped_for_budget: 0 };
 
   const cutoff = new Date(new Date(now).getTime() - quietDays * 24 * 60 * 60 * 1000).toISOString();
 
@@ -1129,6 +1244,7 @@ export async function runReturnNudges(env, opts = {}) {
   const rows = (due && due.results) || [];
 
   for (const row of rows) {
+    if (!budget.hasRoom('return_nudge')) { summary.skipped_for_budget = rows.length - summary.scanned; break; }
     summary.scanned++;
     const userId = row.user_id;
 

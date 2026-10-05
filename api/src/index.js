@@ -34,7 +34,7 @@ import {
 } from './account-recovery.js';
 import { spendLimits, refundLimit, clearLimits, retryAfterSeconds } from './rate-limit.js';
 import { pageHead, pageNav } from './page-shell.js';
-import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
+import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth, makeTickBudget } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
 import config, { D1_SCHEMA_VERSION, GUEST_EMAIL_DOMAIN } from './config.js';
 import { isFeatureEnabled } from './features.js';
@@ -2634,13 +2634,14 @@ router.post('/api/internal/run-checkins', async (request, env) => {
   if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
   if (!(await cronKeyMatches(request, env))) return jsonResponse({ error: 'Unauthorized' }, 401);
   try {
-    const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
+    const budget = makeTickBudget(); // FBQ-09: one budget for the whole manual pass, as in the cron
+    const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100, budget });
     // Same escalation pass the cron runs (Wingspan W1), so a verification curl
     // exercises the WHOLE ladder: deliver → quiet → the one SMS follow-up.
-    const escalations = await runEscalations(env, { now: new Date().toISOString() });
+    const escalations = await runEscalations(env, { now: new Date().toISOString(), budget });
     // Same return-nudge pass the cron runs (Wingspan W4 / L3): the gone-quiet
     // PERSON gets one warm door-open. One curl now exercises both ladders.
-    const returnNudges = await runReturnNudges(env, { now: new Date().toISOString() });
+    const returnNudges = await runReturnNudges(env, { now: new Date().toISOString(), budget });
     return jsonResponse({ ok: true, summary, escalations, returnNudges }, 200);
   } catch (err) {
     console.error('[cron] manual trigger failed:', err && err.message);
@@ -3757,36 +3758,47 @@ export default {
       const runtimeEnv = withJwtSecretFallback(env);
       // PRIMARY DUTY: deliver due check-ins. Its summary IS the SLO signal —
       // failed/retry counts feed the degraded detector below.
-      const delivery = await runDueCheckins(runtimeEnv, { now: nowISO, limit: 100 });
+      // FBQ-09: ONE subrequest budget for the whole tick, spent deliveries →
+      // escalations → return nudges (each stage keeps a reserved slice).
+      const budget = makeTickBudget();
+      const delivery = await runDueCheckins(runtimeEnv, { now: nowISO, limit: 100, budget });
       console.log('[cron] check-in delivery:', JSON.stringify(delivery));
       // Wingspan W1: after primary delivery, knock once more (SMS) on any
       // delivered push check-in that has gone quiet past the escalation delay.
-      // ISOLATED try — a bug in the secondary escalation knock must never abort
-      // the pass before the heartbeat, or a false "delivery is dead" (#74's
-      // exact signature) would fire while delivery actually succeeded.
-      let escalation = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0 };
+      // ISOLATED try — a bug in a secondary stage must never abort the pass
+      // before the heartbeat, or a false "delivery is dead" (#74's exact
+      // signature) would fire while delivery actually succeeded. But a stage that
+      // throws is no longer invisible (FBQ-09): it lands in stage_errors.
+      const stageErrors = [];
+      const stageFailed = (stage, err) => {
+        console.error(`[cron] ${stage} failed:`, err && err.message);
+        stageErrors.push({ stage, error: (err && err.name) || 'Error' });
+      };
+      let escalation = { scanned: 0, escalated: 0, deferred: 0, skipped: 0, failed: 0, skipped_for_budget: 0 };
       try {
-        escalation = await runEscalations(runtimeEnv, { now: new Date().toISOString() });
+        escalation = await runEscalations(runtimeEnv, { now: new Date().toISOString(), budget });
         console.log('[cron] escalations:', JSON.stringify(escalation));
       } catch (escErr) {
-        console.error('[cron] escalations failed:', escErr && escErr.message);
+        stageFailed('escalation', escErr);
+      }
+      // Wingspan W4 / L3: knock once on anyone who's gone quiet across the whole
+      // app. Runs BEFORE the heartbeat now (so its summary and errors are in
+      // /health), still in its own isolated try so it can never abort the stamp.
+      let returnNudges = null;
+      try {
+        returnNudges = await runReturnNudges(runtimeEnv, { now: new Date().toISOString(), budget });
+        console.log('[cron] return-nudges:', JSON.stringify(returnNudges));
+      } catch (rnErr) {
+        stageFailed('return_nudge', rnErr);
       }
       // SLO signals: liveness (last_tick) + correctness (delivery fail streak),
       // so /health + the off-platform monitor catch both a silent cron death
       // and a cron that ticks while every send fails.
       const schemaApplied = await readAppliedSchemaVersion(runtimeEnv);
-      const streak = await recordCronHealth(runtimeEnv, { nowISO, delivery, escalation, schemaApplied });
+      const streak = await recordCronHealth(runtimeEnv, {
+        nowISO, delivery, escalation, returnNudges, budget: budget.summary(), stageErrors, schemaApplied,
+      });
       if (streak >= 3) console.error(`[cron] delivery DEGRADED — ${streak} consecutive failing ticks`);
-      // Wingspan W4 / L3: after the heartbeat is stamped (so a bug here can never
-      // masquerade as a delivery outage), knock once on anyone who's gone quiet
-      // across the whole app — the gone-quiet PERSON, not just a quiet check-in.
-      // ISOLATED try — the return-nudge is never on the critical delivery path.
-      try {
-        const returnNudges = await runReturnNudges(runtimeEnv, { now: new Date().toISOString() });
-        console.log('[cron] return-nudges:', JSON.stringify(returnNudges));
-      } catch (rnErr) {
-        console.error('[cron] return-nudges failed:', rnErr && rnErr.message);
-      }
     } catch (err) {
       // Delivery itself broke (DB down, etc.) — no heartbeat is stamped, so
       // /health correctly goes stale and the external monitor fires.
