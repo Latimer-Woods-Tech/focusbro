@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import worker from '../index.js';
 import { NATIVE_BRIDGE_SCRIPT, MAX_SCHEDULED, RECURRING_LOOKAHEAD, SOUNDSCAPE_NOTIFICATION_ID } from '../native-bridge.js';
 import { ASSET_LINKS, ANDROID_PACKAGE, ANDROID_CERT_FINGERPRINTS } from '../assetlinks.js';
-import { renderMePage } from '../me.js';
+import { renderMePage, checkinActionLabels } from '../me.js';
 
 const repo = (p) => fileURLToPath(new URL(`../../../${p}`, import.meta.url));
 const env = { BUILD_SHA: 'abc1234', DB: undefined };
@@ -49,6 +49,7 @@ function boot({ native = true, commitments = [], status = 200, display = 'grante
     cancel: vi.fn(function (o) { const ids = o.notifications.map((n) => n.id); this.pending = this.pending.filter((n) => !ids.includes(n.id)); return Promise.resolve(); }),
     schedule: vi.fn(function (o) { this.scheduled = o.notifications; this.pending = o.notifications.map((n) => ({ id: n.id, extra: n.extra })); return Promise.resolve({ notifications: [] }); }),
     addListener: on('LN'),
+    registerActionTypes: vi.fn(() => Promise.resolve()),
   };
   const FS = {
     createNotificationChannel: vi.fn(() => Promise.resolve()),
@@ -125,7 +126,8 @@ describe('check-in schedule (plan)', () => {
     expect(n.title).toBe('Write the intro');
     expect(n.schedule.at.toISOString()).toBe(at);
     expect(n.schedule.allowWhileIdle).toBe(true);
-    expect(n.extra).toEqual({ fb: 'checkin', commitmentId: 'c1', url: '/me/' });
+    expect(n.extra).toEqual({ fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' });
+    expect(n.actionTypeId).toBe('checkin');
     expect(n.id).toBeGreaterThan(0);
     expect(n.id).not.toBe(SOUNDSCAPE_NOTIFICATION_ID);
   });
@@ -213,6 +215,40 @@ describe('check-in schedule (device sync)', () => {
     await b.win.fetch('/api/commitments');
     await Promise.resolve();
     expect(b.timers.length).toBe(before + 1);
+  });
+
+  it('registers the two answers on the notification, in the words the /me/ card uses', () => {
+    const b = boot();
+    const labels = checkinActionLabels();
+    expect(b.LN.registerActionTypes).toHaveBeenCalledWith({ types: [{ id: 'checkin', actions: [
+      { id: 'kept', title: labels.kept },
+      { id: 'not-yet', title: labels.missed },
+    ] }] });
+  });
+
+  it('"I did it" on the notification answers through the in-app route and opens nothing', async () => {
+    const b = boot();
+    b.fetch.mockClear();
+    b.listeners['LN:localNotificationActionPerformed']({ actionId: 'kept', notification: { extra: { fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' } } });
+    await new Promise((r) => setTimeout(r, 0));
+    const call = b.fetch.mock.calls.find((c) => String(c[0]).endsWith('/api/commitments/c1/checkin'));
+    expect(call, 'POST to the in-app check-in route').toBeTruthy();
+    expect(call[1].method).toBe('POST');
+    expect(JSON.parse(call[1].body)).toEqual({ outcome: 'kept' });
+    expect(b.assigned).toEqual([]);
+  });
+
+  it('when "I did it" cannot be answered here, it lands on the word instead of swallowing the tap', async () => {
+    const b = boot({ status: 500 });
+    b.listeners['LN:localNotificationActionPerformed']({ actionId: 'kept', notification: { extra: { fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' } } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(b.assigned).toEqual(['/me/?word=c1']);
+  });
+
+  it('"Not yet" lands on the word with the warm reschedule open', () => {
+    const b = boot();
+    b.listeners['LN:localNotificationActionPerformed']({ actionId: 'not-yet', notification: { extra: { fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' } } });
+    expect(b.assigned).toEqual(['/me/?word=c1&answer=not-yet']);
   });
 
   it('opens the check-in page on tap, and never navigates off-origin', () => {
