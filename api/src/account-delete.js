@@ -87,6 +87,7 @@ export const ACCOUNT_DELETION_PLAN = Object.freeze([
   { table: 'users', action: 'delete', where: 'id = ?1', what: 'email, password hash, name, phone number' },
   // ── nothing personal ──
   { table: 'focus_presence', action: 'none', why: 'anonymous focus-room heartbeat (random client id, no account link), pruned on write' },
+  { table: 'rate_limits', action: 'none', why: 'abuse-limit counters keyed by SHA-256 of an email or IP, no user link; each window lasts 15 minutes and dead rows are swept (FBQ-13)' },
   { table: 'd1_migrations', action: 'none', why: 'D1 migration ledger' },
   { table: 'sqlite_sequence', action: 'none', why: 'SQLite internal' },
 ]);

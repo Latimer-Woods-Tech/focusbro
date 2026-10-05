@@ -339,11 +339,21 @@ const VERIFY_PAGE_SCRIPT = `(() => {
   });
 })();`;
 
+/**
+ * The one password policy (register, claim, reset): 8-1024 characters, and an
+ * all-digit password needs 12 (FBQ-13 R4 — an 8-digit PIN falls to a guess
+ * list). Returns the error message, or null when the password is acceptable.
+ */
+export function passwordPolicyError(password) {
+  if (typeof password !== 'string' || password.length < 8) return 'Password must be at least 8 characters';
+  if (password.length > 1024) return 'Password must be at most 1024 characters';
+  if (/^\d+$/.test(password) && password.length < 12) return 'A password of only numbers must be at least 12 digits';
+  return null;
+}
+
 export async function confirmPasswordReset(env, token, newPassword, hashPassword) {
   if (!RESET_TOKEN_PATTERN.test(token || '')
-    || typeof newPassword !== 'string'
-    || newPassword.length < 8
-    || newPassword.length > 1024) {
+    || passwordPolicyError(newPassword)) {
     return { ok: false, reason: 'invalid' };
   }
 
@@ -466,10 +476,15 @@ export function registerAccountRecoveryRoutes(router, dependencies = {}) {
         dependencies.hashPassword,
       );
       if (!result.ok) {
-        return new Response(JSON.stringify({ error: 'Invalid or expired reset link' }), {
+        return new Response(JSON.stringify({ error: passwordPolicyError(body?.password) || 'Invalid or expired reset link' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         });
+      }
+      try {
+        await dependencies.onPasswordReset?.(env, result.userId);
+      } catch (error) {
+        console.warn('[AUTH] Login limit reset after password reset failed:', error.message);
       }
       return new Response(JSON.stringify({ success: true }), {
         status: 200,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import worker, {
   createSessionRecord,
   generateToken,
@@ -8,6 +8,7 @@ import worker, {
   verifyToken
 } from '../index.js';
 import config from '../config.js';
+import { makeMigratedD1, makeKV } from './helpers/real-d1.js';
 
 const JWT_SECRET = 'refresh-test-secret-with-enough-entropy';
 const USER_ID = 'user-123';
@@ -142,30 +143,9 @@ function requestExchange(env, token) {
 
 describe('session refresh', () => {
   it('keeps a successful login credential out of the JSON body', async () => {
-    const passwordHash = await hashPassword('correct password');
-    const statement = {
-      bindings: [],
-      bind(...values) {
-        this.bindings = values;
-        return this;
-      },
-      async first() {
-        return { id: USER_ID, password_hash: passwordHash };
-      },
-      async all() {
-        return { results: [] };
-      },
-      async run() {
-        return { success: true, meta: { changes: 1 } };
-      }
-    };
-    const put = vi.fn(async () => {});
-    const remove = vi.fn(async () => {});
-    const env = {
-      JWT_SECRET,
-      KV_CACHE: { get: async () => String(config.auth.maxLoginAttempts), put, delete: remove },
-      DB: { prepare: () => ({ ...statement }) }
-    };
+    const env = { JWT_SECRET, KV_CACHE: makeKV(), DB: makeMigratedD1() };
+    env.DB.sqlite.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)')
+      .run(USER_ID, 'person@example.com', await hashPassword('correct password'));
 
     const response = await worker.fetch(
       new Request('https://focusbro.net/auth/login', {
@@ -185,30 +165,15 @@ describe('session refresh', () => {
     expect(body.success).toBe(true);
     expect(body.token).toBeUndefined();
     expect(response.headers.get('Set-Cookie')).toContain('HttpOnly');
-    expect(put).not.toHaveBeenCalled();
-    expect(remove).toHaveBeenCalledTimes(2);
   });
 
-  it('spends the login budget only on failed credentials', async () => {
-    const passwordHash = await hashPassword('correct password');
-    const counts = new Map();
-    const put = vi.fn(async (key, value) => counts.set(key, value));
-    const remove = vi.fn(async (key) => counts.delete(key));
-    const statement = {
-      bind() { return this; },
-      async first() { return { id: USER_ID, password_hash: passwordHash }; },
-      async all() { return { results: [] }; },
-      async run() { return { success: true, meta: { changes: 1 } }; },
-    };
-    const env = {
-      JWT_SECRET,
-      KV_CACHE: {
-        get: async (key) => counts.get(key) ?? null,
-        put,
-        delete: remove,
-      },
-      DB: { prepare: () => ({ ...statement }) },
-    };
+  // FBQ-13: the budget is spent in D1 before the password is checked; a success
+  // clears the account windows and refunds the IP window, so only failures stay.
+  it('keeps only failed credentials in the login budget, keyed by hashes', async () => {
+    const env = { JWT_SECRET, KV_CACHE: makeKV(), DB: makeMigratedD1() };
+    env.DB.sqlite.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)')
+      .run(USER_ID, 'person@example.com', await hashPassword('correct password'));
+    const rows = () => env.DB.sqlite.prepare('SELECT key, count FROM rate_limits ORDER BY key').all();
     const login = (password) => worker.fetch(
       new Request('https://focusbro.net/auth/login', {
         method: 'POST',
@@ -224,14 +189,11 @@ describe('session refresh', () => {
     );
 
     expect((await login('wrong password')).status).toBe(401);
-    expect(put).toHaveBeenCalledTimes(2);
-    expect([...counts.keys()].every((key) => !key.includes('person@example.com'))).toBe(true);
-    const putsAfterFailure = put.mock.calls.length;
+    expect(rows()).toHaveLength(3);
+    expect(rows().every((r) => r.count === 1 && !/person|203\.0\.113/i.test(r.key))).toBe(true);
 
     expect((await login('correct password')).status).toBe(200);
-    expect(put).toHaveBeenCalledTimes(putsAfterFailure);
-    expect(remove).toHaveBeenCalledTimes(2);
-    expect(counts.size).toBe(0);
+    expect(rows().map((r) => [r.key.split(':').slice(0, 2).join(':'), r.count])).toEqual([['login:ip', 1]]);
   });
 
   it('stores only a one-way hash for a newly issued credential', async () => {

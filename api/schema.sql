@@ -473,3 +473,11 @@ CREATE TABLE IF NOT EXISTS coach_checkin_config (
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
 );
+
+-- ── RATE LIMITS (FBQ-13, migration 0013) ──
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  reset_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_at ON rate_limits(reset_at);
