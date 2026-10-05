@@ -274,9 +274,14 @@ export function entryState(commitments) {
   return 'welcome-back';
 }
 
-/** Heading over the kept-word streak number. Counts what you keep, never misses. */
+/**
+ * Heading over the headline number on /me/ — the same number, with the same
+ * label, as the app shell's stats card ("Words kept"): the lifetime total, which
+ * only ever climbs. It was the current run ("in a row"), which reads 0 after a
+ * not-yet while home still read 1 for the same history (G826).
+ */
 export function streakHeadingCopy() {
-  return 'Words kept in a row';
+  return 'Words kept';
 }
 
 /** The three ways to resolve an active check-in, in the consumer's own words. */
@@ -897,7 +902,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 
   function renderStreak(data) {
     var s = (data && data.streak) || {};
-    el('streakNum').innerHTML = esc(s.current_streak || 0) + '<small>${streakHeadingCopy()}</small>';
+    el('streakNum').innerHTML = esc(s.total_kept || 0) + '<small>${streakHeadingCopy()}</small>';
     el('streakMsg').textContent = (data && data.message) || '';
     // Personal-best celebration: shown ONLY when the server sends a non-empty
     // line (current run === all-time best, 2+). Anti-shame by construction — the
