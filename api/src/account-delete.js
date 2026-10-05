@@ -73,7 +73,11 @@ export const ACCOUNT_DELETION_PLAN = Object.freeze([
   { table: 'notification_prefs', action: 'delete', where: 'user_id = ?1', what: 'notification settings' },
   { table: 'focus_events', action: 'delete', where: 'user_id = ?1', what: 'synced focus sessions' },
   { table: 'user_streaks', action: 'delete', where: 'user_id = ?1', what: 'focus streak' },
-  { table: 'analytics_events', action: 'delete', where: 'user_id = ?1', what: 'usage events tied to the account' },
+  // A sent return nudge is recorded with user_id NULL (so it never counts as the
+  // person's own activity) and their id in event_data — match that too (FBQ-07).
+  // json_valid guards the extract: one malformed row must not fail the batch.
+  { table: 'analytics_events', action: 'delete', where: "user_id = ?1 OR (user_id IS NULL AND event_type = 'return_nudge_sent' AND CASE WHEN json_valid(event_data) THEN json_extract(event_data, '$.user_id') END = ?1)", what: 'usage events tied to the account' },
+  { table: 'return_nudge_latch', action: 'delete', where: 'user_id = ?1', what: 'when we last reached out after a quiet stretch' },
   // ── sign-in ──
   { table: 'sessions', action: 'delete', where: 'user_id = ?1', what: 'sign-in sessions' },
   { table: 'auth_action_tokens', action: 'delete', where: 'user_id = ?1', what: 'password-reset / verification tokens' },

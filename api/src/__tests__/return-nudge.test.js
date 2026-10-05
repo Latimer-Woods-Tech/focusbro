@@ -4,16 +4,16 @@
  * The escalation ladder catches a single quiet check-in; the return nudge catches
  * a whole PERSON who went quiet across the app. These tests pin the guarantees
  * that keep it an ally and not a guilt engine: exactly ONE nudge per dormancy
- * episode (KV latch, self-resetting on return), opt-in by channel, an
+ * episode (D1 latch, self-resetting on return), opt-in by channel, an
  * un-scheduled push held to daytime, and no shame on the wire. Delivery is
- * exercised through a fake D1 `DB` + fake KV + a stubbed fetch — no live DB, no
- * network.
+ * exercised through a fake D1 `DB` + a stubbed fetch — no live DB, no network.
+ * The latch's SQL exclusion, the same-day return and the starvation case run on
+ * a real SQLite in return-nudge-starvation.test.js (FBQ-07).
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   runReturnNudges,
-  returnNudgeKey,
   withinReturnDaytime,
   RETURN_NUDGE_QUIET_DAYS,
   RETURN_NUDGE_DEEPLINK,
@@ -27,9 +27,11 @@ import { returnNudgeCopy } from '../accountability.js';
 function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, pushSub = false, textConsent = null, phone = null } = {}) {
   const prepared = [];
   const inserts = [];
+  const latch = new Map(); // return_nudge_latch: user_id → the ISO `now` bound to datetime(?)
   const db = {
     prepared,
     inserts,
+    latch,
     prepare(sql) {
       prepared.push(sql);
       let params = [];
@@ -53,6 +55,7 @@ function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, 
         },
         async run() {
           if (/INSERT .*analytics_events/s.test(sql)) inserts.push({ sql, params });
+          if (/INSERT INTO return_nudge_latch/.test(sql)) latch.set(params[0], params[1]);
           return { success: true };
         },
       };
@@ -89,7 +92,8 @@ describe('runReturnNudges — the dormant-person scan query shape', () => {
     const scan = db.prepared.find((q) => /FROM analytics_events e/.test(q));
     expect(scan).toMatch(/event_type = 'commitment_created'/);           // real accountability footprint
     expect(scan).toMatch(/NOT EXISTS[\s\S]*commitment_checkins[\s\S]*status IN \('pending', 'sending'\)/); // nothing in flight (FBQ-05: a claim is in flight too)
-    expect(scan).toMatch(/HAVING MAX\(e\.created_at\) <= \?/);            // dormant only
+    expect(scan).toMatch(/last_event_at <= datetime\(\?\)/);              // dormant only, one time format (FBQ-07)
+    expect(scan).toMatch(/NOT EXISTS[\s\S]*return_nudge_latch[\s\S]*nudged_at >= q\.last_event_at/); // already-nudged excluded IN SQL
     expect(s).toEqual({ scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0 });
   });
 
@@ -114,7 +118,7 @@ describe('runReturnNudges — one warm nudge over text', () => {
     expect(s.nudged).toBe(1);
     expect(fetchSpy).toHaveBeenCalledOnce();
     // latched at `now` so a later tick this episode won't re-nudge
-    expect(kv.store.get(returnNudgeKey('u1'))).toBe(NOW);
+    expect(db.latch.get('u1')).toBe(NOW);
     // instrumentation is aggregate-only: userId param (1st bind) is null so it
     // never counts as the user's OWN activity (which would reset the dormancy).
     const ev = db.inserts.find((i) => /analytics_events/.test(i.sql));
@@ -137,27 +141,24 @@ describe('runReturnNudges — one warm nudge over text', () => {
 });
 
 describe('runReturnNudges — one per dormancy episode (the anti-nag latch)', () => {
-  it('skips a user already nudged since their last activity', async () => {
+  it('the latch is written in datetime() form and upserted (one row per person)', async () => {
     const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
-    // latch is NEWER than last_event_at → already nudged this episode
-    const kv = makeKV({ [returnNudgeKey('u1')]: '2026-07-10T00:00:00.000Z' });
-    const db = makeDB({ candidates: [cand({ last_event_at: OLD })], textConsent: GRANTED, phone: '+1555' });
-    const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now: NOW });
-    expect(s.nudged).toBe(0);
-    expect(s.skipped).toBe(1);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const db = makeDB({ candidates: [cand()], textConsent: GRANTED, phone: '+1555' });
+    await runReturnNudges({ DB: db, ...TELNYX_ENV }, { now: NOW });
+    const write = db.prepared.find((q) => /INSERT INTO return_nudge_latch/.test(q));
+    expect(write).toMatch(/VALUES \(\?, datetime\(\?\)\)/);
+    expect(write).toMatch(/ON CONFLICT\(user_id\) DO UPDATE/);
   });
 
-  it('re-opens once the user has been active SINCE the last nudge (latch older than last activity)', async () => {
+  it('re-opens once the user has been active SINCE the last nudge (the scan returns them again)', async () => {
     const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     // they returned (last_event_at) AFTER the old latch, then went quiet again
-    const kv = makeKV({ [returnNudgeKey('u1')]: '2026-07-02T00:00:00.000Z' });
-    const db = makeDB({ candidates: [cand({ last_event_at: '2026-07-08T00:00:00.000Z' })], textConsent: GRANTED, phone: '+1555' });
-    const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now: NOW });
+    const db = makeDB({ candidates: [cand({ last_event_at: '2026-07-08 00:00:00' })], textConsent: GRANTED, phone: '+1555' });
+    const s = await runReturnNudges({ DB: db, ...TELNYX_ENV }, { now: NOW });
     expect(s.nudged).toBe(1);
-    expect(kv.store.get(returnNudgeKey('u1'))).toBe(NOW);
+    expect(db.latch.get('u1')).toBe(NOW);
   });
 });
 
@@ -168,7 +169,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     const s = await runReturnNudges({ DB: db, KV_CACHE: kv }, { now: NOW });
     expect(s.skipped).toBe(1);
     expect(s.nudged).toBe(0);
-    expect(kv.store.get(returnNudgeKey('u1'))).toBe(NOW); // latched so we don't rescan every tick
+    expect(db.latch.get('u1')).toBe(NOW); // latched so we don't rescan every tick
   });
 
   it('DEFERS an un-scheduled push in the middle of the night — and does NOT latch', async () => {
@@ -178,7 +179,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...VAPID_ENV }, { now: night });
     expect(s.deferred).toBe(1);
     expect(s.nudged).toBe(0);
-    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined(); // still eligible for a daytime tick
+    expect(db.latch.get('u1')).toBeUndefined(); // still eligible for a daytime tick
   });
 
   it('DEFERS a text nudge inside the recipient\'s quiet hours — and does NOT latch', async () => {
@@ -188,7 +189,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     const db = makeDB({ candidates: [cand()], pushSub: false, textConsent: quiet, phone: '+1555' });
     const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now: NOW });
     expect(s.deferred).toBe(1);
-    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined();
+    expect(db.latch.get('u1')).toBeUndefined();
   });
 
   it('DEFERS an un-scheduled text nudge at night even when NO quiet hours are set — and does NOT latch', async () => {
@@ -207,7 +208,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     expect(s.deferred).toBe(1);
     expect(s.nudged).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();                       // no 3am SMS on the wire
-    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined();    // still eligible for a daytime tick
+    expect(db.latch.get('u1')).toBeUndefined();    // still eligible for a daytime tick
   });
 
   it('reads the daytime floor for a text in the CONSENT timezone, not the commitment zone — so a phone at 3am is spared even when the commitment zone is daytime', async () => {
@@ -232,7 +233,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     expect(s.deferred).toBe(1);
     expect(s.nudged).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();                    // no 3am (recipient-local) SMS on the wire
-    expect(kv.store.get(returnNudgeKey('u1'))).toBeUndefined(); // still eligible for a later daytime tick
+    expect(db.latch.get('u1')).toBeUndefined(); // still eligible for a later daytime tick
   });
 
   it('still SENDS a daytime text when the consent zone reads daytime even though the commitment zone reads night', async () => {
@@ -263,7 +264,7 @@ describe('runReturnNudges — respectful channel handling', () => {
     const s = await runReturnNudges({ DB: db, KV_CACHE: kv, ...TELNYX_ENV }, { now: NOW });
     // revoked → no text channel resolved at all → parked/latched
     expect(s.skipped).toBe(1);
-    expect(kv.store.get(returnNudgeKey('u1'))).toBe(NOW);
+    expect(db.latch.get('u1')).toBe(NOW);
   });
 });
 

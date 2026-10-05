@@ -890,10 +890,12 @@ export async function readCronHealth(env, { nowMs, staleSeconds } = {}) {
 // open. This is the single most shame-prone moment in the product (every
 // abandoned to-do app was a "you disappeared" machine), so the LAW is enforced by
 // construction here as hard as anywhere:
-//   • exactly ONE nudge per dormancy EPISODE — a per-user KV latch holds the last
-//     nudge time; a user is eligible again only once they've been active SINCE it
-//     (their last real event advances past the latch), so a persistently-dormant
-//     person is never nudged twice. Never a daily drip, never a nag.
+//   • exactly ONE nudge per dormancy EPISODE — a per-user D1 latch
+//     (return_nudge_latch) holds the last nudge time; a user is eligible again
+//     only once they've been active SINCE it (their last real event advances
+//     past the latch), so a persistently-dormant person is never nudged twice.
+//     Never a daily drip, never a nag. The scan excludes latched people IN SQL
+//     (FBQ-07): a JS skip let 50 already-nudged people fill every batch forever.
 //   • opt-in by channel: push is already subscribed (app UX, not TCPA-scoped);
 //     text passes the same TCPA gate as every text (consent + quiet hours + opt-out).
 //   • an un-scheduled push must never buzz at 3am, so push is held to a sane local
@@ -917,7 +919,10 @@ const RETURN_NUDGE_LIMIT = 50;
 export const RETURN_NUDGE_DAY_START = 8;
 export const RETURN_NUDGE_DAY_END = 21;
 
-/** Per-user KV latch key holding the ISO time of the last return nudge. */
+/**
+ * The retired (pre-FBQ-07) per-user KV latch key. The latch now lives in D1
+ * (return_nudge_latch); account deletion still clears any legacy KV entry.
+ */
 export function returnNudgeKey(userId) {
   return `returnnudge:${userId}`;
 }
@@ -974,10 +979,18 @@ async function nightGuardTimezone(env, userId, commitmentTz) {
   }
 }
 
-/** Best-effort per-user latch write — a KV blip never aborts the pass. */
-async function latchReturnNudge(kv, userId, nowISO) {
-  if (!kv) return;
-  try { await kv.put(returnNudgeKey(userId), nowISO); } catch { /* best-effort */ }
+/**
+ * Per-user latch write. datetime(?) stores the same 'YYYY-MM-DD HH:MM:SS' text
+ * as analytics_events.created_at, so a return later the same UTC day compares
+ * as later (FBQ-07 R2). Best-effort: a D1 blip never aborts the pass.
+ */
+async function latchReturnNudge(env, userId, nowISO) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO return_nudge_latch (user_id, nudged_at) VALUES (?, datetime(?))
+       ON CONFLICT(user_id) DO UPDATE SET nudged_at = excluded.nudged_at`
+    ).bind(userId, nowISO).run();
+  } catch { /* best-effort */ }
 }
 
 /** Deliver the return nudge over Web Push to every active subscription. */
@@ -1014,12 +1027,11 @@ async function deliverReturnPush(env, userId, message) {
 
 /**
  * Find people who have gone quiet across the whole app and send each ONE warm
- * return nudge. Idempotent per dormancy episode via the KV latch; degrades
+ * return nudge. Idempotent per dormancy episode via the D1 latch; degrades
  * gracefully (no channel / no consent → parked, never crashes, never touches the
- * timer). Pure-ish: takes an env with a D1-shaped `DB` and (optionally) `KV_CACHE`
- * plus a clock, so the whole machine is unit-tested without a live DB or network.
+ * timer). Pure-ish: takes an env with a D1-shaped `DB` plus a clock, so the whole machine is unit-tested without a live DB or network.
  *
- * @param {object} env  Worker env with a D1-shaped `DB` (+ optional KV_CACHE)
+ * @param {object} env  Worker env with a D1-shaped `DB`
  * @param {object} [opts] { now?: ISO, limit?: number, quietDays?: number }
  * @returns {Promise<{scanned:number, nudged:number, deferred:number, skipped:number, failed:number}>}
  */
@@ -1033,34 +1045,38 @@ export async function runReturnNudges(env, opts = {}) {
 
   // Dormant candidates: a real accountability user (has a commitment_created
   // event) whose most-recent event is older than the cutoff, with NOTHING
-  // pending to reach them (so we never stack on the check-in / escalation ladder).
+  // pending to reach them (so we never stack on the check-in / escalation ladder),
+  // and NOT already nudged this episode (latch at/after their last event; their
+  // return advances last_event_at past it and re-opens eligibility).
+  // Cost (FBQ-07 R3): the people with a word come from idx_analytics_type_time,
+  // then ONE index seek each for their latest event on idx_analytics_user_time —
+  // linear in people, not quadratic in events. Every time is compared as
+  // datetime() text, the format analytics_events.created_at is written in.
   const due = await env.DB.prepare(
-    `SELECT e.user_id AS user_id, MAX(e.created_at) AS last_event_at
-       FROM analytics_events e
-      WHERE e.user_id IS NOT NULL
-        AND EXISTS (SELECT 1 FROM analytics_events c
-                     WHERE c.user_id = e.user_id AND c.event_type = 'commitment_created')
+    `WITH people AS (
+       SELECT DISTINCT c.user_id AS user_id FROM analytics_events c
+        WHERE c.event_type = 'commitment_created' AND c.user_id IS NOT NULL
+     ), quiet AS (
+       SELECT p.user_id AS user_id,
+              (SELECT MAX(e.created_at) FROM analytics_events e WHERE e.user_id = p.user_id) AS last_event_at
+         FROM people p
+     )
+     SELECT q.user_id AS user_id, q.last_event_at AS last_event_at
+       FROM quiet q
+      WHERE q.last_event_at <= datetime(?)
         AND NOT EXISTS (SELECT 1 FROM commitment_checkins ck
-                     WHERE ck.user_id = e.user_id AND ck.status IN ('pending', 'sending'))
-      GROUP BY e.user_id
-     HAVING MAX(e.created_at) <= ?
-      ORDER BY last_event_at ASC
+                     WHERE ck.user_id = q.user_id AND ck.status IN ('pending', 'sending'))
+        AND NOT EXISTS (SELECT 1 FROM return_nudge_latch rn
+                     WHERE rn.user_id = q.user_id AND rn.nudged_at >= q.last_event_at)
+      ORDER BY q.last_event_at ASC
       LIMIT ?`
   ).bind(cutoff, limit).all();
 
   const rows = (due && due.results) || [];
-  const kv = env && env.KV_CACHE;
 
   for (const row of rows) {
     summary.scanned++;
     const userId = row.user_id;
-
-    // ONE nudge per dormancy episode: if the latch is newer than their last real
-    // activity, we've already nudged this episode — skip until they return (which
-    // advances last_event_at past the latch and re-opens eligibility).
-    let latch = null;
-    try { latch = kv ? await kv.get(returnNudgeKey(userId)) : null; } catch { latch = null; }
-    if (latch && latch > row.last_event_at) { summary.skipped++; continue; }
 
     // Tone + local time come from their most recent commitment.
     const pref = await env.DB.prepare(
@@ -1104,7 +1120,7 @@ export async function runReturnNudges(env, opts = {}) {
     if (!channel) {
       // Latch so we don't rescan every tick; resets naturally on their return.
       summary.skipped++;
-      await latchReturnNudge(kv, userId, now);
+      await latchReturnNudge(env, userId, now);
       continue;
     }
 
@@ -1167,7 +1183,7 @@ export async function runReturnNudges(env, opts = {}) {
 
     // Latch on any terminal outcome (sent / skipped / failed): one attempt per
     // episode, no retry storm. A defer already `continue`d above without latching.
-    await latchReturnNudge(kv, userId, now);
+    await latchReturnNudge(env, userId, now);
 
     if (outcome.status === 'sent') {
       summary.nudged++;
