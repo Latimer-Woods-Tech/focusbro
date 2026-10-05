@@ -30,17 +30,6 @@ export async function checkRateLimit(env, userId, limit = 100, windowMs = 60000)
 }
 
 // ── INPUT VALIDATION ──
-export function validateEmail(email) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
-
-export function validatePassword(password) {
-  // Minimum 8 characters - user-friendly while still secure
-  // Don't require special chars to avoid friction (users add entropy anyway)
-  return password && password.length >= 8;
-}
-
 export function validateDeviceId(deviceId) {
   // UUID v4 format
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
