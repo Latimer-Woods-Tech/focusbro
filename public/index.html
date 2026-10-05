@@ -2425,6 +2425,25 @@
   body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard) { opacity: 0.9; filter: grayscale(1); }
   body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):hover,
   body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):focus-within { opacity: 1; }
+  /* ── PROMISE-FIRST HOME (flag: homePromiseFirst) ──
+     On the home view only: the hero, your words, one tap into the toolkit.
+     body carries no data-view on a fresh load, so "home" = not any other view. */
+  #homePromise { display: none; }
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) #homePromise { display: block; }
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) .dashboard .main-area > :not(#homePromise),
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) .dashboard .sidebar,
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) .intention-banner,
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) .time-bar-wrap { display: none !important; }
+  body[data-home="promise"]:not([data-view="focus"]):not([data-view="rest"]):not([data-view="stats"]) .dashboard { grid-template-columns: minmax(0, 1fr) !important; max-width: 1400px; }
+  .home-words { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .home-words-empty { color: var(--text-muted); font-size: 14px; padding: 6px 0; }
+  .home-word { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-inset); color: var(--text); text-decoration: none; }
+  .home-word:hover { border-color: rgba(var(--primary-rgb), 0.55); }
+  .home-word-title { font-weight: 600; }
+  .home-word-when { color: var(--text-muted); font-size: 13px; white-space: nowrap; }
+  a.btn { text-decoration: none; }
+  .home-start { display: flex; gap: 10px; flex-wrap: wrap; }
+  .home-start .btn { padding: 12px 18px; font-size: 14px; }
   @media (prefers-reduced-motion: reduce) {
     .awake-ring.active::after, .status-dot { animation: none !important; }
   }
@@ -2500,6 +2519,14 @@
 <symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" /></symbol>
 </svg>
 <script>
+// Home variant preview: ?home=promise | ?home=toolkit overrides whatever the
+// server stamped (config.features.homePromiseFirst). Nothing is persisted.
+(function () {
+  try {
+    var h = new URLSearchParams(location.search).get('home');
+    if (h === 'promise' || h === 'toolkit') document.body.dataset.home = h;
+  } catch (e) { /* no URL API — the server's choice stands */ }
+})();
 // Icon helper — every pictogram is a sprite <use>, so it inherits text colour and size.
 function fbIcon(name) {
   return name ? '<svg class="ic" aria-hidden="true"><use href="#i-' + name + '"/></svg>' : '';
@@ -2613,6 +2640,22 @@ function fbSyncThemeIcon() {
 
 <div class="dashboard">
   <div class="main-area">
+
+    <!-- PROMISE-FIRST HOME (flag: homePromiseFirst). Shown only when <body data-home="promise">
+         and the view is home: the words you gave, and one tap into the toolkit. -->
+    <section class="card" id="homePromise" data-views="home" aria-labelledby="homePromiseTitle">
+      <div class="card-header">
+        <div class="card-title" id="homePromiseTitle"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-handshake"/></svg></span> Your words</div>
+        <a class="btn btn-sm" href="/me/">Open your words</a>
+      </div>
+      <ul class="home-words" id="homeWords">
+        <li class="home-words-empty">Give your word above and it shows up here.</li>
+      </ul>
+      <div class="home-start">
+        <button class="btn btn-accent" type="button" onclick="setView('focus')"><svg class="ic" aria-hidden="true"><use href="#i-timer"/></svg> Start a focus block</button>
+        <button class="btn" type="button" onclick="setView('rest')"><svg class="ic" aria-hidden="true"><use href="#i-leaf"/></svg> Restore</button>
+      </div>
+    </section>
 
     <!-- ZEN MODE: current intention display -->
     <div class="zen-focus-display" id="zenFocusDisplay">Focusing on: <span id="zenFocusText">—</span></div>
@@ -3780,7 +3823,7 @@ function fbFlushTelemetry() {
 // JavaScript, then drain anything left from a prior offline session.
 fetch('/auth/session').then(function (response) {
   fbAuthenticated = response.ok;
-  if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); }
+  if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); loadHomeWords(); }
 }).catch(function () {
   fbAuthenticated = false;
 });
@@ -4962,6 +5005,42 @@ function saveStats() {
 // never broken"). Runs once the session probe says we are signed in; the cookie
 // session carries the call, the shell never touches the /me/ token. Before a
 // first word the box shows a dash and opens the door.
+// Your words on the home page (promise-first home): the active words and when I
+// next check in, each a link to its own card on /me/. Same cookie session as
+// the kept-word total; nothing is fetched before the session probe says yes.
+function loadHomeWords() {
+  const host = document.getElementById('homeWords');
+  if (!host) return;
+  fetch('/api/commitments')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      const words = ((data && data.commitments) || []).filter((c) => c && c.status === 'active').slice(0, 5);
+      if (!words.length) return;
+      host.textContent = '';
+      for (const w of words) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.className = 'home-word';
+        a.href = '/me/?word=' + encodeURIComponent(w.id);
+        const title = document.createElement('span');
+        title.className = 'home-word-title';
+        title.textContent = w.title;
+        const when = document.createElement('span');
+        when.className = 'home-word-when';
+        when.textContent = w.next_checkin ? 'I check in ' + fmtCheckin(w.next_checkin) : 'On the books';
+        a.appendChild(title); a.appendChild(when); li.appendChild(a); host.appendChild(li);
+      }
+    })
+    .catch(() => { /* the list is optional here — /me/ is the source of truth */ });
+}
+function fmtCheckin(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'soon';
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return sameDay ? 'at ' + time : d.toLocaleDateString([], { weekday: 'short' }) + ' at ' + time;
+}
+
 function loadKeptWords() {
   const el = document.getElementById('statKept');
   if (!el) return;
@@ -6773,7 +6852,7 @@ function dismissOnboarding() {
       fetch('/api/acquisition/word-offered', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attribution, when: WHEN_BUCKETS[when] || 'other' }),
+        body: JSON.stringify({ attribution, when: WHEN_BUCKETS[when] || 'other', home: document.body.dataset.home === 'promise' ? 'promise' : 'toolkit' }),
         keepalive: true
       }).catch(() => {});
     } catch (error) { /* instrumentation must never block the gesture */ }

@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics, computeDecisionMetrics,
   recordAcquisitionVisit, isBotVisitor, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
+  recordWordOffered, normalizeHomeVariant,
 } from '../events.js';
 
 // A representative real-browser UA — carries "Safari"/"Chrome"/"Mozilla" but
@@ -248,6 +249,23 @@ describe('recordAcquisitionVisit — anonymous campaign denominator', () => {
     const flagOnly = makeDB();
     await recordAcquisitionVisit({ DB: flagOnly }, { source: 'homepage' }, { clientAutomated: true });
     expect(JSON.parse(flagOnly.runs[0].params[2]).bot).toBe(1);
+  });
+});
+
+describe('recordWordOffered — which home made the offer', () => {
+  it('records the home variant alongside the bucket and attribution, never the task text', async () => {
+    const db = makeDB();
+    expect(await recordWordOffered({ DB: db }, { attribution: { source: 'tiktok', task: 'secret' }, when: 't-10m', home: 'promise' })).toBe(true);
+    expect(db.runs[0].params[1]).toBe(EVENTS.WORD_OFFERED);
+    expect(JSON.parse(db.runs[0].params[2])).toEqual({ attribution: { source: 'tiktok' }, when: 't-10m', home: 'promise' });
+  });
+
+  it('anything but the promise home reads as the toolkit (the default, and every pre-flag row)', async () => {
+    expect(normalizeHomeVariant('promise')).toBe('promise');
+    for (const v of ['toolkit', undefined, null, '', 'PROMISE', 42, {}]) expect(normalizeHomeVariant(v), String(v)).toBe('toolkit');
+    const db = makeDB();
+    await recordWordOffered({ DB: db }, { attribution: { source: 'homepage' }, when: 'other' });
+    expect(JSON.parse(db.runs[0].params[2]).home).toBe('toolkit');
   });
 });
 

@@ -238,13 +238,21 @@ export function normalizeWhenBucket(value) {
  * text or any visitor identifier. Non-fatal like every recordEvent path, so it
  * can never break the redirect.
  */
-export async function recordWordOffered(env, { attribution, when } = {}) {
+export async function recordWordOffered(env, { attribution, when, home } = {}) {
   const attr = sanitizeAttribution(attribution);
   if (!attr.source) attr.source = 'direct';
   return recordEvent(env, {
     type: EVENTS.WORD_OFFERED,
-    data: { attribution: attr, when: normalizeWhenBucket(when) },
+    // `home` is which home page made the offer — the promise-first home or the
+    // toolkit (config.features.homePromiseFirst) — so visit → word_offered can
+    // be read per variant before the flag is flipped for everyone.
+    data: { attribution: attr, when: normalizeWhenBucket(when), home: normalizeHomeVariant(home) },
   });
+}
+
+/** The two homes a word can be offered from; anything else reads as the default. */
+export function normalizeHomeVariant(value) {
+  return value === 'promise' ? 'promise' : 'toolkit';
 }
 
 /** Map a check-in outcome to its event type (or null if it isn't one we log). */

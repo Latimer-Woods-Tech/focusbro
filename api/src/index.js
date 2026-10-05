@@ -32,6 +32,7 @@ import { pageHead, pageNav } from './page-shell.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
 import config from './config.js';
+import { isFeatureEnabled } from './features.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
 import { brandAssetResponse, BRAND } from './brand-assets.js';
@@ -2554,7 +2555,7 @@ router.post('/api/acquisition/word-offered', async (request, env) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return jsonResponse({ error: 'Invalid payload' }, 400);
   }
-  const recorded = await recordWordOffered(env, { attribution: body.attribution, when: body.when });
+  const recorded = await recordWordOffered(env, { attribution: body.attribution, when: body.when, home: body.home });
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });
 
@@ -2854,8 +2855,28 @@ for (const file of ['icon-192.png', 'icon-512.png', 'og.png', 'mark.svg']) {
 router.get('/icon-192.svg', () => brandAssetResponse('mark.svg'));
 
 // ── ROOT PAGE (Serve HTML) ──
-router.get('/', async (_request, _env) => {
-  return new Response(htmlContent, {
+/**
+ * Which home a visitor gets. The flag (config / HOME_PROMISE_FIRST=1) sets the
+ * default; ?home=promise|toolkit overrides it for a preview. Returns 'promise'
+ * or 'toolkit'. Exported for tests.
+ */
+export function homeVariantFor(env, url) {
+  let q = null;
+  try { q = new URL(url).searchParams.get('home'); } catch { q = null; }
+  if (q === 'promise' || q === 'toolkit') return q;
+  if (env && env.HOME_PROMISE_FIRST === '1') return 'promise';
+  return isFeatureEnabled('homePromiseFirst') ? 'promise' : 'toolkit';
+}
+
+/** The served shell, stamped with the home variant when it is not the default. */
+export function shellHtml(env, url) {
+  return homeVariantFor(env, url) === 'promise'
+    ? htmlContent.replace('<body>', '<body data-home="promise">')
+    : htmlContent;
+}
+
+router.get('/', async (request, env) => {
+  return new Response(shellHtml(env, request.url), {
     status: 200,
     // Edge-cacheable like /index.html so the 212KB entry page isn't re-fetched
     // from the worker on every visit. The deploy workflow purges CF cache, so a
@@ -2864,8 +2885,8 @@ router.get('/', async (_request, _env) => {
   });
 });
 
-router.get('/index.html', async () => {
-  return new Response(htmlContent, {
+router.get('/index.html', async (request, env) => {
+  return new Response(shellHtml(env, request.url), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' }
   });
