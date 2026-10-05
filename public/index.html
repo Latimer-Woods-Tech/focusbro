@@ -2575,8 +2575,8 @@ function fbSyncThemeIcon() {
 <!-- ACCOUNTABILITY FIRST: the toolkit supports the loop; it no longer hides it. -->
 <section class="accountability-hero" aria-labelledby="accountabilityHeroTitle">
   <h1 id="accountabilityHeroTitle">The check-in that follows up.</h1>
-  <p>I have ADHD. I built reminders, then swiped them away. Give FocusBro one
-    thing and a time. Your bro follows up—never a boss, never a shame tally.</p>
+  <p>I have ADHD. I built reminders, then swiped them away. Give me one
+    thing and a time. I follow up—never a boss, never a scorecard.</p>
   <form class="accountability-entry" id="quickWordForm">
     <label class="sr-only" for="quickWordTask">What are you avoiding?</label>
     <input id="quickWordTask" type="text" maxlength="200"
@@ -2619,11 +2619,11 @@ function fbSyncThemeIcon() {
 
     <!-- KEEP AWAKE HERO -->
     <div class="card keep-awake" id="keepAwakeCard" data-views="home,focus,rest">
-      <div class="awake-ring" id="awakeRing" onclick="toggleWakeLock()" title="Click to activate">
+      <div class="awake-ring" id="awakeRing" onclick="toggleWakeLock()" title="Tap to keep the screen on">
         <span class="awake-icon" id="awakeIcon"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></span>
       </div>
-      <div class="awake-label" id="awakeLabel">Screen Stay-On for Focus Sessions</div>
-      <div class="awake-sub">Keeps your screen active during deep focus sessions so you don't lose flow. Uses the Screen Wake Lock API to prevent display sleep while you work, study, or meditate.</div>
+      <div class="awake-label" id="awakeLabel">Keep my screen on</div>
+      <div class="awake-sub">Tap the ring and I keep your screen awake while you work, study, or meditate, so a sleeping display never breaks your flow.</div>
       <div class="awake-timer" id="awakeTimer">Active for 00:00:00</div>
 
     </div>
@@ -2813,9 +2813,9 @@ function fbSyncThemeIcon() {
           <div class="stat-value purple" id="statTasks">0</div>
           <div class="stat-label">Tasks Done</div>
         </div>
-        <div class="stat-box">
-          <div class="stat-value warn" id="statStreak">0</div>
-          <div class="stat-label">Day Streak</div>
+        <div class="stat-box" style="cursor:pointer" onclick="location.href='/me/'" title="Your words — open /me/">
+          <div class="stat-value warn" id="statKept">&mdash;</div>
+          <div class="stat-label">Words kept</div>
         </div>
       </div>
     </div>
@@ -2838,7 +2838,7 @@ function fbSyncThemeIcon() {
         <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg></span> Distraction Lot</div>
         <button class="btn btn-sm" onclick="openDistractionOverlay()" title="Shortcut: D">+ Capture</button>
       </div>
-      <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:8px;">Park intrusive thoughts here so you can return to them <em>after</em> the timer.</div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:8px;">Park a thought here. Come back to it <em>after</em> the timer.</div>
       <ul class="distraction-list" id="distractionList"></ul>
     </div>
 
@@ -2847,7 +2847,7 @@ function fbSyncThemeIcon() {
       <div class="card-header">
         <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-audio-waveform"/></svg></span> Brainwave Tuning</div>
       </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Binaural beats to shift focus state.</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Pick a beat to shift your focus state.</div>
       
       <div style="margin-bottom: 12px;">
         <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--text);">Binaural Frequency</div>
@@ -2856,7 +2856,7 @@ function fbSyncThemeIcon() {
           <button class="binaural-btn" aria-pressed="false" aria-label="Calm (8Hz) binaural beat" onclick="toggleBinaural('calm')"><svg class="ic" aria-hidden="true"><use href="#i-feather"/></svg> Calm (8Hz)</button>
           <button class="binaural-btn" aria-pressed="false" aria-label="Alert (20Hz) binaural beat" onclick="toggleBinaural('alert')"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Alert (20Hz)</button>
         </div>
-        <div class="binaural-info">Combine with ambient sounds for best effect.</div>
+        <div class="binaural-info">Layer it with ambient sounds.</div>
       </div>
 
       <button class="btn" style="width: 100%; font-size: 12px;" onclick="openBreathingGuide()"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg> Breathing Guide</button>
@@ -2867,7 +2867,7 @@ function fbSyncThemeIcon() {
       <div class="card-header">
         <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span> Energy Tracker</div>
       </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Log your energy throughout the day.</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Log your energy as the day goes.</div>
       
         <div class="energy-scale">
         <button class="energy-btn" aria-label="Energy level 1" aria-pressed="false" onclick="logEnergy(1)" title="Exhausted">1</button>
@@ -2889,7 +2889,7 @@ function fbSyncThemeIcon() {
       <div class="card-header">
         <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-hand"/></svg></span> Fidget Tools</div>
       </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Satisfying micro-breaks for restless hands.</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Micro-breaks for restless hands.</div>
       
       <div class="fidget-grid">
         <!-- Spinner -->
@@ -2939,7 +2939,7 @@ function fbSyncThemeIcon() {
       <div class="card-header">
         <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg></span> Med Reminder</div>
       </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Track your medication & dopamine reset times.</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Log your dose and your reset times.</div>
       
       <div class="med-display">
         <div class="med-timer" id="medTimer">--:--</div>
@@ -2947,10 +2947,10 @@ function fbSyncThemeIcon() {
       </div>
 
       <div class="med-input-row">
-        <input type="time" id="medTime" placeholder="HH:MM" aria-label="Medication time" />
+        <input type="time" id="medTime" placeholder="HH:MM" aria-label="Dose time" />
         <button onclick="logMedication()">Log Dose</button>
       </div>
-      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openDopamineMenu()"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Dopamine Menu</button>
+      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openDopamineMenu()"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Quick lifts</button>
     </div>
 
     <!-- MORE TOOLS QUICK ACCESS -->
@@ -2982,7 +2982,7 @@ function fbSyncThemeIcon() {
         <button class="tool-tile" onclick="document.getElementById('socialModal').style.display='flex'; updateSocialGoals();" style="grid-column: span 2;">
           <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span>
           <span class="tool-tile-name">Focus Score</span>
-          <span class="tool-tile-desc">Track productivity goals & streaks</span>
+          <span class="tool-tile-desc">Today's minutes, tasks and words</span>
         </button>
       </div>
     </div>
@@ -3011,7 +3011,7 @@ function fbSyncThemeIcon() {
   <div class="break-modal-content">
     <div class="break-modal-icon"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></div>
     <div class="break-modal-title">Time for a Break!</div>
-    <div class="break-modal-text">Look at something 20 feet away for 20 seconds. Your eyes (and brain) will thank you.</div>
+    <div class="break-modal-text">Look at something 20 feet away for 20 seconds. Then come back.</div>
     <button class="btn btn-accent" onclick="dismissBreak()" style="padding: 12px 32px; font-size: 15px;">Got it, I'm back</button>
   </div>
 </div>
@@ -3033,7 +3033,7 @@ function fbSyncThemeIcon() {
 <div class="distract-overlay" id="distractOverlay">
   <div class="distract-box">
     <h3><svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg> Park that thought</h3>
-    <p>Don't lose focus — write the distraction down and come back to it later. Press <strong>Enter</strong> to park it, <strong>Esc</strong> to cancel.</p>
+    <p>Write it down. Come back to it after the timer. <strong>Enter</strong> parks it, <strong>Esc</strong> cancels.</p>
     <input type="text" id="distractInput" maxlength="200" placeholder="What just popped into your head?" aria-label="Distraction capture input" />
     <div style="display:flex;gap:10px;">
       <button class="btn btn-accent" style="flex:1;" onclick="parkDistraction()">Park It <svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg></button>
@@ -3068,7 +3068,7 @@ function fbSyncThemeIcon() {
   <div class="grounding-content">
     <div class="grounding-header">
       <h2>5-4-3-2-1 Grounding</h2>
-      <p>Feel overwhelmed? Use your senses to reconnect to the present moment.</p>
+      <p>Use your senses to come back to the room.</p>
     </div>
     
     <div class="grounding-items">
@@ -3111,8 +3111,8 @@ function fbSyncThemeIcon() {
 <!-- DOPAMINE MENU MODAL -->
 <div class="dopamine-modal" id="dopamineModal">
   <div class="dopamine-content">
-    <h2 style="margin-bottom: 16px; font-size: 18px;"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Dopamine Menu</h2>
-    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Quick wins instead of doom-scrolling. Customize your healthy quick-hits below.</p>
+    <h2 style="margin-bottom: 16px; font-size: 18px;"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Quick lifts</h2>
+    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Small things that lift you, instead of a scroll. Add your own below.</p>
     
     <div class="dopamine-list" id="dopamineList"></div>
     
@@ -3132,7 +3132,7 @@ function fbSyncThemeIcon() {
   <div class="grounding-content" style="max-width: 520px;">
     <div class="grounding-header">
       <h2><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg> Guided Meditation</h2>
-      <p>Find your center with focused breathing and mindfulness.</p>
+      <p>Sit, breathe, and let me count the minutes.</p>
     </div>
 
     <!-- Meditation selector -->
@@ -3169,7 +3169,7 @@ function fbSyncThemeIcon() {
 
         <!-- Instruction text -->
         <div id="medInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
-          Get comfortable and prepare to begin...
+          Get comfortable. Starting soon.
         </div>
 
         <!-- Progress -->
@@ -3203,7 +3203,7 @@ function fbSyncThemeIcon() {
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
       <h2><svg class="ic" aria-hidden="true"><use href="#i-footprints"/></svg> Movement Break</h2>
-      <p>Energize your body and reset your dopamine.</p>
+      <p>Stand up and move. Short, then back to it.</p>
     </div>
 
     <!-- Exercise Selector -->
@@ -3235,7 +3235,7 @@ function fbSyncThemeIcon() {
         <div id="exerciseTitle" style="font-size:18px;font-weight:700;margin-bottom:8px;">Exercise</div>
         <div id="exerciseStep" style="font-size:15px;font-weight:600;color:var(--primary-light);margin-bottom:4px;">Step 1</div>
         <div id="exerciseInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
-          Get ready...
+          Starting soon.
         </div>
 
         <!-- Step timer -->
@@ -3268,7 +3268,7 @@ function fbSyncThemeIcon() {
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
       <h2><svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg> Sleep Tracker</h2>
-      <p>Monitor your sleep quality for focus insights.</p>
+      <p>Log last night's sleep. It shapes today's focus.</p>
     </div>
 
     <!-- Log Form -->
@@ -3330,7 +3330,7 @@ function fbSyncThemeIcon() {
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
       <h2><svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg> Body Scan Meditation</h2>
-      <p>Systematic relaxation through body awareness.</p>
+      <p>Walk your attention through your body, head to toe.</p>
     </div>
 
     <!-- Visual Body Map -->
@@ -3345,7 +3345,7 @@ function fbSyncThemeIcon() {
     <div style="text-align:center;margin-bottom:16px;">
       <div style="font-size:16px;font-weight:700;color:var(--primary-light);margin-bottom:4px;" id="bodyScanCurrent">Ready to begin</div>
       <div id="bodyScanInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
-        Lie down or sit comfortably. Close your eyes. We'll guide your attention through each body part, noticing sensations without judgment.
+        Lie down or sit comfortably. Close your eyes. I'll walk your attention through each part of your body. Notice what's there, no judgment.
       </div>
     </div>
 
@@ -3375,14 +3375,14 @@ function fbSyncThemeIcon() {
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
       <h2><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg> Focus Accountability</h2>
-      <p>Track your progress and celebrate wins.</p>
+      <p>What you did today.</p>
     </div>
 
     <!-- Daily Score Card -->
     <div style="margin:20px 0;padding:20px;background:linear-gradient(135deg,rgba(var(--primary-rgb), 0.08),rgba(var(--teal-rgb), 0.08));border-radius:12px;border:1px solid rgba(var(--primary-rgb), 0.15);text-align:center;">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;">Today's Focus Score</div>
       <div id="focusScore" style="font-size:48px;font-weight:800;background:linear-gradient(135deg,var(--primary),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">0</div>
-      <div id="focusRank" style="font-size:13px;color:var(--text-muted);margin-top:4px;">Complete tasks to build your score</div>
+      <div id="focusRank" style="font-size:13px;color:var(--text-muted);margin-top:4px;">Finish a task or a focus block and it shows here</div>
     </div>
 
     <!-- Progress Bars -->
@@ -3434,7 +3434,7 @@ function fbSyncThemeIcon() {
 <div class="onboarding-modal" id="onboardingModal">
   <div class="onboarding-content">
     <div class="onboarding-title">Welcome to FocusBro</div>
-    <div class="onboarding-desc">An ADHD-friendly toolkit for deep focus, movement, and dopamine resets.</div>
+    <div class="onboarding-desc">Give me one thing and a time. I follow up. The tools are here for the time in between.</div>
     <div class="onboarding-steps">
       <div class="onboarding-step">
         <span class="onboarding-step-icon"><svg class="ic" aria-hidden="true"><use href="#i-layout-grid"/></svg></span>
@@ -3780,7 +3780,7 @@ function fbFlushTelemetry() {
 // JavaScript, then drain anything left from a prior offline session.
 fetch('/auth/session').then(function (response) {
   fbAuthenticated = response.ok;
-  if (fbAuthenticated) fbFlushTelemetry();
+  if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); }
 }).catch(function () {
   fbAuthenticated = false;
 });
@@ -4953,26 +4953,25 @@ function saveStats() {
   stats[today].pomos = pomoState.completed;
   stats[today].tasks = tasks.filter(t => t.done).length;
   localStorage.setItem('fb_stats', JSON.stringify(stats));
-  updateStreak(stats);
 }
 
-function updateStreak(stats) {
-  let streak = 0;
-  const d = new Date();
-  const maxIterations = 730; // Limit to ~2 years max for safety
-  let iterations = 0;
-  
-  while (iterations < maxIterations) {
-    const key = d.toDateString();
-    if (stats[key] && (stats[key].pomos > 0 || stats[key].tasks > 0)) {
-      streak++;
-      d.setDate(d.getDate() - 1);
-    } else {
-      break;
-    }
-    iterations++;
-  }
-  document.getElementById('statStreak').textContent = streak;
+// Words kept — the kept-word total from the accountability ledger (the number
+// /me/ keeps), which only ever climbs. This replaced a local "day streak" that
+// reset to 0 on any quiet day: the one number in the shell that contradicted
+// the design LAW ("the streak is a kept-word record that only climbs; it is
+// never broken"). Runs once the session probe says we are signed in; the cookie
+// session carries the call, the shell never touches the /me/ token. Before a
+// first word the box shows a dash and opens the door.
+function loadKeptWords() {
+  const el = document.getElementById('statKept');
+  if (!el) return;
+  fetch('/api/accountability/streak')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      const ledger = data && data.streak;
+      if (ledger && typeof ledger.total_kept === 'number') el.textContent = String(ledger.total_kept);
+    })
+    .catch(() => { /* the ledger is optional here — /me/ is the source of truth */ });
 }
 
 // ══════════════════════════════════════
@@ -5662,7 +5661,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (stats[today]) {
     document.getElementById('statTasks').textContent = stats[today].tasks || 0;
   }
-  updateStreak(stats);
 
   // Initialize new features
   updateEnergyChart();
@@ -6033,7 +6031,7 @@ function skipExerciseStep() {
 function completeExercise() {
   clearInterval(exerciseTimer);
   const totalMins = Math.round(exerciseTotalDuration / 60);
-  showToast(`${totalMins}-minute exercise complete! Dopamine refilled.`, 'success');
+  showToast(`${totalMins}-minute movement break done.`, 'success');
   localStorage.setItem('fb_last_exercise', new Date().toISOString());
   stopExercise();
 }
@@ -6274,12 +6272,12 @@ function updateSocialGoals() {
 
   // Rank
   const ranks = [
-    { min: 0, label: 'Getting Started ', color: 'var(--text-muted)' },
-    { min: 20, label: 'Warming Up ', color: 'var(--warn)' },
-    { min: 50, label: 'In The Zone ', color: 'var(--primary-light)' },
-    { min: 80, label: 'Flow State ', color: 'var(--teal)' },
-    { min: 120, label: 'Unstoppable ', color: 'var(--purple)' },
-    { min: 160, label: 'Legendary ', color: 'var(--warn)' }
+    { min: 0, label: 'Just started', color: 'var(--text-muted)' },
+    { min: 20, label: 'Warming up', color: 'var(--warn)' },
+    { min: 50, label: 'In the zone', color: 'var(--primary-light)' },
+    { min: 80, label: 'Deep in it', color: 'var(--teal)' },
+    { min: 120, label: 'Long haul', color: 'var(--purple)' },
+    { min: 160, label: 'All day', color: 'var(--warn)' }
   ];
   const rank = ranks.filter(r => score >= r.min).pop();
   if (document.getElementById('focusRank')) {
@@ -6571,7 +6569,7 @@ const CMD_LIST = [
   { icon:'house', name:'Dashboard',         desc:'All tools — full view',                                  action:()=>setView('home'),  keys:'home dashboard', group:'Views' },
   { icon:'zap', name:'Focus mode',         desc:'Pomodoro + Tasks only, no distractions',                action:()=>setView('focus'), keys:'focus mode pomodoro', group:'Views' },
   { icon:'leaf', name:'Restore mode',       desc:'Sounds, breathing, fidgets, meditation',               action:()=>setView('rest'),  keys:'rest restore relax wellness', group:'Views' },
-  { icon:'chart-column', name:'Stats',              desc:'Today\'s stats, streak, energy, ADHD tips',            action:()=>setView('stats'), keys:'stats analytics streak insights', group:'Views' },
+  { icon:'chart-column', name:'Stats',              desc:'Today\'s stats, words kept, energy, tips',            action:()=>setView('stats'), keys:'stats analytics streak insights', group:'Views' },
   { icon:'timer', name:'Start / Pause Pomodoro', desc:'Toggle the focus timer',                           action:()=>togglePomodoro(), keys:'pomodoro timer start pause focus', group:'Tools', kbd:'P' },
   { icon:'flower-2', name:'Open Meditation',   desc:'Guided 5–20 min sessions',                             action:()=>document.getElementById('meditationModal').style.display='flex', keys:'meditate calm', group:'Tools' },
   { icon:'wind', name:'Breathing Guide',   desc:'Box, 4-7-8, physiological sigh',                       action:()=>openBreathingGuide(), keys:'breath breathe box 478 calm', group:'Tools', kbd:'B' },
@@ -6579,7 +6577,7 @@ const CMD_LIST = [
   { icon:'scan', name:'Body Scan',          desc:'Tension check & progressive relaxation',               action:()=>document.getElementById('bodyScanModal').style.display='flex', keys:'body scan tension relax', group:'Tools' },
   { icon:'footprints', name:'Movement',           desc:'Desk stretches and micro-breaks',                       action:()=>document.getElementById('movementModal').style.display='flex', keys:'stretch movement exercise desk', group:'Tools' },
   { icon:'bed', name:'Sleep Tracker',      desc:'Log sleep, wind-down tips',                            action:()=>{ document.getElementById('sleepModal').style.display='flex'; renderSleepHistory(); newSleepTip(); }, keys:'sleep rest wind down', group:'Tools' },
-  { icon:'zap', name:'Dopamine Menu',      desc:'Healthy dopamine reset activities',                    action:()=>openDopamineMenu(), keys:'dopamine reward motivation reset', group:'Tools' },
+  { icon:'zap', name:'Quick lifts',        desc:'Small resets you choose for yourself',                    action:()=>openDopamineMenu(), keys:'dopamine reward motivation reset', group:'Tools' },
   { icon:'monitor', name:'Toggle Wake Lock',  desc:'Keep screen on during focus sessions',                 action:()=>toggleWakeLock(), keys:'wake lock screen sleep awake', group:'Actions' },
   { icon:'eye-off', name:'Toggle Zen mode',    desc:'Minimal view — timer and intention only',              action:()=>toggleZen(), keys:'zen minimal distraction free', group:'Actions', kbd:'Z' },
   { icon:'square-parking', name:'Capture Distraction', desc:'Park an intrusive thought without losing focus',     action:()=>openDistractionOverlay(), keys:'distraction thought capture parking lot', group:'Actions', kbd:'D' },
