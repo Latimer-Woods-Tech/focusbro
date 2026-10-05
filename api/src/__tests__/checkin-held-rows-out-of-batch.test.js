@@ -11,12 +11,8 @@
  * scan skips it until then. Driven on a real migrated SQLite; only the push and
  * Telnyx wires are intercepted.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { runDueCheckins, MAX_CHECKIN_LATENESS_MIN } from '../checkins-cron.js';
-import { rependCheckin } from '../accountability.js';
-import { nextInstantWhere, isWithinQuietHours } from '../consent.js';
+import { describe, it, expect, vi, afterEach, afterAll, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import worker from '../index.js';
 import { DatabaseSync, makeMigratedD1, makeKV } from './helpers/real-d1.js';
 
 const push = vi.hoisted(() => ({ calls: 0 }));
@@ -25,6 +21,21 @@ vi.mock('../webpush.js', async (importOriginal) => ({
   vapidConfigured: () => true,
   sendWebPush: async () => { push.calls++; return { ok: true }; },
 }));
+
+// FBQ-24 R4: under `--no-isolate` the module registry is shared across files, so
+// index.js / checkins-cron.js may already be cached bound to the REAL webpush.js
+// (or another file's mock). Drop the cache so the imports below are evaluated
+// afresh against the mock above, and do not leave this mock behind afterwards.
+vi.resetModules();
+const { runDueCheckins, MAX_CHECKIN_LATENESS_MIN } = await import('../checkins-cron.js');
+const { rependCheckin } = await import('../accountability.js');
+const { nextInstantWhere, isWithinQuietHours } = await import('../consent.js');
+const worker = (await import('../index.js')).default;
+
+afterAll(() => {
+  vi.doUnmock('../webpush.js');
+  vi.resetModules();
+});
 
 const suite = DatabaseSync ? describe : describe.skip;
 const TZ = 'America/New_York';
