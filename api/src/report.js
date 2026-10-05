@@ -577,11 +577,11 @@ export function registerReportRoutes(router, ctx) {
       // or shareable text at all, so nothing is merely hidden by the page.
       const { pro } = await readProStatus(env, auth.userId);
       if (!pro) {
-        return jsonResponse({ report: previewWeeklyReport(report), text: '', preview: true, pro: false }, 200, 'nocache');
+        return jsonResponse({ report: previewWeeklyReport(report), text: '', preview: true, pro: false }, 200);
       }
       const text = renderReportText(report);
 
-      return jsonResponse({ report, text, preview: false, pro: true }, 200, 'nocache');
+      return jsonResponse({ report, text, preview: false, pro: true }, 200);
     } catch (err) {
       console.error('[report] weekly report error:', err && err.message);
       return jsonResponse({ error: 'Could not build your weekly report just now.' }, 500);
@@ -653,7 +653,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
   function show(id) { el(id).classList.remove('hidden'); }
   function hide(id) { el(id).classList.add('hidden'); }
 
-  fetch('/api/me/report')
+  fetch('/api/me/report', { cache: 'no-store' })
     .then(function (r) {
       if (r.status === 401) { show('signin'); throw new Error('signin'); }
       if (!r.ok) throw new Error('load');

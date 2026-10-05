@@ -204,7 +204,7 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
     if (legacy) headers.Authorization = 'Bearer ' + legacy;
     var tz = '';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-    return w.fetch('/api/commitments', { credentials: 'same-origin', headers: headers })
+    return w.fetch('/api/commitments', { credentials: 'same-origin', cache: 'no-store', headers: headers })
       .then(function (r) {
         // Signed out: nothing of theirs should still buzz on this phone.
         if (r.status === 401) return cancelOurs().then(function () { return { cleared: true }; });

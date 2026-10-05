@@ -280,7 +280,7 @@ export const ACCOUNT_DELETE_SCRIPT = `(function () {
   function show(n) { if (n) n.classList.remove('hidden'); }
   function hide(n) { if (n) n.classList.add('hidden'); }
   function check() {
-    fetch('/auth/session', { credentials: 'same-origin' }).then(function (r) {
+    fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
       if (!r.ok) { hide(card); return; }
       show(card);
       if (window.location.hash === '#delete') { try { card.scrollIntoView(); } catch (e) {} }

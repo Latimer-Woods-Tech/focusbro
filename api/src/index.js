@@ -157,7 +157,7 @@ export function isBillingEnabled(env) {
 }
 
 function billingUnavailableResponse() {
-  return jsonResponse({ error: 'Not found' }, 404, 'nocache');
+  return jsonResponse({ error: 'Not found' }, 404);
 }
 
 // ── DEBUG LOGGING ──
@@ -756,37 +756,28 @@ function getCorsHeaders(request) {
 
 const corsHeaders = getCorsHeaders({ headers: new Headers() });
 
-// ── CACHE STRATEGY HELPER ──
-/**
- * Get cache control headers based on endpoint characteristics.
- * Reduces bandwidth and server load while keeping data fresh.
- * @param {string} strategy - 'nocache' (auth), 'short' (5min), 'medium' (1hr), 'static' (24hr)
- * @returns {string} Cache-Control header value
- */
-function getCacheControl(strategy) {
-  const strategies = {
-    'nocache': 'no-store, must-revalidate, max-age=0',
-    'short': 'private, max-age=300', // 5 minutes for user data, events
-    'medium': 'private, max-age=3600', // 1 hour for stats, analytics
-    'static': 'private, max-age=86400' // 24 hours for config, settings
-  };
-  return strategies[strategy] || strategies.nocache;
-}
+// ── JSON RESPONSES ARE NEVER CACHED ──
+// jsonResponse answers per-person API calls (words, streak, kept log, consent,
+// sync), and every one of them changes the moment the person acts. A cached
+// copy is a lie: "I did it" still offering the button, a moved word missing, a
+// signed-out browser handing the last person's reminders to the native bridge
+// (FBQ-03). So there is no cache tier here — public, cacheable responses set
+// their own Cache-Control where they are built.
+const JSON_NO_STORE = 'no-store, must-revalidate, max-age=0';
 
 /**
- * Create JSON response with CORS and cache control headers
+ * Create a JSON response with CORS headers and `Cache-Control: no-store`.
  * @param {any} data - Data to serialize as JSON
  * @param {number} status - HTTP status code
- * @param {string} cacheStrategy - Cache strategy ('nocache', 'short', 'medium', 'static')
  * @returns {Response}
  */
-function jsonResponse(data, status = 200, cacheStrategy = 'nocache') {
+function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       ...corsHeaders,
       'Content-Type': 'application/json',
-      'Cache-Control': getCacheControl(cacheStrategy)
+      'Cache-Control': JSON_NO_STORE
     }
   });
 }
@@ -1504,7 +1495,7 @@ router.post('/auth/login', async (request, env) => {
       user_id: user.id,
       email,
       session_id: sessionId
-    }, 200, 'nocache'), sessionCookie(token));
+    }, 200), sessionCookie(token));
   } catch (error) {
     console.error('[AUTH] Login error:', error.message);
     return new Response(JSON.stringify({ error: 'Login failed' }), {
@@ -1786,7 +1777,7 @@ function idempotentSyncResponse(snapshot) {
     size_bytes: snapshot.size_bytes,
     snapshot_id: snapshot.id,
     revision_id: snapshot.revision_id,
-  }, 200, 'short');
+  }, 200);
 }
 
 // ── SYNC USER DATA (Store/Update) ──
@@ -1874,12 +1865,12 @@ router.post('/sync/data', async (request, env) => {
         code: 'stale_revision',
         current_revision: currentRevision,
         recovery: 'Fetch the latest snapshot, merge your local changes, then retry with current_revision.',
-      }, 409, 'short');
+      }, 409);
     }
 
     const uploadQuota = await syncModule.consumeSyncUploadQuota(env, userId);
     if (!uploadQuota.allowed) {
-      return jsonResponse({ error: 'Sync upload limit reached. Try again in an hour.' }, 429, 'short');
+      return jsonResponse({ error: 'Sync upload limit reached. Try again in an hour.' }, 429);
     }
 
     const storageUsage = await syncModule.getSyncStorageUsage(env, userId);
@@ -1888,7 +1879,7 @@ router.post('/sync/data', async (request, env) => {
       return jsonResponse({
         error: 'Sync storage limit reached. Delete old synced data before uploading more.',
         limit_bytes: syncModule.MAX_SYNC_STORAGE_BYTES,
-      }, 413, 'short');
+      }, 413);
     }
 
     const revisionId = generateUUID();
@@ -1918,7 +1909,7 @@ router.post('/sync/data', async (request, env) => {
           code: 'stale_revision',
           current_revision: latest?.revision_id || null,
           recovery: 'Fetch the latest snapshot, merge your local changes, then retry with current_revision.',
-        }, 409, 'short');
+        }, 409);
       }
 
       await syncModule.pruneSyncSnapshots(env, userId);
@@ -1932,7 +1923,7 @@ router.post('/sync/data', async (request, env) => {
         size_bytes: dataSize,
         snapshot_id: snapshotResult.meta?.last_row_id || null,
         revision_id: revisionId,
-      }, 200, 'short');
+      }, 200);
     } catch (error) {
       console.error('[SYNC] Data upload error:', error.message);
       const replay = await syncModule.findIdempotentSync(env, userId, idempotencyKey);
@@ -1955,9 +1946,9 @@ router.post('/sync/data', async (request, env) => {
 // ── DELETE SYNCED DATA (privacy self-service) ──
 router.post('/privacy/delete', async (request, env) => {
   const token = getAuthToken(request);
-  if (!token) return jsonResponse({ error: 'Unauthorized' }, 401, 'short');
+  if (!token) return jsonResponse({ error: 'Unauthorized' }, 401);
   const tokenPayload = await verifyToken(token, env.JWT_SECRET, env);
-  if (!tokenPayload) return jsonResponse({ error: 'Invalid token' }, 401, 'short');
+  if (!tokenPayload) return jsonResponse({ error: 'Invalid token' }, 401);
 
   const userId = tokenPayload.sub;
   await Promise.all([
@@ -1966,7 +1957,7 @@ router.post('/privacy/delete', async (request, env) => {
   ]);
   await env.DB.prepare('DELETE FROM user_data_snapshots WHERE user_id = ?').bind(userId).run();
   await syncModule.recordSync(env, userId, 'web', 'data_delete', 'success', 0);
-  return jsonResponse({ success: true, message: 'Synced data deleted' }, 200, 'short');
+  return jsonResponse({ success: true, message: 'Synced data deleted' }, 200);
 });
 
 // ── FETCH USER DATA (Retrieve) ──
@@ -3326,14 +3317,14 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     if (!panel) return;
     if (!panel.classList.contains('hidden')) { hide(panel); a.textContent = 'View rhythm'; return; }
     a.textContent = 'Loading…';
-    fetch('/api/coach/clients/' + encodeURIComponent(id), { headers: authHeaders() })
+    fetch('/api/coach/clients/' + encodeURIComponent(id), { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (data) { renderRhythm(panel, data); show(panel); a.textContent = 'Hide rhythm'; })
       .catch(function () { panel.innerHTML = '<div class="muted">Could not load their rhythm just now.</div>'; show(panel); a.textContent = 'View rhythm'; });
   });
 
   function loadRoster() {
-    fetch('/api/coach/clients', { headers: authHeaders() })
+    fetch('/api/coach/clients', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) {
         if (r.status === 401) { throw new Error('unauthorized'); }
         return r.json();
@@ -3408,7 +3399,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
       });
       return;
     }
-    fetch('/auth/session').then(function (response) {
+    fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
       if (response.ok) loadRoster(); else show(el('signin'));
     }).catch(function () { show(el('signin')); });
   }

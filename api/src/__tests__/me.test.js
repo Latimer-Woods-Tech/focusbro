@@ -803,7 +803,7 @@ describe('server-backed sign out', () => {
   it('exchanges legacy localStorage once and uses HttpOnly cookies thereafter', () => {
     const html = renderMePage();
     expect(html).toContain("fetch('/auth/exchange'");
-    expect(html).toContain("fetch('/auth/session')");
+    expect(html).toContain("fetch('/auth/session', { cache: 'no-store' })");
     expect(html).toContain('localStorage.removeItem(TOKEN_KEY)');
     expect(html).not.toContain('localStorage.setItem(TOKEN_KEY');
     expect(html).toContain('if (legacyToken) headers.Authorization');

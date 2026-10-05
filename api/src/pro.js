@@ -420,7 +420,7 @@ export const PRO_PAGE_SCRIPT = `(function () {
     var tries = 0;
     var poll = function () {
       tries++;
-      fetch('/api/pro/status', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (s) {
+      fetch('/api/pro/status', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (s) {
         if (s && s.pro) { window.location.replace('/pro/'); return; }
         if (tries < 10) setTimeout(poll, 3000);
       }).catch(function () { if (tries < 10) setTimeout(poll, 3000); });

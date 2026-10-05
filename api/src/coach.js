@@ -1460,7 +1460,7 @@ export function registerCoachRoutes(router, ctx) {
         roster,
         homecoming_digest: homecomingDigest,
         empty_message: roster.length ? null : rosterEmptyCopy(),
-      }, 200, 'nocache');
+      }, 200);
     } catch (err) {
       console.error('[coach] roster error:', err && err.message);
       return jsonResponse({ error: 'Could not load your roster.' }, 500);
@@ -1670,7 +1670,7 @@ export function registerCoachRoutes(router, ctx) {
         rhythm_intro: rhythmIntroCopy(),
         rhythm_empty: activeCommitments.length ? null : rhythmEmptyCopy(),
         active_commitments: activeCommitments,
-      }, 200, 'nocache');
+      }, 200);
     } catch (err) {
       console.error('[coach] client detail error:', err && err.message);
       return jsonResponse({ error: 'Could not load that client.' }, 500);
@@ -1707,7 +1707,7 @@ export function registerCoachRoutes(router, ctx) {
           ORDER BY cc.invited_at DESC
           LIMIT 100`
       ).bind(auth.userId).all();
-      return jsonResponse({ invitations: (rows && rows.results) || [] }, 200, 'nocache');
+      return jsonResponse({ invitations: (rows && rows.results) || [] }, 200);
     } catch (err) {
       console.error('[coach] invitations error:', err && err.message);
       return jsonResponse({ error: 'Could not load your invitations.' }, 500);
@@ -1752,7 +1752,7 @@ export function registerCoachRoutes(router, ctx) {
       const auth = await requireUser(request, env);
       if (auth.error) return auth.error;
       const shared = await getNoteSharingOptIn(env, auth.userId);
-      return jsonResponse({ shared }, 200, 'short');
+      return jsonResponse({ shared }, 200);
     } catch (err) {
       console.error('[coach] note-consent get error:', err && err.message);
       return jsonResponse({ error: 'Could not load that setting.' }, 500);

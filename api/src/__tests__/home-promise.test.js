@@ -70,7 +70,7 @@ describe('the served shell', () => {
   it('the client honors ?home= too, and loads your words only after the session probe', () => {
     expect(servedHtml).toContain("if (h === 'promise' || h === 'toolkit') document.body.dataset.home = h;");
     expect(servedHtml).toContain('if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); loadHomeWords(); }');
-    expect(servedHtml).toContain("fetch('/api/commitments')");
+    expect(servedHtml).toContain("fetch('/api/commitments', { cache: 'no-store' })");
     // each word links to ITS card on /me/ (the notification landing from #386)
     expect(servedHtml).toContain("a.href = '/me/?word=' + encodeURIComponent(w.id);");
     // titles are user text: textContent, never innerHTML

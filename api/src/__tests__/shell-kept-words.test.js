@@ -29,7 +29,7 @@ describe('the shell reads kept words from the ledger', () => {
   });
 
   it('reads the ledger endpoint on the cookie session, after the session probe — never the /me/ token', () => {
-    expect(servedHtml).toContain("fetch('/api/accountability/streak')");
+    expect(servedHtml).toContain("fetch('/api/accountability/streak', { cache: 'no-store' })");
     expect(servedHtml).toMatch(/if \(fbAuthenticated\) \{ fbFlushTelemetry\(\); loadKeptWords\(\);/);
     expect(servedHtml).not.toContain("localStorage.getItem('focusbro_token')");
     expect(servedHtml).toMatch(/typeof ledger\.total_kept === 'number'/);
