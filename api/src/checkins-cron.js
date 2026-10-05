@@ -64,6 +64,11 @@ export async function materializeNextOccurrence(env, row, nowISO) {
   return true;
 }
 
+/** True when a D1 write reports it changed at least one row. */
+function changed(res) {
+  return !!(res && res.meta && res.meta.changes > 0);
+}
+
 /** Max delivery attempts before a check-in is parked as `failed` (transient errors only). */
 export const MAX_ATTEMPTS = 3;
 
@@ -105,6 +110,17 @@ export function isPermanentDeliveryError(status) {
 
 /** Default batch size per cron tick. */
 const DEFAULT_LIMIT = 100;
+
+/**
+ * Minutes a claimed check-in stays `sending` before another tick may reclaim it
+ * (FBQ-05). A claim is taken per row, right before that row's send, so it only
+ * has to outlive ONE row's delivery. 15 minutes is the platform's wall-time cap
+ * for a scheduled invocation, so a lease can never expire under a cron tick that
+ * is still alive and still sending: an expired lease means the claimer is gone.
+ * The cost is that a row whose tick died waits up to 15 minutes, well inside
+ * the 24h staleness window (MAX_CHECKIN_LATENESS_MIN).
+ */
+export const SEND_LEASE_MIN = 15;
 
 /**
  * Deliver a single already-loaded check-in row and return the outcome.
@@ -285,19 +301,39 @@ async function deliverText(env, row, message) {
 
 /**
  * Find every pending check-in whose time has come and deliver it.
- * Idempotent: only rows with status='pending' AND scheduled_for<=now are
- * touched, and each is transitioned out of 'pending' (or its attempt count is
- * bumped) so a later tick won't re-send it.
+ * Safe under overlapping ticks (FBQ-05): each due row is claimed
+ * ('pending' → 'sending' under a lease) before it is sent, so only one tick
+ * ever sends it, and the finishing write applies only while the claim still
+ * holds, so an answer recorded mid-send is never overwritten.
+ *
+ *   pending ──claim──▶ sending ──sent / skipped / failed──▶ (terminal)
+ *      ▲                  │ └──retryable failure──▶ pending
+ *      └──lease expired───┘   (answered mid-send: kept/missed/… stands)
  *
  * @param {object} env  Worker env with a D1-shaped `DB`
  * @param {object} [opts] { now?: ISO string, limit?: number }
- * @returns {Promise<{scanned:number, sent:number, skipped:number, failed:number, retry:number, deferred:number}>}
+ * @returns {Promise<{scanned:number, sent:number, skipped:number, failed:number, retry:number, deferred:number, reclaimed:number, contended:number, superseded:number}>}
  */
 export async function runDueCheckins(env, opts = {}) {
   const now = opts.now || new Date().toISOString();
   const nowMs = Date.parse(now);
   const limit = Number(opts.limit) > 0 ? Number(opts.limit) : DEFAULT_LIMIT;
-  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0 };
+  const summary = { scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: 0, contended: 0, superseded: 0 };
+  const leaseUntil = new Date((Number.isNaN(nowMs) ? Date.now() : nowMs) + SEND_LEASE_MIN * 60 * 1000).toISOString();
+
+  // FBQ-05 R3: a claim whose lease has passed belongs to an invocation that died
+  // mid-send. Return it to the queue so it is not stranded (it may have gone out
+  // once; at-least-once beats never). A NULL lease on a 'sending' row is treated
+  // as expired for the same reason.
+  try {
+    const swept = await env.DB.prepare(
+      `UPDATE commitment_checkins SET status = 'pending', lease_until = NULL, last_error = 'lease_expired'
+        WHERE status = 'sending' AND (lease_until IS NULL OR lease_until < ?)`
+    ).bind(now).run();
+    summary.reclaimed = changed(swept) ? swept.meta.changes : 0;
+  } catch (err) {
+    console.error('[checkins-cron] lease sweep failed:', err && err.message);
+  }
 
   const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
@@ -391,6 +427,27 @@ export async function runDueCheckins(env, opts = {}) {
       }
     }
 
+    // FBQ-05 R1: claim the row before sending. Held rows `continue`d above
+    // without claiming, so a hold never strands a row as 'sending'. A row with
+    // an outcome already (gate skip, stale) sends nothing and is finished below
+    // from 'pending'. Losing the claim means another tick (or an answer) got
+    // there first: leave the row alone.
+    const claimed = !outcome;
+    if (claimed) {
+      let claim = null;
+      try {
+        claim = await env.DB.prepare(
+          `UPDATE commitment_checkins SET status = 'sending', lease_until = ?
+            WHERE id = ? AND status = 'pending' AND scheduled_for <= ?`
+        ).bind(leaseUntil, row.checkin_id, now).run();
+      } catch (err) {
+        console.error('[checkins-cron] claim failed:', err && err.message);
+        summary.retry++;
+        continue;
+      }
+      if (!changed(claim)) { summary.contended++; continue; }
+    }
+
     if (!outcome) {
       try {
         outcome = await deliverCheckin(env, row);
@@ -414,34 +471,44 @@ export async function runDueCheckins(env, opts = {}) {
       }
     }
 
+    // FBQ-05 R2: every finishing write applies only while the row is still ours
+    // — 'sending' under this tick's lease, or (no claim taken) still 'pending'.
+    // A person who answered during the send moved it off 'sending'; their
+    // answer stands and the write below changes nothing.
+    const ours = claimed
+      ? { sql: `status = 'sending' AND lease_until = ?`, binds: [leaseUntil] }
+      : { sql: `status = 'pending'`, binds: [] };
+    if (outcome.status === 'sent') {
+      // Instrument "the bro showed up" — a delivered nudge is the moat's core
+      // signal (IMPROVEMENT_PLAN L1). Recorded on the send itself, whatever the
+      // row says afterwards. Non-fatal; never aborts the batch.
+      await recordEvent(env, {
+        userId: row.user_id, type: EVENTS.CHECKIN_DELIVERED,
+        data: { commitment_id: row.commitment_id, channel: row.channel === 'text' ? 'text' : 'push' },
+      });
+    }
+
     let leftPending = false;
     try {
       if (outcome.status === 'sent') {
-        await env.DB.prepare(
+        const res = await env.DB.prepare(
           `UPDATE commitment_checkins
-              SET status = 'sent', delivered_at = ?, attempts = COALESCE(attempts,0) + 1, last_error = NULL
-            WHERE id = ?`
-        ).bind(now, row.checkin_id).run();
-        summary.sent++;
-        leftPending = true;
-        // Instrument "the bro showed up" — a delivered nudge is the moat's core
-        // signal (IMPROVEMENT_PLAN L1). Non-fatal; never aborts the batch.
-        await recordEvent(env, {
-          userId: row.user_id, type: EVENTS.CHECKIN_DELIVERED,
-          data: { commitment_id: row.commitment_id, channel: row.channel === 'text' ? 'text' : 'push' },
-        });
+              SET status = 'sent', delivered_at = ?, attempts = COALESCE(attempts,0) + 1, last_error = NULL, lease_until = NULL
+            WHERE id = ? AND ${ours.sql}`
+        ).bind(now, row.checkin_id, ...ours.binds).run();
+        if (changed(res)) { summary.sent++; leftPending = true; } else summary.superseded++;
       } else if (outcome.status === 'skipped') {
         // Terminal park, no shame, no retry storm: either no channel is available
         // for this user, or the moment aged out (detail 'stale'). Both leave the
         // occupancy queue and, for a recurring commitment, let the next
         // occurrence materialize below so the rhythm continues on-beat.
-        await env.DB.prepare(
+        const res = await env.DB.prepare(
           `UPDATE commitment_checkins
-              SET status = 'skipped', attempts = COALESCE(attempts,0) + 1, last_error = ?
-            WHERE id = ?`
-        ).bind(outcome.detail, row.checkin_id).run();
-        if (outcome.detail === 'stale') summary.stale++; else summary.skipped++;
-        leftPending = true;
+              SET status = 'skipped', attempts = COALESCE(attempts,0) + 1, last_error = ?, lease_until = NULL
+            WHERE id = ? AND ${ours.sql}`
+        ).bind(outcome.detail, row.checkin_id, ...ours.binds).run();
+        if (!changed(res)) summary.superseded++;
+        else { if (outcome.detail === 'stale') summary.stale++; else summary.skipped++; leftPending = true; }
       } else {
         // Delivery failure: bump attempts. Park as 'failed' once the retry cap
         // is hit — OR immediately when the error is permanent (a Telnyx 4xx for
@@ -449,13 +516,15 @@ export async function runDueCheckins(env, opts = {}) {
         // ticks just delays the terminal park and wastes API calls).
         const nextAttempts = (Number(row.attempts) || 0) + 1;
         const terminal = outcome.permanent === true || nextAttempts >= MAX_ATTEMPTS;
-        await env.DB.prepare(
+        // A retry releases the claim back to 'pending' for the next tick.
+        const res = await env.DB.prepare(
           `UPDATE commitment_checkins
-              SET status = ?, attempts = ?, last_error = ?
-            WHERE id = ?`
-        ).bind(terminal ? 'failed' : 'pending', nextAttempts, outcome.detail, row.checkin_id).run();
-        if (terminal) { summary.failed++; leftPending = true; }
-        else summary.retry++;
+              SET status = ?, attempts = ?, last_error = ?, lease_until = NULL
+            WHERE id = ? AND ${ours.sql}`
+        ).bind(terminal ? 'failed' : 'pending', nextAttempts, outcome.detail, row.checkin_id, ...ours.binds).run();
+        // A failed send still counts toward the fail streak, answered or not.
+        if (terminal) summary.failed++; else summary.retry++;
+        if (terminal && changed(res)) leftPending = true;
       }
     } catch (err) {
       console.error('[checkins-cron] status update failed:', err && err.message);
@@ -917,7 +986,7 @@ export async function runReturnNudges(env, opts = {}) {
         AND EXISTS (SELECT 1 FROM analytics_events c
                      WHERE c.user_id = e.user_id AND c.event_type = 'commitment_created')
         AND NOT EXISTS (SELECT 1 FROM commitment_checkins ck
-                     WHERE ck.user_id = e.user_id AND ck.status = 'pending')
+                     WHERE ck.user_id = e.user_id AND ck.status IN ('pending', 'sending'))
       GROUP BY e.user_id
      HAVING MAX(e.created_at) <= ?
       ORDER BY last_event_at ASC

@@ -57,7 +57,7 @@ function makeDB({ due = [], consent = CONSENT_NO_QUIET, phone = '+15557654321' }
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
         },
-        async run() { runs.push({ sql, params }); return { success: true }; },
+        async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },
       };
       return stmt;
     },
@@ -104,8 +104,8 @@ describe('runDueCheckins — a late scheduled text never lands at 3am (design LA
     // Not one SMS left the building in the middle of the night.
     expect(fetchSpy).not.toHaveBeenCalled();
     // Deferred → the row is left pending (no status UPDATE written), so a later
-    // daytime tick delivers it. Never dropped.
-    expect(db.runs.some((r) => /UPDATE commitment_checkins/.test(r.sql))).toBe(false);
+    // daytime tick delivers it. Never dropped, and never claimed (FBQ-05).
+    expect(db.runs.some((r) => /UPDATE commitment_checkins/.test(r.sql) && r.params.includes('ck1'))).toBe(false);
   });
 
   it('SENDS the same text on time in the daytime (the guard narrows nothing it should not)', async () => {

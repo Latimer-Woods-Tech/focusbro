@@ -249,7 +249,7 @@ describe('in-app resolve targets the current occurrence, never a future one', ()
       && /SELECT id FROM commitment_checkins/.test(x.sql));
     expect(resolve).toBeTruthy();
     // Delivered rows are always open; a pending row is open only when due today.
-    expect(resolve.sql).toMatch(/status IN \('sent', 'deferred', 'awaiting_time'\)/);
+    expect(resolve.sql).toMatch(/status IN \('sending', 'sent', 'deferred', 'awaiting_time'\)/);
     expect(resolve.sql).toMatch(/status = 'pending' AND scheduled_for < \?/);
     expect(resolve.sql).toMatch(/ORDER BY scheduled_for ASC/);
     // The old future-picking ordering is gone.

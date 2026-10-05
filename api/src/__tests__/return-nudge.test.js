@@ -88,7 +88,7 @@ describe('runReturnNudges — the dormant-person scan query shape', () => {
     const s = await runReturnNudges({ DB: db }, { now: NOW });
     const scan = db.prepared.find((q) => /FROM analytics_events e/.test(q));
     expect(scan).toMatch(/event_type = 'commitment_created'/);           // real accountability footprint
-    expect(scan).toMatch(/NOT EXISTS[\s\S]*commitment_checkins[\s\S]*status = 'pending'/); // nothing in flight
+    expect(scan).toMatch(/NOT EXISTS[\s\S]*commitment_checkins[\s\S]*status IN \('pending', 'sending'\)/); // nothing in flight (FBQ-05: a claim is in flight too)
     expect(scan).toMatch(/HAVING MAX\(e\.created_at\) <= \?/);            // dormant only
     expect(s).toEqual({ scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0 });
   });

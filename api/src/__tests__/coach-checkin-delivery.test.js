@@ -78,7 +78,7 @@ function makeDB({ links = [], operators = [], configs = [], phone = '+1555765432
           if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
           return null;
         },
-        async run() { runs.push({ sql, params }); return { success: true }; },
+        async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },
       };
       return stmt;
     },
