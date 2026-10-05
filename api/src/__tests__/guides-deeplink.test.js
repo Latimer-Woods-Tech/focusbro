@@ -182,7 +182,7 @@ describe('design LAW — deep-link CTAs stay warm and clean', () => {
     // Parity with renderGuidePage: the funnel hub must carry a description, an
     // image, and a Twitter card — not just a bare og:title with no card.
     expect(idx).toContain('property="og:description"');
-    expect(idx).toContain('property="og:image" content="https://focusbro.net/icon-192.svg"');
+    expect(idx).toContain('property="og:image" content="https://focusbro.net/og.png"');
     expect(idx).toContain('name="twitter:card" content="summary"');
     expect(idx).toContain('name="twitter:title"');
     expect(idx).toContain('name="twitter:description"');

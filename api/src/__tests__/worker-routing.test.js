@@ -83,11 +83,25 @@ describe('Worker routing', () => {
     expect(cspModeFor('not a url')).toBe('report-only');
   });
 
-  it('uses an AA-contrast action color on the accountability CTA', async () => {
+  it('uses an AA-contrast action color on the accountability CTA, in both themes', async () => {
     const html = await (await call('GET', '/')).text();
-    expect(html).toContain('.accountability-entry button');
-    expect(html).toContain('background: #0369a1');
-    expect(html).not.toContain('.accountability-entry button {\n    padding: 0 18px;\n    border: 0;\n    color: #fff;\n    background: var(--primary)');
+    // The CTA is drawn from the accent pair, never a raw hex or white-on-mid-tone.
+    expect(html).toMatch(/\.accountability-entry button \{[^}]*background: var\(--accent-fill\); color: var\(--on-accent\)/);
+    const lum = (hex) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const block = (sel) => html.slice(html.indexOf(sel), html.indexOf('}', html.indexOf(sel)));
+    const token = (css, name) => css.match(new RegExp(`--${name}: (#[0-9a-f]{6})`))[1];
+    for (const css of [block(':root {'), block('body[data-theme="light"] {')]) {
+      expect(ratio(token(css, 'on-accent'), token(css, 'accent-fill'))).toBeGreaterThanOrEqual(4.5);
+      // small print (placeholders, labels, the hero's fine print) stays AA on cards and page
+      expect(ratio(token(css, 'text-dim'), token(css, 'bg-card'))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(token(css, 'text-dim'), token(css, 'bg'))).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(token(css, 'primary'), token(css, 'bg'))).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('keeps dormant billing unavailable unless explicitly enabled', async () => {

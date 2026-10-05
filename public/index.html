@@ -3,12 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <title>FocusBro — The ADHD Check-In That Follows Up</title>
 <meta name="description" content="Give your word and FocusBro shows up when it is time to start. Warm accountability, one task at a time—never shame.">
 <meta name="keywords" content="ADHD tools, focus timer, pomodoro, breathing exercises, grounding technique, binaural beats, productivity, mindfulness, energy tracker">
 <meta property="og:title" content="FocusBro — The Check-In That Follows Up">
 <meta property="og:description" content="What are you avoiding? Give your word and your bro will check in when it is time to start.">
 <meta property="og:type" content="website">
+<meta property="og:image" content="https://focusbro.net/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
@@ -16,72 +24,113 @@
 
 <style>
   :root {
-    /* ── Professional Enterprise Palette ── */
-    --bg: #0a0e27;
-    --bg-secondary: #0f1428;
-    --bg-card: #141d3f;
-    --bg-card-hover: #1a2652;
-    --border: #2a3a6f;
-    --border-light: #3d4f8a;
-    --text: #e2e8f0;
-    --text-muted: #94a3b8;
-    --text-dim: #64748b;
-    
-    /* ── Professional Accent (Enterprise Blue/Teal) ── */
-    --primary: #0ea5e9;
-    --primary-dark: #0284c7;
-    --primary-light: #38bdf8;
-    --primary-dim: rgba(14, 165, 233, 0.12);
-    --primary-glow: rgba(14, 165, 233, 0.2);
-    
-    /* ── Status Colors ── */
-    --success: #10b981;
-    --success-dim: rgba(16, 185, 129, 0.12);
-    --success-glow: rgba(16, 185, 129, 0.2);
-    --warn: #f59e0b;
-    --warn-dim: rgba(245, 158, 11, 0.12);
-    --danger: #ef4444;
-    --danger-dim: rgba(239, 68, 68, 0.12);
-    
-    /* ── Secondary Colors ── */
-    --purple: #a78bfa;
-    --purple-dim: rgba(167, 139, 250, 0.12);
-    --teal: #14b8a6;
-    --teal-dim: rgba(20, 184, 166, 0.12);
-    
-    /* ── Accent Aliases (used by tools) ── */
-    --accent: #0ea5e9;
-    --accent-dim: rgba(14, 165, 233, 0.12);
-    --blue: #3b82f6;
-    --blue-dim: rgba(59, 130, 246, 0.12);
-    
-    /* ── Spacing & Radius ── */
-    --radius: 12px;
-    --radius-lg: 16px;
-    --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
-    
-    /* ── Typography ── */
-    --font: 'DM Sans', sans-serif;
-    --font-display: 'DM Sans', sans-serif;
-    --mono: 'JetBrains Mono', monospace;
+    /* Ink — warm near-black, one amber accent. Surfaces step up in lightness;
+       borders are hairlines, not outlines. */
+    --bg: #0d0f12;
+    --bg-secondary: #0d0f12;
+    --bg-card: #15181d;
+    --bg-card-hover: #1b1f25;
+    --bg-inset: #0f1215;
+    --bg-hover: #1b1f25;
+    --border: rgba(255, 255, 255, 0.075);
+    --border-light: rgba(255, 255, 255, 0.12);
+    --text: #eceae6;
+    --text-muted: #a4a19b;
+    --text-dim: #8c8982;
+
+    --primary: #f2b45a;
+    --primary-dark: #d99a3d;
+    --primary-light: #f6c47c;
+    --primary-bright: #f6c47c;
+    --primary-rgb: 242, 180, 90;
+    --primary-dim: rgba(242, 180, 90, 0.12);
+    --primary-glow: rgba(242, 180, 90, 0.16);
+    --accent-fill: #f2b45a;
+    --accent-fill-hover: #f6c47c;
+    --on-accent: #1b1305;
+
+    --success: #6cc79a;
+    --success-rgb: 108, 199, 154;
+    --success-dim: rgba(108, 199, 154, 0.12);
+    --success-glow: rgba(108, 199, 154, 0.16);
+    --warn: #e8935a;
+    --warn-rgb: 232, 147, 90;
+    --warn-dim: rgba(232, 147, 90, 0.12);
+    --danger: #e5675b;
+    --danger-rgb: 229, 103, 91;
+    --danger-dim: rgba(229, 103, 91, 0.12);
+
+    --purple: #a99be6;
+    --purple-rgb: 169, 155, 230;
+    --purple-dim: rgba(169, 155, 230, 0.12);
+    --teal: #6bbfae;
+    --teal-rgb: 107, 191, 174;
+    --teal-dim: rgba(107, 191, 174, 0.12);
+    --rose: #e08aa5;
+
+    --accent: #f2b45a;
+    --accent-dim: rgba(242, 180, 90, 0.12);
+    --blue: #8fb0dd;
+    --blue-rgb: 143, 176, 221;
+    --blue-dim: rgba(143, 176, 221, 0.12);
+
+    /* neutral line colour as a triplet, for translucent fills */
+    --line-rgb: 255, 255, 255;
+    --scrim: rgba(5, 6, 8, 0.72);
+
+    --radius: 10px;
+    --radius-lg: 14px;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 24px 48px rgba(0, 0, 0, 0.35);
+
+    --font: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'DM Sans', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    color-scheme: dark;
   }
 
-  /* ── LIGHT MODE ── */
+  /* ── LIGHT MODE — warm paper, same amber, deepened for contrast ── */
   body[data-theme="light"] {
-    --bg: #f9fafb;
-    --bg-secondary: #f3f4f6;
+    color-scheme: light;
+    --bg: #f6f4ef;
+    --bg-secondary: #f6f4ef;
     --bg-card: #ffffff;
-    --bg-card-hover: #f9fafb;
-    --border: #e5e7eb;
-    --border-light: #d1d5db;
-    --text: #1f2937;
-    --text-muted: #6b7280;
-    --text-dim: #9ca3af;
-    --primary-dim: rgba(59, 130, 246, 0.08);
-    --primary-glow: rgba(59, 130, 246, 0.15);
-    --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1);
+    --bg-card-hover: #fbfaf7;
+    --bg-inset: #f3f1ec;
+    --bg-hover: #f0ede6;
+    --border: rgba(28, 24, 16, 0.09);
+    --border-light: rgba(28, 24, 16, 0.15);
+    --text: #1c1b19;
+    --text-muted: #5d5a54;
+    --text-dim: #6e6a63;
+    --primary: #965a0c;
+    --primary-dark: #8a530b;
+    --primary-light: #965a0c;
+    --primary-bright: #8a530b;
+    --primary-rgb: 196, 124, 28;
+    --primary-dim: rgba(196, 124, 28, 0.1);
+    --primary-glow: rgba(196, 124, 28, 0.14);
+    --accent: #965a0c;
+    --accent-dim: rgba(196, 124, 28, 0.1);
+    --accent-fill: #e9a647;
+    --accent-fill-hover: #e09a36;
+    --on-accent: #1b1305;
+    --success: #2f8a5f;
+    --success-rgb: 47, 138, 95;
+    --warn: #b9622a;
+    --warn-rgb: 185, 98, 42;
+    --danger: #c0473c;
+    --danger-rgb: 192, 71, 60;
+    --purple: #6b5bb8;
+    --purple-rgb: 107, 91, 184;
+    --teal: #2f8778;
+    --teal-rgb: 47, 135, 120;
+    --blue: #3f6aa6;
+    --blue-rgb: 63, 106, 166;
+    --line-rgb: 28, 24, 16;
+    --scrim: rgba(28, 24, 16, 0.45);
+    --shadow: 0 1px 2px rgba(28, 24, 16, 0.06), 0 6px 18px rgba(28, 24, 16, 0.06);
+    --shadow-lg: 0 2px 4px rgba(28, 24, 16, 0.06), 0 20px 40px rgba(28, 24, 16, 0.1);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -114,9 +163,9 @@
     top: -50%; left: -50%;
     width: 200%; height: 200%;
     background: 
-      radial-gradient(ellipse at 20% 50%, rgba(14, 165, 233, 0.05) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 20%, rgba(20, 184, 166, 0.04) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 80%, rgba(167, 139, 250, 0.03) 0%, transparent 50%);
+      radial-gradient(ellipse at 20% 50%, rgba(var(--primary-rgb), 0.05) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(var(--teal-rgb), 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 80%, rgba(var(--purple-rgb), 0.03) 0%, transparent 50%);
     z-index: -1;
     animation: ambientShift 45s ease-in-out infinite alternate;
   }
@@ -133,7 +182,7 @@
     justify-content: space-between;
     padding: 24px 40px;
     border-bottom: 1px solid var(--border);
-    background: rgba(10, 14, 39, 0.6);
+    background: var(--bg-card);
     backdrop-filter: blur(30px);
     -webkit-backdrop-filter: blur(30px);
     position: sticky;
@@ -189,13 +238,13 @@
   .status-pill.active {
     background: var(--accent-dim);
     color: var(--accent);
-    border: 1px solid rgba(34,197,94,0.2);
+    border: 1px solid rgba(var(--success-rgb), 0.2);
   }
 
   .status-pill.inactive {
     background: var(--danger-dim);
     color: var(--danger);
-    border: 1px solid rgba(239,68,68,0.2);
+    border: 1px solid rgba(var(--danger-rgb), 0.2);
   }
 
   .status-dot {
@@ -213,8 +262,8 @@
   /* Guide deep-link: briefly ring the exact tool card a reader arrived for,
      so a guide CTA lands them ON the tool, not just in the right view. */
   @keyframes deeplinkFlash {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
-    30%      { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.55); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); }
+    30%      { box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.55); }
   }
   .deeplink-flash { animation: deeplinkFlash 1.6s ease-in-out; }
 
@@ -242,7 +291,7 @@
 
   /* ── PROFESSIONAL CARD BASE (GLASS MORPHISM) ── */
   .card {
-    background: rgba(20, 29, 63, 0.5);
+    background: var(--bg-card);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-lg);
     padding: 28px;
@@ -261,7 +310,7 @@
     align-items: center;
     margin-bottom: 20px;
     padding-bottom: 16px;
-    border-bottom: 1px solid rgba(61, 79, 138, 0.5);
+    border-bottom: 1px solid rgba(var(--line-rgb), 0.11);
   }
 
   .card-title {
@@ -286,8 +335,8 @@
   }
 
   .keep-awake.active {
-    border-color: rgba(34,197,94,0.3);
-    background: linear-gradient(135deg, var(--bg-card), rgba(34,197,94,0.05));
+    border-color: rgba(var(--success-rgb), 0.3);
+    background: linear-gradient(135deg, var(--bg-card), rgba(var(--success-rgb), 0.05));
   }
 
   .awake-ring {
@@ -299,13 +348,13 @@
     position: relative;
     transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
-    background: rgba(14, 165, 233, 0.05);
+    background: rgba(var(--primary-rgb), 0.05);
   }
 
   .awake-ring.active {
     border-color: var(--primary);
-    box-shadow: 0 0 60px var(--primary-glow), inset 0 0 40px rgba(14, 165, 233, 0.1);
-    background: rgba(14, 165, 233, 0.1);
+    box-shadow: 0 0 60px var(--primary-glow), inset 0 0 40px rgba(var(--primary-rgb), 0.1);
+    background: rgba(var(--primary-rgb), 0.1);
   }
 
   .awake-ring.active::after {
@@ -321,7 +370,7 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .awake-icon { font-size: 52px; transition: transform 0.3s; filter: drop-shadow(0 4px 12px rgba(14, 165, 233, 0.3)); }
+  .awake-icon { font-size: 52px; transition: transform 0.3s; filter: drop-shadow(0 4px 12px rgba(var(--primary-rgb), 0.3)); }
   .awake-ring:hover .awake-icon { transform: scale(1.12); }
 
   .awake-label {
@@ -381,7 +430,7 @@
 
   .pomo-ring-svg .pomo-ring-track {
     fill: none;
-    stroke: rgba(61, 79, 138, 0.25);
+    stroke: rgba(var(--line-rgb), 0.055);
     stroke-width: 6;
   }
 
@@ -396,12 +445,12 @@
 
   .pomo-ring-svg .pomo-ring-fill.break {
     stroke: var(--success);
-    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.4));
+    filter: drop-shadow(0 0 6px rgba(var(--success-rgb), 0.4));
   }
 
   .pomo-ring-svg .pomo-ring-fill.longbreak {
     stroke: var(--teal);
-    filter: drop-shadow(0 0 6px rgba(20, 184, 166, 0.4));
+    filter: drop-shadow(0 0 6px rgba(var(--teal-rgb), 0.4));
   }
 
   .pomo-time-inner {
@@ -449,20 +498,20 @@
   .pomo-dot {
     width: 12px; height: 12px;
     border-radius: 50%;
-    background: rgba(61, 79, 138, 0.5);
+    background: rgba(var(--line-rgb), 0.11);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid var(--border-light);
   }
 
-  .pomo-dot.done { background: var(--success); border-color: var(--success); box-shadow: 0 0 12px rgba(16, 185, 129, 0.3); }
-  .pomo-dot.current { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 16px rgba(14, 165, 233, 0.5); }
+  .pomo-dot.done { background: var(--success); border-color: var(--success); box-shadow: 0 0 12px rgba(var(--success-rgb), 0.3); }
+  .pomo-dot.current { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.5); }
 
   /* Focus sprints — body doubling presence line (shown while a work block runs) */
   .focus-room {
     margin-top: 20px;
     padding: 12px 16px;
     border-radius: var(--radius);
-    background: var(--success-dim, rgba(16, 185, 129, 0.12));
+    background: var(--success-dim, rgba(var(--success-rgb), 0.12));
     border: 1px solid var(--border);
     text-align: center;
   }
@@ -528,7 +577,7 @@
     padding: 10px 20px;
     border: 1px solid var(--border-light);
     border-radius: 8px;
-    background: rgba(61, 79, 138, 0.4);
+    background: rgba(var(--line-rgb), 0.088);
     color: var(--text);
     font-family: var(--font);
     font-size: 13px;
@@ -540,10 +589,10 @@
   }
 
   .btn:hover { 
-    background: rgba(61, 79, 138, 0.6);
+    background: rgba(var(--line-rgb), 0.132);
     border-color: var(--primary-light);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.2);
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.2);
   }
 
   .btn-accent {
@@ -551,12 +600,12 @@
     color: #000;
     border-color: var(--primary);
     font-weight: 700;
-    box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3);
+    box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.3);
   }
 
   .btn-accent:hover { 
     background: linear-gradient(135deg, var(--primary-light), var(--primary));
-    box-shadow: 0 8px 24px rgba(14, 165, 233, 0.4);
+    box-shadow: 0 8px 24px rgba(var(--primary-rgb), 0.4);
     transform: translateY(-2px);
   }
 
@@ -569,7 +618,7 @@
     gap: 12px;
     padding: 12px;
     border-radius: 10px;
-    background: rgba(61, 79, 138, 0.3);
+    background: rgba(var(--line-rgb), 0.066);
   }
 
   .break-progress-ring {
@@ -634,7 +683,7 @@
 
   .preset-btn.active {
     background: var(--blue-dim);
-    border-color: rgba(59,130,246,0.35);
+    border-color: rgba(var(--blue-rgb), 0.35);
     color: var(--blue);
   }
 
@@ -644,7 +693,7 @@
 
   .sound-resume.armed {
     background: var(--blue-dim);
-    border-color: rgba(59,130,246,0.35);
+    border-color: rgba(var(--blue-rgb), 0.35);
     color: var(--blue);
     font-weight: 600;
   }
@@ -687,7 +736,7 @@
 
   .sound-btn.active {
     background: var(--blue-dim);
-    border-color: rgba(59,130,246,0.3);
+    border-color: rgba(var(--blue-rgb), 0.3);
     color: var(--blue);
   }
 
@@ -860,8 +909,8 @@
   body.session-active .top-row:has(#pomoCard) { order: -1; }
   #pomoCard { transition: box-shadow 0.4s ease, border-color 0.4s ease; }
   body.session-active #pomoCard {
-    border-color: rgba(14, 165, 233, 0.5);
-    box-shadow: 0 0 40px rgba(14, 165, 233, 0.15), 0 4px 16px rgba(0,0,0,0.25);
+    border-color: rgba(var(--primary-rgb), 0.5);
+    box-shadow: 0 0 40px rgba(var(--primary-rgb), 0.15), 0 4px 16px rgba(0,0,0,0.25);
   }
 
   /* ── TOOL TILES ── */
@@ -889,7 +938,7 @@
     border-color: var(--primary);
     background: var(--primary-dim);
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(14, 165, 233, 0.15);
+    box-shadow: 0 6px 20px rgba(var(--primary-rgb), 0.15);
   }
   .tool-tile-icon { font-size: 22px; margin-bottom: 4px; }
   .tool-tile-name { font-size: 13px; font-weight: 600; }
@@ -904,8 +953,8 @@
 
   /* ── PROFESSIONAL METRICS CARDS ── */
   .stat-box {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(20, 184, 166, 0.05));
-    border: 1px solid rgba(14, 165, 233, 0.2);
+    background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.1), rgba(var(--teal-rgb), 0.05));
+    border: 1px solid rgba(var(--primary-rgb), 0.2);
     border-radius: 12px;
     padding: 20px;
     text-align: center;
@@ -914,9 +963,9 @@
   }
 
   .stat-box:hover {
-    border-color: rgba(14, 165, 233, 0.4);
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(20, 184, 166, 0.08));
-    box-shadow: 0 4px 16px rgba(14, 165, 233, 0.15);
+    border-color: rgba(var(--primary-rgb), 0.4);
+    background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.15), rgba(var(--teal-rgb), 0.08));
+    box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.15);
   }
 
   .stat-value {
@@ -945,7 +994,7 @@
   .adhd-tip {
     padding: 16px;
     background: var(--purple-dim);
-    border: 1px solid rgba(167,139,250,0.15);
+    border: 1px solid rgba(var(--purple-rgb), 0.15);
     border-radius: 10px;
   }
 
@@ -967,7 +1016,7 @@
   .adhd-tip-refresh {
     margin-top: 10px;
     background: none;
-    border: 1px solid rgba(167,139,250,0.2);
+    border: 1px solid rgba(var(--purple-rgb), 0.2);
     color: var(--purple);
     padding: 4px 12px;
     border-radius: 6px;
@@ -977,7 +1026,7 @@
     transition: all 0.2s;
   }
 
-  .adhd-tip-refresh:hover { background: rgba(167,139,250,0.1); }
+  .adhd-tip-refresh:hover { background: rgba(var(--purple-rgb), 0.1); }
 
   /* ── BREAK MODAL ── */
   .break-modal {
@@ -995,7 +1044,7 @@
 
   /* ── PROFESSIONAL MODAL CONTENT ── */
   .break-modal-content {
-    background: linear-gradient(135deg, rgba(14, 29, 63, 0.8), rgba(20, 29, 63, 0.8));
+    background: linear-gradient(135deg, var(--bg-card), var(--bg-card));
     border: 1px solid var(--border-light);
     border-radius: 20px;
     padding: 56px 48px;
@@ -1057,8 +1106,8 @@
   .intention-banner {
     margin: 0 32px 0;
     padding: 14px 24px;
-    background: linear-gradient(135deg, var(--bg-card), rgba(34,197,94,0.06));
-    border: 1px solid rgba(34,197,94,0.2);
+    background: linear-gradient(135deg, var(--bg-card), rgba(var(--success-rgb), 0.06));
+    border: 1px solid rgba(var(--success-rgb), 0.2);
     border-radius: var(--radius);
     display: flex;
     align-items: center;
@@ -1079,7 +1128,7 @@
     min-width: 0;
     background: transparent;
     border: none;
-    border-bottom: 2px solid rgba(34,197,94,0.25);
+    border-bottom: 2px solid rgba(var(--success-rgb), 0.25);
     color: var(--text);
     font-family: var(--font);
     font-size: 16px;
@@ -1172,7 +1221,7 @@
 
   .distract-box {
     background: var(--bg-card);
-    border: 1px solid rgba(245,158,11,0.3);
+    border: 1px solid rgba(var(--warn-rgb), 0.3);
     border-radius: 16px;
     padding: 32px;
     width: 440px;
@@ -1241,7 +1290,7 @@
   }
 
   .zen-btn:hover { background: var(--bg-card-hover); color: var(--text); }
-  body.zen-mode .zen-btn { background: var(--warn-dim); color: var(--warn); border-color: rgba(245,158,11,0.3); }
+  body.zen-mode .zen-btn { background: var(--warn-dim); color: var(--warn); border-color: rgba(var(--warn-rgb), 0.3); }
 
   /* ── HYPERFOCUS MODAL ── */
   .hyperfocus-modal {
@@ -1268,7 +1317,7 @@
   /* The circle is a pacer, not decoration: it fills for the length of an
      inhale, empties for the length of an exhale, and HOLDS where it is in
      between (fill-mode forwards) — a full hold shows a full circle. */
-  .breathing-circle { width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(34,197,94,0.3), transparent); margin: 0 auto 30px; display: flex; align-items: center; justify-content: center; font-size: 48px; transform: scale(1); opacity: 0.7; }
+  .breathing-circle { width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(var(--success-rgb), 0.3), transparent); margin: 0 auto 30px; display: flex; align-items: center; justify-content: center; font-size: 48px; transform: scale(1); opacity: 0.7; }
   @keyframes breathe-in { from { transform: scale(1); opacity: 0.7; } to { transform: scale(1.4); opacity: 1; } }
   @keyframes breathe-out { from { transform: scale(1.4); opacity: 1; } to { transform: scale(1); opacity: 0.7; } }
   @media (prefers-reduced-motion: reduce) { .breathing-circle { animation: none !important; } }
@@ -1279,7 +1328,7 @@
   .binaural-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
   .binaural-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
   .binaural-btn:hover { border-color: var(--accent); }
-  .binaural-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+  .binaural-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .binaural-info { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
 
   /* ── GROUNDING MODAL ── */
@@ -1291,11 +1340,11 @@
   .grounding-header p { font-size: 13px; color: var(--text-muted); }
   .grounding-items { display: flex; flex-direction: column; gap: 16px; }
   .grounding-item { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s; }
-  .grounding-item:hover { border-color: var(--accent); background: rgba(34,197,94,0.05); }
+  .grounding-item:hover { border-color: var(--accent); background: rgba(var(--success-rgb), 0.05); }
   .grounding-number { font-size: 20px; font-weight: 700; color: var(--accent); display: block; }
   .grounding-text { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .grounding-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 12px; margin-top: 6px; font-family: var(--font); }
-  .grounding-result { background: var(--accent-dim); border: 1px solid rgba(34,197,94,0.2); border-radius: 12px; padding: 12px; margin-top: 8px; font-size: 12px; color: var(--text); }
+  .grounding-result { background: var(--accent-dim); border: 1px solid rgba(var(--success-rgb), 0.2); border-radius: 12px; padding: 12px; margin-top: 8px; font-size: 12px; color: var(--text); }
 
   /* ── DOPAMINE MENU ── */
   .dopamine-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); z-index: 1000; align-items: center; justify-content: center; }
@@ -1303,17 +1352,17 @@
   .dopamine-content { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 40px; max-width: 500px; animation: modalIn 0.3s ease; }
   .dopamine-list { display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; margin-bottom: 16px; }
   .dopamine-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; transition: all 0.2s; }
-  .dopamine-item:hover { border-color: var(--purple); background: rgba(167,139,250,0.05); }
+  .dopamine-item:hover { border-color: var(--purple); background: rgba(var(--purple-rgb), 0.05); }
   .dopamine-del { background: none; border: none; color: var(--danger); cursor: pointer; font-weight: bold; }
   .dopamine-input-row { display: flex; gap: 8px; }
   .dopamine-input-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 12px; font-family: var(--font); }
-  .dopamine-input-row button { background: var(--purple); color: #000; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 500; font-size: 12px; }
+  .dopamine-input-row button { background: var(--accent-fill); color: var(--on-accent); border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 500; font-size: 12px; }
 
   /* ── ENERGY TRACKER ── */
   .energy-scale { display: flex; gap: 6px; margin: 12px 0; }
   .energy-btn { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 500; transition: all 0.2s; }
   .energy-btn:hover { border-color: var(--accent); }
-  .energy-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
+  .energy-btn.selected { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .energy-chart { width: 100%; height: 60px; background: var(--bg); border-radius: 8px; margin: 12px 0; position: relative; overflow: hidden; display: flex; align-items: flex-end; gap: 2px; padding: 4px; border: 1px solid var(--border); }
   .energy-bar { flex: 1; background: linear-gradient(to top, var(--accent), var(--blue)); border-radius: 4px 4px 0 0; min-height: 4px; transition: all 0.3s; }
   .energy-stats { display: flex; justify-content: space-around; font-size: 11px; color: var(--text-muted); margin-top: 8px; }
@@ -1335,8 +1384,8 @@
   .bubble.popped { background: var(--border); transform: scale(0.6); opacity: 0.3; }
   .fidget-draw-canvas { border-radius: 10px; cursor: crosshair; touch-action: none; }
   .fidget-slider-track { width: 80%; height: 6px; background: var(--border); border-radius: 3px; position: relative; }
-  .fidget-slider-thumb { width: 20px; height: 20px; background: var(--accent); border-radius: 50%; position: absolute; top: -7px; cursor: grab; transition: box-shadow 0.2s; box-shadow: 0 0 0 0 rgba(14,165,233,0); }
-  .fidget-slider-thumb:active { box-shadow: 0 0 12px 4px rgba(14,165,233,0.4); cursor: grabbing; }
+  .fidget-slider-thumb { width: 20px; height: 20px; background: var(--accent); border-radius: 50%; position: absolute; top: -7px; cursor: grab; transition: box-shadow 0.2s; box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); }
+  .fidget-slider-thumb:active { box-shadow: 0 0 12px 4px rgba(var(--primary-rgb), 0.4); cursor: grabbing; }
   .fidget-toolbar { display: flex; gap: 4px; justify-content: center; margin-top: 6px; }
   .fidget-toolbar button { font-size: 10px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); cursor: pointer; }
   .fidget-toolbar button:hover { border-color: var(--accent); color: var(--text); }
@@ -1346,7 +1395,7 @@
   .med-timer { font-family: var(--mono); font-size: 24px; font-weight: 600; color: var(--accent); }
   .med-status { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
   .med-input-row { display: flex; gap: 8px; margin-top: 12px; }
-  .med-input-row input { flex: 1; background: rgba(61, 79, 138, 0.3); border: 1px solid var(--border-light); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 12px; font-family: var(--font); }
+  .med-input-row input { flex: 1; background: rgba(var(--line-rgb), 0.066); border: 1px solid var(--border-light); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 12px; font-family: var(--font); }
   .med-input-row button { background: linear-gradient(135deg, var(--primary), var(--primary-light)); color: #000; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; font-weight: 600; font-size: 12px; }
 
   /* ── PROFESSIONAL RESPONSIVE ── */
@@ -1370,8 +1419,6 @@
       box-shadow: 0 0 0 4px var(--primary-glow);
     }
     /* Skip link for keyboard users */
-    .skip-link { position: absolute; top: -40px; left: 8px; background: var(--primary); color: #fff; padding: 8px 12px; border-radius: 4px; z-index: 9999; transition: top 0.18s ease; text-decoration: none; }
-    .skip-link:focus { top: 8px; }
     .pomo-time { font-size: 48px; }
     .keep-awake { padding: 40px 24px; }
     .awake-ring { width: 120px; height: 120px; }
@@ -1411,8 +1458,8 @@
 
   /* Glow pulse for active elements */
   @keyframes glowPulse {
-    0%, 100% { box-shadow: 0 0 20px rgba(14, 165, 233, 0.2); }
-    50% { box-shadow: 0 0 40px rgba(14, 165, 233, 0.5), 0 0 60px rgba(14, 165, 233, 0.2); }
+    0%, 100% { box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.2); }
+    50% { box-shadow: 0 0 40px rgba(var(--primary-rgb), 0.5), 0 0 60px rgba(var(--primary-rgb), 0.2); }
   }
 
   /* Card hover lift animation */
@@ -1421,7 +1468,7 @@
   }
   .card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(14, 165, 233, 0.08);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(var(--primary-rgb), 0.08);
   }
 
   /* Button ripple effect */
@@ -1448,17 +1495,17 @@
 
   /* Sound button active glow */
   .sound-btn.active {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(20, 184, 166, 0.15));
+    background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.15), rgba(var(--teal-rgb), 0.15));
     border-color: var(--primary);
-    box-shadow: 0 0 20px rgba(14, 165, 233, 0.2);
+    box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.2);
     animation: glowPulse 3s ease-in-out infinite;
   }
 
   /* Binaural button active glow */
   .binaural-btn.active {
-    background: linear-gradient(135deg, rgba(167, 139, 250, 0.2), rgba(236, 72, 153, 0.15));
+    background: linear-gradient(135deg, rgba(var(--purple-rgb), 0.2), rgba(var(--purple-rgb), 0.15));
     border-color: var(--purple);
-    box-shadow: 0 0 20px rgba(167, 139, 250, 0.3);
+    box-shadow: 0 0 20px rgba(var(--purple-rgb), 0.3);
     animation: glowPulse 2s ease-in-out infinite;
   }
 
@@ -1472,7 +1519,7 @@
   }
   .grounding-item:hover {
     transform: translateX(4px);
-    box-shadow: 0 4px 16px rgba(14, 165, 233, 0.15);
+    box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.15);
   }
 
   /* Modal content entrance animation */
@@ -1530,8 +1577,8 @@
     padding: 20px 40px;
     font-size: 12px;
     color: var(--text-dim);
-    border-top: 1px solid rgba(42, 58, 111, 0.3);
-    background: rgba(10, 14, 39, 0.4);
+    border-top: 1px solid rgba(var(--line-rgb), 0.066);
+    background: transparent;
     backdrop-filter: blur(10px);
   }
   .footer a {
@@ -1543,15 +1590,15 @@
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(61, 79, 138, 0.5); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(61, 79, 138, 0.8); }
+  ::-webkit-scrollbar-thumb { background: rgba(var(--line-rgb), 0.11); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(var(--line-rgb), 0.176); }
 
   /* ── APP SHELL NAV ── */
   .app-nav {
     position: fixed;
     top: 0; left: 0; bottom: 0;
     width: 60px;
-    background: rgba(6, 9, 26, 0.97);
+    background: var(--bg-card);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
@@ -1590,7 +1637,7 @@
     position: relative;
     flex-shrink: 0;
   }
-  .nav-item:hover { background: rgba(61, 79, 138, 0.35); color: var(--text); }
+  .nav-item:hover { background: rgba(var(--line-rgb), 0.077); color: var(--text); }
   .nav-item.active { background: var(--primary-dim); color: var(--primary); }
   .nav-item .nav-label {
     position: absolute;
@@ -1622,7 +1669,7 @@
     width: 40px; height: 40px;
     border-radius: 8px;
     border: 1px solid var(--border-light);
-    background: rgba(61, 79, 138, 0.3);
+    background: rgba(var(--line-rgb), 0.066);
     color: var(--text-muted);
     cursor: pointer;
     font-size: 18px;
@@ -1630,7 +1677,7 @@
     transition: all 0.2s;
     z-index: 150;
   }
-  .theme-toggle:hover { background: rgba(61, 79, 138, 0.5); color: var(--text); }
+  .theme-toggle:hover { background: rgba(var(--line-rgb), 0.11); color: var(--text); }
   @media (max-width: 680px) { .theme-toggle { top: 12px; right: 64px; } }
 
   /* ── ONBOARDING MODAL ── */
@@ -1648,7 +1695,7 @@
   }
   .onboarding-modal.show { display: flex; }
   .onboarding-content {
-    background: linear-gradient(135deg, rgba(20, 29, 63, 0.95), rgba(14, 19, 45, 0.95));
+    background: linear-gradient(135deg, var(--bg-card), var(--bg-card));
     border: 1px solid var(--border-light);
     border-radius: 20px;
     padding: 48px 40px;
@@ -1669,7 +1716,7 @@
     display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; text-align: left;
   }
   .onboarding-step {
-    display: flex; gap: 12px; padding: 10px; background: rgba(61, 79, 138, 0.2);
+    display: flex; gap: 12px; padding: 10px; background: rgba(var(--line-rgb), 0.044);
     border-radius: 10px; border-left: 3px solid var(--primary);
   }
   .onboarding-step-icon { font-size: 18px; flex-shrink: 0; }
@@ -1722,7 +1769,7 @@
     position: relative;
     width: 560px;
     max-width: calc(100vw - 40px);
-    background: linear-gradient(135deg, rgba(20, 29, 63, 0.98), rgba(14, 19, 45, 0.98));
+    background: linear-gradient(135deg, var(--bg-card), var(--bg-card));
     border: 1px solid var(--border-light);
     border-radius: 16px;
     overflow: hidden;
@@ -1768,7 +1815,7 @@
     transition: background 0.1s;
   }
   .cmd-item:hover, .cmd-item.selected { background: var(--primary-dim); }
-  .cmd-item.selected { background: rgba(14, 165, 233, 0.18); }
+  .cmd-item.selected { background: rgba(var(--primary-rgb), 0.18); }
   .cmd-icon { font-size: 18px; width: 26px; text-align: center; flex-shrink: 0; }
   .cmd-info { flex: 1; min-width: 0; }
   .cmd-name { font-size: 14px; font-weight: 600; color: var(--text); }
@@ -1963,13 +2010,13 @@
     padding: 0 18px;
     border: 0;
     color: #fff;
-    background: #0369a1;
+    background: var(--accent-fill);
     font-weight: 700;
     cursor: pointer;
   }
 
   .accountability-entry button:hover {
-    background: #075985;
+    background: var(--accent-fill-hover);
   }
 
   .accountability-proof {
@@ -2009,35 +2056,488 @@
     font-size: 24px;
     z-index: 9998;
   }
+
+  /* ══════════════════════════════════════════════════════════════
+     VISUAL REFRESH (2026-10) — calm ink + one amber accent.
+     Declared last so it wins over the legacy rules above without
+     touching their selectors (tests and JS hook on those names).
+     ══════════════════════════════════════════════════════════════ */
+
+  /* Icons: sprite <use>, sized by font-size, coloured by currentColor */
+  .ic {
+    width: 1.15em; height: 1.15em;
+    flex-shrink: 0;
+    vertical-align: -0.2em;
+    fill: none; stroke: currentColor;
+    stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .btn .ic, .preset-btn .ic, .binaural-btn .ic, .zen-btn .ic { width: 1.1em; height: 1.1em; margin-right: 2px; }
+
+  body {
+    background: var(--bg);
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  body::before, .particles-bg { display: none !important; }
+
+  .skip-link {
+    position: absolute; top: -48px; left: 72px; z-index: 9999;
+    background: var(--accent-fill); color: var(--on-accent);
+    padding: 8px 14px; border-radius: 8px; font-weight: 600; text-decoration: none;
+    transition: top 0.18s ease;
+  }
+  .skip-link:focus { top: 10px; }
+
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* ── Brand mark ── */
+  .fb-mark { width: 100%; height: 100%; display: block; }
+  .logo-icon,
+  .app-nav .logo-icon {
+    background: none !important;
+    box-shadow: none !important;
+    border-radius: 9px;
+    padding: 0;
+  }
+  .logo-icon { width: 34px; height: 34px; }
+  .app-nav .logo-icon { width: 30px; height: 30px; margin-bottom: 10px; }
+  .logo { gap: 11px; }
+  .logo-text {
+    font-size: 19px; font-weight: 700; letter-spacing: -0.02em;
+    background: none; -webkit-text-fill-color: var(--text); color: var(--text);
+  }
+  .logo-text span { color: var(--text-muted); -webkit-text-fill-color: var(--text-muted); font-weight: 500; }
+
+  /* ── Header ── */
+  .header {
+    padding: 14px 32px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(140%) blur(16px);
+    -webkit-backdrop-filter: saturate(140%) blur(16px);
+    border-bottom: 1px solid var(--border);
+    box-shadow: none;
+  }
+  .header-status { gap: 8px; }
+  .status-pill, .zen-btn {
+    height: 32px; padding: 0 12px; gap: 7px;
+    font-size: 13px; font-weight: 500; border-radius: 999px;
+    background: transparent !important;
+    border: 1px solid var(--border-light) !important;
+    color: var(--text-muted) !important;
+    display: inline-flex; align-items: center;
+  }
+  .zen-btn:hover { color: var(--text) !important; background: var(--bg-hover) !important; }
+  .status-pill.active { color: var(--success) !important; border-color: rgba(var(--success-rgb), 0.35) !important; }
+  .status-pill.inactive .status-dot { background: var(--text-dim); animation: none; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+  #presencePill .status-dot, .status-dot.live { background: var(--success); animation: none; }
+  .status-dot.live { margin-right: 4px; vertical-align: 1px; }
+  body.zen-mode .zen-btn { color: var(--primary) !important; border-color: rgba(var(--primary-rgb), 0.45) !important; }
+
+  /* ── Side rail ── */
+  .app-nav {
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    backdrop-filter: none;
+    padding-top: 16px;
+    gap: 4px;
+  }
+  .nav-item { width: 40px; height: 40px; border-radius: 10px; font-size: 19px; color: var(--text-dim); }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+  .nav-item.active { background: var(--primary-dim); color: var(--primary); }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: -10px; top: 10px; bottom: 10px;
+    width: 3px; border-radius: 0 3px 3px 0; background: var(--primary);
+  }
+  .nav-item .nav-label { border-color: var(--border-light); background: var(--bg-card); }
+
+  /* ── Layout rhythm: hero, intention bar and grid share one column ── */
+  .accountability-hero,
+  .intention-banner,
+  .time-bar-wrap {
+    max-width: 1400px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  .accountability-hero { margin: 32px 40px 20px; width: calc(100% - 80px); }
+  .intention-banner, .time-bar-wrap { width: calc(100% - 80px); }
+  .dashboard { max-width: 1400px; padding: 20px 40px 56px; gap: 20px; }
+  .main-area, .sidebar { gap: 20px; }
+
+  /* ── Hero: the one promise. Quiet surface, real type. ── */
+  .accountability-hero {
+    padding: 36px 36px 28px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background:
+      radial-gradient(120% 140% at 100% 0%, rgba(var(--primary-rgb), 0.10), transparent 55%),
+      var(--bg-card);
+    box-shadow: none;
+  }
+  .accountability-hero h1 {
+    font-size: clamp(28px, 4.2vw, 44px);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-bottom: 12px;
+  }
+  .accountability-hero p { font-size: 16px; line-height: 1.6; color: var(--text-muted); }
+  .accountability-entry { margin-top: 22px; gap: 10px; }
+  .accountability-entry input,
+  .accountability-entry select {
+    background: var(--bg-inset);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    font-size: 15px;
+  }
+  .accountability-entry input:focus,
+  .accountability-entry select:focus { border-color: rgba(var(--primary-rgb), 0.7); outline: none; box-shadow: 0 0 0 3px var(--primary-dim); }
+  .accountability-entry button {
+    background: var(--accent-fill); color: var(--on-accent);
+    border-radius: 10px; padding: 0 22px; font-weight: 700; letter-spacing: -0.005em;
+  }
+  .accountability-entry button:hover { background: var(--accent-fill-hover); }
+  .accountability-proof { color: var(--text-dim); margin-top: 14px; }
+
+  /* ── One Thing + day bar ── */
+  .intention-banner {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: none;
+  }
+  .intention-label { color: var(--primary); letter-spacing: 0.06em; font-size: 11px; display: inline-flex; gap: 6px; align-items: center; }
+  .intention-input { border-bottom-color: var(--border-light); }
+  .time-bar { background: rgba(var(--line-rgb), 0.08); height: 4px; }
+  .time-bar-fill { background: var(--primary) !important; box-shadow: none !important; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition: border-color 0.2s ease;
+  }
+  .card:hover { border-color: var(--border-light); transform: none; box-shadow: none; }
+  .card-header { border-bottom: none; padding-bottom: 0; margin-bottom: 18px; }
+  .card-title {
+    font-size: 15px; font-weight: 600;
+    text-transform: none; letter-spacing: -0.01em;
+    color: var(--text);
+    gap: 10px;
+  }
+  .card-title .icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--primary-dim); color: var(--primary);
+    font-size: 16px; opacity: 1;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    background: transparent;
+    border: 1px solid var(--border-light);
+    color: var(--text);
+    border-radius: 9px;
+    font-weight: 600; letter-spacing: 0; text-transform: none;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    box-shadow: none;
+  }
+  .btn:hover { background: var(--bg-hover); border-color: var(--border-light); transform: none; box-shadow: none; }
+  .btn::after { display: none; }
+  .btn-accent, .btn-primary, #pomoStartBtn {
+    background: var(--accent-fill) !important;
+    border-color: transparent !important;
+    color: var(--on-accent) !important;
+  }
+  .btn-accent:hover, .btn-primary:hover, #pomoStartBtn:hover { background: var(--accent-fill-hover) !important; transform: none; box-shadow: none; }
+  .btn-sm { font-size: 12px; padding: 7px 12px; }
+
+  /* ── Inputs ── */
+  input[type="text"], input[type="time"], input[type="number"], input:not([type]), textarea, select {
+    background-color: var(--bg-inset);
+    border-color: var(--border-light);
+    color: var(--text);
+  }
+  input::placeholder, textarea::placeholder { color: var(--text-dim); }
+  input:focus, textarea:focus, select:focus { border-color: rgba(var(--primary-rgb), 0.7) !important; }
+
+  /* ── Wake-lock card: a compact row, not a billboard ── */
+  .keep-awake {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 20px; row-gap: 2px;
+    align-items: center;
+    text-align: left;
+    padding: 20px 24px;
+  }
+  .keep-awake .awake-ring { grid-row: 1 / span 3; width: 60px; height: 60px; margin: 0; border-width: 1.5px; background: var(--bg-inset); }
+  .keep-awake .awake-label { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .keep-awake .awake-sub { font-size: 13px; max-width: 62ch; margin: 0; color: var(--text-muted); }
+  .keep-awake .awake-timer { margin: 4px 0 0; font-size: 12px; }
+  .awake-icon { font-size: 24px; filter: none; color: var(--text-muted); display: inline-flex; }
+  .awake-ring.active { border-color: var(--primary); box-shadow: 0 0 0 6px var(--primary-dim); background: var(--primary-dim); }
+  .awake-ring.active .awake-icon { color: var(--primary); }
+  .awake-ring.active::after { inset: -5px; border-width: 1.5px; }
+  .keep-awake.active { background: var(--bg-card); border-color: rgba(var(--primary-rgb), 0.35); }
+
+  /* ── Pomodoro ── */
+  .pomo-ring-svg .pomo-ring-track { stroke: rgba(var(--line-rgb), 0.08); }
+  .pomo-ring-svg .pomo-ring-fill { stroke: var(--primary); filter: none; }
+  .pomo-ring-svg .pomo-ring-fill.break { stroke: var(--success); }
+  .pomo-ring-svg .pomo-ring-fill.longbreak { stroke: var(--purple); }
+  .pomo-time { color: var(--text) !important; text-shadow: none !important; background: none !important; -webkit-text-fill-color: var(--text) !important; font-weight: 500; letter-spacing: -0.02em; }
+  .pomo-phase { color: var(--text-muted); letter-spacing: 0.08em; }
+  .pomo-dot { background: rgba(var(--line-rgb), 0.12); border-color: transparent; box-shadow: none !important; }
+  .pomo-dot.done { background: var(--success); }
+  .pomo-dot.current { background: var(--primary); }
+  .focus-room { background: var(--bg-inset); border: 1px solid var(--border); }
+
+  /* ── Stats: one colour, the numbers carry the meaning ── */
+  .stat-box { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 12px; box-shadow: none; }
+  .stat-box:hover { transform: none; border-color: var(--border-light); }
+  .stat-value, .stat-value.green, .stat-value.blue, .stat-value.purple, .stat-value.warn {
+    color: var(--text) !important; text-shadow: none !important; font-weight: 500; letter-spacing: -0.02em;
+  }
+  .stat-label { color: var(--text-muted); letter-spacing: 0.06em; }
+
+  /* ── Sound tiles ── */
+  .sound-btn, .preset-btn, .binaural-btn, .energy-btn, .tool-tile, .fidget-tool {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    box-shadow: none;
+  }
+  .sound-btn:hover, .preset-btn:hover, .binaural-btn:hover, .energy-btn:hover, .tool-tile:hover, .fidget-tool:hover {
+    background: var(--bg-hover); border-color: var(--border-light); color: var(--text); transform: none;
+  }
+  .sound-btn .sound-icon, .preset-btn .sound-icon { font-size: 20px; display: inline-flex; color: var(--text-muted); }
+  .preset-btn .sound-icon { font-size: 15px; }
+  .sound-btn.active, .preset-btn.active, .binaural-btn.active, .energy-btn.selected,
+  .sound-btn[aria-pressed="true"], .preset-btn[aria-pressed="true"], .binaural-btn[aria-pressed="true"] {
+    background: var(--primary-dim) !important;
+    border-color: rgba(var(--primary-rgb), 0.55) !important;
+    color: var(--text) !important;
+    box-shadow: none !important;
+    animation: none !important;
+  }
+  .sound-btn.active .sound-icon, .preset-btn.active .sound-icon, .sound-btn[aria-pressed="true"] .sound-icon { color: var(--primary); }
+  .noise-swatch { width: 18px; height: 18px; border-radius: 50%; display: inline-block; border: 1px solid rgba(var(--line-rgb), 0.18); }
+  .noise-brown { background: radial-gradient(circle at 35% 30%, #a67c5b, #5a3d28); }
+  .noise-pink  { background: radial-gradient(circle at 35% 30%, #f1bccb, #b8768c); }
+  .noise-white { background: radial-gradient(circle at 35% 30%, #ffffff, #c9c6bf); }
+  .sound-group-label, .sound-need-label { color: var(--text-dim); letter-spacing: 0.08em; }
+  .sound-volume input[type="range"] { accent-color: var(--primary); }
+  .pro-badge { background: var(--primary-dim); color: var(--primary); }
+
+  /* ── Tool tiles + misc ── */
+  .tool-tile { text-align: left; }
+  .tool-tile-icon { font-size: 20px; color: var(--primary); display: inline-flex; margin-bottom: 8px; }
+  .tool-tile-name { color: var(--text); }
+  .fidget-tool .fidget-icon { font-size: 28px; color: var(--text-muted); display: inline-flex; }
+  .task-empty-icon { font-size: 30px; opacity: 1; color: var(--text-dim); display: inline-flex; }
+  .task-check { border-color: var(--border-light); }
+  .task-check.done { background: var(--success); border-color: var(--success); color: var(--bg); }
+  .adhd-tip { background: var(--bg-inset); border: 1px solid var(--border); box-shadow: none; }
+  .adhd-tip-label { color: var(--primary); }
+  .grounding-number.chip-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--primary-dim); color: var(--primary); font-size: 18px;
+  }
+  .hero-glyph {
+    width: 88px; height: 88px; margin: 0 auto 16px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; color: var(--primary); background: var(--primary-dim);
+  }
+  .hero-glyph .ic { stroke-width: 1.5; }
+  .modal-kicker { font-size: 22px; font-weight: 600; margin-bottom: 20px; display: inline-flex; gap: 10px; align-items: center; }
+  .break-modal-icon { color: var(--primary); display: flex; justify-content: center; }
+  .break-modal-icon .ic { stroke-width: 1.5; }
+  .onboarding-step-icon { color: var(--primary); display: inline-flex; }
+  .cmd-icon, .cmd-input-icon { color: var(--text-muted); display: inline-flex; }
+  h2 .ic, h3 .ic { color: var(--primary); margin-right: 4px; }
+  .confetti { width: 8px; height: 8px; border-radius: 2px; font-size: 0; opacity: 0.9; }
+
+  /* ── Modals ── */
+  .break-modal, .hyperfocus-modal, .breathing-modal, .grounding-modal, .dopamine-modal,
+  .distract-overlay, .onboarding-modal { background: var(--scrim) !important; backdrop-filter: blur(6px); }
+  .break-modal-content, .breathing-content, .grounding-content, .dopamine-content,
+  .distract-box, .onboarding-content {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-light) !important;
+    box-shadow: var(--shadow-lg) !important;
+  }
+
+  /* ── Footer ── */
+  .footer { border-top: 1px solid var(--border); color: var(--text-dim); }
+  .footer a { color: var(--text-muted); }
+  .footer a:hover { color: var(--text); }
+
+  ::-webkit-scrollbar-thumb { background: rgba(var(--line-rgb), 0.12); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(var(--line-rgb), 0.2); }
+
+  @media (max-width: 960px) {
+    .accountability-hero { margin: 20px 20px 16px; width: calc(100% - 40px); padding: 28px 24px 22px; }
+    .intention-banner, .time-bar-wrap { width: calc(100% - 40px); }
+    .dashboard { padding: 16px 20px 40px; }
+    .header { padding: 12px 20px; }
+  }
+  @media (max-width: 680px) {
+    .app-nav { background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(16px); border-top: 1px solid var(--border); }
+    .nav-item { font-size: 20px; }
+    .nav-item.active::before { left: 30%; right: 30%; top: 0; bottom: auto; width: auto; height: 2px; border-radius: 0 0 2px 2px; }
+    .accountability-hero { margin: 14px 12px 14px; width: calc(100% - 24px); padding: 24px 18px 18px; border-radius: 16px; }
+    .intention-banner, .time-bar-wrap { width: calc(100% - 24px); }
+    .dashboard { padding: 14px 12px 28px; }
+    .header { padding: 10px 16px; }
+    .keep-awake { padding: 16px 18px; column-gap: 14px; }
+    .keep-awake .awake-ring { width: 52px; height: 52px; }
+  }
+
+  /* ── refresh: second pass ── */
+  .accountability-hero .accountability-proof { font-size: 13px; color: var(--text-dim); }
+  .intention-input { background: transparent !important; border-radius: 0; }
+  .awake-label { background: none; -webkit-text-fill-color: currentColor; color: var(--text); }
+  .med-input-row button { background: var(--accent-fill) !important; color: var(--on-accent) !important; border: none; }
+  .med-input-row input { background: var(--bg-inset) !important; border: 1px solid var(--border-light) !important; }
+  .med-timer { color: var(--text) !important; }
+  .sound-volume input[type="range"]::-webkit-slider-thumb { background: var(--primary) !important; box-shadow: none !important; }
+  .sound-volume input[type="range"] { background: rgba(var(--line-rgb), 0.1) !important; }
+  .fidget-draw-canvas { background: var(--bg-inset) !important; }
+  .fidget-counter { color: var(--text) !important; }
+  .spinner { border-color: rgba(var(--line-rgb), 0.1) !important; border-top-color: var(--primary) !important; }
+  .focus-room:has(#focusRoomText:empty) { display: none; }
+  kbd, .kbd { background: var(--bg-inset); border: 1px solid var(--border-light); color: var(--text-muted); }
+
+  /* ── refresh: readability pass (measured — pixel-sampled WCAG audit, both themes) ──
+     Dimming text with opacity made it unreadable; dim with a colour token instead. */
+  .distraction-empty { opacity: 1; color: var(--text-dim); }
+  .sound-share[disabled] { opacity: 1; color: var(--text-dim); border-style: dashed; }
+  .task-empty-icon { opacity: 1; }
+  /* Focus-session recede: quieter than the old 0.28, and fully readable the moment
+     you reach for a card (hover, tap or keyboard focus). */
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard) { opacity: 0.9; filter: grayscale(1); }
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):hover,
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):focus-within { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .awake-ring.active::after, .status-dot { animation: none !important; }
+  }
+
 </style>
 </head>
 <body>
+<!-- Icon sprite: Lucide (ISC licence, lucide.dev) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="i-armchair" viewBox="0 0 24 24"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" /><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z" /><path d="M5 18v2" /><path d="M19 18v2" /></symbol>
+<symbol id="i-audio-waveform" viewBox="0 0 24 24"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" /></symbol>
+<symbol id="i-bed" viewBox="0 0 24 24"><path d="M2 4v16" /><path d="M2 8h18a2 2 0 0 1 2 2v10" /><path d="M2 17h20" /><path d="M6 8v9" /></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></symbol>
+<symbol id="i-calendar-clock" viewBox="0 0 24 24"><path d="M16 14v2.2l1.6 1" /><path d="M16 2v3" /><path d="M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338" /><path d="M3 9h5.859" /><path d="M8 2v3" /><circle cx="16" cy="16" r="6" /></symbol>
+<symbol id="i-chart-column" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></symbol>
+<symbol id="i-clipboard-list" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></symbol>
+<symbol id="i-cloud-rain" viewBox="0 0 24 24"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" /><path d="M16 14v6" /><path d="M8 14v6" /><path d="M12 16v6" /></symbol>
+<symbol id="i-cloud-sun-rain" viewBox="0 0 24 24"><path d="M12 2v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="M20 12h2" /><path d="m19.07 4.93-1.41 1.41" /><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128" /><path d="M3 20a5 5 0 1 1 8.9-4H13a3 3 0 0 1 2 5.24" /><path d="M11 20v2" /><path d="M7 19v2" /></symbol>
+<symbol id="i-coffee" viewBox="0 0 24 24"><path d="M10 2v2" /><path d="M14 2v2" /><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /><path d="M6 2v2" /></symbol>
+<symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /></symbol>
+<symbol id="i-droplets" viewBox="0 0 24 24"><path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z" /><path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97" /></symbol>
+<symbol id="i-ear-off" viewBox="0 0 24 24"><path d="M6 18.5a3.5 3.5 0 1 0 7 0c0-1.57.92-2.52 2.04-3.46" /><path d="M6 8.5c0-.75.13-1.47.36-2.14" /><path d="M8.8 3.15A6.5 6.5 0 0 1 19 8.5c0 1.63-.44 2.81-1.09 3.76" /><path d="M12.5 6A2.5 2.5 0 0 1 15 8.5M10 13a2 2 0 0 0 1.82-1.18" /><line x1="2" x2="22" y1="2" y2="22" /></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /><path d="m2 2 20 20" /></symbol>
+<symbol id="i-fan" viewBox="0 0 24 24"><path d="M10.827 16.379a6.082 6.082 0 0 1-8.618-7.002l5.412 1.45a6.082 6.082 0 0 1 7.002-8.618l-1.45 5.412a6.082 6.082 0 0 1 8.618 7.002l-5.412-1.45a6.082 6.082 0 0 1-7.002 8.618l1.45-5.412Z" /><path d="M12 12v.01" /></symbol>
+<symbol id="i-feather" viewBox="0 0 24 24"><path d="M14.086 18.412A2 2 0 0112.67 19H5v-7.672a2 2 0 01.586-1.414L11.75 3.75a6 6 0 118.49 8.49z" /><path d="M16 8 2 22" /><path d="M17.488 15H9" /></symbol>
+<symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></symbol>
+<symbol id="i-flower" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 16.5A4.5 4.5 0 1 1 7.5 12 4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 1 1 4.5 4.5 4.5 4.5 0 1 1-4.5 4.5" /><path d="M12 7.5V9" /><path d="M7.5 12H9" /><path d="M16.5 12H15" /><path d="M12 16.5V15" /><path d="m8 8 1.88 1.88" /><path d="M14.12 9.88 16 8" /><path d="m8 16 1.88-1.88" /><path d="M14.12 14.12 16 16" /></symbol>
+<symbol id="i-flower-2" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1" /><circle cx="12" cy="8" r="2" /><path d="M12 10v12" /><path d="M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z" /><path d="M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z" /></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /><path d="M16 17h4" /><path d="M4 13h4" /></symbol>
+<symbol id="i-gem" viewBox="0 0 24 24"><path d="M10.5 3 8 9l4 13 4-13-2.5-6" /><path d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z" /><path d="M2 9h20" /></symbol>
+<symbol id="i-grip" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1" /><circle cx="19" cy="5" r="1" /><circle cx="5" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="12" cy="19" r="1" /><circle cx="19" cy="19" r="1" /><circle cx="5" cy="19" r="1" /></symbol>
+<symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></symbol>
+<symbol id="i-handshake" viewBox="0 0 24 24"><path d="m11 17 2 2a1 1 0 1 0 3-3" /><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" /><path d="m21 3 1 11h-2" /><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" /><path d="M3 4h8" /></symbol>
+<symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" /></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" /></symbol>
+<symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+<symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M10 8h.01" /><path d="M12 12h.01" /><path d="M14 8h.01" /><path d="M16 12h.01" /><path d="M18 8h.01" /><path d="M6 8h.01" /><path d="M7 16h10" /><path d="M8 12h.01" /><rect width="20" height="16" x="2" y="4" rx="2" /></symbol>
+<symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" /></symbol>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20a10 10 0 0010-10 25.9 25.9 0 00-1.04-7.281 1 1 0 00-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0011 20" /><path d="M2 21a5 5 0 012.911-4.544C7.613 15.212 8.351 15.24 11 13" /></symbol>
+<symbol id="i-lightbulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" /><path d="M9 18h6" /><path d="M10 22h4" /></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol>
+<symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8" /><path d="M13 12h8" /><path d="M13 19h8" /><path d="m3 17 2 2 4-4" /><path d="m3 7 2 2 4-4" /></symbol>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2" /><line x1="8" x2="16" y1="21" y2="21" /><line x1="12" x2="12" y1="17" y2="21" /></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></symbol>
+<symbol id="i-moon-star" viewBox="0 0 24 24"><path d="M18 5h4" /><path d="M20 3v4" /><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></symbol>
+<symbol id="i-notebook-pen" viewBox="0 0 24 24"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4" /><path d="M2 6h4" /><path d="M2 10h4" /><path d="M2 14h4" /><path d="M2 18h4" /><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" /></symbol>
+<symbol id="i-orbit" viewBox="0 0 24 24"><path d="M20.341 6.484A10 10 0 0 1 10.266 21.85" /><path d="M3.659 17.516A10 10 0 0 1 13.74 2.152" /><circle cx="12" cy="12" r="3" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /><rect x="5" y="3" width="5" height="18" rx="1" /></symbol>
+<symbol id="i-person-standing" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1" /><path d="m9 20 3-6 3 6" /><path d="m6 8 6 2 6-2" /><path d="M12 10v4" /></symbol>
+<symbol id="i-pill" viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z" /><path d="m8.5 8.5 7 7" /></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol>
+<symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></symbol>
+<symbol id="i-skip-forward" viewBox="0 0 24 24"><path d="M21 4v16" /><path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z" /></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><path d="M10 5H3" /><path d="M12 19H3" /><path d="M14 3v4" /><path d="M16 17v4" /><path d="M21 12h-9" /><path d="M21 19h-5" /><path d="M21 5h-7" /><path d="M8 10v4" /><path d="M8 12H3" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /><path d="M20 2v4" /><path d="M22 4h-4" /><circle cx="4" cy="20" r="2" /></symbol>
+<symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol>
+<symbol id="i-square-parking" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 17V7h4a3 3 0 0 1 0 6H9" /></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></symbol>
+<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></symbol>
+<symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" /></symbol>
+<symbol id="i-tram-front" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="3" rx="2" /><path d="M4 11h16" /><path d="M12 3v8" /><path d="m8 19-2 3" /><path d="m18 22-2-3" /><path d="M8 15h.01" /><path d="M16 15h.01" /></symbol>
+<symbol id="i-trees" viewBox="0 0 24 24"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z" /><path d="M7 16v6" /><path d="M13 19v3" /><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5" /></symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2" /><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2" /><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3" /><path d="M4 22h16" /><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z" /><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3" /></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><path d="M16 3.128a4 4 0 0 1 0 7.744" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><circle cx="9" cy="7" r="4" /></symbol>
+<symbol id="i-waves" viewBox="0 0 24 24"><path d="M2 12q2.5 2 5 0t5 0 5 0 5 0" /><path d="M2 19q2.5 2 5 0t5 0 5 0 5 0" /><path d="M2 5q2.5 2 5 0t5 0 5 0 5 0" /></symbol>
+<symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M12 20h.01" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /><path d="M5 12.859a10 10 0 0 1 5.17-2.69" /><path d="M19 12.859a10 10 0 0 0-2.007-1.523" /><path d="M2 8.82a15 15 0 0 1 4.177-2.643" /><path d="M22 8.82a15 15 0 0 0-11.288-3.764" /><path d="m2 2 20 20" /></symbol>
+<symbol id="i-wind" viewBox="0 0 24 24"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" /></symbol>
+</svg>
+<script>
+// Icon helper — every pictogram is a sprite <use>, so it inherits text colour and size.
+function fbIcon(name) {
+  return name ? '<svg class="ic" aria-hidden="true"><use href="#i-' + name + '"/></svg>' : '';
+}
+function fbSyncThemeIcon() {
+  var btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  var light = document.body.dataset.theme === 'light';
+  var use = btn.querySelector('use');
+  if (use) use.setAttribute('href', light ? '#i-sun' : '#i-moon');
+}
+</script>
 
 <!-- APP NAV -->
 <nav class="app-nav" role="navigation" aria-label="Main navigation">
-  <div class="logo-icon">🧠</div>
+  <div class="logo-icon"><svg class="fb-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent-fill)"/><path d="M25 16.5A9 9 0 1 1 19.8 7.8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round"/><path d="M11.4 15.6l3.9 3.9 8.6-9.3" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="nav-divider"></div>
   <button class="nav-item active" id="navHome" data-view="home" onclick="setView('home')" aria-label="Dashboard">
-    🏠<span class="nav-label"><span class="nav-label-desktop">Dashboard</span><span class="nav-label-mobile">Home</span></span>
+    <svg class="ic" aria-hidden="true"><use href="#i-house"/></svg><span class="nav-label"><span class="nav-label-desktop">Dashboard</span><span class="nav-label-mobile">Home</span></span>
   </button>
   <button class="nav-item" id="navFocus" data-view="focus" onclick="setView('focus')" aria-label="Focus mode">
-    ⚡<span class="nav-label">Focus</span>
+    <svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg><span class="nav-label">Focus</span>
   </button>
   <button class="nav-item" id="navRest" data-view="rest" onclick="setView('rest')" aria-label="Restore mode">
-    🌿<span class="nav-label">Restore</span>
+    <svg class="ic" aria-hidden="true"><use href="#i-leaf"/></svg><span class="nav-label">Restore</span>
   </button>
   <button class="nav-item" id="navStats" data-view="stats" onclick="setView('stats')" aria-label="Stats & insights">
-    📊<span class="nav-label">Stats</span>
+    <svg class="ic" aria-hidden="true"><use href="#i-chart-column"/></svg><span class="nav-label">Stats</span>
   </button>
   <a class="nav-item" href="/me/" id="navWord" style="text-decoration:none;" aria-label="Your word — accountability check-ins">
-    🤝<span class="nav-label"><span class="nav-label-desktop">Your word</span><span class="nav-label-mobile">My word</span></span>
+    <svg class="ic" aria-hidden="true"><use href="#i-handshake"/></svg><span class="nav-label"><span class="nav-label-desktop">Your word</span><span class="nav-label-mobile">My word</span></span>
   </a>
   <div class="nav-divider"></div>
   <button class="nav-item" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark/light theme">
-    🌙<span class="nav-label">Theme</span>
+    <svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg><span class="nav-label">Theme</span>
   </button>
   <button class="nav-item" onclick="openCmdPalette()" aria-label="Command palette (Ctrl+K)">
-    ⌘<span class="nav-label"><span class="nav-label-desktop">Search  ⌃K</span><span class="nav-label-mobile">More</span></span>
+    <svg class="ic" aria-hidden="true"><use href="#i-command"/></svg><span class="nav-label"><span class="nav-label-desktop">Search  ⌃K</span><span class="nav-label-mobile">More</span></span>
   </button>
 </nav>
 
@@ -2052,21 +2552,21 @@
 <!-- HEADER -->
 <header class="header">
   <div class="logo">
-    <div class="logo-icon">🧠</div>
+    <div class="logo-icon"><svg class="fb-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent-fill)"/><path d="M25 16.5A9 9 0 1 1 19.8 7.8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round"/><path d="M11.4 15.6l3.9 3.9 8.6-9.3" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     <div class="logo-text">Focus<span>Bro</span></div>
   </div>
   <div class="header-status">
-    <button class="zen-btn" id="zenBtn" onclick="toggleZen()" title="Z — hide everything except Pomodoro + Tasks">🧘 Zen</button>
+    <button class="zen-btn" id="zenBtn" onclick="toggleZen()" title="Z — hide everything except Pomodoro + Tasks"><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg> Zen</button>
     <div class="status-pill inactive" id="awakePill">
       <div class="status-dot"></div>
       <span id="awakeStatusText">Inactive</span>
     </div>
-    <div class="status-pill" id="presencePill" style="background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(59,130,246,0.2);" title="Focus session screen protection active">
-      <span>🟢</span>
+    <div class="status-pill" id="presencePill" style="background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(var(--blue-rgb), 0.2);" title="Focus session screen protection active">
+      <span class="status-dot"></span>
       <span>Focus</span>
     </div>
-    <div class="status-pill" id="offlinePill" style="display:none; background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25);" title="No internet connection — your data is saved locally">
-      <span>📡</span>
+    <div class="status-pill" id="offlinePill" style="display:none; background: rgba(var(--warn-rgb), 0.12); color: var(--warn); border: 1px solid rgba(var(--warn-rgb), 0.25);" title="No internet connection — your data is saved locally">
+      <span><svg class="ic" aria-hidden="true"><use href="#i-wifi-off"/></svg></span>
       <span>Offline</span>
     </div>
   </div>
@@ -2096,7 +2596,7 @@
 
 <!-- INTENTION BANNER -->
 <div class="intention-banner" id="intentionBanner" data-views="home,focus">
-  <span class="intention-label">🎯 One Thing</span>
+  <span class="intention-label"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg> One Thing</span>
   <input class="intention-input" id="intentionInput" type="text" maxlength="120"
     placeholder="What is the ONE thing you're working on right now?"
     aria-label="One thing intention"
@@ -2120,7 +2620,7 @@
     <!-- KEEP AWAKE HERO -->
     <div class="card keep-awake" id="keepAwakeCard" data-views="home,focus,rest">
       <div class="awake-ring" id="awakeRing" onclick="toggleWakeLock()" title="Click to activate">
-        <span class="awake-icon" id="awakeIcon">😴</span>
+        <span class="awake-icon" id="awakeIcon"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></span>
       </div>
       <div class="awake-label" id="awakeLabel">Screen Stay-On for Focus Sessions</div>
       <div class="awake-sub">Keeps your screen active during deep focus sessions so you don't lose flow. Uses the Screen Wake Lock API to prevent display sleep while you work, study, or meditate.</div>
@@ -2132,7 +2632,7 @@
     <div class="top-row" data-views="home,focus">
       <div class="card" id="pomoCard">
         <div class="card-header">
-          <div class="card-title"><span class="icon">🍅</span> Pomodoro Timer</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-timer"/></svg></span> Pomodoro Timer</div>
           <button class="btn btn-sm" onclick="resetPomodoro()">Reset</button>
         </div>
         <div class="pomo-display">
@@ -2148,8 +2648,8 @@
             </div>
           </div>
           <div class="pomo-controls">
-            <button class="btn btn-accent" id="pomoStartBtn" onclick="togglePomodoro()">▶ Start</button>
-            <button class="btn" onclick="skipPomodoro()">⏭ Skip</button>
+            <button class="btn btn-accent" id="pomoStartBtn" onclick="togglePomodoro()"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg> Start</button>
+            <button class="btn" onclick="skipPomodoro()"><svg class="ic" aria-hidden="true"><use href="#i-skip-forward"/></svg> Skip</button>
           </div>
           <div class="pomo-dots" id="pomoDots">
             <div class="pomo-dot current"></div>
@@ -2158,7 +2658,7 @@
             <div class="pomo-dot"></div>
           </div>
           <div class="focus-room hidden" id="focusRoom" role="status" aria-live="polite">
-            <div class="focus-room-line" id="focusRoomLine">🟢 <span id="focusRoomText"></span></div>
+            <div class="focus-room-line" id="focusRoomLine"><span class="status-dot live"></span> <span id="focusRoomText"></span></div>
             <div class="focus-room-sprint" id="focusRoomSprint"></div>
           </div>
         </div>
@@ -2166,7 +2666,7 @@
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><span class="icon">📅</span> Meeting Countdown</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-calendar-clock"/></svg></span> Meeting Countdown</div>
         </div>
         <div class="meeting-input-row">
           <input type="text" id="meetingName" placeholder="Meeting name" aria-label="Meeting name" />
@@ -2183,7 +2683,7 @@
     <div class="top-row" data-views="home,focus">
       <div class="card" id="taskCard">
         <div class="card-header">
-          <div class="card-title"><span class="icon">✅</span> Tasks</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-list-checks"/></svg></span> Tasks</div>
           <span style="font-size: 12px; color: var(--text-muted);" id="taskCount">0 tasks</span>
         </div>
         <div class="task-input-row">
@@ -2195,7 +2695,7 @@
 
       <div class="card notepad">
         <div class="card-header">
-          <div class="card-title"><span class="icon">📝</span> Quick Notes</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-notebook-pen"/></svg></span> Quick Notes</div>
         </div>
         <textarea id="notepad" placeholder="Brain dump here... your thoughts are saved automatically." oninput="saveNotes()"></textarea>
         <div class="notepad-footer">
@@ -2209,18 +2709,18 @@
     <div class="top-row" data-views="home,rest">
       <div class="card" id="soundsCard">
         <div class="card-header">
-          <div class="card-title"><span class="icon">🎧</span> Ambient Sounds</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-headphones"/></svg></span> Ambient Sounds</div>
           <button class="btn btn-sm" onclick="stopAllSounds()">Stop all</button>
         </div>
 
         <div class="sound-need-label">Start with what you need</div>
         <div class="preset-grid">
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Deep work blend" onclick="playPreset('deepwork', this)"><span class="sound-icon">🎯</span> Deep work</button>
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Block it out blend" onclick="playPreset('masking', this)"><span class="sound-icon">🔇</span> Block it out</button>
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Wind down blend" onclick="playPreset('winddown', this)"><span class="sound-icon">🌙</span> Wind down</button>
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Not alone blend" onclick="playPreset('notalone', this)"><span class="sound-icon">👥</span> Not alone</button>
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Rainy café blend" onclick="playPreset('rainycafe', this)"><span class="sound-icon">🌦️</span> Rainy café</button>
-          <button class="preset-btn" aria-pressed="false" aria-label="Play the Sleep blend" onclick="playPreset('sleep', this)"><span class="sound-icon">😴</span> Sleep</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Deep work blend" onclick="playPreset('deepwork', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg></span> Deep work</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Block it out blend" onclick="playPreset('masking', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-ear-off"/></svg></span> Block it out</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Wind down blend" onclick="playPreset('winddown', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></span> Wind down</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Not alone blend" onclick="playPreset('notalone', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span> Not alone</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Rainy café blend" onclick="playPreset('rainycafe', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-cloud-sun-rain"/></svg></span> Rainy café</button>
+          <button class="preset-btn" aria-pressed="false" aria-label="Play the Sleep blend" onclick="playPreset('sleep', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg></span> Sleep</button>
         </div>
 
         <button class="btn btn-sm sound-resume" id="soundResume" hidden onclick="resumeOrArmed(this)">Resume last mix</button>
@@ -2232,50 +2732,50 @@
 
         <div class="sound-group-label">Steady</div>
         <div class="sounds-grid">
-          <button class="sound-btn" data-sound="brown" aria-pressed="false" aria-label="Play Deep hush ambient sound" onclick="toggleSound('brown', this)"><span class="sound-icon">🟤</span> Deep hush</button>
-          <button class="sound-btn" data-sound="pink" aria-pressed="false" aria-label="Play Soft hush ambient sound" onclick="toggleSound('pink', this)"><span class="sound-icon">🌸</span> Soft hush</button>
-          <button class="sound-btn" data-sound="white" aria-pressed="false" aria-label="Play Bright hush ambient sound" onclick="toggleSound('white', this)"><span class="sound-icon">📻</span> Bright hush</button>
+          <button class="sound-btn" data-sound="brown" aria-pressed="false" aria-label="Play Deep hush ambient sound" onclick="toggleSound('brown', this)"><span class="sound-icon"><span class="noise-swatch noise-brown" aria-hidden="true"></span></span> Deep hush</button>
+          <button class="sound-btn" data-sound="pink" aria-pressed="false" aria-label="Play Soft hush ambient sound" onclick="toggleSound('pink', this)"><span class="sound-icon"><span class="noise-swatch noise-pink" aria-hidden="true"></span></span> Soft hush</button>
+          <button class="sound-btn" data-sound="white" aria-pressed="false" aria-label="Play Bright hush ambient sound" onclick="toggleSound('white', this)"><span class="sound-icon"><span class="noise-swatch noise-white" aria-hidden="true"></span></span> Bright hush</button>
         </div>
 
         <div class="sound-group-label">Outside</div>
         <div class="sounds-grid">
-          <button class="sound-btn" data-sound="rain" aria-pressed="false" aria-label="Play Rain ambient sound" onclick="toggleSound('rain', this)"><span class="sound-icon">🌧️</span> Rain</button>
-          <button class="sound-btn" data-sound="ocean" aria-pressed="false" aria-label="Play Ocean ambient sound" onclick="toggleSound('ocean', this)"><span class="sound-icon">🌊</span> Ocean</button>
-          <button class="sound-btn" data-sound="forest" aria-pressed="false" aria-label="Play Forest ambient sound" onclick="toggleSound('forest', this)"><span class="sound-icon">🌲</span> Forest</button>
-          <button class="sound-btn" data-sound="stream" aria-pressed="false" aria-label="Play Stream ambient sound" onclick="toggleSound('stream', this)"><span class="sound-icon">🏞️</span> Stream</button>
-          <button class="sound-btn" data-sound="night" aria-pressed="false" aria-label="Play Night ambient sound" onclick="toggleSound('night', this)"><span class="sound-icon">🦗</span> Night</button>
-          <button class="sound-btn" data-sound="wind" aria-pressed="false" aria-label="Play Wind ambient sound" onclick="toggleSound('wind', this)"><span class="sound-icon">🍃</span> Wind</button>
+          <button class="sound-btn" data-sound="rain" aria-pressed="false" aria-label="Play Rain ambient sound" onclick="toggleSound('rain', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-cloud-rain"/></svg></span> Rain</button>
+          <button class="sound-btn" data-sound="ocean" aria-pressed="false" aria-label="Play Ocean ambient sound" onclick="toggleSound('ocean', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-waves"/></svg></span> Ocean</button>
+          <button class="sound-btn" data-sound="forest" aria-pressed="false" aria-label="Play Forest ambient sound" onclick="toggleSound('forest', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-trees"/></svg></span> Forest</button>
+          <button class="sound-btn" data-sound="stream" aria-pressed="false" aria-label="Play Stream ambient sound" onclick="toggleSound('stream', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-droplets"/></svg></span> Stream</button>
+          <button class="sound-btn" data-sound="night" aria-pressed="false" aria-label="Play Night ambient sound" onclick="toggleSound('night', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-moon-star"/></svg></span> Night</button>
+          <button class="sound-btn" data-sound="wind" aria-pressed="false" aria-label="Play Wind ambient sound" onclick="toggleSound('wind', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg></span> Wind</button>
         </div>
 
         <div class="sound-group-label">People</div>
         <div class="sounds-grid">
-          <button class="sound-btn" data-sound="cafe" aria-pressed="false" aria-label="Play Café ambient sound" onclick="toggleSound('cafe', this)"><span class="sound-icon">☕</span> Café</button>
-          <button class="sound-btn" data-sound="fire" aria-pressed="false" aria-label="Play Fireplace ambient sound" onclick="toggleSound('fire', this)"><span class="sound-icon">🔥</span> Fireplace</button>
-          <button class="sound-btn" data-sound="keyboard" aria-pressed="false" aria-label="Play Keyboard ambient sound" onclick="toggleSound('keyboard', this)"><span class="sound-icon">⌨️</span> Keys</button>
+          <button class="sound-btn" data-sound="cafe" aria-pressed="false" aria-label="Play Café ambient sound" onclick="toggleSound('cafe', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-coffee"/></svg></span> Café</button>
+          <button class="sound-btn" data-sound="fire" aria-pressed="false" aria-label="Play Fireplace ambient sound" onclick="toggleSound('fire', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-flame"/></svg></span> Fireplace</button>
+          <button class="sound-btn" data-sound="keyboard" aria-pressed="false" aria-label="Play Keyboard ambient sound" onclick="toggleSound('keyboard', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span> Keys</button>
         </div>
 
         <div class="sound-group-label">Hum</div>
         <div class="sounds-grid">
-          <button class="sound-btn" data-sound="fan" aria-pressed="false" aria-label="Play Fan ambient sound" onclick="toggleSound('fan', this)"><span class="sound-icon">💨</span> Fan</button>
-          <button class="sound-btn" data-sound="train" aria-pressed="false" aria-label="Play Train ambient sound" onclick="toggleSound('train', this)"><span class="sound-icon">🚋</span> Train</button>
-          <button class="sound-btn" data-sound="drone" aria-pressed="false" aria-label="Play Drone ambient sound" onclick="toggleSound('drone', this)"><span class="sound-icon">🌌</span> Drone</button>
+          <button class="sound-btn" data-sound="fan" aria-pressed="false" aria-label="Play Fan ambient sound" onclick="toggleSound('fan', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-fan"/></svg></span> Fan</button>
+          <button class="sound-btn" data-sound="train" aria-pressed="false" aria-label="Play Train ambient sound" onclick="toggleSound('train', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-tram-front"/></svg></span> Train</button>
+          <button class="sound-btn" data-sound="drone" aria-pressed="false" aria-label="Play Drone ambient sound" onclick="toggleSound('drone', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-orbit"/></svg></span> Drone</button>
         </div>
 
         <div class="sound-group-label">Still</div>
         <div class="sounds-grid">
-          <button class="sound-btn" data-sound="bowl" aria-pressed="false" aria-label="Play Singing bowl ambient sound" onclick="toggleSound('bowl', this)"><span class="sound-icon">🔔</span> Bowl</button>
+          <button class="sound-btn" data-sound="bowl" aria-pressed="false" aria-label="Play Singing bowl ambient sound" onclick="toggleSound('bowl', this)"><span class="sound-icon"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg></span> Bowl</button>
         </div>
 
         <div class="sound-volume">
           <label>Vol</label>
           <input type="range" min="0" max="100" value="50" id="soundVolume" aria-label="Ambient volume" oninput="updateVolume(this.value)" />
         </div>
-        <button class="btn btn-sm sound-share" id="soundShare" onclick="shareMix()" disabled aria-describedby="soundNowPlaying">🔗 Share this mix</button>
+        <button class="btn btn-sm sound-share" id="soundShare" onclick="shareMix()" disabled aria-describedby="soundNowPlaying"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg> Share this mix</button>
         <div class="sound-now-playing" id="soundNowPlaying" role="status" aria-live="polite">Nothing playing</div>
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><span class="icon">👁️</span> Break Reminder</div>
+          <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></span> Break Reminder</div>
           <button class="btn btn-sm" id="breakToggle" onclick="toggleBreakReminder()">Enable</button>
         </div>
         <div class="break-status">
@@ -2298,7 +2798,7 @@
     <!-- FOCUS STATS -->
     <div class="card" data-views="home,stats">
       <div class="card-header">
-        <div class="card-title"><span class="icon">📊</span> Today's Stats</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-chart-column"/></svg></span> Today's Stats</div>
       </div>
       <div class="stats-grid">
         <div class="stat-box">
@@ -2323,7 +2823,7 @@
     <!-- ADHD TIP -->
     <div class="card" data-views="home,stats">
       <div class="card-header">
-        <div class="card-title"><span class="icon">💡</span> Focus Tip</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-lightbulb"/></svg></span> Focus Tip</div>
       </div>
       <div class="adhd-tip">
         <div class="adhd-tip-label">ADHD-Friendly Strategy</div>
@@ -2335,7 +2835,7 @@
     <!-- DISTRACTION PARKING LOT -->
     <div class="card" data-views="home">
       <div class="card-header">
-        <div class="card-title"><span class="icon">🚗</span> Distraction Lot</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg></span> Distraction Lot</div>
         <button class="btn btn-sm" onclick="openDistractionOverlay()" title="Shortcut: D">+ Capture</button>
       </div>
       <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:8px;">Park intrusive thoughts here so you can return to them <em>after</em> the timer.</div>
@@ -2345,27 +2845,27 @@
     <!-- BINAURAL BEATS + BREATHING -->
     <div class="card" data-views="home,rest">
       <div class="card-header">
-        <div class="card-title"><span class="icon">🧠</span> Brainwave Tuning</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-audio-waveform"/></svg></span> Brainwave Tuning</div>
       </div>
       <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Binaural beats to shift focus state.</div>
       
       <div style="margin-bottom: 12px;">
         <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--text);">Binaural Frequency</div>
         <div class="binaural-grid">
-          <button class="binaural-btn" aria-pressed="false" aria-label="Focus (40Hz) binaural beat" onclick="toggleBinaural('focus')">🎯 Focus (40Hz)</button>
-          <button class="binaural-btn" aria-pressed="false" aria-label="Calm (8Hz) binaural beat" onclick="toggleBinaural('calm')">😌 Calm (8Hz)</button>
-          <button class="binaural-btn" aria-pressed="false" aria-label="Alert (20Hz) binaural beat" onclick="toggleBinaural('alert')">⚡ Alert (20Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" aria-label="Focus (40Hz) binaural beat" onclick="toggleBinaural('focus')"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg> Focus (40Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" aria-label="Calm (8Hz) binaural beat" onclick="toggleBinaural('calm')"><svg class="ic" aria-hidden="true"><use href="#i-feather"/></svg> Calm (8Hz)</button>
+          <button class="binaural-btn" aria-pressed="false" aria-label="Alert (20Hz) binaural beat" onclick="toggleBinaural('alert')"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Alert (20Hz)</button>
         </div>
         <div class="binaural-info">Combine with ambient sounds for best effect.</div>
       </div>
 
-      <button class="btn" style="width: 100%; font-size: 12px;" onclick="openBreathingGuide()">🫁 Breathing Guide</button>
+      <button class="btn" style="width: 100%; font-size: 12px;" onclick="openBreathingGuide()"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg> Breathing Guide</button>
     </div>
 
     <!-- ENERGY + MOOD TRACKER -->
     <div class="card" data-views="home,rest,stats">
       <div class="card-header">
-        <div class="card-title"><span class="icon">⚡</span> Energy Tracker</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span> Energy Tracker</div>
       </div>
       <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Log your energy throughout the day.</div>
       
@@ -2387,7 +2887,7 @@
     <!-- FIDGET TOOLS -->
     <div class="card" data-views="home,rest">
       <div class="card-header">
-        <div class="card-title"><span class="icon">🎮</span> Fidget Tools</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-hand"/></svg></span> Fidget Tools</div>
       </div>
       <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Satisfying micro-breaks for restless hands.</div>
       
@@ -2404,7 +2904,7 @@
         </div>
         <!-- Bubble Pop -->
         <div class="fidget-tool" style="height:auto; padding: 8px;" title="Pop them all!">
-          <div class="fidget-icon">🫧</div>
+          <div class="fidget-icon"><svg class="ic" aria-hidden="true"><use href="#i-grip"/></svg></div>
           <div class="bubble-grid" id="bubbleGrid"></div>
           <div class="fidget-toolbar">
             <button onclick="resetBubbles()">Reset</button>
@@ -2422,14 +2922,14 @@
         <canvas id="fidgetCanvas" class="fidget-tool" width="200" height="120" title="Click for fireworks!"></canvas>
         <!-- Sliding Fidget -->
         <div class="fidget-tool" title="Drag the slider">
-          <div class="fidget-icon">🎚️</div>
+          <div class="fidget-icon"><svg class="ic" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></div>
           <div class="fidget-slider-track">
             <div class="fidget-slider-thumb" id="fidgetSlider"></div>
           </div>
           <div class="fidget-label" id="sliderVal">Drag me</div>
         </div>
       </div>
-      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openGroundingExercise()">🧭 5-4-3-2-1 Grounding</button>
+      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openGroundingExercise()"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg> 5-4-3-2-1 Grounding</button>
     </div>
 
     <!-- MEDICATION REMINDER — website only. Inside the native app it is hidden
@@ -2437,7 +2937,7 @@
          medication-management health app. -->
     <div class="card" id="medCard" data-views="home">
       <div class="card-header">
-        <div class="card-title"><span class="icon">💊</span> Med Reminder</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg></span> Med Reminder</div>
       </div>
       <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Track your medication & dopamine reset times.</div>
       
@@ -2450,37 +2950,37 @@
         <input type="time" id="medTime" placeholder="HH:MM" aria-label="Medication time" />
         <button onclick="logMedication()">Log Dose</button>
       </div>
-      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px; background: var(--warn); color: #000; border: none;" onclick="openDopamineMenu()">⚡ Dopamine Menu</button>
+      <button class="btn" style="width: 100%; margin-top: 8px; font-size: 12px;" onclick="openDopamineMenu()"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Dopamine Menu</button>
     </div>
 
     <!-- MORE TOOLS QUICK ACCESS -->
     <div class="card" data-views="home,rest">
       <div class="card-header">
-        <div class="card-title"><span class="icon">🧰</span> More Tools</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-layout-grid"/></svg></span> More Tools</div>
       </div>
       <div class="tool-tiles">
         <button class="tool-tile" onclick="document.getElementById('meditationModal').style.display='flex'">
-          <span class="tool-tile-icon">🧘</span>
+          <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg></span>
           <span class="tool-tile-name">Meditate</span>
           <span class="tool-tile-desc">Guided sessions, 5–20 min</span>
         </button>
         <button class="tool-tile" onclick="document.getElementById('movementModal').style.display='flex'">
-          <span class="tool-tile-icon">🏃</span>
+          <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-footprints"/></svg></span>
           <span class="tool-tile-name">Movement</span>
           <span class="tool-tile-desc">Desk stretches & micro-breaks</span>
         </button>
         <button class="tool-tile" onclick="document.getElementById('sleepModal').style.display='flex'; renderSleepHistory(); newSleepTip();">
-          <span class="tool-tile-icon">😴</span>
+          <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg></span>
           <span class="tool-tile-name">Sleep</span>
           <span class="tool-tile-desc">Log sleep, tips & wind-down</span>
         </button>
         <button class="tool-tile" onclick="document.getElementById('bodyScanModal').style.display='flex'">
-          <span class="tool-tile-icon">🔍</span>
+          <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg></span>
           <span class="tool-tile-name">Body Scan</span>
           <span class="tool-tile-desc">Tension check & relaxation</span>
         </button>
         <button class="tool-tile" onclick="document.getElementById('socialModal').style.display='flex'; updateSocialGoals();" style="grid-column: span 2;">
-          <span class="tool-tile-icon">👥</span>
+          <span class="tool-tile-icon"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span>
           <span class="tool-tile-name">Focus Score</span>
           <span class="tool-tile-desc">Track productivity goals & streaks</span>
         </button>
@@ -2490,7 +2990,7 @@
     <!-- KEYBOARD SHORTCUTS -->
     <div class="card" data-views="home">
       <div class="card-header">
-        <div class="card-title"><span class="icon">⌨️</span> Quick Keys</div>
+        <div class="card-title"><span class="icon"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span> Quick Keys</div>
       </div>
       <div style="font-size: 13px; line-height: 2;">
         <div><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:11px;border:1px solid var(--border);">Space</kbd> Toggle awake</div>
@@ -2509,21 +3009,21 @@
 <!-- BREAK MODAL -->
 <div class="break-modal" id="breakModal">
   <div class="break-modal-content">
-    <div class="break-modal-icon">👀</div>
+    <div class="break-modal-icon"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></div>
     <div class="break-modal-title">Time for a Break!</div>
     <div class="break-modal-text">Look at something 20 feet away for 20 seconds. Your eyes (and brain) will thank you.</div>
-    <button class="btn btn-accent" onclick="dismissBreak()" style="padding: 12px 32px; font-size: 15px;">Got it, I'm back 👍</button>
+    <button class="btn btn-accent" onclick="dismissBreak()" style="padding: 12px 32px; font-size: 15px;">Got it, I'm back</button>
   </div>
 </div>
 
 <!-- HYPERFOCUS MODAL -->
 <div class="hyperfocus-modal" id="hyperfocusModal">
   <div class="break-modal-content">
-    <div class="break-modal-icon">🔥</div>
+    <div class="break-modal-icon"><svg class="ic" aria-hidden="true"><use href="#i-flame"/></svg></div>
     <div class="break-modal-title">Hyperfocus Alert!</div>
     <div class="break-modal-text">You've been locked in for 90+ minutes without a break. Stand up, stretch, drink water. Your brain needs a reset to stay sharp — even in hyperfocus.</div>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-      <button class="btn btn-accent" onclick="dismissHyperfocus()" style="padding: 12px 28px; font-size: 15px;">Taking a 5-min break 🙌</button>
+      <button class="btn btn-accent" onclick="dismissHyperfocus()" style="padding: 12px 28px; font-size: 15px;">Taking a 5-min break</button>
       <button class="btn" onclick="dismissHyperfocus()" style="padding: 12px 28px; font-size: 15px;">Keep going (I know)</button>
     </div>
   </div>
@@ -2532,11 +3032,11 @@
 <!-- DISTRACTION QUICK-CAPTURE OVERLAY -->
 <div class="distract-overlay" id="distractOverlay">
   <div class="distract-box">
-    <h3>🧠 Park That Thought</h3>
+    <h3><svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg> Park that thought</h3>
     <p>Don't lose focus — write the distraction down and come back to it later. Press <strong>Enter</strong> to park it, <strong>Esc</strong> to cancel.</p>
     <input type="text" id="distractInput" maxlength="200" placeholder="What just popped into your head?" aria-label="Distraction capture input" />
     <div style="display:flex;gap:10px;">
-      <button class="btn btn-accent" style="flex:1;" onclick="parkDistraction()">Park It 🚗</button>
+      <button class="btn btn-accent" style="flex:1;" onclick="parkDistraction()">Park It <svg class="ic" aria-hidden="true"><use href="#i-square-parking"/></svg></button>
       <button class="btn" onclick="closeDistractionOverlay()">Cancel</button>
     </div>
   </div>
@@ -2545,7 +3045,7 @@
 <!-- BREATHING GUIDE MODAL -->
 <div class="breathing-modal" id="breathingModal">
   <div class="breathing-content">
-    <div style="font-size: 28px; margin-bottom: 20px;">🫁 Breathwork</div>
+    <div class="modal-kicker"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg> Breathwork</div>
     <div id="breathingPhaseLabel" style="font-size: 16px; font-weight: 600; margin-bottom: 10px;">Box Breathing</div>
     <div id="breathingTypeDesc" style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">4-4-4-4 cycle: Inhale, Hold, Exhale, Hold</div>
     
@@ -2554,12 +3054,12 @@
     </div>
 
     <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-      <button class="btn" onclick="startBreathing('box')" style="flex: 1; font-size: 12px;">📦 Box</button>
-      <button class="btn" onclick="startBreathing('478')" style="flex: 1; font-size: 12px;">🌊 4-7-8</button>
-      <button class="btn" onclick="startBreathing('tactical')" style="flex: 1; font-size: 12px;">💪 Tactical</button>
+      <button class="btn" onclick="startBreathing('box')" style="flex: 1; font-size: 12px;"><svg class="ic" aria-hidden="true"><use href="#i-square"/></svg> Box</button>
+      <button class="btn" onclick="startBreathing('478')" style="flex: 1; font-size: 12px;"><svg class="ic" aria-hidden="true"><use href="#i-waves"/></svg> 4-7-8</button>
+      <button class="btn" onclick="startBreathing('tactical')" style="flex: 1; font-size: 12px;"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg> Tactical</button>
     </div>
 
-    <button class="btn" style="width: 100%;" onclick="stopBreathing()">Close 🤝</button>
+    <button class="btn" style="width: 100%;" onclick="stopBreathing()">Close</button>
   </div>
 </div>
 
@@ -2567,7 +3067,7 @@
 <div class="grounding-modal" id="groundingModal">
   <div class="grounding-content">
     <div class="grounding-header">
-      <h2>5-4-3-2-1 Grounding 🧭</h2>
+      <h2>5-4-3-2-1 Grounding</h2>
       <p>Feel overwhelmed? Use your senses to reconnect to the present moment.</p>
     </div>
     
@@ -2604,14 +3104,14 @@
       </div>
     </div>
 
-    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="completeGrounding()">Done! Feel Better? 🌟</button>
+    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="completeGrounding()">Done! Feel Better?</button>
   </div>
 </div>
 
 <!-- DOPAMINE MENU MODAL -->
 <div class="dopamine-modal" id="dopamineModal">
   <div class="dopamine-content">
-    <h2 style="margin-bottom: 16px; font-size: 18px;">⚡ Dopamine Menu</h2>
+    <h2 style="margin-bottom: 16px; font-size: 18px;"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Dopamine Menu</h2>
     <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Quick wins instead of doom-scrolling. Customize your healthy quick-hits below.</p>
     
     <div class="dopamine-list" id="dopamineList"></div>
@@ -2621,7 +3121,7 @@
       <button onclick="addDopamineItem()">+</button>
     </div>
 
-    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="closeDopamineMenu()">Done 👍</button>
+    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="closeDopamineMenu()">Done</button>
   </div>
 </div>
 
@@ -2631,7 +3131,7 @@
 <div class="grounding-modal" id="meditationModal" style="display:none;">
   <div class="grounding-content" style="max-width: 520px;">
     <div class="grounding-header">
-      <h2>🧘 Guided Meditation</h2>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg> Guided Meditation</h2>
       <p>Find your center with focused breathing and mindfulness.</p>
     </div>
 
@@ -2639,19 +3139,19 @@
     <div id="meditationSelector">
       <div class="grounding-items">
         <div class="grounding-item" onclick="selectMeditation('bodyscan')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,var(--purple),#c084fc);">🔍</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg></span>
           <span class="grounding-text">Body Scan <span style="font-size:11px;color:var(--text-muted);">— 10 min</span></span>
         </div>
         <div class="grounding-item" onclick="selectMeditation('mindfulness')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,var(--primary),var(--teal));">🌸</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-flower"/></svg></span>
           <span class="grounding-text">Mindfulness <span style="font-size:11px;color:var(--text-muted);">— 10 min</span></span>
         </div>
         <div class="grounding-item" onclick="selectMeditation('loving-kindness')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,#ec4899,#f97316);">💝</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg></span>
           <span class="grounding-text">Loving Kindness <span style="font-size:11px;color:var(--text-muted);">— 8 min</span></span>
         </div>
         <div class="grounding-item" onclick="selectMeditation('quickreset')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,var(--success),var(--teal));">⚡</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span>
           <span class="grounding-text">Quick Reset <span style="font-size:11px;color:var(--text-muted);">— 3 min</span></span>
         </div>
       </div>
@@ -2661,14 +3161,14 @@
     <div id="meditationPlayer" style="display:none;margin-top:20px;">
       <div style="text-align:center;">
         <!-- Animated breathing circle -->
-        <div id="medBreathCircle" style="width:140px;height:140px;border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--primary-light);transition:all 4s ease-in-out;border:3px solid var(--border-light);background:rgba(14,165,233,0.05);">
+        <div id="medBreathCircle" style="width:140px;height:140px;border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--primary-light);transition:all 4s ease-in-out;border:3px solid var(--border-light);background:rgba(var(--primary-rgb), 0.05);">
           <span id="medBreathText">Breathe</span>
         </div>
 
         <div id="meditationTitle" style="font-size:16px;font-weight:600;margin-bottom:8px;">Meditation</div>
 
         <!-- Instruction text -->
-        <div id="medInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(14,165,233,0.05);border-radius:10px;border:1px solid rgba(14,165,233,0.1);">
+        <div id="medInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
           Get comfortable and prepare to begin...
         </div>
 
@@ -2685,9 +3185,9 @@
         <!-- Controls -->
         <div style="display:flex;gap:10px;justify-content:center;">
           <button class="btn" id="medPlayPauseBtn" onclick="toggleMeditationPlayback()" style="flex:1;max-width:180px;">
-            <span id="medPlayIcon">▶</span> Start
+            <span id="medPlayIcon"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg></span> Start
           </button>
-          <button class="btn" onclick="stopMeditation()" style="flex:1;max-width:180px;">⏹ End Session</button>
+          <button class="btn" onclick="stopMeditation()" style="flex:1;max-width:180px;"><svg class="ic" aria-hidden="true"><use href="#i-square"/></svg> End Session</button>
         </div>
       </div>
     </div>
@@ -2702,7 +3202,7 @@
 <div class="grounding-modal" id="movementModal" style="display:none;">
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
-      <h2>🏃 Movement Break</h2>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-footprints"/></svg> Movement Break</h2>
       <p>Energize your body and reset your dopamine.</p>
     </div>
 
@@ -2710,19 +3210,19 @@
     <div id="exerciseSelector">
       <div class="grounding-items">
         <div class="grounding-item" onclick="startGuidedExercise('stretch')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,var(--success),var(--teal));">🧘</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-flower-2"/></svg></span>
           <span class="grounding-text">Quick Stretch <span style="font-size:11px;color:var(--text-muted);">— 3 min</span></span>
         </div>
         <div class="grounding-item" onclick="startGuidedExercise('cardio')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,#ef4444,#f97316);">💥</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span>
           <span class="grounding-text">Cardio Burst <span style="font-size:11px;color:var(--text-muted);">— 2 min</span></span>
         </div>
         <div class="grounding-item" onclick="startGuidedExercise('desk')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,var(--primary),#818cf8);">🪑</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-armchair"/></svg></span>
           <span class="grounding-text">Desk Relief <span style="font-size:11px;color:var(--text-muted);">— 4 min</span></span>
         </div>
         <div class="grounding-item" onclick="startGuidedExercise('yoga')" style="cursor:pointer;">
-          <span class="grounding-number" style="background:linear-gradient(135deg,#a78bfa,#ec4899);">🌿</span>
+          <span class="grounding-number chip-icon"><svg class="ic" aria-hidden="true"><use href="#i-leaf"/></svg></span>
           <span class="grounding-text">Mini Yoga Flow <span style="font-size:11px;color:var(--text-muted);">— 5 min</span></span>
         </div>
       </div>
@@ -2731,10 +3231,10 @@
     <!-- Exercise Player -->
     <div id="exercisePlayer" style="display:none;margin-top:20px;">
       <div style="text-align:center;">
-        <div id="exerciseIcon" style="font-size:64px;margin-bottom:12px;animation:bounce 1s ease-in-out infinite;">🏃</div>
+        <div class="hero-glyph" id="exerciseIcon"><svg class="ic" aria-hidden="true"><use href="#i-footprints"/></svg></div>
         <div id="exerciseTitle" style="font-size:18px;font-weight:700;margin-bottom:8px;">Exercise</div>
         <div id="exerciseStep" style="font-size:15px;font-weight:600;color:var(--primary-light);margin-bottom:4px;">Step 1</div>
-        <div id="exerciseInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(14,165,233,0.05);border-radius:10px;border:1px solid rgba(14,165,233,0.1);">
+        <div id="exerciseInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;margin-bottom:16px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
           Get ready...
         </div>
 
@@ -2751,13 +3251,13 @@
         </div>
 
         <div style="display:flex;gap:10px;justify-content:center;">
-          <button class="btn" onclick="skipExerciseStep()" style="flex:1;max-width:180px;">⏭ Skip Step</button>
-          <button class="btn" onclick="stopExercise()" style="flex:1;max-width:180px;">⏹ End</button>
+          <button class="btn" onclick="skipExerciseStep()" style="flex:1;max-width:180px;"><svg class="ic" aria-hidden="true"><use href="#i-skip-forward"/></svg> Skip Step</button>
+          <button class="btn" onclick="stopExercise()" style="flex:1;max-width:180px;"><svg class="ic" aria-hidden="true"><use href="#i-square"/></svg> End</button>
         </div>
       </div>
     </div>
 
-    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="closeMovementModal()">Done! 🙌</button>
+    <button class="btn" style="width: 100%; margin-top: 16px;" onclick="closeMovementModal()">Done!</button>
   </div>
 </div>
 
@@ -2767,7 +3267,7 @@
 <div class="grounding-modal" id="sleepModal" style="display:none;">
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
-      <h2>😴 Sleep Tracker</h2>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg> Sleep Tracker</h2>
       <p>Monitor your sleep quality for focus insights.</p>
     </div>
 
@@ -2777,16 +3277,16 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Hours Slept</label>
-          <input type="number" id="sleepHours" min="0" max="14" step="0.5" placeholder="7.5" style="width:100%;background:rgba(61,79,138,0.3);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:14px;" />
+          <input type="number" id="sleepHours" min="0" max="14" step="0.5" placeholder="7.5" style="width:100%;background:rgba(var(--line-rgb), 0.066);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:14px;" />
         </div>
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Quality (1-10)</label>
-          <input type="number" id="sleepQuality" min="1" max="10" placeholder="7" style="width:100%;background:rgba(61,79,138,0.3);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:14px;" />
+          <input type="number" id="sleepQuality" min="1" max="10" placeholder="7" style="width:100%;background:rgba(var(--line-rgb), 0.066);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:14px;" />
         </div>
       </div>
       <div style="margin-bottom:8px;">
         <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Notes (optional)</label>
-        <input type="text" id="sleepNotes" maxlength="100" placeholder="e.g., Woke up once, vivid dreams..." style="width:100%;background:rgba(61,79,138,0.3);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:13px;" />
+        <input type="text" id="sleepNotes" maxlength="100" placeholder="e.g., Woke up once, vivid dreams..." style="width:100%;background:rgba(var(--line-rgb), 0.066);border:1px solid var(--border-light);border-radius:8px;padding:10px;color:var(--text);font-size:13px;" />
       </div>
       <button class="btn btn-accent" onclick="logSleep()" style="width:100%;">Log Sleep</button>
     </div>
@@ -2794,9 +3294,9 @@
     <!-- 7-Day History -->
     <div style="margin-top:20px;">
       <div style="font-size:13px;font-weight:600;margin-bottom:12px;">Last 7 Days</div>
-      <div id="sleepHistoryChart" style="display:flex;align-items:flex-end;gap:4px;height:100px;padding:8px;background:rgba(61,79,138,0.15);border-radius:10px;margin-bottom:8px;"></div>
+      <div id="sleepHistoryChart" style="display:flex;align-items:flex-end;gap:4px;height:100px;padding:8px;background:rgba(var(--line-rgb), 0.033);border-radius:10px;margin-bottom:8px;"></div>
       <div id="sleepHistoryLabels" style="display:flex;gap:4px;font-size:10px;color:var(--text-muted);padding:0 8px;"></div>
-      <div style="display:flex;justify-content:space-between;margin-top:12px;padding:12px;background:rgba(14,165,233,0.05);border-radius:10px;border:1px solid rgba(14,165,233,0.1);">
+      <div style="display:flex;justify-content:space-between;margin-top:12px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
         <div style="text-align:center;">
           <div style="font-size:18px;font-weight:700;color:var(--primary-light);" id="sleepAvgHours">—</div>
           <div style="font-size:10px;color:var(--text-muted);">Avg Hours</div>
@@ -2814,8 +3314,8 @@
 
     <!-- Tips -->
     <div style="margin-top:20px;">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">💡 ADHD Sleep Tips</div>
-      <div id="sleepTip" style="font-size:12px;color:var(--text-muted);line-height:1.7;padding:12px;background:rgba(167,139,250,0.05);border-radius:10px;border:1px solid rgba(167,139,250,0.1);"></div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;"><svg class="ic" aria-hidden="true"><use href="#i-lightbulb"/></svg> ADHD Sleep Tips</div>
+      <div id="sleepTip" style="font-size:12px;color:var(--text-muted);line-height:1.7;padding:12px;background:rgba(var(--purple-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--purple-rgb), 0.1);"></div>
       <button class="btn btn-sm" onclick="newSleepTip()" style="margin-top:8px;width:100%;font-size:11px;">↻ New Tip</button>
     </div>
 
@@ -2829,22 +3329,22 @@
 <div class="grounding-modal" id="bodyScanModal" style="display:none;">
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
-      <h2>🔍 Body Scan Meditation</h2>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg> Body Scan Meditation</h2>
       <p>Systematic relaxation through body awareness.</p>
     </div>
 
     <!-- Visual Body Map -->
     <div style="text-align:center;margin:16px 0;">
       <div id="bodyMapVisual" style="position:relative;display:inline-block;">
-        <div style="font-size:80px;line-height:1;filter:grayscale(0.3);" id="bodyEmoji">🧍</div>
-        <div id="bodyScanHighlight" style="position:absolute;top:10%;left:50%;transform:translateX(-50%);width:24px;height:24px;border-radius:50%;background:rgba(14,165,233,0.4);box-shadow:0 0 20px rgba(14,165,233,0.6);transition:top 1s ease;display:none;"></div>
+        <div class="hero-glyph" id="bodyEmoji"><svg class="ic" aria-hidden="true"><use href="#i-person-standing"/></svg></div>
+        <div id="bodyScanHighlight" style="position:absolute;top:10%;left:50%;transform:translateX(-50%);width:24px;height:24px;border-radius:50%;background:rgba(var(--primary-rgb), 0.4);box-shadow:0 0 20px rgba(var(--primary-rgb), 0.6);transition:top 1s ease;display:none;"></div>
       </div>
     </div>
 
     <!-- Current focus area -->
     <div style="text-align:center;margin-bottom:16px;">
       <div style="font-size:16px;font-weight:700;color:var(--primary-light);margin-bottom:4px;" id="bodyScanCurrent">Ready to begin</div>
-      <div id="bodyScanInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;padding:12px;background:rgba(14,165,233,0.05);border-radius:10px;border:1px solid rgba(14,165,233,0.1);">
+      <div id="bodyScanInstruction" style="font-size:13px;color:var(--text-muted);line-height:1.6;min-height:48px;padding:12px;background:rgba(var(--primary-rgb), 0.05);border-radius:10px;border:1px solid rgba(var(--primary-rgb), 0.1);">
         Lie down or sit comfortably. Close your eyes. We'll guide your attention through each body part, noticing sensations without judgment.
       </div>
     </div>
@@ -2852,7 +3352,7 @@
     <!-- Progress bar -->
     <div style="margin:16px 0;">
       <div style="width:100%;height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
-        <div id="bodyScanBar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--purple),#c084fc);transition:width 0.5s;border-radius:4px;"></div>
+        <div id="bodyScanBar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--purple),var(--purple));transition:width 0.5s;border-radius:4px;"></div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:6px;">
         <span id="bodyScanTime">0:00</span>
@@ -2862,7 +3362,7 @@
 
     <!-- Controls -->
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-accent" style="flex:1;" id="bodyScanStartBtn" onclick="startBodyScanMeditation()">▶ Start Body Scan</button>
+      <button class="btn btn-accent" style="flex:1;" id="bodyScanStartBtn" onclick="startBodyScanMeditation()"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg> Start Body Scan</button>
       <button class="btn" onclick="closeBodyScanModal()" style="flex:1;">Close</button>
     </div>
   </div>
@@ -2874,12 +3374,12 @@
 <div class="grounding-modal" id="socialModal" style="display:none;">
   <div class="grounding-content" style="max-width:520px;">
     <div class="grounding-header">
-      <h2>👥 Focus Accountability</h2>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg> Focus Accountability</h2>
       <p>Track your progress and celebrate wins.</p>
     </div>
 
     <!-- Daily Score Card -->
-    <div style="margin:20px 0;padding:20px;background:linear-gradient(135deg,rgba(14,165,233,0.08),rgba(20,184,166,0.08));border-radius:12px;border:1px solid rgba(14,165,233,0.15);text-align:center;">
+    <div style="margin:20px 0;padding:20px;background:linear-gradient(135deg,rgba(var(--primary-rgb), 0.08),rgba(var(--teal-rgb), 0.08));border-radius:12px;border:1px solid rgba(var(--primary-rgb), 0.15);text-align:center;">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;">Today's Focus Score</div>
       <div id="focusScore" style="font-size:48px;font-weight:800;background:linear-gradient(135deg,var(--primary),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">0</div>
       <div id="focusRank" style="font-size:13px;color:var(--text-muted);margin-top:4px;">Complete tasks to build your score</div>
@@ -2887,27 +3387,27 @@
 
     <!-- Progress Bars -->
     <div style="display:flex;flex-direction:column;gap:12px;margin:20px 0;">
-      <div style="background:rgba(61,79,138,0.15);padding:12px 16px;border-radius:10px;">
+      <div style="background:rgba(var(--line-rgb), 0.033);padding:12px 16px;border-radius:10px;">
         <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px;">
-          <span>🍅 Pomodoros</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-timer"/></svg> Pomodoros</span>
           <span><span id="socialPomos">0</span> / 8</span>
         </div>
         <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
-          <div id="socialPomosBar" style="width:0%;height:100%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:3px;transition:width 0.5s;"></div>
+          <div id="socialPomosBar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--danger),var(--warn));border-radius:3px;transition:width 0.5s;"></div>
         </div>
       </div>
-      <div style="background:rgba(61,79,138,0.15);padding:12px 16px;border-radius:10px;">
+      <div style="background:rgba(var(--line-rgb), 0.033);padding:12px 16px;border-radius:10px;">
         <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px;">
-          <span>✅ Tasks Completed</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-list-checks"/></svg> Tasks Completed</span>
           <span><span id="socialTasks">0</span> / <span id="socialTasksTotal">3</span></span>
         </div>
         <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
           <div id="socialTasksBar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--success),var(--teal));border-radius:3px;transition:width 0.5s;"></div>
         </div>
       </div>
-      <div style="background:rgba(61,79,138,0.15);padding:12px 16px;border-radius:10px;">
+      <div style="background:rgba(var(--line-rgb), 0.033);padding:12px 16px;border-radius:10px;">
         <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px;">
-          <span>🎯 Intention</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg> Intention</span>
         </div>
         <div id="socialIntention" style="font-size:13px;color:var(--primary-light);font-style:italic;">Not set</div>
       </div>
@@ -2915,14 +3415,14 @@
 
     <!-- Achievements -->
     <div style="margin-top:16px;">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">🏆 Achievements Today</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;"><svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg> Achievements Today</div>
       <div id="achievementsList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
 
     <!-- Share -->
-    <div style="margin-top:16px;padding:16px;background:rgba(167,139,250,0.05);border-radius:12px;border:1px solid rgba(167,139,250,0.1);">
+    <div style="margin-top:16px;padding:16px;background:rgba(var(--purple-rgb), 0.05);border-radius:12px;border:1px solid rgba(var(--purple-rgb), 0.1);">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Share Your Progress</div>
-      <button class="btn" onclick="copyFocusReport()" style="width:100%;font-size:12px;">📋 Copy Focus Report</button>
+      <button class="btn" onclick="copyFocusReport()" style="width:100%;font-size:12px;"><svg class="ic" aria-hidden="true"><use href="#i-clipboard-list"/></svg> Copy Focus Report</button>
     </div>
 
     <button class="btn" style="width: 100%; margin-top: 16px;" onclick="closeSocialModal()">Back</button>
@@ -2933,25 +3433,25 @@
 <!-- ONBOARDING MODAL -->
 <div class="onboarding-modal" id="onboardingModal">
   <div class="onboarding-content">
-    <div class="onboarding-title">Welcome to FocusBro 🧠</div>
+    <div class="onboarding-title">Welcome to FocusBro</div>
     <div class="onboarding-desc">An ADHD-friendly toolkit for deep focus, movement, and dopamine resets.</div>
     <div class="onboarding-steps">
       <div class="onboarding-step">
-        <span class="onboarding-step-icon">🧰</span>
+        <span class="onboarding-step-icon"><svg class="ic" aria-hidden="true"><use href="#i-layout-grid"/></svg></span>
         <div>
           <div class="onboarding-step-label">Navigation</div>
           <div class="onboarding-step-text">4 views: Dashboard (all tools) → Focus (timer only) → Restore (sounds + meditation) → Stats (insights)</div>
         </div>
       </div>
       <div class="onboarding-step">
-        <span class="onboarding-step-icon">⌘K</span>
+        <span class="onboarding-step-icon"><svg class="ic" aria-hidden="true"><use href="#i-command"/></svg></span>
         <div>
           <div class="onboarding-step-label">Command Palette</div>
           <div class="onboarding-step-text">Press Ctrl+K (or ⌘K on Mac) to search 25+ tools, sounds, and actions by name</div>
         </div>
       </div>
       <div class="onboarding-step">
-        <span class="onboarding-step-icon">🌟</span>
+        <span class="onboarding-step-icon"><svg class="ic" aria-hidden="true"><use href="#i-sparkles"/></svg></span>
         <div>
           <div class="onboarding-step-label">One Thing</div>
           <div class="onboarding-step-text">Define your ONE intention at the top — your brain works better with a single focus</div>
@@ -2965,13 +3465,13 @@
         </div>
       </div>
     </div>
-    <button class="btn btn-accent" onclick="dismissOnboarding()" style="padding: 12px 32px; font-size: 15px; width: 100%;">Get Started 🚀</button>
+    <button class="btn btn-accent" onclick="dismissOnboarding()" style="padding: 12px 32px; font-size: 15px; width: 100%;">Get Started</button>
   </div>
 </div>
 
 <!-- FOOTER -->
 <div class="footer">
-  FocusBro — Built with 🧠 by <a href="/about.html">Latimer Woods Tech</a> &nbsp;|&nbsp;
+  FocusBro — built by <a href="/about.html">Latimer Woods Tech</a> &nbsp;|&nbsp;
   <a href="/guides/">Guides</a> &nbsp;|&nbsp;
   <a href="/me/">Accountability</a> &nbsp;|&nbsp;
   <a href="/privacy.html">Privacy</a> &nbsp;|&nbsp;
@@ -2988,7 +3488,7 @@
   <div class="cmd-backdrop" onclick="closeCmdPalette()"></div>
   <div class="cmd-box">
     <div class="cmd-input-wrap">
-      <span class="cmd-input-icon">🔍</span>
+      <span class="cmd-input-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
       <input class="cmd-input" id="cmdInput" placeholder="Search tools, views, actions..."
              autocomplete="off" oninput="filterCmds(this.value)" onkeydown="cmdKeyNav(event)" />
     </div>
@@ -3055,7 +3555,7 @@ async function activateWake() {
     if (card) card.classList.add('active');
     
     const icon = document.getElementById('awakeIcon');
-    if (icon) icon.textContent = '⚡';
+    if (icon) icon.innerHTML = fbIcon('sun');
     
     const label = document.getElementById('awakeLabel');
     if (label) label.textContent = 'Your PC is Staying Awake';
@@ -3091,7 +3591,7 @@ function deactivateWake() {
     if (card) card.classList.remove('active');
     
     const icon = document.getElementById('awakeIcon');
-    if (icon) icon.textContent = '😴';
+    if (icon) icon.innerHTML = fbIcon('moon');
     
     const label = document.getElementById('awakeLabel');
     if (label) label.textContent = 'Click to Keep Your PC Awake';
@@ -3239,7 +3739,7 @@ function offerWordBridge() {
     el.innerHTML =
       '<div style="font-weight:600;margin-bottom:8px;">Nice. Want me to hold you to the next one?</div>' +
       '<div style="display:flex;gap:10px;align-items:center;">' +
-        '<a href="' + bridgeHref + '" style="background:linear-gradient(135deg,var(--primary,#0ea5e9),var(--teal,#14b8a6));color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px;">Give my word →</a>' +
+        '<a href="' + bridgeHref + '" style="background:var(--accent-fill);color:var(--on-accent);text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px;">Give my word →</a>' +
         '<button type="button" id="wordBridgeDismiss" style="background:none;border:none;color:var(--text-muted,#94a3b8);cursor:pointer;font-size:14px;padding:8px;">Not now</button>' +
       '</div>';
     el.querySelector('#wordBridgeDismiss').addEventListener('click', function () {
@@ -3356,7 +3856,7 @@ async function requestNotificationsFromUserAction() {
 function startPomodoro() {
   requestNotificationsFromUserAction();
   pomoState.running = true;
-  document.getElementById('pomoStartBtn').innerHTML = '⏸ Pause';
+  document.getElementById('pomoStartBtn').innerHTML = fbIcon('pause') + ' Pause';
   document.body.classList.add('session-active');
   pomoInterval = setInterval(tickPomodoro, 1000);
   focusRoomStart(); // join the room — show who's focusing alongside you
@@ -3365,7 +3865,7 @@ function startPomodoro() {
 
 function pausePomodoro() {
   pomoState.running = false;
-  document.getElementById('pomoStartBtn').innerHTML = '▶ Start';
+  document.getElementById('pomoStartBtn').innerHTML = fbIcon('play') + ' Start';
   document.body.classList.remove('session-active');
   clearInterval(pomoInterval);
   focusRoomStop(); // stepped away — leave the room
@@ -3422,11 +3922,11 @@ function pomoComplete() {
   if ('Notification' in window && Notification.permission === 'granted') {
     new Notification('FocusBro', {
       body: pomoState.phase === 'work' ? 'Break over! Time to focus.' : 'Great work! Take a break.',
-      icon: '🍅'
+      icon: '/icon-192.png'
     });
   }
 
-  document.getElementById('pomoStartBtn').innerHTML = '▶ Start';
+  document.getElementById('pomoStartBtn').innerHTML = fbIcon('play') + ' Start';
   document.body.classList.remove('session-active');
 }
 
@@ -3437,7 +3937,7 @@ function resetPomodoro() {
   document.body.classList.remove('session-active');
   renderPomodoro();
   renderPomoDots();
-  document.getElementById('pomoStartBtn').innerHTML = '▶ Start';
+  document.getElementById('pomoStartBtn').innerHTML = fbIcon('play') + ' Start';
 }
 
 function skipPomodoro() {
@@ -3557,7 +4057,7 @@ function renderTasks() {
   const list = document.getElementById('taskList');
   list.innerHTML = '';
   if (tasks.length === 0) {
-    list.innerHTML = `<li class="task-empty"><div class="task-empty-icon">📋</div><div class="task-empty-text"><strong>No tasks yet</strong>Add the one thing you need to get done today.</div></li>`;
+    list.innerHTML = `<li class="task-empty"><div class="task-empty-icon">${fbIcon('list-checks')}</div><div class="task-empty-text"><strong>No tasks yet</strong>Add the one thing you need to get done today.</div></li>`;
     document.getElementById('taskCount').textContent = '0 tasks';
     document.getElementById('statTasks').textContent = '0';
     return;
@@ -3729,7 +4229,7 @@ function routeOutput(limiter) {
 }
 
 // The button's label without its icon — for "Now playing", the armed resume
-// button, and the lock-screen title. "Rain + Café", not "🌧️ Rain + ☕ Café".
+// button, and the lock-screen title. "Rain + Café", not "Rain + Café".
 function prettySoundName(n) {
   const btn = document.querySelector('.sound-btn[data-sound="' + n + '"]');
   if (!btn) return n;
@@ -4037,12 +4537,12 @@ Object.keys(SOUND_FILES).forEach(function (name) {
 // presets_report: each blend within 0.5 LU of -23.3 LUFS) so switching blends is
 // never a volume jump.
 const SOUND_PRESETS = {
-  deepwork:  { label: 'Deep work',   icon: '🎯', mix: { brown: 0.9, wind: 0.35 } },
-  masking:   { label: 'Block it out', icon: '🔇', mix: { pink: 0.8, fan: 0.55 } },
-  winddown:  { label: 'Wind down',   icon: '🌙', mix: { ocean: 0.9, drone: 0.3 } },
-  notalone:  { label: 'Not alone',   icon: '👥', mix: { cafe: 0.91, keyboard: 0.49 } },
-  rainycafe: { label: 'Rainy café',  icon: '🌦️', mix: { rain: 0.8, cafe: 0.57 } },
-  sleep:     { label: 'Sleep',       icon: '😴', mix: { brown: 0.71, night: 0.65, bowl: 0.39 } }
+  deepwork:  { label: 'Deep work',   icon: 'target', mix: { brown: 0.9, wind: 0.35 } },
+  masking:   { label: 'Block it out', icon: 'ear-off', mix: { pink: 0.8, fan: 0.55 } },
+  winddown:  { label: 'Wind down',   icon: 'moon', mix: { ocean: 0.9, drone: 0.3 } },
+  notalone:  { label: 'Not alone',   icon: 'users', mix: { cafe: 0.91, keyboard: 0.49 } },
+  rainycafe: { label: 'Rainy café',  icon: 'cloud-sun-rain', mix: { rain: 0.8, cafe: 0.57 } },
+  sleep:     { label: 'Sleep',       icon: 'bed', mix: { brown: 0.71, night: 0.65, bowl: 0.39 } }
 };
 
 // ── control ───────────────────────────────────────────────────────
@@ -4328,7 +4828,8 @@ function armSoundscape(presetKey, soundList) {
   } else {
     return false;
   }
-  btn.textContent = '▶ Start ' + label;
+  btn.textContent = 'Start ' + label;
+  btn.insertAdjacentHTML('afterbegin', fbIcon('play'));
   btn.hidden = false;
   btn.classList.add('armed');
   return true;
@@ -4416,21 +4917,21 @@ function dismissBreak() {
 // ADHD TIPS
 // ══════════════════════════════════════
 const tips = [
-  "🎯 <strong>Body doubling:</strong> Open a livestream of someone studying or working in another tab. The sense of co-presence helps maintain focus.",
-  "⏱️ <strong>Time boxing:</strong> Don't plan to 'finish' a task — plan to work on it for exactly 15 minutes. Permission to stop removes the dread.",
-  "🧊 <strong>Freeze your distractions:</strong> When an urge hits (check phone, browse Reddit), write it on your notepad here and promise yourself you'll do it after the timer.",
-  "🎵 <strong>Same song on repeat:</strong> Playing one song on loop creates a focus cocoon. Your brain stops 'listening' and just flows.",
-  "🏃 <strong>Movement breaks:</strong> 60 seconds of jumping jacks between pomodoros resets your dopamine better than scrolling.",
-  "📦 <strong>Smallest possible step:</strong> If the task feels impossible, shrink it. 'Write the report' becomes 'Open the document.' Start there.",
-  "🔄 <strong>Task switching is OK:</strong> If you're stuck, switch to a different task. Productivity isn't linear — it's a web.",
-  "📱 <strong>Phone in another room:</strong> Out of sight, out of mind. Physical distance beats willpower every time.",
-  "✍️ <strong>Externalize your thoughts:</strong> Use the notepad to dump every thought. An empty mind focuses better than a full one.",
-  "🎮 <strong>Gamify it:</strong> Set a task goal and a pomodoro target. Beat your own high score. Check your stats on the left.",
-  "💬 <strong>Narrate your work:</strong> Silently talk yourself through what you're doing: 'Now I'm opening the spreadsheet, now I'm finding column B...'",
-  "🚫 <strong>Eat the frog:</strong> Do the most dreaded task first. Everything after feels easy by comparison.",
-  "🌊 <strong>Ride the hyperfocus:</strong> If you find yourself locked in, don't fight it. Reschedule other things. Hyperfocus is a superpower — use it.",
-  "📋 <strong>Max 3 priorities:</strong> Pick only 3 tasks for today. Everything else is bonus. Constraint creates clarity.",
-  "🧠 <strong>Dopamine menu:</strong> Keep a list of healthy quick-dopamine activities (stretch, snack, pet, music) to reach for instead of doom-scrolling."
+  "<strong>Body doubling:</strong> Open a livestream of someone studying or working in another tab. The sense of co-presence helps maintain focus.",
+  "<strong>Time boxing:</strong> Don't plan to 'finish' a task — plan to work on it for exactly 15 minutes. Permission to stop removes the dread.",
+  "<strong>Freeze your distractions:</strong> When an urge hits (check phone, browse Reddit), write it on your notepad here and promise yourself you'll do it after the timer.",
+  "<strong>Same song on repeat:</strong> Playing one song on loop creates a focus cocoon. Your brain stops 'listening' and just flows.",
+  "<strong>Movement breaks:</strong> 60 seconds of jumping jacks between pomodoros resets your dopamine better than scrolling.",
+  "<strong>Smallest possible step:</strong> If the task feels impossible, shrink it. 'Write the report' becomes 'Open the document.' Start there.",
+  "<strong>Task switching is OK:</strong> If you're stuck, switch to a different task. Productivity isn't linear — it's a web.",
+  "<strong>Phone in another room:</strong> Out of sight, out of mind. Physical distance beats willpower every time.",
+  "<strong>Externalize your thoughts:</strong> Use the notepad to dump every thought. An empty mind focuses better than a full one.",
+  "<strong>Gamify it:</strong> Set a task goal and a pomodoro target. Beat your own high score. Check your stats on the left.",
+  "<strong>Narrate your work:</strong> Silently talk yourself through what you're doing: 'Now I'm opening the spreadsheet, now I'm finding column B...'",
+  "<strong>Eat the frog:</strong> Do the most dreaded task first. Everything after feels easy by comparison.",
+  "<strong>Ride the hyperfocus:</strong> If you find yourself locked in, don't fight it. Reschedule other things. Hyperfocus is a superpower — use it.",
+  "<strong>Max 3 priorities:</strong> Pick only 3 tasks for today. Everything else is bonus. Constraint creates clarity.",
+  "<strong>Dopamine menu:</strong> Keep a list of healthy quick-dopamine activities (stretch, snack, pet, music) to reach for instead of doom-scrolling."
 ];
 
 function newTip() {
@@ -4561,7 +5062,7 @@ function renderDistractions() {
   const list = document.getElementById('distractionList');
   list.innerHTML = '';
   if (distractions.length === 0) {
-    list.innerHTML = '<li class="distraction-empty">No distractions parked 🎯</li>';
+    list.innerHTML = '<li class="distraction-empty">No distractions parked </li>';
     return;
   }
   distractions.forEach((d, i) => {
@@ -4614,10 +5115,10 @@ function toggleZen() {
   document.body.classList.toggle('zen-mode');
   const btn = document.getElementById('zenBtn');
   if (document.body.classList.contains('zen-mode')) {
-    btn.textContent = '✕ Exit Zen';
+    btn.innerHTML = fbIcon('x') + ' Exit Zen';
     btn.title = 'Z — exit zen mode';
   } else {
-    btn.textContent = '🧘 Zen';
+    btn.innerHTML = fbIcon('flower-2') + ' Zen';
     btn.title = 'Z — hide everything except Pomodoro + Tasks';
   }
 }
@@ -4918,7 +5419,7 @@ function initBubbles() {
   const grid = document.getElementById('bubbleGrid');
   if (!grid) return;
   grid.innerHTML = '';
-  const colors = ['var(--accent)', 'var(--blue)', '#a78bfa', '#f59e0b', '#ec4899'];
+  const colors = ['var(--accent)', 'var(--blue)', 'var(--purple)', 'var(--teal)', 'var(--rose)'];
   for (let i = 0; i < 15; i++) {
     const b = document.createElement('div');
     b.className = 'bubble';
@@ -4930,7 +5431,7 @@ function initBubbles() {
         // Check if all popped
         const allPopped = grid.querySelectorAll('.bubble:not(.popped)').length === 0;
         if (allPopped) {
-          showToast('All popped! 🎉 Click Reset to go again.', 'success');
+          showToast('All popped! Click Reset to go again.', 'success');
         }
       }
     });
@@ -4942,7 +5443,7 @@ function resetBubbles() { initBubbles(); }
 // ── Drawing Pad ──
 let fidgetDrawing = false;
 let fidgetDrawColor = 0;
-const fidgetColors = ['#0ea5e9', '#a78bfa', '#ec4899', '#f59e0b', '#22c55e', '#fff'];
+const fidgetColors = ['#f2b45a', '#a99be6', '#e08aa5', '#6bbfae', '#8fb0dd', '#8a867e'];
 function initFidgetDraw() {
   const canvas = document.getElementById('fidgetDrawCanvas');
   if (!canvas) return;
@@ -5118,10 +5619,10 @@ function updateMedTimer() {
   timer.textContent = `${hours}:${String(mins).padStart(2, '0')}h`;
   
   if (hours >= 8) {
-    status.textContent = '⚠️ Time for next dose';
+    status.textContent = 'Time for next dose';
     status.style.color = 'var(--danger)';
   } else if (hours >= 6) {
-    status.textContent = '🟡 Consider next dose soon';
+    status.textContent = 'Consider next dose soon';
     status.style.color = 'var(--warn)';
   } else {
     status.textContent = '✓ Dose still active';
@@ -5193,7 +5694,7 @@ const meditationPrograms = {
   bodyscan: {
     title: 'Body Scan Meditation',
     duration: 600,
-    icon: '🔍',
+    icon: 'scan',
     steps: [
       { at: 0, text: 'Find a comfortable position. Close your eyes and take three deep breaths.', breath: 'slow' },
       { at: 30, text: 'Bring your awareness to the top of your head. Feel any tension melt away.', breath: 'slow' },
@@ -5212,7 +5713,7 @@ const meditationPrograms = {
   mindfulness: {
     title: 'Mindfulness Meditation',
     duration: 600,
-    icon: '🌸',
+    icon: 'flower',
     steps: [
       { at: 0, text: 'Sit comfortably with a straight spine. Rest your hands on your thighs. Close your eyes.', breath: 'normal' },
       { at: 30, text: 'Bring all your attention to the sensation of breathing. The cool air entering, the warm air leaving.', breath: 'normal' },
@@ -5229,7 +5730,7 @@ const meditationPrograms = {
   'loving-kindness': {
     title: 'Loving Kindness',
     duration: 480,
-    icon: '💝',
+    icon: 'heart',
     steps: [
       { at: 0, text: 'Settle into a comfortable position. Place a hand on your heart if that feels natural.', breath: 'slow' },
       { at: 30, text: 'Bring to mind an image of yourself. Silently repeat: "May I be happy. May I be healthy. May I be safe."', breath: 'slow' },
@@ -5245,7 +5746,7 @@ const meditationPrograms = {
   quickreset: {
     title: 'Quick Reset',
     duration: 180,
-    icon: '⚡',
+    icon: 'zap',
     steps: [
       { at: 0, text: 'Pause everything. Close your eyes. Take ONE massive deep breath in through your nose...', breath: 'deep' },
       { at: 10, text: '...and exhale completely through your mouth with an audible sigh. Let it ALL go.', breath: 'deep' },
@@ -5275,18 +5776,18 @@ function selectMeditation(type) {
   document.getElementById('medTotalText').textContent = formatMedTime(program.duration);
   document.getElementById('medElapsedText').textContent = '0:00';
   document.getElementById('medProgressBar').style.width = '0%';
-  document.getElementById('medPlayIcon').textContent = '▶';
-  document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">▶</span> Start';
+  document.getElementById('medPlayIcon').innerHTML = fbIcon('play');
+  document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">' + fbIcon('play') + '</span> Start';
 }
 
 function toggleMeditationPlayback() {
   if (meditationPlaying) {
     meditationPlaying = false;
     clearInterval(meditationTimer);
-    document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">▶</span> Resume';
+    document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">' + fbIcon('play') + '</span> Resume';
   } else {
     meditationPlaying = true;
-    document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">⏸</span> Pause';
+    document.getElementById('medPlayPauseBtn').innerHTML = '<span id="medPlayIcon">' + fbIcon('pause') + '</span> Pause';
     startMedBreathAnimation();
     meditationTimer = setInterval(() => {
       try {
@@ -5364,7 +5865,7 @@ function stopMeditation() {
   clearTimeout(medBreathAnimId);
   meditationPlaying = false;
   localStorage.setItem('fb_meditation_complete', new Date().toISOString());
-  showToast('✨ Meditation complete! You found stillness in the noise.', 'success');
+  showToast('Meditation complete! You found stillness in the noise.', 'success');
   closeMeditationModal();
 }
 
@@ -5390,7 +5891,7 @@ let exerciseTotalDuration = 0;
 const exercisePrograms = {
   stretch: {
     title: 'Quick Stretch',
-    icon: '🧘',
+    icon: 'flower-2',
     steps: [
       { name: 'Neck Rolls', duration: 30, instruction: 'Slowly roll your head in a circle. 5 times clockwise, 5 times counter-clockwise. Release neck tension.' },
       { name: 'Shoulder Shrugs', duration: 20, instruction: 'Raise both shoulders to your ears, hold 3 seconds, then drop them. Repeat 8 times.' },
@@ -5403,7 +5904,7 @@ const exercisePrograms = {
   },
   cardio: {
     title: 'Cardio Burst',
-    icon: '💥',
+    icon: 'zap',
     steps: [
       { name: 'March in Place', duration: 20, instruction: 'Start easy — march in place, lifting knees high. Pump your arms. Get the blood flowing!' },
       { name: 'Jumping Jacks', duration: 25, instruction: 'Classic jumping jacks! Arms up, legs out, arms down, legs together. Go at your pace!' },
@@ -5415,7 +5916,7 @@ const exercisePrograms = {
   },
   desk: {
     title: 'Desk Relief',
-    icon: '🪑',
+    icon: 'armchair',
     steps: [
       { name: 'Seated Cat-Cow', duration: 30, instruction: 'Sit on edge of chair. Arch your back (cow), then round it (cat). Repeat slowly 10 times.' },
       { name: 'Seated Twist', duration: 30, instruction: 'Sit tall, twist right — hold chair back. Hold 15s. Switch left. Opens the spine.' },
@@ -5429,7 +5930,7 @@ const exercisePrograms = {
   },
   yoga: {
     title: 'Mini Yoga Flow',
-    icon: '🌿',
+    icon: 'leaf',
     steps: [
       { name: 'Mountain Pose', duration: 30, instruction: 'Stand tall, feet together. Arms at sides, palms forward. Feel yourself rooted and lifted.' },
       { name: 'Sun Salutation Arms', duration: 25, instruction: 'Inhale, sweep arms overhead. Gaze up. Feel length through your whole body.' },
@@ -5457,7 +5958,7 @@ function startGuidedExercise(type) {
   document.getElementById('exerciseSelector').style.display = 'none';
   document.getElementById('exercisePlayer').style.display = 'block';
   document.getElementById('exerciseTitle').textContent = program.title;
-  document.getElementById('exerciseIcon').textContent = program.icon;
+  document.getElementById('exerciseIcon').innerHTML = fbIcon(program.icon);
   document.getElementById('exStepTotal').textContent = program.steps.length;
 
   renderExerciseStep();
@@ -5532,7 +6033,7 @@ function skipExerciseStep() {
 function completeExercise() {
   clearInterval(exerciseTimer);
   const totalMins = Math.round(exerciseTotalDuration / 60);
-  showToast(`🎉 ${totalMins}-minute exercise complete! Dopamine refilled.`, 'success');
+  showToast(`${totalMins}-minute exercise complete! Dopamine refilled.`, 'success');
   localStorage.setItem('fb_last_exercise', new Date().toISOString());
   stopExercise();
 }
@@ -5554,16 +6055,16 @@ function closeMovementModal() {
 let sleepLog = safeJSONParse('fb_sleep', []);
 
 const sleepTips = [
-  "🌙 <strong>ADHD brains need more sleep.</strong> Aim for 8-9 hours. The executive function deficit from sleep loss is compounded with ADHD.",
-  "📱 <strong>Blue light blocks melatonin.</strong> Use night mode or stop screens 90 min before bed. Try an audiobook instead.",
-  "🧊 <strong>Cool room = better sleep.</strong> Set thermostat to 65-68°F (18-20°C). Your body needs to cool down to sleep deeply.",
-  "☀️ <strong>Morning sunlight sets your clock.</strong> Get 10-30 min of bright light within 1 hour of waking. This is the #1 sleep hack.",
-  "⏰ <strong>Consistent timing beats everything.</strong> Same bedtime ± 30 min, even weekends. Your circadian rhythm craves predictability.",
-  "🧠 <strong>Brain dump before bed.</strong> Write tomorrow's tasks and worries on paper. Externalizing them reduces racing thoughts.",
-  "🫁 <strong>4-7-8 breathing in bed.</strong> Inhale 4s, hold 7s, exhale 8s. This activates your parasympathetic nervous system.",
-  "🍫 <strong>Watch late caffeine.</strong> ADHD meds + afternoon coffee = insomnia. Cut caffeine by 2 PM (it has a 6-hour half-life).",
-  "🎵 <strong>Pink noise for ADHD sleep.</strong> Studies show pink noise (deeper than white) improves slow-wave sleep quality.",
-  "🛏️ <strong>Bed = sleep only.</strong> Don't work, scroll, or eat in bed. Train your brain: bed means sleep, nothing else."
+  "<strong>ADHD brains need more sleep.</strong> Aim for 8-9 hours. The executive function deficit from sleep loss is compounded with ADHD.",
+  "<strong>Blue light blocks melatonin.</strong> Use night mode or stop screens 90 min before bed. Try an audiobook instead.",
+  "<strong>Cool room = better sleep.</strong> Set thermostat to 65-68°F (18-20°C). Your body needs to cool down to sleep deeply.",
+  "<strong>Morning sunlight sets your clock.</strong> Get 10-30 min of bright light within 1 hour of waking. This is the #1 sleep hack.",
+  "<strong>Consistent timing beats everything.</strong> Same bedtime ± 30 min, even weekends. Your circadian rhythm craves predictability.",
+  "<strong>Brain dump before bed.</strong> Write tomorrow's tasks and worries on paper. Externalizing them reduces racing thoughts.",
+  "<strong>4-7-8 breathing in bed.</strong> Inhale 4s, hold 7s, exhale 8s. This activates your parasympathetic nervous system.",
+  "<strong>Watch late caffeine.</strong> ADHD meds + afternoon coffee = insomnia. Cut caffeine by 2 PM (it has a 6-hour half-life).",
+  "<strong>Pink noise for ADHD sleep.</strong> Studies show pink noise (deeper than white) improves slow-wave sleep quality.",
+  "<strong>Bed = sleep only.</strong> Don't work, scroll, or eat in bed. Train your brain: bed means sleep, nothing else."
 ];
 
 function logSleep() {
@@ -5583,7 +6084,7 @@ function logSleep() {
   sleepLog.push({ date: today, hours: Math.round(hours * 10) / 10, quality, notes, timestamp: Date.now() });
   localStorage.setItem('fb_sleep', JSON.stringify(sleepLog));
 
-  showToast(`😴 Logged ${hours}h sleep (Quality: ${quality}/10)`, 'success');
+  showToast(`Logged ${hours}h sleep (Quality: ${quality}/10)`, 'success');
   document.getElementById('sleepHours').value = '';
   document.getElementById('sleepQuality').value = '';
   if (document.getElementById('sleepNotes')) document.getElementById('sleepNotes').value = '';
@@ -5683,12 +6184,12 @@ function startBodyScanMeditation() {
     // Pause
     bodyScanRunning = false;
     clearInterval(bodyScanTimer);
-    document.getElementById('bodyScanStartBtn').textContent = '▶ Resume';
+    document.getElementById('bodyScanStartBtn').innerHTML = fbIcon('play') + ' Resume';
     return;
   }
 
   bodyScanRunning = true;
-  document.getElementById('bodyScanStartBtn').textContent = '⏸ Pause';
+  document.getElementById('bodyScanStartBtn').innerHTML = fbIcon('pause') + ' Pause';
   document.getElementById('bodyScanHighlight').style.display = 'block';
 
   const totalTime = 600;
@@ -5731,7 +6232,7 @@ function startBodyScanMeditation() {
       if (bodyScanElapsed >= totalTime) {
         clearInterval(bodyScanTimer);
         bodyScanRunning = false;
-        showToast('✨ Body Scan complete! Your entire body is at peace.', 'success');
+        showToast('Body Scan complete! Your entire body is at peace.', 'success');
         closeBodyScanModal();
       }
     } catch (e) {
@@ -5773,12 +6274,12 @@ function updateSocialGoals() {
 
   // Rank
   const ranks = [
-    { min: 0, label: 'Getting Started 🌱', color: 'var(--text-muted)' },
-    { min: 20, label: 'Warming Up 🔥', color: 'var(--warn)' },
-    { min: 50, label: 'In The Zone 🎯', color: 'var(--primary-light)' },
-    { min: 80, label: 'Flow State 🌊', color: 'var(--teal)' },
-    { min: 120, label: 'Unstoppable 💎', color: 'var(--purple)' },
-    { min: 160, label: 'Legendary 👑', color: '#f59e0b' }
+    { min: 0, label: 'Getting Started ', color: 'var(--text-muted)' },
+    { min: 20, label: 'Warming Up ', color: 'var(--warn)' },
+    { min: 50, label: 'In The Zone ', color: 'var(--primary-light)' },
+    { min: 80, label: 'Flow State ', color: 'var(--teal)' },
+    { min: 120, label: 'Unstoppable ', color: 'var(--purple)' },
+    { min: 160, label: 'Legendary ', color: 'var(--warn)' }
   ];
   const rank = ranks.filter(r => score >= r.min).pop();
   if (document.getElementById('focusRank')) {
@@ -5795,14 +6296,14 @@ function renderAchievements(pomos, tasksDone, intention) {
   if (!list) return;
 
   const achievements = [];
-  if (pomos >= 1) achievements.push({ icon: '🍅', label: 'First Pomo' });
-  if (pomos >= 4) achievements.push({ icon: '🔥', label: '4 Pomos' });
-  if (pomos >= 8) achievements.push({ icon: '💎', label: '8 Pomos!' });
-  if (tasksDone >= 1) achievements.push({ icon: '✅', label: 'Task Done' });
-  if (tasksDone >= 3) achievements.push({ icon: '🎯', label: '3 Tasks' });
-  if (tasksDone >= 5) achievements.push({ icon: '⭐', label: '5 Tasks!' });
-  if (intention && intention !== 'Not set') achievements.push({ icon: '🎯', label: 'Set Intent' });
-  if (awakeActive) achievements.push({ icon: '⚡', label: 'Focused' });
+  if (pomos >= 1) achievements.push({ icon: 'timer', label: 'First Pomo' });
+  if (pomos >= 4) achievements.push({ icon: 'flame', label: '4 Pomos' });
+  if (pomos >= 8) achievements.push({ icon: 'gem', label: '8 Pomos!' });
+  if (tasksDone >= 1) achievements.push({ icon: 'list-checks', label: 'Task Done' });
+  if (tasksDone >= 3) achievements.push({ icon: 'target', label: '3 Tasks' });
+  if (tasksDone >= 5) achievements.push({ icon: 'star', label: '5 Tasks!' });
+  if (intention && intention !== 'Not set') achievements.push({ icon: 'target', label: 'Set Intent' });
+  if (awakeActive) achievements.push({ icon: 'zap', label: 'Focused' });
 
   if (achievements.length === 0) {
     list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);width:100%;">Complete tasks and pomodoros to earn achievements!</div>';
@@ -5811,7 +6312,7 @@ function renderAchievements(pomos, tasksDone, intention) {
 
   list.innerHTML = achievements.map(a => `
     <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:rgba(14,165,233,0.08);border-radius:20px;font-size:12px;border:1px solid rgba(14,165,233,0.15);">
-      <span>${a.icon}</span>
+      <span>${fbIcon(a.icon)}</span>
       <span style="font-weight:600;">${a.label}</span>
     </div>
   `).join('');
@@ -5823,10 +6324,10 @@ function copyFocusReport() {
   const intention = localStorage.getItem('fb_intention') || 'Not set';
   const score = (pomos * 15) + (tasksDone * 10) + (intention !== 'Not set' ? 10 : 0);
 
-  const report = `🧠 FocusBro Daily Report\n\n🍅 Pomodoros: ${pomos}\n✅ Tasks Done: ${tasksDone}\n🎯 Focus: ${intention}\n🏆 Score: ${score}\n\n#FocusBro #ADHD #Productivity`;
+  const report = `FocusBro Daily Report\n\nPomodoros: ${pomos}\nTasks Done: ${tasksDone}\nFocus: ${intention}\nScore: ${score}\n\n#FocusBro #ADHD #Productivity`;
 
   navigator.clipboard.writeText(report).then(() => {
-    showToast('📋 Focus report copied! Share it with your accountability partner.', 'success');
+    showToast('Focus report copied! Share it with your accountability partner.', 'success');
   }).catch(() => {
     showToast('Could not copy to clipboard', 'warning');
   });
@@ -5845,11 +6346,13 @@ function showToast(message, type = 'info') {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: ${type === 'success' ? '#10b981' : type === 'warning' ? '#f59e0b' : '#0ea5e9'};
-    color: white;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border-light);
+    border-left: 3px solid ${type === 'success' ? 'var(--success)' : type === 'warning' ? 'var(--warn)' : 'var(--accent-fill)'};
     padding: 16px 24px;
     border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: var(--shadow-lg);
     z-index: 10000;
     animation: slideIn 0.3s ease;
     max-width: 400px;
@@ -6016,7 +6519,7 @@ const TOOL_DEEPLINKS = {
   focus:      () => setView('focus'),
   pomodoro:   () => setView('focus'),
   rest:       () => setView('rest'),
-  // Sounds = the 🎧 Ambient Sounds card (lives in the Restore view). Land the
+  // Sounds = the Ambient Sounds card (lives in the Restore view). Land the
   // reader ON the card and ring it, not just in the view, so a "music/sounds"
   // guide reader doesn't have to hunt among breathing, fidgets, and meditation.
   sounds:     () => deepLinkToRestCard('soundVolume'),
@@ -6032,7 +6535,7 @@ const TOOL_DEEPLINKS = {
     if (m) { m.style.display = 'flex'; try { renderSleepHistory(); newSleepTip(); } catch (e) {} }
   },
   dopamine:   () => openDopamineMenu(),
-  // Eye Rest = the 👁️ 20-20-20 Break Reminder card (lives in the Restore view).
+  // Eye Rest = the 20-20-20 Break Reminder card (lives in the Restore view).
   // Ring the exact card, not the cardio Movement Break modal the 20-20-20 guide
   // used to (wrongly) open.
   eyerest:    () => deepLinkToRestCard('breakToggle'),
@@ -6063,33 +6566,33 @@ const TOOL_DEEPLINKS = {
 // COMMAND PALETTE
 // ══════════════════════════════════════
 const CMD_LIST = [
-  { icon:'👋', name:'How FocusBro works', desc:'A quick tour: views, One Thing, and shortcuts',        action:()=>document.getElementById('onboardingModal').classList.add('show'), keys:'help tour onboarding welcome how works guide getting started new here', group:'Help' },
-  { icon:'🌙', name:'Light / dark theme', desc:'Switch between the dark and light look',              action:()=>toggleTheme(), keys:'theme dark light mode appearance', group:'Views' },
-  { icon:'🏠', name:'Dashboard',         desc:'All tools — full view',                                  action:()=>setView('home'),  keys:'home dashboard', group:'Views' },
-  { icon:'⚡', name:'Focus mode',         desc:'Pomodoro + Tasks only, no distractions',                action:()=>setView('focus'), keys:'focus mode pomodoro', group:'Views' },
-  { icon:'🌿', name:'Restore mode',       desc:'Sounds, breathing, fidgets, meditation',               action:()=>setView('rest'),  keys:'rest restore relax wellness', group:'Views' },
-  { icon:'📊', name:'Stats',              desc:'Today\'s stats, streak, energy, ADHD tips',            action:()=>setView('stats'), keys:'stats analytics streak insights', group:'Views' },
-  { icon:'🍅', name:'Start / Pause Pomodoro', desc:'Toggle the focus timer',                           action:()=>togglePomodoro(), keys:'pomodoro timer start pause focus', group:'Tools', kbd:'P' },
-  { icon:'🧘', name:'Open Meditation',   desc:'Guided 5–20 min sessions',                             action:()=>document.getElementById('meditationModal').style.display='flex', keys:'meditate calm', group:'Tools' },
-  { icon:'🫁', name:'Breathing Guide',   desc:'Box, 4-7-8, physiological sigh',                       action:()=>openBreathingGuide(), keys:'breath breathe box 478 calm', group:'Tools', kbd:'B' },
-  { icon:'🧭', name:'5-4-3-2-1 Grounding', desc:'ADHD anxiety grounding exercise',                   action:()=>openGroundingExercise(), keys:'ground anxiety 54321', group:'Tools', kbd:'G' },
-  { icon:'🔍', name:'Body Scan',          desc:'Tension check & progressive relaxation',               action:()=>document.getElementById('bodyScanModal').style.display='flex', keys:'body scan tension relax', group:'Tools' },
-  { icon:'🏃', name:'Movement',           desc:'Desk stretches and micro-breaks',                       action:()=>document.getElementById('movementModal').style.display='flex', keys:'stretch movement exercise desk', group:'Tools' },
-  { icon:'😴', name:'Sleep Tracker',      desc:'Log sleep, wind-down tips',                            action:()=>{ document.getElementById('sleepModal').style.display='flex'; renderSleepHistory(); newSleepTip(); }, keys:'sleep rest wind down', group:'Tools' },
-  { icon:'⚡', name:'Dopamine Menu',      desc:'Healthy dopamine reset activities',                    action:()=>openDopamineMenu(), keys:'dopamine reward motivation reset', group:'Tools' },
-  { icon:'🖥️', name:'Toggle Wake Lock',  desc:'Keep screen on during focus sessions',                 action:()=>toggleWakeLock(), keys:'wake lock screen sleep awake', group:'Actions' },
-  { icon:'🧠', name:'Toggle Zen mode',    desc:'Minimal view — timer and intention only',              action:()=>toggleZen(), keys:'zen minimal distraction free', group:'Actions', kbd:'Z' },
-  { icon:'🚗', name:'Capture Distraction', desc:'Park an intrusive thought without losing focus',     action:()=>openDistractionOverlay(), keys:'distraction thought capture parking lot', group:'Actions', kbd:'D' },
-  { icon:'🎯', name:'Set Intention',      desc:'Focus the One Thing input',                            action:()=>document.getElementById('intentionInput').focus(), keys:'intention focus one thing goal set', group:'Actions' },
-  { icon:'📝', name:'Quick Notes',        desc:'Focus the notepad',                                    action:()=>document.getElementById('notepad').focus(), keys:'notes notepad brain dump write', group:'Actions', kbd:'N' },
-  { icon:'✅', name:'Add a Task',         desc:'Focus the task input',                                 action:()=>document.getElementById('taskInput').focus(), keys:'task todo add item list', group:'Actions', kbd:'T' },
-  { icon:'🎯', name:'Focus binaural (40Hz)', desc:'Gamma waves for deep concentration',               action:()=>toggleBinaural('focus'), keys:'binaural gamma 40hz focus beats', group:'Audio' },
-  { icon:'😌', name:'Calm binaural (8Hz)',  desc:'Alpha waves for relaxed awareness',                  action:()=>toggleBinaural('calm'), keys:'binaural alpha 8hz calm beats relax', group:'Audio' },
-  { icon:'⚡', name:'Alert binaural (20Hz)', desc:'Beta waves for alert wakefulness',                  action:()=>toggleBinaural('alert'), keys:'binaural beta 20hz alert beats', group:'Audio' },
-  { icon:'🌧️', name:'Rain sounds',       desc:'Toggle ambient rain audio',                            action:()=>document.querySelector('.sound-btn[onclick*="rain"]')?.click(), keys:'rain ambient sound audio', group:'Audio' },
-  { icon:'☕', name:'Café sounds',         desc:'Toggle coffee shop ambient audio',                     action:()=>document.querySelector('.sound-btn[onclick*="cafe"]')?.click(), keys:'cafe coffee ambient sound', group:'Audio' },
-  { icon:'🌊', name:'Ocean sounds',        desc:'Toggle ocean waves audio',                             action:()=>document.querySelector('.sound-btn[onclick*="ocean"]')?.click(), keys:'ocean waves ambient sound', group:'Audio' },
-  { icon:'🔥', name:'Fireplace sounds',    desc:'Toggle fireplace crackle audio',                       action:()=>document.querySelector('.sound-btn[data-sound="fire"]')?.click(), keys:'fire fireplace crackle ambient', group:'Audio' },
+  { icon:'hand', name:'How FocusBro works', desc:'A quick tour: views, One Thing, and shortcuts',        action:()=>document.getElementById('onboardingModal').classList.add('show'), keys:'help tour onboarding welcome how works guide getting started new here', group:'Help' },
+  { icon:'moon', name:'Light / dark theme', desc:'Switch between the dark and light look',              action:()=>toggleTheme(), keys:'theme dark light mode appearance', group:'Views' },
+  { icon:'house', name:'Dashboard',         desc:'All tools — full view',                                  action:()=>setView('home'),  keys:'home dashboard', group:'Views' },
+  { icon:'zap', name:'Focus mode',         desc:'Pomodoro + Tasks only, no distractions',                action:()=>setView('focus'), keys:'focus mode pomodoro', group:'Views' },
+  { icon:'leaf', name:'Restore mode',       desc:'Sounds, breathing, fidgets, meditation',               action:()=>setView('rest'),  keys:'rest restore relax wellness', group:'Views' },
+  { icon:'chart-column', name:'Stats',              desc:'Today\'s stats, streak, energy, ADHD tips',            action:()=>setView('stats'), keys:'stats analytics streak insights', group:'Views' },
+  { icon:'timer', name:'Start / Pause Pomodoro', desc:'Toggle the focus timer',                           action:()=>togglePomodoro(), keys:'pomodoro timer start pause focus', group:'Tools', kbd:'P' },
+  { icon:'flower-2', name:'Open Meditation',   desc:'Guided 5–20 min sessions',                             action:()=>document.getElementById('meditationModal').style.display='flex', keys:'meditate calm', group:'Tools' },
+  { icon:'wind', name:'Breathing Guide',   desc:'Box, 4-7-8, physiological sigh',                       action:()=>openBreathingGuide(), keys:'breath breathe box 478 calm', group:'Tools', kbd:'B' },
+  { icon:'compass', name:'5-4-3-2-1 Grounding', desc:'ADHD anxiety grounding exercise',                   action:()=>openGroundingExercise(), keys:'ground anxiety 54321', group:'Tools', kbd:'G' },
+  { icon:'scan', name:'Body Scan',          desc:'Tension check & progressive relaxation',               action:()=>document.getElementById('bodyScanModal').style.display='flex', keys:'body scan tension relax', group:'Tools' },
+  { icon:'footprints', name:'Movement',           desc:'Desk stretches and micro-breaks',                       action:()=>document.getElementById('movementModal').style.display='flex', keys:'stretch movement exercise desk', group:'Tools' },
+  { icon:'bed', name:'Sleep Tracker',      desc:'Log sleep, wind-down tips',                            action:()=>{ document.getElementById('sleepModal').style.display='flex'; renderSleepHistory(); newSleepTip(); }, keys:'sleep rest wind down', group:'Tools' },
+  { icon:'zap', name:'Dopamine Menu',      desc:'Healthy dopamine reset activities',                    action:()=>openDopamineMenu(), keys:'dopamine reward motivation reset', group:'Tools' },
+  { icon:'monitor', name:'Toggle Wake Lock',  desc:'Keep screen on during focus sessions',                 action:()=>toggleWakeLock(), keys:'wake lock screen sleep awake', group:'Actions' },
+  { icon:'eye-off', name:'Toggle Zen mode',    desc:'Minimal view — timer and intention only',              action:()=>toggleZen(), keys:'zen minimal distraction free', group:'Actions', kbd:'Z' },
+  { icon:'square-parking', name:'Capture Distraction', desc:'Park an intrusive thought without losing focus',     action:()=>openDistractionOverlay(), keys:'distraction thought capture parking lot', group:'Actions', kbd:'D' },
+  { icon:'target', name:'Set Intention',      desc:'Focus the One Thing input',                            action:()=>document.getElementById('intentionInput').focus(), keys:'intention focus one thing goal set', group:'Actions' },
+  { icon:'notebook-pen', name:'Quick Notes',        desc:'Focus the notepad',                                    action:()=>document.getElementById('notepad').focus(), keys:'notes notepad brain dump write', group:'Actions', kbd:'N' },
+  { icon:'list-checks', name:'Add a Task',         desc:'Focus the task input',                                 action:()=>document.getElementById('taskInput').focus(), keys:'task todo add item list', group:'Actions', kbd:'T' },
+  { icon:'target', name:'Focus binaural (40Hz)', desc:'Gamma waves for deep concentration',               action:()=>toggleBinaural('focus'), keys:'binaural gamma 40hz focus beats', group:'Audio' },
+  { icon:'feather', name:'Calm binaural (8Hz)',  desc:'Alpha waves for relaxed awareness',                  action:()=>toggleBinaural('calm'), keys:'binaural alpha 8hz calm beats relax', group:'Audio' },
+  { icon:'zap', name:'Alert binaural (20Hz)', desc:'Beta waves for alert wakefulness',                  action:()=>toggleBinaural('alert'), keys:'binaural beta 20hz alert beats', group:'Audio' },
+  { icon:'cloud-rain', name:'Rain sounds',       desc:'Toggle ambient rain audio',                            action:()=>document.querySelector('.sound-btn[onclick*="rain"]')?.click(), keys:'rain ambient sound audio', group:'Audio' },
+  { icon:'coffee', name:'Café sounds',         desc:'Toggle coffee shop ambient audio',                     action:()=>document.querySelector('.sound-btn[onclick*="cafe"]')?.click(), keys:'cafe coffee ambient sound', group:'Audio' },
+  { icon:'waves', name:'Ocean sounds',        desc:'Toggle ocean waves audio',                             action:()=>document.querySelector('.sound-btn[onclick*="ocean"]')?.click(), keys:'ocean waves ambient sound', group:'Audio' },
+  { icon:'flame', name:'Fireplace sounds',    desc:'Toggle fireplace crackle audio',                       action:()=>document.querySelector('.sound-btn[data-sound="fire"]')?.click(), keys:'fire fireplace crackle ambient', group:'Audio' },
 ];
 
 let cmdSelectedIndex = 0;
@@ -6129,7 +6632,7 @@ function renderCmdList(items) {
       <li class="cmd-item ${i === cmdSelectedIndex ? 'selected' : ''}"
           onclick="runCmd(${i})"
           onmouseover="cmdSelectedIndex=${i};document.querySelectorAll('.cmd-item').forEach((el,j)=>el.classList.toggle('selected',${i}===j))">
-        <span class="cmd-icon">${cmd.icon}</span>
+        <span class="cmd-icon">${fbIcon(cmd.icon)}</span>
         <span class="cmd-info">
           <div class="cmd-name">${cmd.name}</div>
           <div class="cmd-desc">${cmd.desc}</div>
@@ -6180,22 +6683,23 @@ function cmdKeyNav(e) {
 // ══════════════════════════════════════
 // THEME MANAGEMENT
 // ══════════════════════════════════════
+function readThemePref() {
+  try { return localStorage.getItem('fb_theme'); } catch (e) { return null; }
+}
 function toggleTheme() {
-  const current = localStorage.getItem('fb_theme') || 'dark';
+  const current = document.body.dataset.theme === 'light' ? 'light' : 'dark';
   const next = current === 'dark' ? 'light' : 'dark';
   document.body.dataset.theme = next;
-  localStorage.setItem('fb_theme', next);
-  const btn = document.getElementById('themeToggle');
-  if (btn) btn.textContent = next === 'light' ? '☀️' : '🌙';
+  try { localStorage.setItem('fb_theme', next); } catch (e) { /* private mode: theme still applies this visit */ }
+  fbSyncThemeIcon();
 }
 
 (function() {
-  const saved = localStorage.getItem('fb_theme') || 'dark';
-  if (saved === 'light') {
-    document.body.dataset.theme = 'light';
-    const btn = document.getElementById('themeToggle');
-    if (btn) btn.textContent = '☀️';
-  }
+  // An explicit choice wins; otherwise follow the device (ChromeOS, Android, macOS all expose it).
+  const saved = readThemePref();
+  const systemLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  if (saved === 'light' || (!saved && systemLight)) document.body.dataset.theme = 'light';
+  fbSyncThemeIcon();
 })();
 
 // ══════════════════════════════════════
@@ -6307,13 +6811,13 @@ function dismissOnboarding() {
 // CONFETTI CELEBRATION
 // ══════════════════════════════════════
 function fireConfetti() {
-  const colors = ['🎉', '✨', '🎊', '🌟', '💫', '⭐'];
+  const colors = ['var(--accent-fill)', 'var(--success)', 'var(--purple)', 'var(--teal)', 'var(--rose)'];
   const count = 30;
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
       const confetti = document.createElement('div');
       confetti.className = 'confetti';
-      confetti.textContent = colors[Math.floor(Math.random() * colors.length)];
+      confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
       confetti.style.left = Math.random() * 100 + 'vw';
       confetti.style.top = '-20px';
       confetti.style.animation = `fall ${2 + Math.random() * 2}s linear forwards`;
@@ -6500,7 +7004,7 @@ document.addEventListener('keydown', (e) => {
   html[data-native-app] #medCard{display:none !important}
   .saved-mixes { margin-top: 8px; }
   .saved-mixes .save-mix-btn { width: 100%; }
-  .saved-mixes .pro-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(14,165,233,0.15); color: #38bdf8; }
+  .saved-mixes .pro-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-light); }
   .saved-mixes form { display: flex; gap: 6px; margin-top: 6px; }
   .saved-mixes input { flex: 1 1 auto; min-width: 0; }
   .saved-mix-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
@@ -6566,7 +7070,7 @@ document.addEventListener('keydown', (e) => {
     wrap.className = 'saved-mixes';
     wrap.id = 'savedMixes';
     wrap.innerHTML =
-      '<button type="button" class="btn btn-sm save-mix-btn" id="saveMixBtn">💾 Save this mix<span class="pro-badge" id="saveMixBadge" hidden>Pro</span></button>' +
+      '<button type="button" class="btn btn-sm save-mix-btn" id="saveMixBtn">Save this mix<span class="pro-badge" id="saveMixBadge" hidden>Pro</span></button>' +
       '<form id="saveMixForm" hidden><input id="saveMixName" maxlength="40" placeholder="Name this mix" aria-label="Name this mix" /><button type="submit" class="btn btn-sm">Save</button></form>' +
       '<div class="saved-mix-list" id="savedMixList"></div>';
     anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
@@ -6609,7 +7113,8 @@ document.addEventListener('keydown', (e) => {
       item.className = 'saved-mix';
       var play = document.createElement('button');
       play.type = 'button'; play.className = 'btn btn-sm';
-      play.textContent = '▶ ' + entry.name;
+      play.textContent = entry.name;
+      play.insertAdjacentHTML('afterbegin', fbIcon('play'));
       play.addEventListener('click', function () { playSaved(entry); });
       var del = document.createElement('button');
       del.type = 'button'; del.className = 'btn btn-sm saved-mix-del';
@@ -6623,7 +7128,7 @@ document.addEventListener('keydown', (e) => {
 
   try {
     if (typeof CMD_LIST !== 'undefined' && Array.isArray(CMD_LIST)) {
-      CMD_LIST.push({ icon: '⭐', name: 'FocusBro Pro', desc: 'Text follow-ups, the full weekly report, saved mixes', action: function () { window.location.href = '/pro/'; }, keys: 'pro upgrade saved mixes weekly report text follow up', group: 'Account' });
+      CMD_LIST.push({ icon: 'star', name: 'FocusBro Pro', desc: 'Text follow-ups, the full weekly report, saved mixes', action: function () { window.location.href = '/pro/'; }, keys: 'pro upgrade saved mixes weekly report text follow up', group: 'Account' });
     }
   } catch (e) { /* palette not present */ }
 

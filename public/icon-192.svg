@@ -1,4 +1,1 @@
-<svg width="192" height="192" xmlns="http://www.w3.org/2000/svg">
-  <rect width="192" height="192" fill="#6366f1" rx="24"/>
-  <text x="96" y="110" font-family="Arial, sans-serif" font-size="72" font-weight="bold" text-anchor="middle" fill="white">FB</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#f2b45a"/><path d="M25 16.5A9 9 0 1 1 19.8 7.8" fill="none" stroke="#1b1305" stroke-width="2.6" stroke-linecap="round"/><path d="M11.4 15.6l3.9 3.9 8.6-9.3" fill="none" stroke="#1b1305" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -251,7 +251,7 @@ test.describe('FocusBro client smoke', () => {
     await page.goto('/?tool=sounds&preset=winddown', { waitUntil: 'domcontentloaded' });
     const armed = page.locator('#soundResume');
     await expect(armed).toBeVisible();
-    await expect(armed).toHaveText('▶ Start Wind down');
+    await expect(armed).toHaveText('Start Wind down');
     await expect(armed).toHaveClass(/armed/);
     // the URL params are cleared so a refresh cannot re-trigger
     expect(new URL(page.url()).search).toBe('');
@@ -264,7 +264,7 @@ test.describe('FocusBro client smoke', () => {
 
     // a named sound list works the same way, validated against the palette
     await page.goto('/?sound=rain,cafe,notasound', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#soundResume')).toHaveText('▶ Start Rain + Café');
+    await expect(page.locator('#soundResume')).toHaveText('Start Rain + Café');
     await page.locator('#soundResume').click();
     expect(await page.evaluate(() => Object.keys(activeSounds).sort())).toEqual(['cafe', 'rain']);
   });
@@ -285,7 +285,7 @@ test.describe('FocusBro client smoke', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://focusbro.net/?tool=sounds&sound=cafe:0.57,rain:0.8,wind');
     // that link arms exactly those layers at those levels — one tap, never autoplay
     await page.goto('/?tool=sounds&sound=cafe:0.5,rain:0.7,wind', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#soundResume')).toHaveText('▶ Start Café + Rain + Wind');
+    await expect(page.locator('#soundResume')).toHaveText('Start Café + Rain + Wind');
     expect(await page.evaluate(() => Object.keys(activeSounds))).toEqual([]);
     await page.locator('#soundResume').click();
     expect(await page.evaluate(() => Object.keys(activeSounds).sort().map((n) => [n, activeSounds[n].mix]))).toEqual([['cafe', 0.5], ['rain', 0.7], ['wind', 1]]);

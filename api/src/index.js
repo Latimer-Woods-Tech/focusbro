@@ -34,6 +34,7 @@ import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordO
 import config from './config.js';
 import syncModule from './sync.js';
 import billingModule from './billing.js';
+import { brandAssetResponse, BRAND } from './brand-assets.js';
 import {
   errorResponse,
   successResponse,
@@ -2845,33 +2846,12 @@ router.get('/health', async (_request, env) => {
 // Content-hashed loops built by scripts/audio/build.py; see api/src/audio.js.
 router.get('/audio/:file', (request, env) => serveAudio(request, env));
 
-// ── ICON-192.PNG ──
-router.get('/icon-192.png', async (_request, _env) => {
-  // Serve SVG icon as PNG (browsers handle content-type appropriately)
-  const svgIcon = `<svg width="192" height="192" xmlns="http://www.w3.org/2000/svg">
-    <rect width="192" height="192" fill="#6366f1" rx="24"/>
-    <text x="96" y="110" font-family="Arial, sans-serif" font-size="72" font-weight="bold" text-anchor="middle" fill="white">FB</text>
-  </svg>`;
-  
-  return new Response(svgIcon, {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' }
-  });
-});
-
-// ── ICON-512.PNG ──
-router.get('/icon-512.png', async (_request, _env) => {
-  // Serve larger SVG icon
-  const svgIcon = `<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-    <rect width="512" height="512" fill="#6366f1" rx="64"/>
-    <text x="256" y="295" font-family="Arial, sans-serif" font-size="192" font-weight="bold" text-anchor="middle" fill="white">FB</text>
-  </svg>`;
-  
-  return new Response(svgIcon, {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' }
-  });
-});
+// ── BRAND ASSETS (real PNG icons, share card, the mark) ──
+for (const file of ['icon-192.png', 'icon-512.png', 'og.png', 'mark.svg']) {
+  router.get('/' + file, () => brandAssetResponse(file));
+}
+// Guides and JSON-LD have always pointed at /icon-192.svg; it 404'd until now.
+router.get('/icon-192.svg', () => brandAssetResponse('mark.svg'));
 
 // ── ROOT PAGE (Serve HTML) ──
 router.get('/', async (_request, _env) => {
@@ -3471,17 +3451,7 @@ ${guideUrls}
 });
 
 // ── FAVICON ──
-router.get('/favicon.ico', async (_request, _env) => {
-  // Serve professional SVG favicon (monogram "FB")
-  const svgFavicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect fill="#1e40af" width="64" height="64"/><text x="32" y="45" font-size="36" font-weight="700" font-family="Inter, sans-serif" fill="#ffffff" text-anchor="middle">FB</text></svg>`;
-  return new Response(svgFavicon, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/svg+xml',
-      'Cache-Control': 'public, max-age=86400'
-    }
-  });
-});
+router.get('/favicon.ico', () => brandAssetResponse('mark.svg'));
 
 // ── MANIFEST.JSON (PWA Support) ──
 router.get('/manifest.json', async (_request, _env) => {
@@ -3493,14 +3463,14 @@ router.get('/manifest.json', async (_request, _env) => {
     "scope": "/",
     "display": "standalone",
     "orientation": "portrait-primary",
-    "background_color": "#ffffff",
-    "theme_color": "#6366f1",
+    "background_color": BRAND.ink,
+    "theme_color": BRAND.ink,
     "categories": ["productivity", "health", "wellness"],
     "icons": [
       {
-        "src": "/favicon.ico",
-        "sizes": "16x16 32x32",
-        "type": "image/x-icon"
+        "src": "/mark.svg",
+        "sizes": "any",
+        "type": "image/svg+xml"
       },
       {
         "src": "/icon-192.png",
@@ -3512,7 +3482,7 @@ router.get('/manifest.json', async (_request, _env) => {
         "src": "/icon-512.png",
         "sizes": "512x512",
         "type": "image/png",
-        "purpose": "any"
+        "purpose": "any maskable"
       }
     ],
     "shortcuts": [

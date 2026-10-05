@@ -206,13 +206,13 @@ function resetPage() {
   <meta name="robots" content="noindex,nofollow">
   <title>Reset your password · FocusBro</title>
   <style>
-    :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#0a0e27;color:#e2e8f0}
-    main{max-width:440px;margin:10vh auto;padding:32px;border:1px solid #3d4f8a;border-radius:16px;background:#141d3f}
-    h1{margin-top:0}p{color:#b6c3d4;line-height:1.5}label{display:block;margin:18px 0 6px;font-weight:700}
+    :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#0d0f12;color:#eceae6}
+    main{max-width:440px;margin:10vh auto;padding:32px;border:1px solid #2a2d33;border-radius:16px;background:#15181d}
+    h1{margin-top:0}p{color:#a4a19b;line-height:1.5}label{display:block;margin:18px 0 6px;font-weight:700}
     input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;font:inherit}
-    input{border:1px solid #6476a8;background:#0f1428;color:#fff}button{margin-top:20px;border:0;background:#38bdf8;color:#07111f;font-weight:800;cursor:pointer}
+    input{border:1px solid #3a3e45;background:#0f1215;color:#fff}button{margin-top:20px;border:0;background:#f2b45a;color:#1b1305;font-weight:800;cursor:pointer}
     button:disabled{opacity:.6;cursor:wait}#status{min-height:24px;margin-top:16px}.error{color:#fca5a5}.success{color:#86efac}
-    a{color:#7dd3fc}
+    a{color:#f6c47c}
   </style>
 </head>
 <body>
@@ -286,10 +286,10 @@ function verificationPage() {
   <meta name="robots" content="noindex,nofollow">
   <title>Verify your email · FocusBro</title>
   <style>
-    :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#0a0e27;color:#e2e8f0}
-    main{max-width:440px;margin:10vh auto;padding:32px;border:1px solid #3d4f8a;border-radius:16px;background:#141d3f}
-    h1{margin-top:0}p{color:#b6c3d4;line-height:1.5}button{box-sizing:border-box;width:100%;margin-top:14px;padding:12px;border:0;border-radius:8px;background:#38bdf8;color:#07111f;font:inherit;font-weight:800;cursor:pointer}
-    button:disabled{opacity:.6;cursor:wait}#status{min-height:24px;margin-top:16px}.error{color:#fca5a5}.success{color:#86efac}a{color:#7dd3fc}
+    :root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;background:#0d0f12;color:#eceae6}
+    main{max-width:440px;margin:10vh auto;padding:32px;border:1px solid #2a2d33;border-radius:16px;background:#15181d}
+    h1{margin-top:0}p{color:#a4a19b;line-height:1.5}button{box-sizing:border-box;width:100%;margin-top:14px;padding:12px;border:0;border-radius:8px;background:#f2b45a;color:#1b1305;font:inherit;font-weight:800;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}#status{min-height:24px;margin-top:16px}.error{color:#fca5a5}.success{color:#86efac}a{color:#f6c47c}
   </style>
 </head>
 <body>
