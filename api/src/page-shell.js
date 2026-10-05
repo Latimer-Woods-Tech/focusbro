@@ -1,7 +1,7 @@
 // Shared page shell for the accountability surfaces (/me/, /me/report, /coach/).
 //
-// One skin for the whole product: the home timer app wears the dark-indigo
-// "Professional Enterprise" palette (public/index.html :root tokens); before
+// One skin for the whole product: the home timer app wears the ink + amber
+// palette (public/index.html :root tokens); before
 // this module the moat pages rendered as unstyled white wireframes (Resonance
 // Council, 2026-07-13, #76). This ports the SAME tokens onto the moat so the
 // commodity and the accountability spine read as one visual family — one
@@ -30,20 +30,21 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   return `<style>
   :root {
     color-scheme: dark;
-    --bg: #0a0e27; --bg-secondary: #0f1428; --bg-card: #141d3f; --bg-card-hover: #1a2652;
-    --border: #2a3a6f; --border-light: #3d4f8a;
-    --text: #e2e8f0; --text-muted: #94a3b8; --text-dim: #64748b;
-    --primary: #0ea5e9; --primary-light: #38bdf8; --primary-dim: rgba(14,165,233,0.12);
-    --success: #10b981; --success-dim: rgba(16,185,129,0.12); --success-light: #6ee7b7;
-    --warn: #f59e0b; --warn-dim: rgba(245,158,11,0.12); --warn-light: #fcd34d;
-    --danger-light: #fca5a5;
-    --blue: #3b82f6; --blue-dim: rgba(59,130,246,0.12); --blue-light: #93c5fd;
-    --teal: #14b8a6; --purple: #a78bfa;
-    --radius: 12px; --shadow: 0 4px 20px rgba(0,0,0,0.30);
+    --bg: #0d0f12; --bg-secondary: #0f1215; --bg-card: #15181d; --bg-card-hover: #1b1f25;
+    --border: rgba(255,255,255,0.075); --border-light: rgba(255,255,255,0.12);
+    --text: #eceae6; --text-muted: #a4a19b; --text-dim: #8c8982;
+    --primary: #f2b45a; --primary-light: #f6c47c; --primary-dim: rgba(242,180,90,0.12);
+    --on-accent: #1b1305;
+    --success: #6cc79a; --success-dim: rgba(108,199,154,0.12); --success-light: #8fd6b1;
+    --warn: #e8935a; --warn-dim: rgba(232,147,90,0.12); --warn-light: #f0b088;
+    --danger-light: #f0958b;
+    --blue: #8fb0dd; --blue-dim: rgba(143,176,221,0.12); --blue-light: #a9c3e6;
+    --teal: #6bbfae; --purple: #a99be6;
+    --radius: 12px; --shadow: none;
     --font: 'DM Sans', -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { font-family: var(--font); max-width: ${maxWidth}px; margin: 0 auto; padding: 24px; line-height: 1.55; color: var(--text); background: linear-gradient(to bottom, var(--bg), var(--bg-secondary)); min-height: 100vh; }
+  body { font-family: var(--font); max-width: ${maxWidth}px; margin: 0 auto; padding: 24px; line-height: 1.55; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; min-height: 100vh; }
   a { color: var(--primary-light); }
   h1 { margin-bottom: 4px; color: var(--text); }
   h2 { font-size: 18px; margin: 0 0 8px; color: var(--text); }
@@ -60,7 +61,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   input, select, button, textarea { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); font-family: inherit; }
   input, select, textarea { width: 100%; box-sizing: border-box; background: var(--bg-secondary); color: var(--text); }
   input::placeholder, textarea::placeholder { color: var(--text-dim); }
-  button { background: linear-gradient(135deg, var(--primary), var(--teal)); color: #fff; border: none; cursor: pointer; font-weight: 600; }
+  button { background: var(--primary); color: var(--on-accent); border: none; cursor: pointer; font-weight: 600; }
   button.secondary { background: var(--bg-card-hover); color: var(--text-muted); border: 1px solid var(--border); }
   button.small { padding: 6px 12px; font-size: 14px; }
   form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
@@ -72,15 +73,15 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .streak { font-size: 44px; font-weight: 700; color: var(--primary-light); line-height: 1; }
   .streak small { display: block; font-size: 12px; font-weight: 500; color: var(--text-dim); margin-top: 4px; }
   .streakmsg { color: var(--text-muted); font-size: 15px; }
-  .streakbest { margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.30); }
+  .streakbest { margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(242, 180, 90, 0.30); }
   /* Milestone badge — a discrete "you reached it" win, so a warm success accent (distinct from the blue personal-best line; the two can show together). */
-  .streakmilestone { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.30); }
+  .streakmilestone { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(108, 199, 154, 0.30); }
   /* Lifetime landmark — the cumulative total (never resets), so a gold/trophy accent distinct from both the blue best line and the green milestone; all three can show together. */
-  .streaklandmark { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--warn-light); background: var(--warn-dim); border: 1px solid rgba(245, 158, 11, 0.30); }
+  .streaklandmark { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--warn-light); background: var(--warn-dim); border: 1px solid rgba(232, 147, 90, 0.30); }
   /* Standing all-time record — the strongest run held as a permanent record, shown only at a fresh start; a purple accent distinct from the blue best, green milestone, and gold landmark. */
-  .streakrecord { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--purple); background: rgba(167, 139, 250, 0.12); border: 1px solid rgba(167, 139, 250, 0.30); }
+  .streakrecord { margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--purple); background: rgba(169, 155, 230, 0.12); border: 1px solid rgba(169, 155, 230, 0.30); }
   /* Power hours — the warm "you're strongest around N" read; a teal accent, distinct from the streak badges, matching its own insight card. */
-  .powerhours { margin-top: 6px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--teal); background: rgba(20, 184, 166, 0.12); border: 1px solid rgba(20, 184, 166, 0.30); }
+  .powerhours { margin-top: 6px; padding: 10px 14px; border-radius: 10px; font-size: 15px; font-weight: 600; color: var(--teal); background: rgba(107, 191, 174, 0.12); border: 1px solid rgba(107, 191, 174, 0.30); }
   .name { font-weight: 600; color: var(--text); }
   .line { color: var(--text-muted); font-size: 14px; }
   .when { color: var(--text-dim); font-size: 13px; }
@@ -89,10 +90,10 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .when.next.waiting { color: var(--warn-light); }
   .roster-next { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
   .roster-next.waiting { color: var(--warn-light); }
-  .roster-reach { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(14, 165, 233, 0.22); }
+  .roster-reach { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--primary-light); background: var(--primary-dim); border: 1px solid rgba(242, 180, 90, 0.22); }
   /* The joyful twin of the reach-out cue — a celebration, so a warm success accent, never the worried blue. */
-  .roster-back { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.22); }
-  .roster-milestone { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(34, 197, 94, 0.30); }
+  .roster-back { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(108, 199, 154, 0.22); }
+  .roster-milestone { margin-top: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--success-light); background: var(--success-dim); border: 1px solid rgba(108, 199, 154, 0.30); }
   /* The weekly homecoming digest — the batched twin of the per-client cues; a
      celebration of returns, so the same warm success accent, never a worried tone. */
   .digest .digest-summary { margin: 6px 0 0; font-size: 14px; color: var(--success-light); }

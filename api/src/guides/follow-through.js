@@ -258,7 +258,7 @@ ${sourcesHtml()}
     inLanguage: 'en',
     dateModified: F.lastmod,
     creator: { '@type': 'Person', name: AUTHOR.name, jobTitle: AUTHOR.role, url: AUTHOR.url },
-    publisher: { '@type': 'Organization', name: 'FocusBro', logo: { '@type': 'ImageObject', url: 'https://focusbro.net/icon-192.svg' } },
+    publisher: { '@type': 'Organization', name: 'FocusBro', logo: { '@type': 'ImageObject', url: 'https://focusbro.net/icon-512.png' } },
     temporalCoverage: f ? `${f.window.since}/${f.window.until}` : undefined,
     measurementTechnique: `First-party accountability ledger. Kept-word rate = kept ÷ (kept + rescheduled + missed) over a rolling ${F.windowDays}-day window; published only at or above ${F.minimumResolved} resolved commitments.`,
     variableMeasured: [
@@ -289,7 +289,7 @@ ${sourcesHtml()}
 <meta property="og:title" content="${esc(F.title)}" />
 <meta property="og:description" content="${esc(F.description)}" />
 <meta property="og:url" content="${url}" />
-<meta property="og:image" content="https://focusbro.net/icon-192.svg" />
+<meta property="og:image" content="https://focusbro.net/og.png" />
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${esc(F.title)}" />
 <meta name="twitter:description" content="${esc(F.description)}" />
