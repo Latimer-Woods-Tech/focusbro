@@ -60,6 +60,10 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .muted { color: var(--text-dim); font-size: 13px; }
   .footnote { margin-top: 28px; font-size: 13px; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 14px; }
   .hidden { display: none; }
+  /* FBQ-23 (CLS): /me/ is laid out but not painted until its first reads land, and
+     the footnote waits for the door-or-app decision instead of jumping below it. */
+  #app.loading { visibility: hidden; }
+  main:has(#signin.hidden):has(#app.hidden) > .footnote { display: none; }
   .err { color: var(--danger-light); font-size: 14px; }
   .ok { color: var(--success-light); font-size: 14px; }
   label { display: block; font-size: 13px; color: var(--text-muted); margin: 10px 0 4px; }

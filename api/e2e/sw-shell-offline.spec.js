@@ -33,9 +33,9 @@ test.beforeAll(async () => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(renderMePage());
     }
-    if (path === '/auth/session') {
+    if (path === '/auth/session') { // plain GET: 401 when anonymous; ?probe=1: 200 (FBQ-23)
       const signedIn = /(?:^|;\s*)smoke_session=1/.test(req.headers.cookie || '');
-      res.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.writeHead(signedIn || /probe=1/.test(req.url) ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(signedIn ? { authenticated: true, user_id: 'u1', guest: true } : { authenticated: false }));
     }
     if (path.startsWith('/api/') || path.startsWith('/auth/') || path.startsWith('/notifications/') || path.startsWith('/sync/')) {

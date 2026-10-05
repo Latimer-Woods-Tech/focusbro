@@ -80,7 +80,7 @@ suite('FBQ-03: authenticated mutable reads send Cache-Control: no-store', () => 
   it('the page scripts and the native bridge fetch those reads with cache: no-store (R2)', () => {
     // A plain GET of a mutable read (no `method:` in its options) must opt out
     // of the HTTP cache on the client too — defence in depth beside the header.
-    const READ = /fetch\('(\/api\/commitments|\/api\/commitments\/' \+ encodeURIComponent\(id\) \+ '\/detail|\/api\/accountability\/(?:streak|kept|homecoming)|\/api\/consent|\/api\/coach\/note-consent|\/api\/coach\/clients|\/api\/escalation|\/api\/me\/report|\/api\/pro\/status|\/auth\/session)'(\)|, \{[^}]*\})/g;
+    const READ = /fetch\('(\/api\/commitments|\/api\/commitments\/' \+ encodeURIComponent\(id\) \+ '\/detail|\/api\/accountability\/(?:streak|kept|homecoming)|\/api\/consent|\/api\/coach\/note-consent|\/api\/coach\/clients|\/api\/escalation|\/api\/me\/report|\/api\/pro\/status|\/auth\/session(?:\?probe=1)?)'(\)|, \{[^}]*\})/g;
     const sources = ['../me.js', '../native-bridge.js', '../report.js', '../index.js', '../pro.js', '../account-delete.js', '../../../public/index.html'];
     let seen = 0;
     for (const rel of sources) {
@@ -91,7 +91,7 @@ suite('FBQ-03: authenticated mutable reads send Cache-Control: no-store', () => 
         expect(m[2], `${rel}: ${m[0]}`).toMatch(/cache: 'no-store'/);
       }
     }
-    expect(seen).toBeGreaterThanOrEqual(20);
+    expect(seen).toBeGreaterThanOrEqual(19); // 20 until FBQ-23 folded /me/'s two session reads into one probeSession()
   });
 
   it('public responses keep their caching (R3)', async () => {

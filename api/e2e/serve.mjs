@@ -142,8 +142,11 @@ http
       res.end(renderAccountDeletedPage());
     } else if (path === '/auth/session') {
       // Signed in only when the smoke sets the stand-in cookie; no D1 here.
+      // Mirrors the Worker: a plain GET says 401 to an anonymous caller; ?probe=1
+      // (what the shell and /me/ send, FBQ-23) says 200 {authenticated:false}.
       const signedIn = /(?:^|;\s*)smoke_session=1/.test(req.headers.cookie || '');
-      res.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      const probe = new URL(req.url, 'http://x').searchParams.get('probe') === '1';
+      res.writeHead(signedIn || probe ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(signedIn ? { authenticated: true, user_id: 'smoke-user', guest: true, email: null } : { authenticated: false }));
     } else if (path === '/api/account/delete' && req.method === 'POST') {
       // Records what the page sent; the real deletion is proven in vitest on a real schema.

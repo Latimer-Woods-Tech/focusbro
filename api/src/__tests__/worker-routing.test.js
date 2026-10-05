@@ -161,7 +161,7 @@ describe('Worker routing', () => {
     expect(html).toContain("fetch('/api/acquisition/visit'");
     expect(html).toContain("sessionStorage.setItem(visitKey, '1')");
     expect(html).toContain('id="pomoStartBtn"');
-    expect(html).toContain("fetch('/auth/session', { cache: 'no-store' })");
+    expect(html).toContain("fetch('/auth/session?probe=1', { cache: 'no-store' })");
     expect(html).toContain('let fbAuthenticated = false');
     expect(html).not.toContain('function fbAuthToken()');
     expect(html).not.toContain("localStorage.getItem('focusbro_token')");

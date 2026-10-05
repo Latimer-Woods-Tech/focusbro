@@ -3829,8 +3829,13 @@ function fbFlushTelemetry() {
 
 // Discover cookie-backed account state without exposing the credential to
 // JavaScript, then drain anything left from a prior offline session.
-fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
-  fbAuthenticated = response.ok;
+// ?probe=1 answers an anonymous visitor 200 {authenticated:false}: a 401 here
+// is a red console line on every first visit and a request Playwright never
+// sees finish, so networkidle monitors time out (FBQ-23).
+fetch('/auth/session?probe=1', { cache: 'no-store' }).then(function (response) {
+  return response.ok ? response.json() : null;
+}).then(function (body) {
+  fbAuthenticated = !!(body && body.authenticated);
   if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); loadHomeWords(); }
 }).catch(function () {
   fbAuthenticated = false;
