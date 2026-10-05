@@ -94,6 +94,15 @@ export const config = {
       minTier: 'pro',
       experimental: true,
     },
+    // Promise-first home (council plan, move C): the home view is the promise
+    // and your words; the toolkit lives one tap away in Focus / Restore.
+    // Off by default. Flip here, or at runtime with HOME_PROMISE_FIRST=1;
+    // preview any time with /?home=promise (or force the toolkit: ?home=toolkit).
+    homePromiseFirst: {
+      enabled: false,
+      minTier: 'free',
+      experimental: true,
+    },
   },
 
   // ── CORS ──

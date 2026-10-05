@@ -78,7 +78,8 @@ describe('recordWordOffered', () => {
     expect(userId).toBeNull();
     expect(type).toBe(EVENTS.WORD_OFFERED);
     const data = JSON.parse(payload);
-    expect(data).toEqual({ attribution: { source: 'homepage', campaign: 'launch' }, when: 't-30m' });
+    // `home` names which home page made the offer (promise-first vs toolkit) — a variant, never content.
+    expect(data).toEqual({ attribution: { source: 'homepage', campaign: 'launch' }, when: 't-30m', home: 'toolkit' });
     // The invariant that protects the person: no task field, ever.
     expect(JSON.stringify(data)).not.toMatch(/task/i);
   });
