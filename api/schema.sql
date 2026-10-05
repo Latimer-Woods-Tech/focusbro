@@ -180,6 +180,15 @@ CREATE INDEX IF NOT EXISTS idx_analytics_user_time ON analytics_events(user_id, 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_client_event ON analytics_events(user_id, client_event_id)
   WHERE client_event_id IS NOT NULL;
 
+-- One row per person: when the return nudge last reached out (FBQ-07). The scan
+-- excludes anyone whose latch is at or after their last event. datetime() text,
+-- same format as analytics_events.created_at.
+CREATE TABLE IF NOT EXISTS return_nudge_latch (
+  user_id TEXT PRIMARY KEY,
+  nudged_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- ── DELIVERY + USER PREFERENCES ──
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id TEXT PRIMARY KEY,
