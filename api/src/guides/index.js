@@ -37,7 +37,10 @@ export const SHELL_CSS = `
   .app-cta:hover { text-decoration: none; background: #7d4a0c; }
   footer.site { margin-top: 48px; padding-top: 20px; border-top: 1px solid #e8e4dc;
     font-size: 13px; color: #6f6c66; }
-  footer.site a { color: #6f6c66; }
+  footer.site a { color: #1c1b19; text-decoration: underline; }
+  /* 44px tap targets on the site links; long DOIs and URLs wrap at 320px (FBQ-22). */
+  header.site a, footer.site a { display: inline-block; padding: 12px 0; }
+  code, .source-doi { overflow-wrap: anywhere; }
   .card { display: block; padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e8e4dc;
     border-radius: 10px; color: inherit; }
   .card:hover { border-color: #e2b878; text-decoration: none; background: #f3f1ec; }

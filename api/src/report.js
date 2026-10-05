@@ -600,6 +600,7 @@ export function renderReportPage() {
   return `${pageHead({ title: 'Weekly report — FocusBro', description: 'Your week, in the words you kept — copy it or share it with your coach.', maxWidth: 720 })}
 <body>
 ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, { href: '/coach/', label: 'Coach view' }])}
+<main>
 <h1>Weekly report</h1>
 <p class="intro" id="intro">${reportPageIntroCopy()}</p>
 
@@ -645,6 +646,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
 <p class="err hidden" id="err"></p>
 <p class="footnote">${reportPageFootnoteCopy()}</p>
 
+</main>
 <script>
 (function () {
   var reportText = '';
