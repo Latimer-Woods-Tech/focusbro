@@ -62,6 +62,7 @@ suite('POST /api/internal/run-checkins requires the cron key', () => {
     ['an empty', ''],
     ['a wrong', 'not-the-cron-key'],
     ['a truncated', CRON_KEY.slice(0, -1)],
+    ['an overlong', CRON_KEY + 'x'],
   ])('rejects %s x-cron-key with 401', async (_label, key) => {
     const res = await worker.fetch(post(path, { key }), makeEnv(), ctx);
     expect(res.status).toBe(401);
@@ -96,6 +97,7 @@ suite('POST /api/internal/seed-dogfood requires the cron key', () => {
     ['an empty', ''],
     ['a wrong', 'not-the-cron-key'],
     ['a truncated', CRON_KEY.slice(0, -1)],
+    ['an overlong', CRON_KEY + 'x'],
   ])('rejects %s x-cron-key with 401 and writes nothing', async (_label, key) => {
     const env = makeEnv();
     seedUser(env, email);
