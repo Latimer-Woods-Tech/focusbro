@@ -77,6 +77,10 @@ export const SHAME_PATTERNS = Object.freeze([
   /\bstreak (broke|is broken|was broken|ended|is (gone|over|dead)|reset|lost)\b/i,
   /\blost (your|the|my|a) streak\b/i,
   /\bno[-\s]?shows?\b/i, // a person who didn't pick up is not a "no-show"
+  // FBQ-20: no counter that resets to zero. A live run is shown to nobody — the
+  // only-climbing total is. These catch the rendered 0 and the label that invites one.
+  /\b0\s+(?:kept\s+words?\s+|words?\s+kept\s+|times\s+)?in a row\b/i,
+  /\bcurrent (?:kept[-\s]word )?(?:run|streak)\b/i,
 ]);
 
 /**
@@ -152,4 +156,30 @@ export function assertDesignLawClean(strings, opts = {}) {
       );
     }
   }
+}
+
+/**
+ * FBQ-20 — find CSS rules that dim with `opacity` between 0 and 1 (exclusive).
+ * The design LAW: no text dimmed with opacity (it fails contrast and cannot be
+ * audited); dim with a colour token instead. `@keyframes` bodies are skipped
+ * (animation, not resting state), and rules whose selector is in `allow`
+ * (decorative glyphs, not text) are skipped.
+ *
+ * @param {string} css
+ * @param {{ allow?: RegExp[] }} [opts]
+ * @returns {string[]} `selector => opacity` for each offending rule
+ */
+export function findDimmedTextRules(css, { allow = [] } = {}) {
+  const flat = String(css)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+  // Last declaration per selector wins (a later `opacity: 1` override is the fix).
+  const last = new Map();
+  for (const m of flat.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const o = m[2].match(/(?:^|[;\s])opacity\s*:\s*([0-9.]+)/);
+    if (o) last.set(m[1].trim().replace(/\s+/g, ' '), o[1]);
+  }
+  return [...last]
+    .filter(([sel, v]) => Number(v) > 0 && Number(v) < 1 && !allow.some((r) => r.test(sel)))
+    .map(([sel, v]) => `${sel} => ${v}`);
 }
