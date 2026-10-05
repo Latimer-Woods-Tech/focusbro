@@ -22,6 +22,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { consentPanelCopy, consentLanguage } from './consent.js';
+import { phoneVerifyCopy } from './phone-verify.js';
 import {
   momentumSelfHeadingCopy,
   momentumSelfIntroCopy,
@@ -795,6 +796,13 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     </form>
     <p class="ok hidden" id="consentMsg"></p>
     <p class="err hidden" id="consentErr"></p>
+    <div class="hidden" id="verifyBox">
+      <p class="muted">${phoneVerifyCopy().prompt}</p>
+      <button type="button" class="secondary" id="verifySend">${phoneVerifyCopy().sendButton}</button>
+      <label for="verifyCode">${phoneVerifyCopy().codeLabel}</label>
+      <input id="verifyCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+      <button type="button" id="verifyConfirm">${phoneVerifyCopy().confirmButton}</button>
+    </div>
   </div>
 
   <div class="card hidden" id="founderMetrics">
@@ -1639,6 +1647,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   }
 
   var CONSENT_COPY = ${JSON.stringify(consentPanelCopy())};
+  var VERIFY_COPY = ${JSON.stringify(phoneVerifyCopy())};
 
   // ── Escalation ceiling (the wedge): the person caps how far the ladder may
   // ever climb, and we save it the instant they change it. A control, never a
@@ -1771,7 +1780,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         if (text.quiet_start != null) el('quietStart').value = String(text.quiet_start);
         if (text.quiet_end != null) el('quietEnd').value = String(text.quiet_end);
         var msg = el('consentMsg');
-        if (text.status === 'granted') { msg.textContent = ''; el('agree').checked = true; }
+        if (text.status === 'granted') { msg.textContent = ''; el('agree').checked = true; if (!data.phone_verified) show(el('verifyBox')); }
         else if (text.status === 'revoked') { msg.textContent = CONSENT_COPY.optedOut; show(msg); }
       })
       .catch(function () {});
@@ -1808,8 +1817,29 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         .then(function (res) {
           if (!res.ok) { var e = el('consentErr'); e.textContent = res.b.error || 'Could not save that.'; show(e); return; }
           var m = el('consentMsg'); m.textContent = res.b.message || CONSENT_COPY.savedOk; show(m);
+          if (res.b.needs_verification) show(el('verifyBox')); else hide(el('verifyBox'));
         })
         .catch(function () { var e = el('consentErr'); e.textContent = 'Could not save that just now — try again.'; show(e); });
+    });
+
+    function verifyCall(path, payload) {
+      hide(el('consentMsg')); hide(el('consentErr'));
+      return fetch(path, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          var t = res.ok ? el('consentMsg') : el('consentErr');
+          t.textContent = res.b.message || res.b.error || VERIFY_COPY.sendFailed; show(t);
+          if (res.ok && res.b.phone_verified) hide(el('verifyBox'));
+        })
+        .catch(function () { var e = el('consentErr'); e.textContent = VERIFY_COPY.sendFailed; show(e); });
+    }
+    el('verifySend').addEventListener('click', function () {
+      var ph = el('phone').value.trim();
+      if (!ph) { var e = el('consentErr'); e.textContent = VERIFY_COPY.needPhone; show(e); return; }
+      verifyCall('/api/consent/phone/code', { phone: ph });
+    });
+    el('verifyConfirm').addEventListener('click', function () {
+      verifyCall('/api/consent/phone/verify', { code: el('verifyCode').value.trim() });
     });
 
     el('consentOptOut').addEventListener('click', function () {

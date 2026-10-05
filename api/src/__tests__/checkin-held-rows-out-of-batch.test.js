@@ -48,6 +48,7 @@ function makeEnv() {
 function user(env, id, { phone = null } = {}) {
   env.DB.sqlite.prepare(`INSERT INTO users (id, email, password_hash, phone) VALUES (?, ?, 'x', ?)`)
     .run(id, `${id}@example.test`, phone);
+  env.DB.sqlite.prepare(`UPDATE users SET phone_verified_at = datetime('now') WHERE id = ? AND phone IS NOT NULL`).run(id); // FBQ-12: verified fixture
 }
 /** A Pro user who texts, with granted consent and the given quiet window. */
 function texter(env, id, { qs = 10, qe = 13 } = {}) {
@@ -212,7 +213,7 @@ suite('FBQ-06: a held check-in does not occupy the batch', () => {
     s.prepare(`INSERT INTO pro_purchases (id, user_id, stripe_session_id, status, paid_at) VALUES ('pp', ?, 'cs', 'paid', ?)`).run(userId, NOW);
     s.prepare(`INSERT INTO contact_consent (id, user_id, channel, status, quiet_start, quiet_end, timezone)
                VALUES ('cc', ?, 'text', 'granted', 10, 13, ?)`).run(userId, TZ);
-    s.prepare(`UPDATE users SET phone = '+15550002222' WHERE id = ?`).run(userId);
+    s.prepare(`UPDATE users SET phone = '+15550002222', phone_verified_at = datetime('now') WHERE id = ?`).run(userId);
     const id = word(env, userId, 't', { channel: 'text' });
     await runDueCheckins(env, { now: NOW });
     expect(get(env, id).next_attempt_at).toBe(QUIET_END);

@@ -24,8 +24,12 @@ const OTHER_PHONE = '+15557654321';
 function makeEnv() {
   const DB = makeMigratedD1();
   for (const sql of RUNTIME_CREATES) DB.sqlite.exec(sql);
-  DB.sqlite.exec(`INSERT INTO users (id, email, phone, password_hash) VALUES ('u1', 'a@x.test', '${PHONE}', 'x'),
-                                                         ('u2', 'b@x.test', '${OTHER_PHONE}', 'x')`);
+  // FBQ-12: a reply resolves only through a VERIFIED number whose text consent is granted.
+  DB.sqlite.exec(`INSERT INTO users (id, email, phone, phone_verified_at, password_hash) VALUES
+                    ('u1', 'a@x.test', '${PHONE}', datetime('now'), 'x'),
+                    ('u2', 'b@x.test', '${OTHER_PHONE}', datetime('now'), 'x');
+                  INSERT INTO contact_consent (id, user_id, channel, status, phone) VALUES
+                    ('cc1', 'u1', 'text', 'granted', '${PHONE}'), ('cc2', 'u2', 'text', 'granted', '${OTHER_PHONE}')`);
   return { DB, TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550001111', TELNYX_PUBLIC_KEY: 'test' };
 }
 function word(env, { id = 'cm1', userId = 'u1', recurrence = 'none' } = {}) {

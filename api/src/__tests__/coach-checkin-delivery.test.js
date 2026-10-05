@@ -68,14 +68,14 @@ function makeDB({ links = [], operators = [], configs = [], phone = '+1555765432
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async all() {
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, phone_ok: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
           return { results: [] };
         },
         async first() {
           if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM coach_clients cc/.test(sql)) return resolveCoach(params[0]);
           if (/FROM contact_consent/.test(sql)) return consent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },

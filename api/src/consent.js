@@ -56,6 +56,7 @@ import {
   pickPersona,
 } from './accountability.js';
 import { recordEvent, EVENTS } from './events.js';
+import { registerPhoneVerifyRoutes, phoneVerifyCopy, verifyCodeSms, hasVerifiedTextChannel } from './phone-verify.js';
 
 /** Channels that are TCPA-scoped outbound contact. Push is app UX, not a call/text. */
 export const CONSENT_CHANNELS = ['text', 'voice'];
@@ -311,6 +312,7 @@ export function consentCopySurface() {
     p.heading, p.intro, p.phoneLabel, p.quietHeading, p.quietHint,
     p.quietStartLabel, p.quietEndLabel, p.agreeLabel, p.saveButton,
     p.optOutButton, p.savedOk, p.optedOut, p.needAgree, p.needPhone,
+    ...Object.values(phoneVerifyCopy()), verifyCodeSms('123456'),
   ];
 }
 
@@ -321,7 +323,7 @@ export function consentCopySurface() {
  *
  * @param {object} env  Worker env with a D1-shaped `DB`
  * @param {object} args { userId, channel, nowISO }
- * @returns {Promise<{allow:true} | {skip:'no_consent'|'opted_out'} | {defer:'quiet_hours', until:string|null}>}
+ * @returns {Promise<{allow:true} | {skip:'no_consent'|'opted_out'|'phone_unverified'} | {defer:'quiet_hours', until:string|null}>}
  *   - push (and anything not in CONSENT_CHANNELS) is never gated → {allow:true}
  *   - no granted consent → {skip:'no_consent'} (terminal, no shame)
  *   - consent revoked (opted out) → {skip:'opted_out'}
@@ -338,6 +340,12 @@ export async function evaluateContactGate(env, { userId, channel, nowISO } = {})
   if (!row) return { skip: 'no_consent' };
   if (row.status === 'revoked') return { skip: 'opted_out' };
   if (row.status !== 'granted') return { skip: 'no_consent' };
+
+  // FBQ-12: consent alone is not enough — the number must be VERIFIED (a code
+  // sent to it was confirmed). Unverified = no text channel; callers fall back
+  // to push or skip with this reason. Never throws on a missing user row.
+  const who = await env.DB.prepare(`SELECT phone, phone_verified_at FROM users WHERE id = ?`).bind(userId).first();
+  if (!hasVerifiedTextChannel(who)) return { skip: 'phone_unverified' };
 
   if (isWithinQuietHours(nowISO, row.timezone, row.quiet_start, row.quiet_end)) {
     // `until`: the instant the window ends, so the cron can park the row until then (FBQ-06).
@@ -417,6 +425,7 @@ export function registerConsentRoutes(router, ctx) {
     jsonResponse,
     generateUUID,
     verifyInboundSignature = verifyTelnyxSignature,
+    sendVerificationSms = sendSms, // FBQ-12: injectable so tests/local runs never reach the carrier
   } = ctx;
 
   async function requireUser(request, env) {
@@ -438,13 +447,14 @@ export function registerConsentRoutes(router, ctx) {
            FROM contact_consent WHERE user_id = ?`
       ).bind(auth.userId).all();
 
-      const user = await env.DB.prepare(`SELECT phone FROM users WHERE id = ?`).bind(auth.userId).first();
+      const user = await env.DB.prepare(`SELECT phone, phone_verified_at FROM users WHERE id = ?`).bind(auth.userId).first();
       const channels = {};
       for (const r of (rows && rows.results) || []) channels[r.channel] = r;
 
       return jsonResponse({
         channels,
         phone_present: !!(user && user.phone),
+        phone_verified: hasVerifiedTextChannel(user),
         consent_version: CONSENT_VERSION,
         disclosure: { text: consentLanguage('text') },
       }, 200);
@@ -487,8 +497,13 @@ export function registerConsentRoutes(router, ctx) {
       const consentText = consentLanguage(channel);
 
       // Store the phone on the user (the text channel needs it).
-      await env.DB.prepare(`UPDATE users SET phone = ?, updated_at = datetime('now') WHERE id = ?`)
-        .bind(phone, auth.userId).run();
+      // A CHANGED number is unverified until a code sent to it is confirmed (FBQ-12).
+      await env.DB.prepare(
+        `UPDATE users SET phone_verified_at = CASE WHEN phone = ?1 THEN phone_verified_at ELSE NULL END,
+                phone = ?1, updated_at = datetime('now') WHERE id = ?2`,
+      ).bind(phone, auth.userId).run();
+      const mine = await env.DB.prepare(`SELECT phone, phone_verified_at FROM users WHERE id = ?`).bind(auth.userId).first();
+      const verified = hasVerifiedTextChannel(mine);
 
       // Upsert the consent record. Re-granting clears any prior opt-out.
       const id = generateUUID();
@@ -523,12 +538,17 @@ export function registerConsentRoutes(router, ctx) {
         quiet_hours: (quietStart !== null && quietEnd !== null && quietStart !== quietEnd)
           ? { start: quietStart, end: quietEnd, timezone } : null,
         message: consentSavedCopy(),
+        phone_verified: verified,
+        needs_verification: !verified,
+        verify_message: verified ? null : phoneVerifyCopy().prompt,
       }, 200);
     } catch (err) {
       console.error('[consent] grant error:', err && err.message);
       return jsonResponse({ error: 'Could not save that just now — try again in a moment.' }, 500);
     }
   });
+
+  registerPhoneVerifyRoutes(router, { jsonResponse, requireUser, normalizePhone, sendSms: sendVerificationSms });
 
   // ── OPT OUT (durable revoke) from the app ──
   router.post('/api/consent/opt-out', async (request, env) => {
@@ -623,12 +643,20 @@ export function registerConsentRoutes(router, ctx) {
       const phone = normalizePhone(from);
       if (!phone) return finish({ ok: true, ignored: 'no_from' });
 
-      const user = await env.DB.prepare(`SELECT id FROM users WHERE phone = ?`).bind(phone).first();
-      if (!user) return finish({ ok: true, ignored: 'unknown_number' });
+      // FBQ-12: the sender is never "whoever `.first()` returns". STOP revokes
+      // EVERY account holding the number (verified or not — a number someone typed
+      // in for us still must stop); everything else resolves only through the one
+      // account whose number is VERIFIED (partial unique index) and whose text
+      // consent is currently granted.
+      const holders = await env.DB.prepare(
+        `SELECT id FROM users WHERE phone = ?1
+         UNION SELECT user_id FROM contact_consent WHERE phone = ?1 AND channel = 'text'`,
+      ).bind(phone).all();
+      if (!((holders && holders.results) || []).length) return finish({ ok: true, ignored: 'unknown_number' });
 
       // ── Compliance keywords first (STOP always wins; HELP is informational) ──
       if (isStopKeyword(text)) {
-        await revokeConsent(env, { userId: user.id, channel: 'text', source: 'sms' });
+        for (const h of holders.results) await revokeConsent(env, { userId: h.id, channel: 'text', source: 'sms' });
         await sendSms(env, phone, optOutConfirmCopy());
         return finish({ ok: true, action: 'opted_out' });
       }
@@ -636,6 +664,10 @@ export function registerConsentRoutes(router, ctx) {
         await sendSms(env, phone, helpReplyCopy());
         return finish({ ok: true, action: 'help' });
       }
+      const user = await env.DB.prepare(
+        `SELECT id FROM users WHERE phone = ? AND phone_verified_at IS NOT NULL`,
+      ).bind(phone).first();
+      if (!user) return finish({ ok: true, ignored: 'unverified_number' });
       // START/YES only means "resume" when the person is actually opted out.
       // Otherwise a bare "yes" is an answer to a check-in, not a re-subscribe.
       if (isStartKeyword(text)) {
@@ -650,6 +682,12 @@ export function registerConsentRoutes(router, ctx) {
         }
         // not opted out → fall through and treat as a check-in reply
       }
+
+      // A reply resolves nothing unless the verified holder's text consent is granted.
+      const consented = await env.DB.prepare(
+        `SELECT 1 AS ok FROM contact_consent WHERE user_id = ? AND channel = 'text' AND status = 'granted'`,
+      ).bind(user.id).first();
+      if (!consented) return finish({ ok: true, ignored: 'no_active_consent' });
 
       // ── Two-way check-in reply: resolve the person's open text check-in ──
       // A text check-in is only half the loop if you can't answer it. Find the

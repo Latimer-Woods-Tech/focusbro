@@ -57,6 +57,8 @@ function makeStore({ commitment, checkins }) {
     const stmt = {
       bind(...a) { params = a; return stmt; },
       async first() {
+        // FBQ-12: the verified holder's text consent is granted in these fixtures.
+        if (/FROM contact_consent WHERE user_id = \? AND channel = 'text' AND status = 'granted'/.test(sql)) return { ok: 1 };
         if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
         // The inbound open-check-in lookup: text, unanswered, active parent, in one
         // of the three open substates (sent / awaiting_time / delivered-pending).
@@ -80,7 +82,7 @@ function makeStore({ commitment, checkins }) {
         }
         return null;
       },
-      async all() { return { results: [] }; },
+      async all() { return { results: /UNION SELECT user_id FROM contact_consent/.test(sql) ? (typeof user !== 'undefined' ? (user ? [{ id: user.id }] : []) : [{ id: 'u1' }]) : [] }; },
       async run() {
         // webhook_inbox intake: first insert "changes" (not a duplicate).
         if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };

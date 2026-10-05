@@ -67,7 +67,7 @@ function makeDB(row) {
           // evaluateContactGate's read.
           if (/FROM contact_consent/.test(sql)) return CONSENT_NO_QUIET;
           // deliverText's phone read.
-          if (/FROM users/.test(sql)) return { phone: '+15557654321' };
+          if (/FROM users/.test(sql)) return { phone: '+15557654321', phone_verified_at: '2026-10-05 00:00:00' };
           // resolveCoachCheckin → none (self-directed).
           return null;
         },

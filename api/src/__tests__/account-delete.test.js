@@ -87,7 +87,7 @@ function rowCounts(sdb) {
 /** Seed one person's data into every user-keyed table. */
 function seedPerson(sdb, u, phone, tag) {
   const run = (sql, ...a) => sdb.prepare(sql).run(...a);
-  run('UPDATE users SET phone = ? WHERE id = ?', phone, u);
+  run("UPDATE users SET phone = ?, phone_verified_at = datetime('now') WHERE id = ?", phone, u);
   run('INSERT INTO user_data_snapshots (id, user_id, snapshot_data) VALUES (?, ?, ?)', `snap-${tag}`, u, '{"notes":"mine"}');
   run('INSERT INTO sync_logs (id, user_id, device_id, action) VALUES (?, ?, ?, ?)', `sl-${tag}`, u, `dev-${tag}`, 'upload');
   run('INSERT INTO api_keys (id, user_id, key_hash) VALUES (?, ?, ?)', `ak-${tag}`, u, 'h');

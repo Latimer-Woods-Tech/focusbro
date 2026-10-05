@@ -547,6 +547,8 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async first() {
+          // FBQ-12: the verified holder's text consent is granted in these fixtures.
+          if (/FROM contact_consent WHERE user_id = \? AND channel = 'text' AND status = 'granted'/.test(sql)) return { ok: 1 };
           if (/FROM users WHERE phone/.test(sql)) {
             if (failUserLookup) throw new Error('transient D1 failure');
             return user;
@@ -556,7 +558,7 @@ function makeWebhookDB({ user = { id: 'u1' }, open = null, optedOut = false, str
           if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
           return null;
         },
-        async all() { return { results: [] }; },
+        async all() { return { results: /UNION SELECT user_id FROM contact_consent/.test(sql) ? (typeof user !== 'undefined' ? (user ? [{ id: user.id }] : []) : [{ id: 'u1' }]) : [] }; },
         async run() {
           runs.push({ sql, params });
           if (/INSERT INTO webhook_inbox/.test(sql)) {
@@ -1814,6 +1816,8 @@ function makeWindowDB({ open, user = { id: 'u1' } } = {}) {
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async first() {
+          // FBQ-12: the verified holder's text consent is granted in these fixtures.
+          if (/FROM contact_consent WHERE user_id = \? AND channel = 'text' AND status = 'granted'/.test(sql)) return { ok: 1 };
           if (/FROM users WHERE phone/.test(sql)) return user;
           if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
             // Simulate the real WHERE: a delivered-pending row is only visible
@@ -1827,7 +1831,7 @@ function makeWindowDB({ open, user = { id: 'u1' } } = {}) {
           if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
           return null;
         },
-        async all() { return { results: [] }; },
+        async all() { return { results: /UNION SELECT user_id FROM contact_consent/.test(sql) ? (typeof user !== 'undefined' ? (user ? [{ id: user.id }] : []) : [{ id: 'u1' }]) : [] }; },
         async run() {
           runs.push({ sql, params });
           if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };
@@ -1900,10 +1904,12 @@ describe('a reply inside a "help me start" / snooze wait window is honored (R-28
         const stmt = {
           bind() { return stmt; },
           async first() {
+            // FBQ-12: the verified holder's text consent is granted in these fixtures.
+            if (/FROM contact_consent WHERE user_id = \? AND channel = 'text' AND status = 'granted'/.test(sql)) return { ok: 1 };
             if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
             return null;
           },
-          async all() { return { results: [] }; },
+          async all() { return { results: /UNION SELECT user_id FROM contact_consent/.test(sql) ? (typeof user !== 'undefined' ? (user ? [{ id: user.id }] : []) : [{ id: 'u1' }]) : [] }; },
           async run() { return { success: true, meta: { changes: 1 } }; },
         };
         return stmt;
@@ -1943,6 +1949,8 @@ function makeGuardFaithfulDB(open) {
       const stmt = {
         bind(...a) { params = a; return stmt; },
         async first() {
+          // FBQ-12: the verified holder's text consent is granted in these fixtures.
+          if (/FROM contact_consent WHERE user_id = \? AND channel = 'text' AND status = 'granted'/.test(sql)) return { ok: 1 };
           if (/FROM users WHERE phone/.test(sql)) return { id: 'u1' };
           if (/FROM commitment_checkins c\s+JOIN commitments m/.test(sql)) {
             const guarded = /m\.status\s*=\s*'active'/.test(sql);
@@ -1953,7 +1961,7 @@ function makeGuardFaithfulDB(open) {
           if (/FROM commitment_checkins\s+WHERE commitment_id = \? AND status = 'pending'/.test(sql)) return null;
           return null;
         },
-        async all() { return { results: [] }; },
+        async all() { return { results: /UNION SELECT user_id FROM contact_consent/.test(sql) ? (typeof user !== 'undefined' ? (user ? [{ id: user.id }] : []) : [{ id: 'u1' }]) : [] }; },
         async run() {
           runs.push({ sql, params });
           if (/INSERT INTO webhook_inbox/.test(sql)) return { success: true, meta: { changes: 1 } };

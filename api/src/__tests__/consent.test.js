@@ -147,13 +147,13 @@ describe('phone normalization', () => {
 });
 
 // ── a tiny D1-shaped fake for the gate (returns an env with a DB) ──
-function gateDB(consentRow) {
+function gateDB(consentRow, user = { phone: '+15557654321', phone_verified_at: '2026-10-05 00:00:00' }) {
   return {
     DB: {
-      prepare() {
+      prepare(sql) {
         return {
           bind() { return this; },
-          async first() { return consentRow; },
+          async first() { return /FROM users/.test(sql) ? user : consentRow; }, // FBQ-12: verified number by default
         };
       },
     },

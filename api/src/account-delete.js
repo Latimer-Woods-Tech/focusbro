@@ -78,6 +78,7 @@ export const ACCOUNT_DELETION_PLAN = Object.freeze([
   // json_valid guards the extract: one malformed row must not fail the batch.
   { table: 'analytics_events', action: 'delete', where: "user_id = ?1 OR (user_id IS NULL AND event_type = 'return_nudge_sent' AND CASE WHEN json_valid(event_data) THEN json_extract(event_data, '$.user_id') END = ?1)", what: 'usage events tied to the account' },
   { table: 'return_nudge_latch', action: 'delete', where: 'user_id = ?1', what: 'when we last reached out after a quiet stretch' },
+  { table: 'phone_verifications', action: 'delete', where: 'user_id = ?1', what: 'a pending phone-confirmation code (hashed) and the number it was sent to' },
   // ── sign-in ──
   { table: 'sessions', action: 'delete', where: 'user_id = ?1', what: 'sign-in sessions' },
   { table: 'auth_action_tokens', action: 'delete', where: 'user_id = ?1', what: 'password-reset / verification tokens' },

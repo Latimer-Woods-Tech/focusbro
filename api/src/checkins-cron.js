@@ -486,7 +486,9 @@ export async function runDueCheckins(rawEnv, opts = {}) {
             c.scheduled_for, COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
             m.recurrence, m.timezone, m.local_time, m.status AS commitment_status,
             EXISTS (SELECT 1 FROM pro_purchases pp
-                     WHERE pp.user_id = c.user_id AND pp.status = 'paid') AS is_pro
+                     WHERE pp.user_id = c.user_id AND pp.status = 'paid') AS is_pro,
+            EXISTS (SELECT 1 FROM users u WHERE u.id = c.user_id
+                     AND u.phone_verified_at IS NOT NULL AND TRIM(COALESCE(u.phone, '')) != '') AS phone_ok
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
       WHERE c.status = 'pending' AND COALESCE(c.next_attempt_at, c.scheduled_for) <= ?
@@ -526,8 +528,11 @@ export async function runDueCheckins(rawEnv, opts = {}) {
     // the row parks with an explicit reason — never dropped silently, never a
     // text. Decided BEFORE the consent gate, so a free person's phone and
     // consent row are never even read on this path.
+    // FBQ-12 (default ruling): a number that has not been verified has NO text
+    // channel — the same push fallback applies (hasVerifiedTextChannel's SQL twin).
     const textNotPro = scanned.channel === 'text' && !Number(scanned.is_pro);
-    const row = textNotPro ? { ...scanned, channel: 'push' } : scanned;
+    const textUnverified = scanned.channel === 'text' && !textNotPro && !Number(scanned.phone_ok);
+    const row = (textNotPro || textUnverified) ? { ...scanned, channel: 'push' } : scanned;
 
     // CONSENT BY CONSTRUCTION (TCPA): text/voice cannot send without granted
     // consent, inside recipient quiet hours, or after opt-out. Push is app UX,
@@ -628,6 +633,9 @@ export async function runDueCheckins(rawEnv, opts = {}) {
       // Name WHY a free person's text check-in could not be delivered as push.
       if (textNotPro && outcome.status === 'skipped') {
         outcome = { ...outcome, detail: `text_is_pro_${outcome.detail}` };
+      }
+      if (textUnverified && outcome.status === 'skipped') {
+        outcome = { ...outcome, detail: `phone_unverified_${outcome.detail}` };
       }
     }
 

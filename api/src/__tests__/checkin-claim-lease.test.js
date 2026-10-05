@@ -165,7 +165,7 @@ suite('FBQ-05: the cron claims a check-in before sending it', () => {
     const { userId, id } = await wordWithPush(env);
     const s = env.DB.sqlite;
     s.prepare(`UPDATE commitment_checkins SET channel = 'text' WHERE commitment_id = ?`).run(id);
-    s.prepare(`UPDATE users SET phone = '+15550002222' WHERE id = ?`).run(userId);
+    s.prepare(`UPDATE users SET phone = '+15550002222', phone_verified_at = datetime('now') WHERE id = ?`).run(userId);
     s.prepare(`INSERT INTO pro_purchases (id, user_id, stripe_session_id, status, paid_at) VALUES ('pp', ?, 'cs_1', 'paid', ?)`).run(userId, NOW);
     s.prepare(`INSERT INTO contact_consent (id, user_id, channel, status, quiet_start, quiet_end, timezone)
                VALUES ('cc', ?, 'text', 'granted', ?, ?, ?)`).run(userId, qs, qe, TZ);
