@@ -5,6 +5,15 @@ on:
     branches:
       - main
 
+# One production deploy at a time, newest last. Without this, two merges a few
+# seconds apart deploy concurrently and the OLDER commit can finish last and
+# roll prod back (2026-10-05, #408/#409: won by 4 s). cancel-in-progress is
+# false so a running deploy — and its D1 migration step — always completes;
+# GitHub keeps only the newest pending run queued behind it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
