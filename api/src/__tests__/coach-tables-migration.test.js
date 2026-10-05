@@ -129,8 +129,8 @@ suite('FBQ-10: coach onboarding → roster → cron voice on the real tables', (
 
     // 3. Invite → accept, then the operator roster seats the client in operator_clients.
     const inv = await worker.fetch(req('POST', '/api/coach/clients', { cookie: coach.cookie, body: { email: client.email, label: 'Jo' } }), env, ctx);
-    expect(inv.status, await inv.clone().text()).toBe(201);
-    const { link_id: linkId } = await inv.json();
+    expect(inv.status, await inv.clone().text()).toBe(202);
+    const { id: linkId } = env.DB.sqlite.prepare('SELECT id FROM coach_clients WHERE coach_user_id = ? AND client_user_id = ?').get(coach.userId, client.userId);
     const acc = await worker.fetch(req('POST', `/api/coach/invitations/${linkId}/accept`, { cookie: client.cookie, body: {} }), env, ctx);
     expect(acc.status).toBe(200);
 

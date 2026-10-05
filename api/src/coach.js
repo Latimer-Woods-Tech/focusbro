@@ -1064,14 +1064,18 @@ export function registerCoachRoutes(router, ctx) {
       }
       const label = normalizeClientLabel(body && body.label);
 
+      // ENUMERATION GUARD: every outcome below answers the SAME way (202 and
+      // the same body, no link id), so a coach cannot tell from the response
+      // whether the email has an account, is already linked, or was re-opened.
+      // The only thing that differs is what is written.
+      const uniform = () => jsonResponse({ message: inviteSentCopy({ email }), status: 'pending' }, 202);
+
       const client = await env.DB.prepare(
         'SELECT id FROM users WHERE email = ? AND is_active = 1'
       ).bind(email).first();
-      // Do not reveal whether the email maps to an account (enumeration guard);
-      // the invitation simply stays unclaimable until that person signs up.
-      if (!client) {
-        return jsonResponse({ message: inviteSentCopy({ email }), status: 'pending' }, 202);
-      }
+      // No account: nothing is written; the invitation stays unclaimable until
+      // that person signs up.
+      if (!client) return uniform();
       if (client.id === auth.userId) {
         return jsonResponse({ error: 'You’re already on your own side — invite someone you support.' }, 400);
       }
@@ -1081,9 +1085,7 @@ export function registerCoachRoutes(router, ctx) {
         'SELECT id, status FROM coach_clients WHERE coach_user_id = ? AND client_user_id = ?'
       ).bind(auth.userId, client.id).first();
 
-      if (existing && (existing.status === 'pending' || existing.status === 'active')) {
-        return jsonResponse({ message: inviteSentCopy({ email }), status: existing.status, link_id: existing.id }, 200);
-      }
+      if (existing && (existing.status === 'pending' || existing.status === 'active')) return uniform();
 
       if (existing) {
         await env.DB.prepare(
@@ -1092,7 +1094,7 @@ export function registerCoachRoutes(router, ctx) {
                   responded_at = NULL, updated_at = datetime('now')
             WHERE id = ?`
         ).bind(label, existing.id).run();
-        return jsonResponse({ message: inviteSentCopy({ email }), status: 'pending', link_id: existing.id }, 200);
+        return uniform();
       }
 
       const id = generateUUID();
@@ -1102,7 +1104,7 @@ export function registerCoachRoutes(router, ctx) {
          VALUES (?, ?, ?, ?, 'pending', datetime('now'))`
       ).bind(id, auth.userId, client.id, label).run();
 
-      return jsonResponse({ message: inviteSentCopy({ email }), status: 'pending', link_id: id }, 201);
+      return uniform();
     } catch (err) {
       console.error('[coach] invite error:', err && err.message);
       return jsonResponse({ error: 'Could not send that invitation. Try again in a moment.' }, 500);

@@ -48,7 +48,8 @@ async function seed() {
   }), env);
   expect(cfg.status).toBe(200);
   const inv = await call(req('POST', '/api/coach/clients', { cookie: coach.cookie, body: { email: client.email, label: 'Jo' } }), env);
-  const { link_id: linkId } = await inv.json();
+  expect(inv.status).toBe(202);
+  const { id: linkId } = env.DB.sqlite.prepare('SELECT id FROM coach_clients WHERE coach_user_id = ? AND client_user_id = ?').get(coach.userId, client.userId);
   return { env, coach, client, other, linkId };
 }
 async function accept(env, client, linkId) {
