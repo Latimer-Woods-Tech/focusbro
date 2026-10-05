@@ -34,6 +34,7 @@ import {
 } from './account-recovery.js';
 import { spendLimits, refundLimit, clearLimits, retryAfterSeconds } from './rate-limit.js';
 import { pageHead, pageNav } from './page-shell.js';
+import { runRetentionPurge } from './retention-purge.js';
 import { runDueCheckins, runEscalations, runReturnNudges, recordCronHealth, readCronHealth, makeTickBudget } from './checkins-cron.js';
 import { computeLoopMetrics, clampSinceDays, recordAcquisitionVisit, recordWordOffered, recordGuideView, recordEvent, EVENTS } from './events.js';
 import config, { D1_SCHEMA_VERSION, GUEST_EMAIL_DOMAIN } from './config.js';
@@ -3769,6 +3770,16 @@ export default {
         console.log('[cron] return-nudges:', JSON.stringify(returnNudges));
       } catch (rnErr) {
         stageFailed('return_nudge', rnErr);
+      }
+      // FBQ-26a: sweep one bounded slice of dead sessions / tokens / old analytics.
+      // Last stage, own try: housekeeping can never delay a send or abort the stamp.
+      let purge = null;
+      try {
+        purge = await runRetentionPurge(runtimeEnv);
+        budget.used += purge.calls;
+        if (purge.sessions || purge.tokens || purge.analytics) console.log('[cron] retention-purge:', JSON.stringify(purge));
+      } catch (purgeErr) {
+        stageFailed('retention_purge', purgeErr);
       }
       // SLO signals: liveness (last_tick) + correctness (delivery fail streak),
       // so /health + the off-platform monitor catch both a silent cron death
