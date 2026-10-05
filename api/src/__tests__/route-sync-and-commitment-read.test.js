@@ -224,7 +224,10 @@ suite('/sync/devices + /sync/history (real D1)', () => {
     const a = await register(env, 'steal-a@example.com');
     const b = await register(env, 'steal-b@example.com');
     await reg(env, a, { id: 'a-device', name: 'A laptop' });
+    env.DB.sqlite.prepare("UPDATE devices SET last_activity = '2020-01-01 00:00:00' WHERE device_id = 'a-device'").run();
     await reg(env, b, { id: 'a-device', name: 'B renamed it' });
+    // B's replay must not even touch A's last_activity (it would look like A was just active)
+    expect(row(env, "SELECT last_activity FROM devices WHERE device_id = 'a-device'")).toEqual({ last_activity: '2020-01-01 00:00:00' });
     expect(row(env, "SELECT user_id, device_name FROM devices WHERE device_id = 'a-device'")).toEqual({ user_id: a.id, device_name: 'A laptop' });
     expect((await (await list(env, b)).json()).devices).toEqual([]);
   });

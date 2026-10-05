@@ -360,6 +360,7 @@ export async function registerDevice(env, userId, deviceInfo) {
       INSERT INTO devices (user_id, device_id, device_name, last_activity)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(device_id) DO UPDATE SET last_activity = datetime('now')
+      WHERE devices.user_id = excluded.user_id
     `;
 
     await env.DB.prepare(query).bind(userId, deviceId, deviceName).run();
