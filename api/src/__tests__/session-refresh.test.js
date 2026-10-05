@@ -121,7 +121,7 @@ function requestWithCookie(env, path, token, origin = 'https://focusbro.net') {
       method: 'POST',
       headers: {
         Cookie: `__Host-focusbro_session=${encodeURIComponent(token)}`,
-        Origin: origin
+        ...(origin === null ? {} : { Origin: origin })
       }
     }),
     env,
@@ -403,6 +403,50 @@ describe('session refresh', () => {
 
     expect(response.status).toBe(403);
     expect(state.sessionLookups).toBe(0);
+  });
+
+  // FBQ-24 R1: a cookie is sent by the browser on any request the page did not
+  // write, so an absent Origin is NOT a same-site signal. Mutant killed: dropping
+  // `!origin ||` from rejectCrossSiteCookieMutation.
+  it('rejects a cookie-authenticated mutation that carries no Origin header', async () => {
+    const token = await generateToken(USER_ID, JWT_SECRET, SESSION_ID);
+    const { env, state } = makeEnv(token);
+
+    const response = await requestWithCookie(env, '/auth/logout', token, null);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'Cross-site request rejected' });
+    expect(state.sessionLookups).toBe(0);
+    expect(state.revoked).toBe(false);
+  });
+
+  // FBQ-24 R1: a well-formed header + payload with a signature made by any key
+  // but ours must never reach the session table. The mock DB here WOULD accept
+  // the forged token, so only the signature check stands between it and a 200.
+  // Mutant killed: `if (!isValid)` -> `if (false)` in verifySignedToken.
+  it('rejects a token whose signature was forged with another key', async () => {
+    const forged = await generateToken(USER_ID, 'attacker-guessed-secret-of-plausible-length', SESSION_ID);
+    const [header, payload, signature] = forged.split('.');
+    expect(JSON.parse(atob(header))).toEqual({ alg: 'HS256', typ: 'JWT' });
+    expect(JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))).sub).toBe(USER_ID);
+    expect(signature.length).toBe(43);
+
+    const refresh = makeEnv(forged);
+    expect((await requestRefresh(refresh.env, forged)).status).toBe(401);
+    expect(refresh.state.sessionLookups).toBe(0);
+    expect(refresh.state.rotations).toBe(0);
+
+    const logout = makeEnv(forged);
+    expect((await requestLogout(logout.env, forged)).status).toBe(401);
+    expect(logout.state.sessionLookups).toBe(0);
+    expect(logout.state.revoked).toBe(false);
+
+    const exchange = makeEnv(forged);
+    expect((await requestExchange(exchange.env, forged)).status).toBe(401);
+    expect(exchange.state.sessionLookups).toBe(0);
+
+    await expect(verifySignedToken(forged, JWT_SECRET)).resolves.toBeNull();
+    await expect(verifyToken(forged, JWT_SECRET)).resolves.toBeNull();
   });
 
   it('clears the session cookie after cookie-authenticated logout', async () => {
