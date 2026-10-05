@@ -3587,7 +3587,7 @@ self.addEventListener('push', (event) => {
     notificationData = { title: 'FocusBro', body: event.data.text() };
   }
   const options = {
-    icon: '/favicon.ico',
+    icon: '/icon-192.png',
     tag: notificationData.tag || 'focusbro-notification',
     data: notificationData.data || {},
     ...notificationData
@@ -3601,6 +3601,35 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
+  // A check-in's buttons answer it right here — no app open needed. "I did it"
+  // resolves through the one-tap ticket the payload carried (a service worker
+  // has no session) and confirms in the ally's own line; "Not yet" lands on the
+  // word with the warm reschedule open. Either way: never dropped on the toolkit.
+  if (event.action === 'kept' && data.reply) {
+    event.waitUntil(
+      fetch('/api/checkins/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket: data.reply, outcome: 'kept' })
+      })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('reply ' + r.status)); })
+        .then(function (res) {
+          return self.registration.showNotification('FocusBro', {
+            body: (res && res.message) || 'Kept.',
+            tag: event.notification.tag,
+            icon: '/icon-192.png',
+            data: { type: 'checkin_kept', url: data.url || '/me/' }
+          });
+        })
+        .catch(function () { return clients.openWindow ? clients.openWindow(data.url || '/me/') : null; })
+    );
+    return;
+  }
+  if (event.action === 'not-yet') {
+    var notYetUrl = (data.url || '/me/') + ((data.url || '').indexOf('?') >= 0 ? '&' : '?') + 'answer=not-yet';
+    event.waitUntil(clients.openWindow ? clients.openWindow(notYetUrl) : null);
+    return;
+  }
   // Honor an explicit deep-link (data.url) first — this is what carries a tapped
   // notification to the right surface (e.g. the return nudge → /me/?from=return).
   // Fall back to the legacy action/view hash, then the app root.

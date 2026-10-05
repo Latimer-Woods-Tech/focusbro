@@ -1252,6 +1252,33 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     host.innerHTML = html;
   }
 
+  // A tapped check-in notification lands HERE, on the word it was about (never
+  // the toolkit): ?word=<id> scrolls to that card and rings it once. The
+  // notification's "Not yet" button adds &answer=not-yet — that tap IS the
+  // person's answer, so honor it exactly as the card's own button would, once:
+  // the params are cleared from the URL so a reload never answers twice.
+  var LANDING = (function () {
+    try {
+      var q = new URLSearchParams(location.search);
+      return { word: (q.get('word') || '').trim().slice(0, 80), answer: q.get('answer') === 'not-yet' ? 'not-yet' : '' };
+    } catch (e) { return { word: '', answer: '' }; }
+  })();
+  function landOnWord() {
+    if (!LANDING.word) return;
+    var landing = LANDING;
+    LANDING = { word: '', answer: '' };
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    var sel = window.CSS && CSS.escape ? CSS.escape(landing.word) : landing.word;
+    var card = el('list').querySelector('.card[data-id="' + sel + '"]');
+    if (!card) return;
+    card.classList.add('landed');
+    if (card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+    if (landing.answer === 'not-yet') {
+      var btn = card.querySelector('button[data-act="missed"]');
+      if (btn) btn.click();
+    }
+  }
+
   function loadList() {
     fetch('/api/commitments', { headers: authHeaders() })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
@@ -1259,6 +1286,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         var commitments = (data && data.commitments) || [];
         renderList(commitments);
         updateFirstRun(commitments);
+        landOnWord();
       })
       .catch(function () {});
   }

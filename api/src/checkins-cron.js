@@ -23,6 +23,8 @@
 import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy } from './accountability.js';
 import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
+import { signReplyTicket } from './checkin-reply.js';
+import { checkinActionLabels } from './me.js';
 import { evaluateContactGate, localHour } from './consent.js';
 import { isProUser } from './pro.js';
 import { generateUUID } from './middleware.js';
@@ -219,11 +221,23 @@ async function deliverPush(env, row, message) {
   const list = (subs && subs.results) || [];
   if (list.length === 0) return { status: 'skipped', detail: 'no_subscription' };
 
+  // The notification IS the check-in. Two buttons answer it in place — the two
+  // the /me/ card leads with — so keeping a word never requires opening an app.
+  // "I did it" resolves through a one-tap ticket (a service worker has no
+  // session); "Not yet" lands on the word with the warm reschedule open. And a
+  // plain tap lands on the word itself — never the toolkit home.
+  const labels = checkinActionLabels();
+  const reply = await signReplyTicket(env.JWT_SECRET, row.checkin_id);
+  const wordUrl = `/me/?word=${encodeURIComponent(row.commitment_id)}`;
   const payload = {
     title: 'FocusBro',
     body: message,
     tag: `checkin-${row.commitment_id}`,
-    data: { type: 'checkin', commitment_id: row.commitment_id, checkin_id: row.checkin_id, url: '/' },
+    actions: [
+      { action: 'kept', title: labels.kept },
+      { action: 'not-yet', title: labels.missed },
+    ],
+    data: { type: 'checkin', commitment_id: row.commitment_id, checkin_id: row.checkin_id, url: wordUrl, reply },
   };
 
   let anySent = false;
