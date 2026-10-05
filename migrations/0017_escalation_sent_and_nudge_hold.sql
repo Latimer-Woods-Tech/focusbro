@@ -1,0 +1,26 @@
+-- FBQ-11b + FBQ-07b (focusbro#391). Two additive nullable columns.
+--
+-- 1. commitment_checkins.escalation_sent_at — when the escalation SMS was
+--    ACTUALLY sent (set only on a successful send, same ISO format as
+--    escalated_at). `escalated_at` stays the one-shot "never re-escalate" latch
+--    and is written on every outcome (not_pro, ceiling_none, phone_unverified,
+--    consent skip, delivery failure), so it cannot mean "a text reached them":
+--    the inbound reply match (#415) used it that way and let a stray "yes" credit
+--    a push row nobody was ever texted about. The match now requires this column
+--    and a 24h age bound (FBQ-11c).
+--    Backfill: NONE, deliberately. Existing escalated rows keep NULL here, so they
+--    are not answerable by text. Conservative: an unprovable "was texted" is
+--    treated as "was not"; such rows are at most a day or two old when this ships,
+--    and past the 24h bound anyway.
+--
+-- 2. return_nudge_latch.retry_after — a hold for return-nudge candidates that were
+--    deferred (night guard / quiet hours). The scan skips a person until it passes,
+--    so night-deferred people no longer fill the batch (the FBQ-06 shape). A hold
+--    row for someone never nudged carries a sentinel nudged_at (1970), which the
+--    latch test (nudged_at >= last_event_at) can never match; sending, skipping or
+--    failing writes the real latch and clears the hold.
+--
+-- ROLLBACK: revert the code; the pre-change code never reads either column. To
+--           remove them anyway: ALTER TABLE ... DROP COLUMN (SQLite >= 3.35).
+ALTER TABLE commitment_checkins ADD COLUMN escalation_sent_at TEXT;
+ALTER TABLE return_nudge_latch ADD COLUMN retry_after TEXT;

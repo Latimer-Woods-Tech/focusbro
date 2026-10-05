@@ -34,6 +34,9 @@
 // ════════════════════════════════════════════════════════════
 
 import { isProUser } from './pro.js';
+
+/** How long after the escalation SMS went out a reply still answers its push check-in (FBQ-11c). */
+const ESCALATION_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 import {
   detectCheckinReply,
   parseSnoozeMinutes,
@@ -725,9 +728,17 @@ export function registerConsentRoutes(router, ctx) {
       // FBQ-11: the escalation IS a text about a PUSH check-in (the paid follow-up
       // to an unanswered push) and says "Reply DONE / LATER / HELP ME START".
       // Matching only `channel = 'text'` dropped every reply to it as
-      // `no_open_checkin`. A push row is answerable by text exactly when it was
-      // escalated (`escalated_at IS NOT NULL`); a plain push row was never texted,
-      // so a stray "yes" must not credit it. One row, newest escalation first, `id`
+      // `no_open_checkin`. A push row is answerable by text exactly when an
+      // escalation SMS was actually SENT (`escalation_sent_at`, FBQ-11b — the
+      // `escalated_at` latch is also written for skipped/failed escalations, so it
+      // proves nothing was texted) and that text is under 24h old (FBQ-11c: a reply
+      // days later is not an answer to that knock; 24h = MAX_CHECKIN_LATENESS_MIN,
+      // the window the cron already uses to retire a stale moment). A plain push
+      // row was never texted, so a stray "yes" must not credit it. TEXT rows are
+      // deliberately not age-bounded: the person was sent that exact message, and
+      // the newest-first order means an older row only matches when nothing newer
+      // is open; the stranded-row reconcile already closes long-silent ones on
+      // return. One row, newest escalation first, `id`
       // as the final tiebreak; `c.user_id` (from the sender's number) keeps
       // ownership strict. An in-app answer already set `responded_at`, so it is
       // not open and cannot credit twice.
@@ -737,13 +748,14 @@ export function registerConsentRoutes(router, ctx) {
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
           WHERE c.user_id = ? AND c.responded_at IS NULL
-            AND ( c.channel = 'text' OR (c.channel = 'push' AND c.escalated_at IS NOT NULL) )
+            AND ( c.channel = 'text'
+                  OR (c.channel = 'push' AND c.escalation_sent_at IS NOT NULL AND c.escalation_sent_at >= ?) )
             AND m.status = 'active'
             AND ( c.status IN ('sending', 'sent', 'awaiting_time')
                   OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
           ORDER BY (c.status = 'pending') ASC,
-                   COALESCE(c.escalated_at, c.scheduled_for) DESC, c.id DESC LIMIT 1`
-      ).bind(user.id).first();
+                   COALESCE(c.escalation_sent_at, c.scheduled_for) DESC, c.id DESC LIMIT 1`
+      ).bind(user.id, new Date(Date.now() - ESCALATION_REPLY_WINDOW_MS).toISOString()).first();
 
       if (!open) {
         // Nothing to answer — acknowledge silently (never text unprompted).

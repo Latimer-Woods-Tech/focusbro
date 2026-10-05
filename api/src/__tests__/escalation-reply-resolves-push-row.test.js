@@ -40,11 +40,11 @@ function word(env, { id = 'cm1', userId = 'u1', recurrence = 'none' } = {}) {
 }
 function checkin(env, o = {}) {
   const r = { id: 'ck1', commitment_id: 'cm1', user_id: 'u1', channel: 'push', status: 'sent',
-    escalated_at: ESC_AT, responded_at: null, scheduled_for: SENT_AT, delivered_at: SENT_AT, ...o };
+    escalated_at: ESC_AT, escalation_sent_at: ESC_AT, responded_at: null, scheduled_for: SENT_AT, delivered_at: SENT_AT, ...o };
   env.DB.sqlite.prepare(
-    `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status, delivered_at, escalated_at, responded_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(r.id, r.commitment_id, r.user_id, r.scheduled_for, r.channel, r.status, r.delivered_at, r.escalated_at, r.responded_at);
+    `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status, delivered_at, escalated_at, escalation_sent_at, responded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(r.id, r.commitment_id, r.user_id, r.scheduled_for, r.channel, r.status, r.delivered_at, r.escalated_at, r.escalation_sent_at, r.responded_at);
 }
 const row = (env, id = 'ck1') => env.DB.sqlite.prepare('SELECT * FROM commitment_checkins WHERE id = ?').get(id);
 const kept = (env, u = 'u1') => (env.DB.sqlite.prepare('SELECT total_kept FROM accountability_streaks WHERE user_id = ?').get(u) || { total_kept: 0 }).total_kept;
@@ -131,7 +131,7 @@ suite('FBQ-11: replying to the escalation text', () => {
   });
 
   it('a push row that was never escalated is not matched (it was never texted)', async () => {
-    const env = makeEnv(); word(env); checkin(env, { escalated_at: null });
+    const env = makeEnv(); word(env); checkin(env, { escalated_at: null, escalation_sent_at: null });
     expect((await reply(env, 'done')).action).toBe('no_open_checkin');
     expect(row(env).status).toBe('sent');
     expect(kept(env)).toBe(0);
@@ -139,7 +139,7 @@ suite('FBQ-11: replying to the escalation text', () => {
 
   it('with several open rows, resolves exactly the most recently escalated one', async () => {
     const env = makeEnv(); word(env); word(env, { id: 'cm2' });
-    checkin(env, { id: 'old', escalated_at: '2026-10-04T14:15:00.000Z', scheduled_for: '2026-10-04T14:00:00.000Z' });
+    checkin(env, { id: 'old', escalated_at: '2026-10-04T14:15:00.000Z', escalation_sent_at: '2026-10-05T01:00:00.000Z', scheduled_for: '2026-10-04T14:00:00.000Z' });
     checkin(env, { id: 'new', commitment_id: 'cm2' });
     expect((await reply(env, 'done')).action).toBe('checkin_kept');
     expect(row(env, 'new').status).toBe('kept');
