@@ -89,6 +89,17 @@ export function isValidTimezone(tz) {
   if (typeof tz !== 'string' || !tz || tz.length > MAX_TIMEZONE) return false;
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
 }
+
+/**
+ * FBQ-17b: the reply for a time parseWhenReply could not read. A zone Intl
+ * rejects also yields null, and "I didn't catch a time" would blame the person's
+ * words for the zone — so name the zone instead (same warm copy as validation).
+ */
+function whenUnreadableCopy(timezone, persona) {
+  const tz = typeof timezone === 'string' ? timezone.trim() : '';
+  if (tz && !isValidTimezone(tz)) return TZ_WARM_ERROR;
+  return smsWhenUnclearCopy({ persona });
+}
 const MAX_DETAILS = 2000;
 const DEFAULT_CHECKIN_OFFSET_MS = 60 * 60 * 1000; // check back ~1h after start by default
 
@@ -3700,7 +3711,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         // Couldn't read a concrete time — ask again warmly, in the shared voice,
         // and write NOTHING. Never assume a time (and, per the LAW, never a miss).
         if (!startISO) {
-          return jsonResponse({ error: smsWhenUnclearCopy({ persona: pickPersona(body.persona) }) }, 400);
+          return jsonResponse({ error: whenUnreadableCopy(body.timezone, pickPersona(body.persona)) }, 400);
         }
         body = { ...body, start_at: startISO };
       }
@@ -4080,7 +4091,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         timezone: commitment.timezone,
         defaultTime: commitment.local_time,
       });
-      if (!newStartISO) return { error: jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400) };
+      if (!newStartISO) return { error: jsonResponse({ error: whenUnreadableCopy(commitment.timezone, persona) }, 400) };
     }
     const parsed = validateCommitmentInput({
       title: commitment.title,
