@@ -339,6 +339,7 @@ CREATE TABLE IF NOT EXISTS commitment_checkins (
   lease_until   TEXT,                          -- delivery claim expiry while 'sending' (FBQ-05)
   escalation_sent_at TEXT,                     -- when the escalation SMS was actually sent (FBQ-11b)
   next_attempt_at TEXT,                        -- a held row is not scanned before this instant (FBQ-06)
+  escalation_retry_after TEXT,                 -- escalation scan skips the row until this instant (FBQ-07c), NULL = none
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
