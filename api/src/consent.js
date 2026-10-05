@@ -41,6 +41,7 @@ import {
   isProgressReply,
   keptNoteFromReply,
   applyCheckinOutcome,
+  rependCheckin,
   parseWhenReply,
   smsKeptReplyCopy,
   smsAmbiguousReplyCopy,
@@ -698,12 +699,7 @@ export function registerConsentRoutes(router, ctx) {
       // for two minutes, and gives one tiny move right here over text.
       if (isStartHelpReply(text)) {
         const checkBackAt = new Date(Date.now() + START_HELP_MIN * 60000).toISOString();
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0,
-                  last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(checkBackAt, open.checkin_id, user.id).run();
+        await rependCheckin(env, { checkinId: open.checkin_id, userId: user.id, scheduledFor: checkBackAt });
         await recordEvent(env, {
           userId: user.id,
           type: EVENTS.CHECKIN_START_HELP,
@@ -754,11 +750,7 @@ export function registerConsentRoutes(router, ctx) {
           // default; no named interval keeps the default. Clamped, streak-safe.
           const minutes = parseSnoozeMinutes(text) ?? SNOOZE_DEFAULT_MIN;
           const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
-          await env.DB.prepare(
-            `UPDATE commitment_checkins
-                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-              WHERE id = ? AND user_id = ?`
-          ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await rependCheckin(env, { checkinId: open.checkin_id, userId: user.id, scheduledFor: snoozedUntil });
           await recordEvent(env, {
             userId: user.id,
             type: EVENTS.COMMITMENT_SNOOZE,
@@ -781,11 +773,7 @@ export function registerConsentRoutes(router, ctx) {
         // Re-pend this check-in at the chosen time. The streak is NEVER touched —
         // a reschedule protects the chain by construction. The next recurring
         // occurrence was already materialized at delivery, so the rhythm holds.
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(whenISO, open.checkin_id, user.id).run();
+        await rependCheckin(env, { checkinId: open.checkin_id, userId: user.id, scheduledFor: whenISO });
         await recordEvent(env, {
           userId: user.id,
           type: EVENTS.COMMITMENT_RESCHEDULE,
@@ -842,11 +830,7 @@ export function registerConsentRoutes(router, ctx) {
           // back in an hour"); no named interval keeps the default. Clamped, streak-safe.
           const minutes = statedMinutes ?? SNOOZE_DEFAULT_MIN;
           const snoozedUntil = new Date(Date.now() + minutes * 60000).toISOString();
-          await env.DB.prepare(
-            `UPDATE commitment_checkins
-                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-              WHERE id = ? AND user_id = ?`
-          ).bind(snoozedUntil, open.checkin_id, user.id).run();
+          await rependCheckin(env, { checkinId: open.checkin_id, userId: user.id, scheduledFor: snoozedUntil });
           await recordEvent(env, {
             userId: user.id,
             type: EVENTS.COMMITMENT_SNOOZE,
@@ -882,11 +866,7 @@ export function registerConsentRoutes(router, ctx) {
         nowISO, timezone: open.timezone, defaultTime: open.local_time,
       });
       if (directWhenISO) {
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(directWhenISO, open.checkin_id, user.id).run();
+        await rependCheckin(env, { checkinId: open.checkin_id, userId: user.id, scheduledFor: directWhenISO });
         await recordEvent(env, {
           userId: user.id,
           type: EVENTS.COMMITMENT_RESCHEDULE,

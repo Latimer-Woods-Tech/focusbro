@@ -198,6 +198,42 @@ function dueOpenParams(timezone, isRecurring, nowMs = Date.now()) {
   return [dueBefore, isRecurring ? today : '', dueBefore];
 }
 
+// FBQ-05 R4 — one OPEN occurrence per (word, instant). Migration 0011 enforces
+// it with a unique index PARTIAL on status IN ('pending','sending'): a cancelled
+// or settled row at the same instant never conflicts, so pause → resume can
+// re-insert tomorrow's time. Every insert of a pending row ends with this clause,
+// so a lost race (the cron and the app both queueing tomorrow) inserts nothing.
+export const ON_OPEN_OCCURRENCE_CONFLICT =
+  `ON CONFLICT(commitment_id, scheduled_for) WHERE status IN ('pending', 'sending') DO NOTHING`;
+
+const OPEN_TWIN_AT = `EXISTS (SELECT 1 FROM commitment_checkins o
+          WHERE o.commitment_id = commitment_checkins.commitment_id AND o.scheduled_for = ?
+            AND o.status IN ('pending', 'sending') AND o.id <> commitment_checkins.id)`;
+
+/**
+ * Re-pend a check-in at a new instant (snooze, "help me start", an SMS "when?"
+ * reply). When another open occurrence of the same word already holds that
+ * instant ("tomorrow 9am" on a daily 9am word), the move MERGES: the moving row
+ * is retired as skipped/duplicate_occurrence and the existing one stands, so the
+ * person still hears from the bro exactly once, at the time they asked for.
+ * Never throws on the index. Returns 'moved' | 'merged' | 'none'.
+ */
+export async function rependCheckin(env, { checkinId, userId, scheduledFor }) {
+  const moved = await env.DB.prepare(
+    `UPDATE commitment_checkins
+        SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
+      WHERE id = ? AND user_id = ? AND NOT ${OPEN_TWIN_AT}`
+  ).bind(scheduledFor, checkinId, userId, scheduledFor).run();
+  if (moved && moved.meta && moved.meta.changes > 0) return 'moved';
+  const merged = await env.DB.prepare(
+    `UPDATE commitment_checkins
+        SET status = 'skipped', last_error = 'duplicate_occurrence', lease_until = NULL,
+            responded_at = datetime('now')
+      WHERE id = ? AND user_id = ? AND ${OPEN_TWIN_AT}`
+  ).bind(checkinId, userId, scheduledFor).run();
+  return merged && merged.meta && merged.meta.changes > 0 ? 'merged' : 'none';
+}
+
 // FBQ-02 — the occurrence an answer was offered for. The reply ticket and the
 // native notification each name ONE occurrence; resolving "the soonest due row"
 // instead let a stale tap credit a later day and swallow its nudge. checkin_id
@@ -3220,7 +3256,7 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
       if (!existing) {
         await env.DB.prepare(
           `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-           VALUES (?, ?, ?, ?, ?, 'pending')`
+           VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
         ).bind(generateUUID(), commitment.id, userId, nextISO, commitment.channel || 'text').run();
       }
     }
@@ -3517,10 +3553,12 @@ export function registerAccountabilityRoutes(router, ctx) {
     ).bind(commitment.id, afterISO).first();
     if (existing) return null;
     const nid = generateUUID();
-    await env.DB.prepare(
+    const ins = await env.DB.prepare(
       `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`
+       VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
     ).bind(nid, commitment.id, userId, nextISO, commitment.channel).run();
+    // Lost the race to the cron (FBQ-05 R4): its row stands, this one was never written.
+    if (!(ins && ins.meta && ins.meta.changes > 0)) return null;
     return { id: nid, scheduled_for: nextISO };
   }
 
@@ -4033,15 +4071,11 @@ export function registerAccountabilityRoutes(router, ctx) {
           return jsonResponse({ status: commitment.status, message: alreadyLoggedCopy({ persona }), recorded: false }, 200);
         }
         if (open && open.id) {
-          await env.DB.prepare(
-            `UPDATE commitment_checkins
-                SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-              WHERE id = ? AND user_id = ?`
-          ).bind(snoozedUntil, open.id, auth.userId).run();
+          await rependCheckin(env, { checkinId: open.id, userId: auth.userId, scheduledFor: snoozedUntil });
         } else {
           await env.DB.prepare(
             `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-             VALUES (?, ?, ?, ?, ?, 'pending')`
+             VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
           ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
         }
         // Count the "I'm on it" like every other snooze surface. This in-app
@@ -4386,17 +4420,13 @@ export function registerAccountabilityRoutes(router, ctx) {
       ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, pickRecurrence(commitment.recurrence) !== 'none')).first();
 
       if (open && open.id) {
-        await env.DB.prepare(
-          `UPDATE commitment_checkins
-              SET status = 'pending', scheduled_for = ?, attempts = 0, last_error = NULL, responded_at = NULL
-            WHERE id = ? AND user_id = ?`
-        ).bind(snoozedUntil, open.id, auth.userId).run();
+        await rependCheckin(env, { checkinId: open.id, userId: auth.userId, scheduledFor: snoozedUntil });
       } else {
         // No open check-in (the last one already resolved/skipped) — open a fresh
         // one so "I'm on it" always keeps the bro coming back.
         await env.DB.prepare(
           `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-           VALUES (?, ?, ?, ?, ?, 'pending')`
+           VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
         ).bind(generateUUID(), id, auth.userId, snoozedUntil, commitment.channel || 'push').run();
       }
 
@@ -4647,7 +4677,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         if (commitment.status === 'active') {
           await env.DB.prepare(
             `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-             VALUES (?, ?, ?, ?, ?, 'pending')`
+             VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
           ).bind(generateUUID(), id, auth.userId, v.checkinAt, v.channel).run();
         }
       }
