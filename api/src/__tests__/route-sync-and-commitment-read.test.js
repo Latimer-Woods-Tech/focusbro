@@ -178,11 +178,12 @@ suite('/sync/events (real D1)', () => {
     expect(await (await send(env, me, [])).json()).toMatchObject({ success: true, synced: 0 });
   });
 
-  it('rejects a body that is not JSON (an error status, nothing recorded)', async () => {
+  it('rejects a body that is not JSON with 400 (not a 500), nothing recorded', async () => {
     const env = makeEnv();
     const me = await register(env, 'events-junk@example.com');
     const res = await call(env, '/sync/events', { method: 'POST', cookie: me.cookie, body: 'nope', headers: { 'Content-Type': 'application/json' } });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid JSON in request body' });
     expect(count(env, "SELECT COUNT(*) AS n FROM analytics_events WHERE event_type = 'session_complete'")).toBe(0);
   });
 });

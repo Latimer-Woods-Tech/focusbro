@@ -1994,8 +1994,9 @@ router.post('/sync/events', async (request, env) => {
     }
     
     const userId = tokenPayload.sub;
-    const body = await request.json();
-    const events = body.events || [];
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON in request body' }, 400); }
+    const events = (body && body.events) || [];
     
     // Sync events (analytics tracking)
     const result = await syncModule.syncAnalyticsEvents(env, userId, events);
