@@ -107,7 +107,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
      celebration of returns, so the same warm success accent, never a worried tone. */
   .digest .digest-summary { margin: 6px 0 0; font-size: 14px; color: var(--success-light); }
   .digest { border-left: 3px solid var(--success-light); }
-  .pending { opacity: .7; }
+  .pending { color: var(--text-muted); } /* dimmed with a colour token, never opacity (design LAW) */
   /* pills */
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
   .pill.active { background: var(--primary-dim); color: var(--primary-light); }

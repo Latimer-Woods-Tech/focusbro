@@ -3219,7 +3219,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
           +     '<div class="muted">' + esc(c.active_commitments || 0) + ' active commitment' + ((c.active_commitments === 1) ? '' : 's')
           +       ' &middot; <a href="#" class="rhythm-toggle" data-id="' + esc(c.client_id) + '">View rhythm</a></div>'
           +     nextLine + reachLine + backLine + milestoneLine + sharesLine + engagedLine + '</div>'
-          +   '<div class="streak">' + esc(c.streak.current_streak || 0) + '<small>in a row</small></div>'
+          +   '<div class="streak">' + esc(c.streak.total_kept || 0) + '<small>words kept</small></div>'
           + '</div>'
           + '<div class="rhythm hidden" id="rhythm-' + esc(c.client_id) + '"></div>'
           + '</div>';

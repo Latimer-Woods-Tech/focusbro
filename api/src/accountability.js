@@ -1770,6 +1770,12 @@ export function commitmentDetailCopy({ persona, keptCount } = {}) {
 export function streakSummaryCopy({ streak, persona } = {}) {
   const cur = Number(streak?.current_streak) || 0;
   const best = Number(streak?.longest_streak) || 0;
+  // Only-climbing total (FBQ-20): when the lifetime total is known, narrate THAT —
+  // never a live run that resets to 0 or a "(your best is N)" set beside a smaller number.
+  const total = Number(streak?.total_kept) || 0;
+  if (total > 0) {
+    return `You’ve kept your word ${total} time${total === 1 ? '' : 's'} so far. Every single one counts, and none of them go anywhere.`;
+  }
   if (cur === 0) {
     if (pickPersona(persona) === 'hype') {
       return 'Fresh start, clean slate. Next one’s yours — I’m ready when you are. 🔥';

@@ -246,7 +246,8 @@ describe('renderReportText — shareable plain text', () => {
     const text = renderReportText(rep);
     expect(text).toContain('FocusBro — weekly report');
     expect(text).toContain('Words kept this week: 3');
-    expect(text).toContain('Current kept-word run: 3 (best ever: 9)');
+    expect(text).not.toContain('Current kept-word run');
+    expect(text).toContain('Best stretch so far: 9 kept words in a row');
     expect(text).toContain('Words kept, all time: 40');
     expect(text).toContain('FocusBro showed up for you: 2 times this week');
     expect(text).toMatch(/Momentum \(last 14 days\): /);

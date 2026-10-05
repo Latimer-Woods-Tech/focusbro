@@ -393,8 +393,12 @@ export function renderReportText(report, { heading = 'FocusBro — weekly report
   lines.push(report.headline || '');
   lines.push('');
   lines.push(`Words kept this week: ${Number(report.kept_this_week) || 0}`);
-  lines.push(`Current kept-word run: ${Number(s.current_streak) || 0} (best ever: ${Number(s.longest_streak) || 0})`);
+  // Only-climbing numbers: the lifetime total always; the best stretch ONLY as an
+  // achievement (2+). The live run is never printed — it resets, and a "0" beside a
+  // best-ever is a scold (FBQ-20).
   lines.push(`Words kept, all time: ${Number(s.total_kept) || 0}`);
+  const bestRun = Number(s.longest_streak) || 0;
+  if (bestRun > 1) lines.push(`Best stretch so far: ${bestRun} kept words in a row`);
   // Milestone celebration rides with the run number it belongs to. Only present
   // when the run is exactly at a milestone; between milestones the line is absent,
   // never a "0" or a shortfall — same construction as the showed-up line below.
@@ -613,7 +617,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
     <p class="headline" id="headline"></p>
     <div class="stats">
       <div class="stat"><b id="s-week">0</b><small>kept this week</small></div>
-      <div class="stat full-only"><b id="s-run">0</b><small>current run</small></div>
+      <div class="stat full-only hidden" id="s-run-wrap"><b id="s-run">0</b><small>best stretch</small></div>
       <div class="stat full-only"><b id="s-total">0</b><small>kept all time</small></div>
     </div>
     <div class="spark" id="spark" aria-hidden="true"></div>
@@ -685,7 +689,10 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
       el('intro').textContent = rep.intro || ${JSON.stringify(reportPageIntroCopy())};
       el('headline').textContent = rep.headline || '';
       el('s-week').textContent = String(rep.kept_this_week || 0);
-      el('s-run').textContent = String((rep.streak && rep.streak.current_streak) || 0);
+      // Best stretch is an achievement, shown only once it is 2+; the live run is never shown.
+      var bestRun = (rep.streak && rep.streak.longest_streak) || 0;
+      el('s-run').textContent = String(bestRun);
+      el('s-run-wrap').classList.toggle('hidden', bestRun < 2);
       el('s-total').textContent = String((rep.streak && rep.streak.total_kept) || 0);
 
       var mo = rep.momentum || {};
