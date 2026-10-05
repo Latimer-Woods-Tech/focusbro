@@ -44,8 +44,9 @@ describe('/sw.js', () => {
     for (const type of ['install', 'activate', 'fetch', 'push', 'notificationclick']) expect(listeners[type], type).toBeTypeOf('function');
   });
 
-  it('falls back to the cache, then to an offline response, when the network fails', async () => {
+  it('falls back to the last good copy (never for /api/*), then to an offline response, when the network fails', async () => {
     const src = await servedSw();
-    expect(src).toContain("caches.match(request).then(cached => cached || new Response(");
+    expect(src).toContain("return caches.match(request).then(cached => cached ||");
+    expect(src).toContain("JSON.stringify({ error: 'Offline', offline: true })");
   });
 });

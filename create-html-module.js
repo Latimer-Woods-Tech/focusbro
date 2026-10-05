@@ -70,6 +70,8 @@ fs.writeFileSync('api/src/html.js', content);
 console.log('Created api/src/html.js with HTML embedded (' + html.length + ' bytes)');
 
 // The service worker, same treatment: public/sw.js is the one source (G797).
+// swContentHash names the cache when the Worker has no BUILD_SHA (FBQ-04).
 const sw = fs.readFileSync('public/sw.js', 'utf-8');
-fs.writeFileSync('api/src/sw-source.js', `// Auto-generated from public/sw.js by create-html-module.js - do not edit\nconst swSource = ${JSON.stringify(sw)};\n\nexport default swSource;\n`);
-console.log('Created api/src/sw-source.js from public/sw.js (' + sw.length + ' bytes)');
+const swContentHash = require('crypto').createHash('sha256').update(html).update(sw).digest('hex').slice(0, 16);
+fs.writeFileSync('api/src/sw-source.js', `// Auto-generated from public/sw.js by create-html-module.js - do not edit\nconst swSource = ${JSON.stringify(sw)};\n\nexport const swContentHash = '${swContentHash}';\n\nexport default swSource;\n`);
+console.log('Created api/src/sw-source.js from public/sw.js (' + sw.length + ' bytes, hash ' + swContentHash + ')');

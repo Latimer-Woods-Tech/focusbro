@@ -1,20 +1,10 @@
 /**
  * FocusBro Service Worker
- * Handles push notifications and caching. The Worker serves these bytes with the
- * build-id placeholder below replaced by the deploy's id (BUILD_SHA, else a content
- * hash), so every deploy is a byte-different worker the browser installs, and the
- * old build's cache is deleted on activate (FBQ-04).
+ * Handles push notifications, offline support, and caching strategies
  */
 
-const CACHE_NAME = 'focusbro-__FOCUSBRO_BUILD_ID__';
+const CACHE_NAME = 'focusbro-v1';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
-// Immutable media: content-hashed audio loops and the brand icons. The only
-// cache-first requests; everything else same-origin is network-first.
-const CACHE_FIRST = /^\/(audio\/|icon-192\.(png|svg)$|icon-512\.png$|mark\.svg$|og\.png$)/;
-// Never stored, never answered from cache: account data, sessions, token links,
-// health, the worker itself. /api/ and /sync/ answer a JSON 503 when offline.
-const NEVER_CACHE = /^\/(api\/|sync\/|auth\/|health$|sw\.js$|reset-password|verify-email)/;
-const OFFLINE_JSON = /^\/(api|sync)\//;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -112,57 +102,46 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Fetch strategy (FBQ-04): account data and sessions go straight to the network and are
-// never stored; immutable media is cache-first; navigations and every other
-// same-origin GET are network-first, falling back to the last good copy offline.
-function storable(response) {
-  return response && response.status === 200 &&
-    !/no-store|private/i.test(response.headers.get('Cache-Control') || '');
-}
-function keep(request, response) {
-  if (!storable(response)) return;
-  const copy = response.clone();
-  caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => {});
-}
-
+// Fetch strategy: network-first for API, cache-first for assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (request.method !== 'GET') return;
 
-  if (NEVER_CACHE.test(url.pathname)) {
-    if (!OFFLINE_JSON.test(url.pathname)) return;
+  if (url.pathname.startsWith('/api/')) {
     return event.respondWith(
-      fetch(request).catch(err => {
-        console.warn('SW network fetch failed:', err && err.message || err);
-        return new Response(
-          JSON.stringify({ error: 'Offline', offline: true }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        );
-      })
-    );
-  }
-
-  if (CACHE_FIRST.test(url.pathname)) {
-    return event.respondWith(
-      caches.match(request).then(cached => cached || fetch(request).then(response => {
-        keep(request, response);
-        return response;
-      }))
+      fetch(request)
+        .then(response => {
+          // Clone immediately to avoid consuming the response
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(err => {
+          console.warn('SW network fetch failed, falling back to cache:', err && err.message || err);
+          return caches.match(request).then(cached => cached || new Response(
+            JSON.stringify({ error: 'Offline', offline: true }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+          ));
+        })
     );
   }
 
   event.respondWith(
-    fetch(request)
-      .then(response => {
-        keep(request, response);
-        return response;
-      })
-      .catch(err => {
-        console.warn('SW network fetch failed, serving the last good copy:', err && err.message || err);
-        return caches.match(request).then(cached => cached ||
-          (request.mode === 'navigate' ? caches.match('/').then(shell => shell || Response.error()) : Response.error()));
-      })
+    caches.match(request)
+      .then(cached => cached || fetch(request)
+        .then(response => {
+          // Clone immediately to avoid consuming the response
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
+          }
+          return response;
+        })
+      )
+      .catch(err => { console.warn('SW fetch for asset failed, returning index.html from cache:', err && err.message || err); return caches.match('/index.html'); })
   );
 });

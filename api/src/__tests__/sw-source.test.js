@@ -21,10 +21,11 @@ describe('the service worker has one source', () => {
     expect(swSource).toBe(readFileSync(repo('public/sw.js'), 'utf8'));
   });
 
-  it('/sw.js serves exactly that source', async () => {
+  it('/sw.js serves exactly that source, stamped with the build id (FBQ-04)', async () => {
     const res = await worker.fetch(new Request('https://focusbro.net/sw.js'), { BUILD_SHA: 'abc' }, {});
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(swSource);
+    expect(swSource).toContain("'focusbro-__FOCUSBRO_BUILD_ID__'");
+    expect(await res.text()).toBe(swSource.split('__FOCUSBRO_BUILD_ID__').join('abc'));
   });
 
   it('no inline copy survives in the Worker (proof of rejection)', () => {
