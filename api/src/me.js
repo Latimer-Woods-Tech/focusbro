@@ -147,6 +147,41 @@ export function escalationCeilingVoiceSoonCopy() {
   return 'A gentle call is on the way — soon you’ll be able to add it as the last rung, only if you want it.';
 }
 
+/** Heading over the card that shows who the person shares with — and lets them stop. */
+export function coachCardHeadingCopy() {
+  return 'Your coach';
+}
+
+/** The action that withdraws consent. Warm, plain, always available. */
+export function coachStopLabelCopy() {
+  return 'Stop sharing with my coach';
+}
+
+/** The confirm prompt: says exactly what stops, and that yes can be given again. */
+export function coachStopConfirmCopy() {
+  return 'Stop sharing with your coach? They will stop seeing your words, and their voice will stop shaping your check-ins. You can say yes to an invitation again any time.';
+}
+
+/** Said once sharing has ended. */
+export function coachStoppedCopy() {
+  return 'Done — your coach no longer sees your words.';
+}
+
+/** Said when a coach has invited the person and nothing is shared yet. */
+export function coachInviteLeadCopy() {
+  return 'invited you to share your kept-word momentum. Nothing is shared until you say yes.';
+}
+
+/** Said while sharing is on. */
+export function coachSharingLeadCopy() {
+  return 'You’re sharing your kept-word momentum with';
+}
+
+/** Said after an invitation is answered. */
+export function coachAnsweredCopy({ accepted } = {}) {
+  return accepted ? 'Thanks — your coach can see your kept-word momentum now. You can stop any time.' : 'No problem — nothing is shared.';
+}
+
 /** Heading over the coach own-words sharing control — the person's own words, their call. */
 export function noteSharingHeadingCopy() {
   return 'Let a coach hear your words';
@@ -463,6 +498,8 @@ export function meCopySurface() {
     noteSharingHeadingCopy(),
     noteSharingIntroCopy(),
     noteSharingToggleLabelCopy(),
+    coachCardHeadingCopy(), coachStopLabelCopy(), coachStopConfirmCopy(), coachStoppedCopy(),
+    coachInviteLeadCopy(), coachSharingLeadCopy(), coachAnsweredCopy({ accepted: true }), coachAnsweredCopy({ accepted: false }),
     firstRunHeadingCopy(),
     firstRunBodyCopy(),
     firstRunExamplesLabel(),
@@ -742,6 +779,12 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     <p class="muted hidden pro-framing" id="ceilingPro">${proCeilingNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
     <p class="muted">${escalationCeilingVoiceSoonCopy()}</p>
     <p class="ok hidden" id="ceilingMsg"></p>
+  </div>
+
+  <div class="card hidden" id="coachCard">
+    <h2>${coachCardHeadingCopy()}</h2>
+    <div id="coachRows"></div>
+    <p class="ok hidden" id="coachMsg" role="status"></p>
   </div>
 
   <div class="card" id="noteSharingCard">
@@ -1581,7 +1624,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     enterAppShell(session);
     if (session && session.founder) loadFounderMetrics();
   }
-  function enterAppShell(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadConsent(); loadCeiling(); loadNoteSharing(); maybeAutoGiveWord(); }
+  function enterAppShell(session) { ANONYMOUS = false; GUEST = !!(session && session.guest); hide(el('signin')); show(el('app')); hide(el('anonNote')); show(el('signout')); show(el('consentCard')); if (GUEST) show(el('claimCard')); else hide(el('claimCard')); applyPrefill(); applyReturnWelcome(); loadConsent(); loadCeiling(); loadNoteSharing(); loadCoach(); maybeAutoGiveWord(); }
 
   function metricRate(rate) {
     return rate == null ? '—' : Math.round(Number(rate) * 100) + '%';
@@ -1729,6 +1772,54 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // ── Coach own-words sharing: the person decides whether the note a coach can
   // send them may carry their own words from a kept word. Off unless they turn
   // it on; saved the instant they toggle it. A consent gift, never a default.
+  // ── Your coach: who you share with (stop any time) and any invitation to answer.
+  // Existing endpoints answer invitations; /api/coach/links lists + ends active links.
+  function loadCoach() {
+    var rows = el('coachRows');
+    if (!rows) return;
+    function row(email, lead, buttons) {
+      var d = document.createElement('div');
+      d.style.marginBottom = '12px';
+      var p = document.createElement('p');
+      p.className = 'muted';
+      p.appendChild(document.createTextNode(lead[0] + ' '));
+      var b = document.createElement('strong'); b.textContent = email; p.appendChild(b);
+      if (lead[1]) p.appendChild(document.createTextNode(' ' + lead[1]));
+      d.appendChild(p);
+      buttons.forEach(function (x) {
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = x.cls || 'secondary'; btn.textContent = x.label; btn.style.marginRight = '8px';
+        btn.addEventListener('click', function () { act(x.method, x.url, x.confirm, x.done); });
+        d.appendChild(btn);
+      });
+      rows.appendChild(d);
+    }
+    function act(method, url, confirmText, done) {
+      if (confirmText && !window.confirm(confirmText)) return;
+      fetch(url, { method: method, headers: authHeaders(), body: method === 'POST' ? '{}' : undefined })
+        .then(function (r) { if (!r.ok) throw new Error('x'); var m = el('coachMsg'); m.textContent = done; m.className = 'ok'; show(m); loadCoach(); })
+        .catch(function () { var m = el('coachMsg'); m.textContent = 'Could not save that just now — try again.'; m.className = 'err'; show(m); });
+    }
+    Promise.all([
+      fetch('/api/coach/links', { headers: authHeaders(), cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }),
+      fetch('/api/coach/invitations', { headers: authHeaders(), cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; })
+    ]).then(function (res) {
+      var links = res[0].links || [], invites = res[1].invitations || [];
+      rows.textContent = '';
+      links.forEach(function (l) {
+        row(l.coach_email, [${JSON.stringify(coachSharingLeadCopy())}, '.'], [{ label: ${JSON.stringify(coachStopLabelCopy())}, confirm: ${JSON.stringify(coachStopConfirmCopy())}, method: 'DELETE', url: '/api/coach/links/' + encodeURIComponent(l.link_id), done: ${JSON.stringify(coachStoppedCopy())} }]);
+      });
+      invites.forEach(function (i) {
+        var base = '/api/coach/invitations/' + encodeURIComponent(i.link_id);
+        row(i.coach_email, ['', ${JSON.stringify(coachInviteLeadCopy())}], [
+          { label: 'Accept', cls: 'primary', method: 'POST', url: base + '/accept', done: ${JSON.stringify(coachAnsweredCopy({ accepted: true }))} },
+          { label: 'Decline', method: 'POST', url: base + '/decline', done: ${JSON.stringify(coachAnsweredCopy({ accepted: false }))} }
+        ]);
+      });
+      if (links.length || invites.length) show(el('coachCard')); else hide(el('coachCard'));
+    }).catch(function () {});
+  }
+
   function loadNoteSharing() {
     var box = el('noteSharing');
     if (!box) return;

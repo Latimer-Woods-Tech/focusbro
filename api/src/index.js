@@ -488,97 +488,10 @@ async function initializeDatabase(env) {
       `CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commitment_id)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for)`,
       `CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for)`,
-      // ── COACH ROSTER (skeleton coach dashboard — Contender #10, Phase A) ──
-      // Consent-gated coach→client link; coach sees data only when status='active'.
-      // Full white-label/wholesale billing is Phase C (operator UNBLOCK gated).
-      `CREATE TABLE IF NOT EXISTS coach_clients (
-        id TEXT PRIMARY KEY,
-        coach_user_id TEXT NOT NULL,
-        client_user_id TEXT NOT NULL,
-        client_label TEXT DEFAULT '',
-        status TEXT DEFAULT 'pending',
-        invited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        responded_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(coach_user_id, client_user_id),
-        FOREIGN KEY(coach_user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(client_user_id) REFERENCES users(id) ON DELETE CASCADE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_user_id, status)`,
-      `CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_user_id, status)`,
-      // ── COACH NOTE-SHARING CONSENT (Contender #10, Phase A · own-voice / coach) ──
-      // Accepting a coach shares kept-word MOMENTUM (aggregate counts) — that is
-      // all the invite promises. A client's own free-text kept-word notes are a
-      // FURTHER, separate consent: this row gates whether the between-session note
-      // a coach copies may carry the client's own words. Default 0 = OFF; the
-      // client's verbatim words never reach a coach until they turn this on, and
-      // they can turn it back off any time.
-      `CREATE TABLE IF NOT EXISTS coach_note_consent (
-        user_id TEXT PRIMARY KEY,
-        shared INTEGER DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-      )`,
-      // ── OPERATOR PLATFORM (Contender #10, Phase C · @latimer-woods-tech/operator) ──
-      // The shared operator platform's identity + hierarchy tables, backed by
-      // D1 through the thin `D1OperatorStore` adapter (src/operator-store.js).
-      // FocusBro mounts the hub instead of hand-rolling a coach hierarchy. The
-      // money tables (price books / ledger / payouts) are intentionally NOT here
-      // — that surface is Phase D (tiers & billing, founder-gated on Stripe live).
-      `CREATE TABLE IF NOT EXISTS operators (
-        id TEXT PRIMARY KEY,
-        slug TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        connect_account_id TEXT,
-        charge_mode TEXT NOT NULL DEFAULT 'direct',
-        white_label TEXT,
-        default_currency TEXT NOT NULL DEFAULT 'usd',
-        metadata TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_slug ON operators(slug)`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operators_connect_account
-         ON operators(connect_account_id) WHERE connect_account_id IS NOT NULL`,
-      `CREATE TABLE IF NOT EXISTS operator_clients (
-        id TEXT PRIMARY KEY,
-        operator_id TEXT NOT NULL,
-        external_org_id TEXT,
-        name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active',
-        retail_override TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_operator_clients_operator ON operator_clients(operator_id)`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_operator_clients_external
-         ON operator_clients(operator_id, external_org_id) WHERE external_org_id IS NOT NULL`,
-      // ── COACH ↔ OPERATOR MAP (Contender #10, Phase C) ──
-      // The thin glue between a FocusBro user and their operator id. One row per
-      // coach — NOT a second hierarchy; the hierarchy lives in operator_clients.
-      `CREATE TABLE IF NOT EXISTS coach_operators (
-        user_id TEXT PRIMARY KEY,
-        operator_id TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
-      )`,
-      // ── COACH CHECK-IN CONFIG (Contender #10, Phase C) ──
-      // FocusBro-native: how the bro checks in for this coach — cadence, voice
-      // persona, and the opening line. The script is anti-shame-validated at the
-      // write boundary (coach-onboarding.js) before it is ever stored here.
-      `CREATE TABLE IF NOT EXISTS coach_checkin_config (
-        operator_id TEXT PRIMARY KEY,
-        cadence TEXT NOT NULL,
-        voice_persona TEXT NOT NULL,
-        script TEXT NOT NULL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(operator_id) REFERENCES operators(id) ON DELETE CASCADE
-      )`,
+      // COACH + OPERATOR tables (coach_clients, coach_note_consent, operators,
+      // operator_clients, coach_operators, coach_checkin_config) come from
+      // migrations only (0000 baseline, 0009). Removed here (FBQ-10 R5): this
+      // function is never called, so a second copy only invited drift.
       // ── CONTACT CONSENT (TCPA consent-by-construction — Contender #10, Phase A) ──
       // Delivery-side consent state; a text/voice check-in cannot send without a
       // 'granted' row. Quiet hours (recipient-local) hold a due check-in; STOP revokes.
