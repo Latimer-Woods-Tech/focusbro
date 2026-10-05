@@ -151,7 +151,8 @@ describe('reconcileStrandedCheckins — the silent miss closes on the TEXT chann
     expect(rowUpd.params).toContain('reschedule'); // never 'missed'
     expect(rowUpd.params).toContain(STRANDED_NOTE);
 
-    // one-shot commitment → "Moved — still on", an open door
+    // FBQ-19: the real scan never returns a one-shot (see the SQL assertion below); this
+    // fake feeds one in only to pin the shared core's behavior.
     const cUpd = db.runs.find((x) => /UPDATE commitments SET status/.test(x.sql));
     expect(cUpd.params).toContain('rescheduled');
 
