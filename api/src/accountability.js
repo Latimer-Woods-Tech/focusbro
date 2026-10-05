@@ -151,6 +151,53 @@ function zonedWallToUtcMs(y, mo, d, h, mi, timeZone) {
   return utc2;
 }
 
+// FBQ-01 — the cron skip reasons that mean NO CHANNEL COULD REACH the person
+// (checkins-cron.js: no push subscription, push/text not configured, no number,
+// or a free person's text sent as push with no subscription). Such a check-in
+// never reached anyone, so it stays answerable from /me/, the native
+// notification and the list fallback. An explicit allowlist, never "skipped and
+// not stale": `stale` (aged out on purpose, its rhythm already rolled on) and any
+// reason added later stay unanswerable until someone decides otherwise.
+export const UNREACHABLE_SKIPS = [
+  'no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured',
+  'text_is_pro_no_subscription', 'text_is_pro_push_not_configured',
+];
+const UNREACHABLE_IN = UNREACHABLE_SKIPS.map((s) => `'${s}'`).join(', ');
+
+// The occurrence a person can answer or snooze right now, as a WHERE fragment
+// binding (dueBefore, skippedFrom, dueBefore): delivered and still open; or a
+// `pending` row due before local midnight tonight (an early "did it"); or an
+// unreachable skip (above) scheduled in [skippedFrom, dueBefore). For a
+// RECURRING word skippedFrom is local midnight TODAY — the same calendar-day
+// window the pending rule uses — so a skip from an earlier day can never be
+// credited and one tap credits one day. A one-shot has a single occurrence and
+// answering it settles the word, so skippedFrom is '' (no lower bound): a
+// next-morning "I did it" still lands, and still credits once. Tomorrow's
+// `pending` row is outside every branch, so neither an answer nor a snooze can
+// touch it.
+export const DUE_OPEN_SQL = `( status IN ('sent', 'deferred', 'awaiting_time')
+         OR (status = 'pending' AND scheduled_for < ?)
+         OR (status = 'skipped' AND last_error IN (${UNREACHABLE_IN})
+             AND scheduled_for >= ? AND scheduled_for < ?) )`;
+
+/** Bind values for DUE_OPEN_SQL, in the recipient's own calendar day. */
+function dueOpenParams(timezone, isRecurring, nowMs = Date.now()) {
+  const tz = timezone || 'UTC';
+  const tp = tzParts(nowMs, tz);
+  const DAY = 24 * 60 * 60 * 1000;
+  let today = new Date(nowMs - DAY).toISOString();
+  let dueBefore = new Date(nowMs + DAY).toISOString();
+  if (tp) {
+    const y = +tp.year; const mo = +tp.month; const d = +tp.day;
+    const tmr = new Date(Date.UTC(y, mo - 1, d) + DAY);
+    today = new Date(zonedWallToUtcMs(y, mo, d, 0, 0, tz)).toISOString();
+    dueBefore = new Date(
+      zonedWallToUtcMs(tmr.getUTCFullYear(), tmr.getUTCMonth() + 1, tmr.getUTCDate(), 0, 0, tz),
+    ).toISOString();
+  }
+  return [dueBefore, isRecurring ? today : '', dueBefore];
+}
+
 /**
  * The next occurrence of a recurring check-in, strictly after `afterISO`, at
  * `localTime` wall-clock in `timezone`, honoring the weekday filter for
@@ -3614,7 +3661,7 @@ export function registerAccountabilityRoutes(router, ctx) {
           `SELECT commitment_id, MAX(scheduled_for) AS next_checkin
              FROM commitment_checkins
             WHERE user_id = ? AND status = 'skipped'
-              AND last_error IN ('no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured')
+              AND last_error IN (${UNREACHABLE_IN})
             GROUP BY commitment_id`
         ).bind(auth.userId).all();
         const unreachableByCommitment = {};
@@ -3847,6 +3894,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         return jsonResponse({
           status: commitment.status,
           message: alreadySettledCopy({ persona }),
+          recorded: false,
         }, 200);
       }
 
@@ -3929,11 +3977,12 @@ export function registerAccountabilityRoutes(router, ctx) {
         // `pending` (checkins-cron.js), so a `DESC` pick would snooze TOMORROW's
         // occurrence into today and orphan today's `sent` row into a false
         // escalation nudge — the exact R-284 bug class, here on the snooze path.
+        // FBQ-01: only a DUE occurrence (DUE_OPEN_SQL) — never tomorrow's row.
         const open = await env.DB.prepare(
           `SELECT id FROM commitment_checkins
-            WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
+            WHERE commitment_id = ? AND user_id = ? AND ${DUE_OPEN_SQL}
             ORDER BY scheduled_for ASC LIMIT 1`
-        ).bind(id, auth.userId).first();
+        ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring)).first();
         if (open && open.id) {
           await env.DB.prepare(
             `UPDATE commitment_checkins
@@ -3969,6 +4018,7 @@ export function registerAccountabilityRoutes(router, ctx) {
           minutes,
           action: 'snoozed',
           message: snoozeConfirmCopy({ persona, minutes, progress: isProgressReply(rescheduleWhenText) }),
+          recorded: true,
         }, 200);
       }
 
@@ -4042,20 +4092,8 @@ export function registerAccountabilityRoutes(router, ctx) {
       // and a silently-dropped nudge on the exact channel that IS the product.
       // "Today's occurrence" is a local-calendar-day boundary, not a fixed offset —
       // only that distinguishes tomorrow's 9am nudge when it's now 11pm (~10h out)
-      // from today's 9am word when it's now 4am (~5h out).
-      const resolveTz = commitment.timezone || 'UTC';
-      const resolveTp = tzParts(Date.now(), resolveTz);
-      let dueBefore;
-      if (resolveTp) {
-        // Midnight tonight → the first instant of tomorrow, in the recipient's zone.
-        const tmr = new Date(Date.UTC(+resolveTp.year, +resolveTp.month - 1, +resolveTp.day) + 24 * 60 * 60 * 1000);
-        dueBefore = new Date(
-          zonedWallToUtcMs(tmr.getUTCFullYear(), tmr.getUTCMonth() + 1, tmr.getUTCDate(), 0, 0, resolveTz),
-        ).toISOString();
-      } else {
-        dueBefore = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      }
-
+      // from today's 9am word when it's now 4am (~5h out). The window, and the
+      // unreachable-skip branch (FBQ-01), live in DUE_OPEN_SQL / dueOpenParams.
       const resolveRes = await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
@@ -4063,11 +4101,10 @@ export function registerAccountabilityRoutes(router, ctx) {
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-                 AND ( status IN ('sent', 'deferred', 'awaiting_time')
-                       OR (status = 'pending' AND scheduled_for < ?) )
+                 AND ${DUE_OPEN_SQL}
                ORDER BY scheduled_for ASC LIMIT 1
             )`
-      ).bind(outcome, note, auth.userId, id, id, auth.userId, dueBefore).run();
+      ).bind(outcome, note, auth.userId, id, id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring)).run();
 
       // Nothing due was waiting: the current occurrence is already logged (a
       // double-tap / stale card / second device), or the only open row is a future
@@ -4075,9 +4112,12 @@ export function registerAccountabilityRoutes(router, ctx) {
       // word, no swallowed future check-in, no duplicate kept event. Reply warm and
       // blameless; the rhythm keeps rolling on its own. 200 (nothing failed).
       if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {
+        // `recorded: false` is the machine-readable "nothing was written" (FBQ-01
+        // R3): the native notification opens the word instead of claiming success.
         return jsonResponse({
           status: commitment.status,
           message: alreadyLoggedCopy({ persona }),
+          recorded: false,
         }, 200);
       }
 
@@ -4098,7 +4138,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         ? await ensureNextOccurrence(env, auth.userId, commitment, nowISO)
         : null;
 
-      const response = { streak: next };
+      const response = { streak: next, recorded: true };
       if (nextOccurrence) response.next_checkin = nextOccurrence;
 
       if (outcome === 'kept') {
@@ -4260,7 +4300,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         : (whenText ? (parseSnoozeMinutes(whenText) ?? SNOOZE_DEFAULT_MIN) : SNOOZE_DEFAULT_MIN);
 
       const commitment = await env.DB.prepare(
-        `SELECT id, persona, channel, status, recurrence FROM commitments WHERE id = ? AND user_id = ?`
+        `SELECT id, persona, channel, status, recurrence, timezone FROM commitments WHERE id = ? AND user_id = ?`
       ).bind(id, auth.userId).first();
       if (!commitment) return jsonResponse({ error: 'Not found' }, 404);
 
@@ -4286,11 +4326,14 @@ export function registerAccountabilityRoutes(router, ctx) {
       // snooze TOMORROW's occurrence into today and orphan today's `sent` row into a
       // false escalation nudge (the R-284 bug class, on the snooze path). ASC re-arms
       // the occurrence the person is acting on and leaves the future one to fire.
+      // FBQ-01: ASC alone was not enough — with today's row parked `skipped` (no
+      // channel reached them) tomorrow's `pending` row WAS the soonest open one and
+      // got pulled into today. Only a DUE occurrence (DUE_OPEN_SQL) is re-armed.
       const open = await env.DB.prepare(
         `SELECT id FROM commitment_checkins
-          WHERE commitment_id = ? AND user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
+          WHERE commitment_id = ? AND user_id = ? AND ${DUE_OPEN_SQL}
           ORDER BY scheduled_for ASC LIMIT 1`
-      ).bind(id, auth.userId).first();
+      ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, pickRecurrence(commitment.recurrence) !== 'none')).first();
 
       if (open && open.id) {
         await env.DB.prepare(

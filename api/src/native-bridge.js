@@ -277,11 +277,15 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
         // "I did it" on the notification itself: the webview holds the session,
         // so the in-app route answers it — same path, same ledger, same copy as
         // the card's button — and the fetch wrapper above re-plans the schedule.
-        // If it cannot be answered here (offline, signed out), land on the word.
+        // If it cannot be answered here (offline, signed out), or the server
+        // wrote nothing (recorded:false — FBQ-01), land on the word.
         w.fetch('/api/commitments/' + encodeURIComponent(id) + '/checkin', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ outcome: 'kept' })
-        }).then(function (r) { if (!r || !r.ok) openSafe(url); }, function () { openSafe(url); });
+        }).then(function (r) {
+          if (!r || !r.ok) return openSafe(url);
+          return r.json().then(function (j) { if (j && j.recorded === false) openSafe(url); }, function (e) { warn('checkin answer', e); });
+        }, function () { openSafe(url); });
         return;
       }
       if (ev.actionId === 'not-yet') {

@@ -60,9 +60,12 @@ const RECURRING = {
 function makeDB(rows) {
   const runs = [];
   const prepared = [];
-  const OPEN = new Set(['pending', 'sent', 'deferred', 'awaiting_time']);
-  function selectRearmTarget(sql, commitmentId) {
-    let pool = rows.filter((r) => r.commitment_id === commitmentId && OPEN.has(r.status));
+  // The DUE open set (FBQ-01): delivered, or `pending` due before local
+  // midnight tonight (params[2]). Tomorrow's pending row is NOT in it.
+  const OPEN = new Set(['sent', 'deferred', 'awaiting_time']);
+  function selectRearmTarget(sql, commitmentId, dueBefore) {
+    let pool = rows.filter((r) => r.commitment_id === commitmentId
+      && (OPEN.has(r.status) || (r.status === 'pending' && r.scheduled_for < dueBefore)));
     if (/ORDER BY scheduled_for ASC/.test(sql)) {
       pool = pool.slice().sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
     } else {
@@ -84,8 +87,8 @@ function makeDB(rows) {
           if (/FROM commitments WHERE id = \? AND user_id = \?/.test(sql)) return RECURRING;
           // The snooze re-arm target select.
           if (/SELECT id FROM commitment_checkins/.test(sql)
-              && /status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/.test(sql)) {
-            return selectRearmTarget(sql, params[0]);
+              && /status IN \('sent', 'deferred', 'awaiting_time'\)/.test(sql)) {
+            return selectRearmTarget(sql, params[0], params[2]);
           }
           return null; // streaks / anything else → defaults
         },
@@ -174,7 +177,7 @@ describe('/snooze endpoint re-arms the current occurrence, never a future one', 
     await call('POST', '/api/commitments/cm1/snooze', { body: { minutes: 20 } });
 
     const rearmSelect = db.prepared.find((sql) => /SELECT id FROM commitment_checkins/.test(sql)
-      && /status IN \('pending', 'sent', 'deferred', 'awaiting_time'\)/.test(sql));
+      && /status IN \('sent', 'deferred', 'awaiting_time'\)/.test(sql));
     expect(rearmSelect).toBeTruthy();
     expect(rearmSelect).toMatch(/ORDER BY scheduled_for ASC/);
     // The old future-picking ordering is gone.
