@@ -65,6 +65,7 @@ const total = (n) => n.d1 + push.calls + fetchSpy.mock.calls.length;
 const sql = (env, q, ...a) => env.DB.sqlite.prepare(q).run(...a);
 function user(env, id, phone = null) {
   sql(env, `INSERT INTO users (id, email, password_hash, phone) VALUES (?, ?, 'x', ?)`, id, `${id}@example.test`, phone);
+  sql(env, `UPDATE users SET phone_verified_at = datetime('now') WHERE id = ? AND phone IS NOT NULL`, id); // FBQ-12: fixtures hold a VERIFIED number
 }
 function subscription(env, id) {
   sql(env, `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, is_active) VALUES (?, ?, ?, 'p', 'a', 1)`,
@@ -84,7 +85,7 @@ function dueDelivery(env, i) {
 /** A delivered-but-quiet push check-in whose owner is Pro with text consent (it earns the SMS knock). */
 function escalationCandidate(env, i) {
   const id = `e${i}`;
-  user(env, id, '+15550002222');
+  user(env, id, `+1555${String(1000000 + i)}`); // FBQ-12: a verified number is unique per account
   sql(env, `INSERT INTO pro_purchases (id, user_id, stripe_session_id, status, paid_at) VALUES (?, ?, ?, 'paid', ?)`, `pp-${id}`, id, `cs-${id}`, NOW);
   sql(env, `INSERT INTO contact_consent (id, user_id, channel, status, quiet_start, quiet_end, timezone) VALUES (?, ?, 'text', 'granted', 3, 3, ?)`, `cc-${id}`, id, TZ);
   sql(env, `INSERT INTO commitments (id, user_id, title, start_at, checkin_at, channel, timezone) VALUES (?, ?, 'stretch', ?, ?, 'push', ?)`, `w-${id}`, id, SENT_AT, SENT_AT, TZ);

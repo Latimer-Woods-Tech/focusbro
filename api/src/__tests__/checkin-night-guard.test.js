@@ -46,7 +46,7 @@ function makeDB({ due = [], consent = CONSENT_NO_QUIET, phone = '+15557654321' }
         bind(...a) { params = a; return stmt; },
         async all() {
           if (/escalated_at IS NULL/.test(sql)) return { results: [] };
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */ };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, phone_ok: 1, ...r })) /* the text rung is Pro (pro.js) */ };
           return { results: [] };
         },
         async first() {
@@ -54,7 +54,7 @@ function makeDB({ due = [], consent = CONSENT_NO_QUIET, phone = '+15557654321' }
           // Both the night-guard clock probe (SELECT timezone ...) and
           // evaluateContactGate read contact_consent — both want this row.
           if (/FROM contact_consent/.test(sql)) return consent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },

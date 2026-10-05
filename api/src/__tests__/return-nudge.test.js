@@ -50,7 +50,7 @@ function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, 
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return pushSub ? { 1: 1 } : null;
           if (/SELECT timezone FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { timezone: textConsent.timezone ?? null } : null;
           if (/SELECT status.*FROM contact_consent/s.test(sql)) return textConsent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() {

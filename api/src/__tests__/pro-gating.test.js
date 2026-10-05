@@ -40,6 +40,7 @@ realSuite('text follow-ups are Pro — the escalation cron on the real schema', 
     db = makeMigratedD1();
     const s = db.sqlite;
     s.exec(`INSERT INTO users (id, email, password_hash, phone) VALUES ('free', 'f@example.com', 'x', '+15557650001'), ('paid', 'p@example.com', 'x', '+15557650002')`);
+    s.exec(`UPDATE users SET phone_verified_at = datetime('now')`); // FBQ-12: verified fixtures
     for (const u of ['free', 'paid']) {
       s.prepare(`INSERT INTO commitments (id, user_id, title, start_at, channel, timezone, status) VALUES (?, ?, 'start the taxes', '2026-07-06T15:00:00.000Z', 'push', 'UTC', 'active')`).run('cm-' + u, u);
       s.prepare(`INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status, delivered_at) VALUES (?, ?, ?, '2026-07-06T15:30:00.000Z', 'push', 'sent', '2026-07-06T15:30:00.000Z')`).run('ci-' + u, 'cm-' + u, u);
@@ -285,6 +286,7 @@ realSuite('check-ins by text are Pro — runDueCheckins on the real schema', () 
     db = makeMigratedD1();
     const s = db.sqlite;
     s.exec(`INSERT INTO users (id, email, password_hash, phone) VALUES ('free', 'f@example.com', 'x', '+15557650001'), ('paid', 'p@example.com', 'x', '+15557650002')`);
+    s.exec(`UPDATE users SET phone_verified_at = datetime('now')`); // FBQ-12: verified fixtures
     for (const u of ['free', 'paid']) {
       s.prepare(`INSERT INTO commitments (id, user_id, title, start_at, channel, timezone, status) VALUES (?, ?, 'open the tax folder', '2026-07-06T15:59:00.000Z', 'text', 'UTC', 'active')`).run('cm-' + u, u);
       s.prepare(`INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status) VALUES (?, ?, ?, '2026-07-06T15:59:00.000Z', 'text', 'pending')`).run('ci-' + u, 'cm-' + u, u);
@@ -344,6 +346,7 @@ realSuite('the return-nudge text fallback is Pro — runReturnNudges on the real
     db = makeMigratedD1();
     const s = db.sqlite;
     s.exec(`INSERT INTO users (id, email, password_hash, phone) VALUES ('free', 'f@example.com', 'x', '+15557650001'), ('paid', 'p@example.com', 'x', '+15557650002')`);
+    s.exec(`UPDATE users SET phone_verified_at = datetime('now')`); // FBQ-12: verified fixtures
     for (const u of ['free', 'paid']) {
       s.prepare(`INSERT INTO commitments (id, user_id, title, start_at, channel, timezone, status) VALUES (?, ?, 'stretch', '2026-06-20T15:00:00.000Z', 'push', 'UTC', 'active')`).run('cm-' + u, u);
       s.prepare(`INSERT INTO analytics_events (user_id, event_type, created_at) VALUES (?, 'commitment_created', '2026-06-20 15:00:00')`).run(u);

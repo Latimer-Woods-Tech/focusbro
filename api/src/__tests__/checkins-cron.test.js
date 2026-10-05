@@ -32,14 +32,14 @@ function makeDB({ due = [], subs = [], esc = [], phone = null, consent = { statu
         async all() {
           // The escalation scan is the more specific commitment_checkins query.
           if (/escalated_at IS NULL/.test(sql)) return { results: esc, _params: params };
-          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
+          if (/FROM commitment_checkins c/.test(sql)) return { results: due.map((r) => ({ is_pro: 1, phone_ok: 1, ...r })) /* the text rung is Pro (pro.js) */, _params: params };
           if (/FROM push_subscriptions/.test(sql)) return { results: subs };
           return { results: [] };
         },
         async first() {
           if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM contact_consent/.test(sql)) return consent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() { runs.push({ sql, params }); return { success: true, meta: { changes: 1 } }; },
@@ -215,17 +215,18 @@ describe('status transitions', () => {
   });
 
   it('marks skipped for text when Telnyx is unconfigured', async () => {
-    const db = makeDB({ due: [textRow()] });
+    const db = makeDB({ due: [textRow()], phone: '+15557654321' });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
     expect(s.skipped).toBe(1);
     expect(updateFor(db, 'ci1').params).toContain('text_not_configured');
   });
 
-  it('marks skipped for text when the user has no phone', async () => {
+  // FBQ-12: no verified number = no text channel; the gate stops it before the sender.
+  it('marks skipped for text when the user has no phone (gate: phone_unverified)', async () => {
     const db = makeDB({ due: [textRow()], phone: null });
     const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: '2026-07-06T14:00:00.000Z' });
     expect(s.skipped).toBe(1);
-    expect(updateFor(db, 'ci1').params).toContain('no_phone');
+    expect(updateFor(db, 'ci1').params).toContain('phone_unverified');
   });
 
   it('sends over text and marks delivered when Telnyx + phone are present', async () => {

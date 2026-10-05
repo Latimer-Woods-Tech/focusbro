@@ -121,7 +121,8 @@ suite('FBQ-05 R4: one open occurrence per word and instant', () => {
   ])('SMS "tomorrow 9am" on a daily 9am word (%s) → 200, one open row', async (_l, status) => {
     const env = makeEnv();
     const { userId, id } = await dailyWord(env);
-    env.DB.sqlite.prepare(`UPDATE users SET phone = ? WHERE id = ?`).run(PHONE, userId);
+    env.DB.sqlite.prepare(`UPDATE users SET phone = ?, phone_verified_at = datetime('now') WHERE id = ?`).run(PHONE, userId);
+    env.DB.sqlite.prepare(`INSERT INTO contact_consent (id, user_id, channel, status, phone) VALUES (?, ?, 'text', 'granted', ?)`).run(`cc-${userId}`, userId, PHONE); // FBQ-12: replies need granted consent
     env.DB.sqlite.prepare(`UPDATE commitments SET channel = 'text' WHERE id = ?`).run(id);
     addDelivered(env, id, userId, status, 'text');
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));

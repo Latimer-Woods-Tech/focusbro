@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_name TEXT,
   avatar_url TEXT,
   phone TEXT,
+  phone_verified_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_login DATETIME,
@@ -490,3 +491,17 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   reset_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_at ON rate_limits(reset_at);
+
+-- ── PHONE VERIFICATION (FBQ-12) — see migrations/0015_phone_verification.sql ──
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_verified_unique
+  ON users(phone) WHERE phone_verified_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS phone_verifications (
+  user_id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);

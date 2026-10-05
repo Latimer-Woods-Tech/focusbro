@@ -100,7 +100,7 @@ function makeReturnDB({ candidates = [], pref = { persona: 'ally', timezone: 'UT
           if (/SELECT 1 FROM push_subscriptions/.test(sql)) return null; // force text channel
           if (/SELECT timezone FROM contact_consent/.test(sql)) return (textConsent && textConsent.status === 'granted') ? { timezone: textConsent.timezone ?? null } : null;
           if (/SELECT status.*FROM contact_consent/s.test(sql)) return textConsent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() { return { success: true }; },
@@ -126,7 +126,7 @@ function makeEscDB({ esc = [], phone = '+15550002222', consent = GRANTED, coach 
           if (/FROM pro_purchases/.test(sql)) return { paid_at: '2026-07-01T00:00:00Z' }; // the text rung is Pro (pro.js)
           if (/FROM coach_clients cc/.test(sql)) return resolveCoach(params[0]);
           if (/FROM contact_consent/.test(sql)) return consent;
-          if (/SELECT phone FROM users/.test(sql)) return phone ? { phone } : {};
+          if (/SELECT phone(, phone_verified_at)? FROM users/.test(sql)) return phone ? { phone, phone_verified_at: '2026-10-05 00:00:00' } : {}; // FBQ-12: fixtures hold a VERIFIED number
           return null;
         },
         async run() { return { success: true }; },
