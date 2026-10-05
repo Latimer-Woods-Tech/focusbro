@@ -2536,6 +2536,9 @@ router.get('/.well-known/assetlinks.json', () => assetLinksResponse());
 // be padded with junk. Anonymous by design — the slug is the whole payload.
 const GUIDE_SLUGS = new Set(guides.map((g) => g.slug));
 const GUIDE_TOOLS = new Set(['caffeine-calculator', 'breathing-pacer']);
+// A reader opens a few guides and uses a tool or two; 60 per 15 min per IP is generous.
+const CONTENT_VIEW_RATE_LIMIT = 60;
+const CONTENT_VIEW_RATE_WINDOW_SECONDS = 15 * 60;
 router.post('/api/content/view', async (request, env) => {
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.toLowerCase().startsWith('application/json')) {
@@ -2543,10 +2546,24 @@ router.post('/api/content/view', async (request, env) => {
   }
   const contentLength = Number(request.headers.get('content-length')) || 0;
   if (contentLength > 512) return jsonResponse({ error: 'View payload is too large' }, 413);
+  // FBQ-15b: Origin is REQUIRED (a missing header used to be waved through),
+  // exactly as the acquisition beacons (FBQ-15 R3/R4) require it.
   const origin = request.headers.get('origin');
-  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
-      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
+  if (!origin || !(ACQUISITION_ORIGINS.has(origin) || origin === new URL(request.url).origin)) {
     return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  // Per-IP budget, spent atomically in D1 (rate-limit.js). Fails open: a limiter
+  // outage must not drop reads, only the cap.
+  try {
+    const key = `content-view:ip:${await hashSessionCredential(clientIP(request))}`;
+    const hit = (await spendLimits(env, [key], CONTENT_VIEW_RATE_WINDOW_SECONDS))[key];
+    if (hit.count > CONTENT_VIEW_RATE_LIMIT) {
+      const limited = jsonResponse({ error: 'Too many requests' }, 429);
+      limited.headers.set('Retry-After', String(retryAfterSeconds([hit.resetAt])));
+      return limited;
+    }
+  } catch (e) {
+    console.warn('content view rate limit unavailable (allowing):', e && e.message);
   }
   let body;
   try { body = await request.json(); } catch { body = null; }
