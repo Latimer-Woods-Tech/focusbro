@@ -201,8 +201,11 @@ suite('account deletion — the real schema, through the Worker', () => {
       .toEqual(['evt-b', 'evt-other']);
   });
 
-  it('works on a database without the runtime-only coach tables (production may lack them)', async () => {
+  it('works on a database without the coach tables (one not yet migrated to 0009)', async () => {
     const { env, sdb, a } = await world({ runtimeTables: false });
+    // Migration 0009 (FBQ-10) now creates them; drop them to stand in for a
+    // database that has not applied it yet — deletion must still succeed there.
+    for (const t of ['coach_checkin_config', 'coach_operators', 'operator_clients', 'operators']) sdb.exec(`DROP TABLE ${t}`);
     expect(tablesHave(sdb, 'coach_operators')).toBe(false);
     const res = await del(env, a.cookie);
     expect(res.status).toBe(200);

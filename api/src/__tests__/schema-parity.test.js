@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { DatabaseSync, makeMigratedD1 } from './helpers/real-d1.js';
 
 const runtimeSource = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 const bootstrapSchema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
@@ -70,5 +71,41 @@ describe('fresh D1 bootstrap schema', () => {
     const missing = [...runtimeIndexes].filter((index) => !bootstrapIndexes.has(index));
 
     expect(missing).toEqual([]);
+  });
+});
+
+// FBQ-10: the runtime init is never called, so production has only what the
+// migrations create. Four coach tables lived in index.js + schema.sql and in no
+// migration, and this file never compared against migrations/ — so the gap was
+// invisible. Every runtime table, column and index must come from a migration.
+// The migrations side is read from a REAL SQLite built from migrations/*.sql
+// (the baseline uses bare CREATE TABLE / CREATE INDEX, which the text parser
+// above does not match).
+const migrationsSuite = DatabaseSync ? describe : describe.skip;
+migrationsSuite('migrations/ cover runtime initialization', () => {
+  const { sqlite } = DatabaseSync ? makeMigratedD1() : { sqlite: null };
+  const master = (type) => new Set(sqlite.prepare('SELECT name FROM sqlite_master WHERE type = ?').all(type).map((r) => r.name));
+
+  it('contains every table and column required by runtime initialization', () => {
+    const tables = master('table');
+    const missing = [];
+    for (const [table, columns] of tableColumns(runtimeSource)) {
+      if (!tables.has(table)) { missing.push(`${table} (table)`); continue; }
+      const have = new Set(sqlite.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+      for (const column of columns) if (!have.has(column)) missing.push(`${table}.${column}`);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('contains every index required by runtime initialization', () => {
+    const indexes = master('index');
+    expect([...indexNames(runtimeSource)].filter((index) => !indexes.has(index))).toEqual([]);
+  });
+
+  it('includes the four coach tables (FBQ-10)', () => {
+    const tables = master('table');
+    for (const t of ['operators', 'operator_clients', 'coach_operators', 'coach_checkin_config']) {
+      expect(tables.has(t), t).toBe(true);
+    }
   });
 });
