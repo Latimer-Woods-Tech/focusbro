@@ -843,6 +843,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
   function fmtWhen(iso) {
+    // SQLite datetime('now') is UTC with no zone ("2026-10-05 04:37:14"); a
+    // browser reads that form as LOCAL time, so a word kept at 00:37 in New York
+    // showed 4:37 AM. Mark it UTC before parsing.
+    if (typeof iso === 'string' && /^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}(:\\d{2})?$/.test(iso)) iso = iso.replace(' ', 'T') + 'Z';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso || '');
     try { return d.toLocaleString(); } catch (e) { return d.toISOString().replace('T', ' ').slice(0, 16); }
