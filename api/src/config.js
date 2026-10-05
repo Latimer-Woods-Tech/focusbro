@@ -35,6 +35,9 @@ export const config = {
 
   // ── Data Limits ──
   data: {
+    // FBQ-17 R4: ACTIVE words per person (settled/released ones are free). Generous
+    // for real use; stops a script from filling the delivery cron's queue.
+    maxActiveCommitments: 50,
     // Maximum stored data size per user
     maxUserDataSize: 10485760, // 10MB
     // Maximum daily sync operations

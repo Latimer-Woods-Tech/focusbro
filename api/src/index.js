@@ -1201,6 +1201,17 @@ async function verifyToken(token, jwtSecret, env = null) {
 // AUTHENTICATION ENDPOINTS
 // ════════════════════════════════════════════════════════════
 
+// FBQ-17 R7: a state-changing /auth/* POST that CARRIES a body must declare JSON.
+// A cross-site <form enctype=text/plain> (or urlencoded) can post without a CORS
+// preflight — that was the login-CSRF door. Every real client sends application/json;
+// the body-less POSTs (logout, exchange, refresh) send no Content-Type and pass.
+router.post('/auth/*', (request) => {
+  const ct = request.headers.get('Content-Type');
+  if (ct && !/^application\/json\s*(;|$)/i.test(ct)) {
+    return jsonResponse({ error: 'Send this as JSON (Content-Type: application/json).' }, 415);
+  }
+});
+
 registerAccountRecoveryRoutes(router, { hashPassword, authenticatedSession, onPasswordReset: clearLoginLimitsForUser });
 
 // ── REGISTER ──

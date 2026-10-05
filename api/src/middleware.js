@@ -169,9 +169,7 @@ export async function checkFeatureFlag(env, userId, feature) {
 
 // ── UTILITY: Generate UUID ──
 export function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+  // FBQ-17 R6: user, session and jti ids are credentials-adjacent — a CSPRNG v4
+  // UUID, never Math.random (predictable from a handful of outputs).
+  return crypto.randomUUID();
 }
