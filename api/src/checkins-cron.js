@@ -783,6 +783,23 @@ export const ESCALATION_DELAY_MIN = 15;
  */
 export const MAX_ESCALATION_LATENESS_MIN = MAX_CHECKIN_LATENESS_MIN;
 
+/**
+ * Hold a deferred escalation candidate out of the scan until `until` (FBQ-07c).
+ * Writes only `escalation_retry_after`, never the `escalated_at` latch, so the
+ * row is still escalated exactly once, later. Conditional on `escalated_at IS
+ * NULL`. A null `until` holds nothing. Best-effort, like the other holds.
+ */
+async function holdEscalation(env, checkinId, until) {
+  if (!until) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE commitment_checkins SET escalation_retry_after = ? WHERE id = ? AND escalated_at IS NULL`
+    ).bind(until, checkinId).run();
+  } catch (err) {
+    console.error('[checkins-cron] escalation hold failed:', err && err.message);
+  }
+}
+
 /** Max escalations examined per cron tick. */
 const ESCALATION_LIMIT = 50;
 
@@ -825,10 +842,11 @@ export async function runEscalations(rawEnv, opts = {}) {
         AND c.responded_at IS NULL AND c.escalated_at IS NULL
         AND c.delivered_at <= ?
         AND c.delivered_at >= ?
+        AND (c.escalation_retry_after IS NULL OR c.escalation_retry_after <= ?)
         AND m.status = 'active'
       ORDER BY c.delivered_at ASC
       LIMIT ?`
-  ).bind(cutoff, staleCutoff, limit).all();
+  ).bind(cutoff, staleCutoff, now, limit).all();
 
   const rows = (quiet && quiet.results) || [];
   for (const row of rows) {
@@ -866,7 +884,11 @@ export async function runEscalations(rawEnv, opts = {}) {
       // WITHOUT latching (escalated_at stays NULL) → eligible for a later daytime
       // tick, exactly like a quiet-hours defer and like the return nudge.
       const guardTz = await nightGuardTimezone(env, row.user_id, row.commitment_timezone);
-      if (!withinUnscheduledDaytime(now, guardTz)) { summary.deferred++; continue; }
+      if (!withinUnscheduledDaytime(now, guardTz)) {
+        // FBQ-07c: hold until daytime opens, so a night of deferred rows never fills the batch.
+        await holdEscalation(env, row.checkin_id, nextInstantWhere(now, (iso) => withinUnscheduledDaytime(iso, guardTz)));
+        summary.deferred++; continue;
+      }
 
       // CONSENT BY CONSTRUCTION: the escalation is a text, so it passes the same
       // TCPA gate as a text check-in. No granted consent → this user simply has
@@ -879,7 +901,7 @@ export async function runEscalations(rawEnv, opts = {}) {
       } catch (err) {
         gate = { skip: (err && err.message) || 'consent_gate_error' };
       }
-      if (gate.defer) { summary.deferred++; continue; }
+      if (gate.defer) { await holdEscalation(env, row.checkin_id, gate.until); summary.deferred++; continue; }
 
       if (gate.skip) {
         outcome = { status: 'skipped', detail: gate.skip };

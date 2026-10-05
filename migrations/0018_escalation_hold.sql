@@ -1,0 +1,14 @@
+-- FBQ-07c (focusbro#391). One additive nullable column.
+--
+-- commitment_checkins.escalation_retry_after — a hold for escalation candidates
+-- that were deferred (night guard / quiet hours). runEscalations scans the oldest
+-- 50 quiet check-ins and defers the ones outside daytime WITHOUT latching, so a
+-- night full of deferred rows filled every batch and starved the rows behind them
+-- (the FBQ-06 / FBQ-07b shape). The scan now skips a row until its hold passes.
+-- A hold is NOT the one-shot latch: escalated_at stays NULL, so a held row is
+-- still escalated exactly once, later. ISO-8601 UTC, same as escalated_at.
+--
+-- ROLLBACK: revert the code; the pre-change code never reads the column. To
+--           remove it anyway: ALTER TABLE commitment_checkins DROP COLUMN
+--           escalation_retry_after (SQLite >= 3.35).
+ALTER TABLE commitment_checkins ADD COLUMN escalation_retry_after TEXT;
