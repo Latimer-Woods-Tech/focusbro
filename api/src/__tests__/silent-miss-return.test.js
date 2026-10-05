@@ -89,7 +89,8 @@ describe('reconcileStrandedCheckins — the silent miss, resolved warmly on retu
     expect(rowUpd.params).toContain('reschedule');
     expect(rowUpd.params).toContain(STRANDED_NOTE);
 
-    // one-shot commitment moved to 'rescheduled' → renders "Moved — still on", an open door
+    // FBQ-19: the real scan never returns a one-shot (see the SQL assertion below); this
+    // fake feeds one in only to pin the shared core's behavior.
     const cUpd = db.runs.find((x) => /UPDATE commitments SET status/.test(x.sql));
     expect(cUpd.params).toContain('rescheduled');
 
@@ -97,6 +98,13 @@ describe('reconcileStrandedCheckins — the silent miss, resolved warmly on retu
     const sUpd = db.runs.find((x) => /INSERT INTO accountability_streaks/.test(x.sql));
     expect(sUpd.params).toContain(6);   // current_streak held
     expect(sUpd.params).toContain(20);  // total_kept held
+  });
+
+  it('FBQ-19: the scan excludes one-shots, so a stranded one-shot is never closed with no successor', async () => {
+    const db = makeDB({ stranded: [] });
+    await reconcileStrandedCheckins({ DB: db }, USER, { nowISO: NOW });
+    const scan = db.queries.find((x) => /escalated_at IS NOT NULL/.test(x.sql));
+    expect(scan.sql).toMatch(/COALESCE\(m\.recurrence, 'none'\) <> 'none'/);
   });
 
   it('a recurring rhythm keeps rolling — its next occurrence materializes', async () => {

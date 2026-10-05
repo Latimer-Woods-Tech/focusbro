@@ -173,9 +173,14 @@ function zonedWallToUtcMs(y, mo, d, h, mi, timeZone) {
 // notification and the list fallback. An explicit allowlist, never "skipped and
 // not stale": `stale` (aged out on purpose, its rhythm already rolled on) and any
 // reason added later stay unanswerable until someone decides otherwise.
+// FBQ-19: the cron prefixes a push-fallback skip with WHY the text channel was not
+// used (`text_is_pro_<reason>` for a free person, `phone_unverified_<reason>` for an
+// unverified number), so the prefixed forms are derived from the push reasons rather
+// than hand-listed: a new prefix cannot silently hide a check-in from the list.
+const PUSH_UNREACHABLE = ['no_subscription', 'push_not_configured'];
 export const UNREACHABLE_SKIPS = [
-  'no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured',
-  'text_is_pro_no_subscription', 'text_is_pro_push_not_configured',
+  ...PUSH_UNREACHABLE, 'no_phone', 'text_not_configured',
+  ...['text_is_pro_', 'phone_unverified_'].flatMap((p) => PUSH_UNREACHABLE.map((r) => p + r)),
 ];
 const UNREACHABLE_IN = UNREACHABLE_SKIPS.map((s) => `'${s}'`).join(', ');
 
@@ -3375,10 +3380,14 @@ export async function applyCheckinOutcome(env, { userId, checkin, commitment, ou
 //
 // The DESIGN LAW's answer to a miss is never a scold and never a dangling thread:
 // it's a warm, no-shame door held open. So the moment the person comes back under
-// their own steam, we resolve every genuinely-silent check-in as a `reschedule` —
+// their own steam, we resolve every genuinely-silent check-in of a RECURRING word as a `reschedule` —
 // the streak-protected outcome (computeStreakAfter leaves the chain untouched),
-// the same one a person's own "later" earns. A recurring rhythm keeps rolling
-// (its next occurrence materializes); a one-shot reads "Moved — still on."
+// the same one a person's own "later" earns; the rhythm keeps rolling (its next
+// occurrence materializes). FBQ-19: a ONE-SHOT is deliberately left alone. Resolving
+// it as `reschedule` set the word to `rescheduled` with no successor and no
+// check-in — "Moved — still on" over a word nothing could ring or answer. Left
+// open it stays `active` and answerable (kept / snooze / move / set down all still
+// work from the card), with nothing invented on the person's behalf.
 // Nothing is ever scored as a miss; the door simply stops standing ajar.
 //
 // R-288 — the guarantee now covers EVERY channel, not just the one with a ladder.
@@ -3465,6 +3474,7 @@ export async function reconcileStrandedCheckins(env, userId, { nowISO } = {}) {
           AND c.status IN ('sent', 'awaiting_time')
           AND c.responded_at IS NULL
           AND m.status = 'active'
+          AND COALESCE(m.recurrence, 'none') <> 'none'
           AND (
                 (c.channel = 'push' AND c.escalated_at IS NOT NULL AND c.escalated_at <= ?)
              OR (c.channel = 'text' AND c.escalated_at IS NULL AND c.delivered_at IS NOT NULL AND c.delivered_at <= ?)
@@ -4058,6 +4068,78 @@ export function registerAccountabilityRoutes(router, ctx) {
     return resolveCheckinOutcome(env, row.user_id, row.commitment_id, { outcome: 'kept', checkin_id: claim.checkinId });
   });
 
+  /** Parse + validate the "when?" of a reschedule. { value } or { error: Response }; writes nothing. */
+  function parseRescheduleValue(commitment, body, persona) {
+    const whenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
+    let newStartISO = typeof body.new_start_at === 'string' && body.new_start_at.trim()
+      ? body.new_start_at.trim()
+      : null;
+    if (!newStartISO && whenText) {
+      newStartISO = parseWhenReply(whenText, {
+        nowISO: new Date().toISOString(),
+        timezone: commitment.timezone,
+        defaultTime: commitment.local_time,
+      });
+      if (!newStartISO) return { error: jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400) };
+    }
+    const parsed = validateCommitmentInput({
+      title: commitment.title,
+      start_at: newStartISO,
+      checkin_at: body.new_checkin_at,
+      channel: commitment.channel,
+      persona,
+      timezone: commitment.timezone,
+    });
+    if (!parsed.ok) return { error: jsonResponse({ error: parsed.error }, 400) };
+    return { value: parsed.value };
+  }
+
+  /** Create the follow-up word (linked by rescheduled_from) and its first check-in. */
+  async function insertSuccessorWord(env, userId, fromId, v) {
+    const newId = generateUUID();
+    await env.DB.prepare(
+      `INSERT INTO commitments
+         (id, user_id, title, details, start_at, checkin_at, channel, persona, timezone, status, rescheduled_from)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+    ).bind(newId, userId, v.title, '', v.startAt, v.checkinAt, v.channel, v.persona, v.timezone, fromId).run();
+    await env.DB.prepare(
+      `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    ).bind(generateUUID(), newId, userId, v.checkinAt, v.channel).run();
+    return newId;
+  }
+
+  /**
+   * "Try again" on a settled-missed one-shot. Returns a Response when it handled the
+   * request (made the follow-up, rejected the time, or found one already made), or
+   * null to fall through to the ordinary settled-word reply (a recurring word).
+   */
+  async function restartMissedWord(env, userId, commitment, body, persona) {
+    if (pickRecurrence(commitment.recurrence) !== 'none') return null;
+    const made = await env.DB.prepare(
+      `SELECT id FROM commitments WHERE rescheduled_from = ? AND user_id = ? LIMIT 1`
+    ).bind(commitment.id, userId).first();
+    if (made) {
+      return jsonResponse({ status: commitment.status, message: alreadyLoggedCopy({ persona }), recorded: false }, 200);
+    }
+    const v = parseRescheduleValue(commitment, body, persona);
+    if (v.error) return v.error;
+    const newId = await insertSuccessorWord(env, userId, commitment.id, v.value);
+    const whenText = typeof body.when_text === 'string' ? body.when_text.trim() : '';
+    await recordEvent(env, {
+      userId, type: EVENTS.COMMITMENT_RESCHEDULE,
+      data: { commitment_id: commitment.id, is_recurring: false, channel: commitment.channel || null, rescheduled_to: newId },
+    });
+    return jsonResponse({
+      recorded: true,
+      message: rescheduleConfirmCopy({ persona, when: v.value.startAt, progress: isProgressReply(whenText) }),
+      new_commitment: {
+        id: newId, title: v.value.title, start_at: v.value.startAt, checkin_at: v.value.checkinAt,
+        channel: v.value.channel, persona: v.value.persona, status: 'active',
+      },
+    }, 200);
+  }
+
   /**
    * Resolve a check-in on a commitment for a user — kept / missed / reschedule,
    * with every interception (grateful "did it" → kept, "on it" → snooze) and
@@ -4099,6 +4181,15 @@ export function registerAccountabilityRoutes(router, ctx) {
       // consent.js. A settled word is not waiting on anyone: reply warmly, write
       // NOTHING (no check-in stamp, no status move, streak untouched), keep the door
       // open. 200 (not an error) — nothing failed; the word is simply already done.
+      //
+      // FBQ-19: "try again" on a settled-MISSED one-shot (legacy rows, API callers)
+      // starts a NEW word with the same title; the missed one is history and is never
+      // touched. One successor per missed word, so a double tap makes one.
+      if (commitment.status === 'missed' && outcome === 'reschedule') {
+        const made = await restartMissedWord(env, auth.userId, commitment, body, persona);
+        if (made) return made;
+      }
+
       if (commitment.status !== 'active') {
         return jsonResponse({
           status: commitment.status,
@@ -4238,29 +4329,9 @@ export function registerAccountabilityRoutes(router, ctx) {
       // no-op: the person's existing word remains open until we understand when.
       let rescheduleValue = null;
       if (outcome === 'reschedule') {
-        let newStartISO = typeof body.new_start_at === 'string' && body.new_start_at.trim()
-          ? body.new_start_at.trim()
-          : null;
-        if (!newStartISO && rescheduleWhenText) {
-          newStartISO = parseWhenReply(rescheduleWhenText, {
-            nowISO: new Date().toISOString(),
-            timezone: commitment.timezone,
-            defaultTime: commitment.local_time,
-          });
-          if (!newStartISO) {
-            return jsonResponse({ error: smsWhenUnclearCopy({ persona }) }, 400);
-          }
-        }
-        const parsed = validateCommitmentInput({
-          title: commitment.title,
-          start_at: newStartISO,
-          checkin_at: body.new_checkin_at,
-          channel: commitment.channel,
-          persona,
-          timezone: commitment.timezone,
-        });
-        if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
-        rescheduleValue = parsed.value;
+        const v = parseRescheduleValue(commitment, body, persona);
+        if (v.error) return v.error;
+        rescheduleValue = v.value;
       }
 
       // Record the resolution on the check-in the person is actually acting on:
@@ -4304,6 +4375,11 @@ export function registerAccountabilityRoutes(router, ctx) {
       // only that distinguishes tomorrow's 9am nudge when it's now 11pm (~10h out)
       // from today's 9am word when it's now 4am (~5h out). The window, and the
       // unreachable-skip branch (FBQ-01), live in DUE_OPEN_SQL / dueOpenParams.
+      // FBQ-19: a one-shot has a single occurrence, so "I did it" before it is due is
+      // believed and credited once (the row settles, the word closes, nothing rings).
+      // Only `kept` on a one-shot reaches past today; a recurring word never does.
+      const resolveParams = dueOpenParams(commitment.timezone, isRecurring);
+      if (!isRecurring && outcome === 'kept') resolveParams[0] = '9999-12-31T00:00:00.000Z';
       const resolveRes = await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
@@ -4314,7 +4390,7 @@ export function registerAccountabilityRoutes(router, ctx) {
                  AND ${DUE_OPEN_SQL}${bound.sql}
                ORDER BY scheduled_for ASC LIMIT 1
             )`
-      ).bind(outcome, note, auth.userId, id, id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring), ...bound.params).run();
+      ).bind(outcome, note, auth.userId, id, id, auth.userId, ...resolveParams, ...bound.params).run();
 
       // Nothing due was waiting: the current occurrence is already logged (a
       // double-tap / stale card / second device), or the only open row is a future
@@ -4362,18 +4438,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         // reschedule: create the follow-up commitment so the word carries forward.
         // The time was parsed and validated above, before any state changed.
         const v = rescheduleValue;
-        const newId = generateUUID();
-        await env.DB.prepare(
-          `INSERT INTO commitments
-             (id, user_id, title, details, start_at, checkin_at, channel, persona, timezone, status, rescheduled_from)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
-        ).bind(newId, auth.userId, v.title, '', v.startAt, v.checkinAt, v.channel, v.persona, v.timezone, id).run();
-
-        const newCheckinId = generateUUID();
-        await env.DB.prepare(
-          `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-           VALUES (?, ?, ?, ?, ?, 'pending')`
-        ).bind(newCheckinId, newId, auth.userId, v.checkinAt, v.channel).run();
+        const newId = await insertSuccessorWord(env, auth.userId, id, v);
 
         // Parity with the SMS reschedule (R-263): if the "when?" reply reported
         // movement alongside the new time ("made good progress, tomorrow 9am"),
@@ -4440,10 +4505,19 @@ export function registerAccountabilityRoutes(router, ctx) {
 
       const persona = pickPersona(commitment.persona);
 
+      // A terminal word stays as it is: a `kept` word is never rewritten to
+      // `released`, and releasing a released one is a warm no-op (no second event).
+      if (commitment.status === 'kept' || commitment.status === 'released') {
+        return jsonResponse({
+          commitment: { id, status: commitment.status },
+          message: commitment.status === 'kept' ? alreadySettledCopy({ persona }) : releaseConfirmCopy({ persona }),
+        }, 200);
+      }
+
       // Move the word to a terminal, blameless 'released' state.
       await env.DB.prepare(
         `UPDATE commitments SET status = 'released', updated_at = datetime('now')
-          WHERE id = ? AND user_id = ?`
+          WHERE id = ? AND user_id = ? AND status NOT IN ('kept', 'released')`
       ).bind(id, auth.userId).run();
 
       // Stop the bro from ringing: cancel any check-ins still waiting to send
