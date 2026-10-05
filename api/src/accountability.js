@@ -32,6 +32,7 @@ import {
   formatCalendarDay, calendarDaysAgo,
 } from './momentum.js';
 import { recordEvent, outcomeEvent, sanitizeAttribution, EVENTS } from './events.js';
+import { verifyReplyTicket } from './checkin-reply.js';
 
 /** Check-in delivery channels available in Phase A. Voice is Phase B (engine-gated). */
 export const CHANNELS = ['push', 'text'];
@@ -3775,13 +3776,49 @@ export function registerAccountabilityRoutes(router, ctx) {
 
   // ── RESOLVE a check-in (kept / missed / reschedule) ──
   router.post('/api/commitments/:id/checkin', async (request, env) => {
-    try {
-      const auth = await requireUser(request, env);
-      if (auth.error) return auth.error;
-      const id = request.params.id;
+    const auth = await requireUser(request, env);
+    if (auth.error) return auth.error;
+    let body;
+    try { body = await request.json(); } catch { body = {}; }
+    return resolveCheckinOutcome(env, auth.userId, request.params.id, body);
+  });
 
-      let body;
-      try { body = await request.json(); } catch { body = {}; }
+  // ── ONE-TAP REPLY — the notification's own buttons ──
+  // "I did it" on the notification itself, with no app open and no session in
+  // the service worker that sends it. The ticket (checkin-reply.js) is bound to
+  // one check-in occurrence and expires on its own; it resolves through the SAME
+  // path as the in-app button, so streak credit, kept copy, events and the
+  // recurring rhythm all behave identically. A settled word answers warmly
+  // (already-settled guard inside), never twice.
+  router.post('/api/checkins/reply', async (request, env) => {
+    let body;
+    try { body = await request.json(); } catch { body = {}; }
+    const claim = await verifyReplyTicket(env.JWT_SECRET, body.ticket);
+    if (!claim) return jsonResponse({ error: 'That notification has expired — open your words to answer.' }, 401);
+    const outcome = body.outcome === 'kept' ? 'kept' : body.outcome === 'missed' ? 'missed' : null;
+    if (!outcome) return jsonResponse({ error: 'outcome must be kept or missed' }, 400);
+    const row = await env.DB.prepare(
+      `SELECT commitment_id, user_id FROM commitment_checkins WHERE id = ?`
+    ).bind(claim.checkinId).first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    return resolveCheckinOutcome(env, row.user_id, row.commitment_id, { outcome });
+  });
+
+  /**
+   * Resolve a check-in on a commitment for a user — kept / missed / reschedule,
+   * with every interception (grateful "did it" → kept, "on it" → snooze) and
+   * every side effect (streak, events, next occurrence). Shared by the in-app
+   * route and the notification's one-tap reply so the two can never drift.
+   *
+   * @param {object} env
+   * @param {string} userId
+   * @param {string} id     commitment id
+   * @param {object} body   { outcome, note?, when_text?, new_start_at? }
+   * @returns {Promise<Response>}
+   */
+  async function resolveCheckinOutcome(env, userId, id, body) {
+    const auth = { userId };
+    try {
       let outcome = typeof body.outcome === 'string' ? body.outcome.toLowerCase() : '';
       if (!OUTCOMES.includes(outcome)) {
         return jsonResponse({ error: `outcome must be one of: ${OUTCOMES.join(', ')}` }, 400);
@@ -4128,7 +4165,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       console.error('[accountability] checkin error:', err && err.message);
       return jsonResponse({ error: 'Could not record that check-in. Your word still counts — try again.' }, 500);
     }
-  });
+  }
 
   // ── RELEASE a commitment (set it down — the no-shame exit) ──
   // Plans change. Without this the only exits from an active word are kept /

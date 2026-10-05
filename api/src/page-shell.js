@@ -52,6 +52,8 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   .pagenav a { color: var(--primary-light); }
   .intro { color: var(--text-muted); margin-top: 0; }
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin: 12px 0; box-shadow: var(--shadow); }
+  /* The word a tapped notification landed on — rung once, then it is just a card again. */
+  .card.landed { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-dim); }
   .muted { color: var(--text-dim); font-size: 13px; }
   .footnote { margin-top: 28px; font-size: 13px; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 14px; }
   .hidden { display: none; }
