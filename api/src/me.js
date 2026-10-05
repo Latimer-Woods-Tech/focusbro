@@ -2165,9 +2165,10 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     var currentToken = token();
     var headers = {};
     if (currentToken) headers.Authorization = 'Bearer ' + currentToken;
-    fetch('/auth/logout', {
-      method: 'POST',
-      headers: headers
+    // Caches, push and the phone's schedule go first, while the session can
+    // still deactivate the push row on the server (FBQ-04 R3).
+    (window.FocusBroSW ? window.FocusBroSW.forget(headers) : Promise.resolve()).then(function () {
+      return fetch('/auth/logout', { method: 'POST', headers: headers });
     }).catch(function () {
       // Local sign-out must remain available during a network outage. The
       // server credential expires or can be revoked with logout-all later.
@@ -2212,5 +2213,6 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 </script>
 <script src="/account-delete.js" defer></script>
 <script src="/native-bridge.js" defer></script>
+<script src="/sw-client.js" defer></script>
 </body></html>`;
 }

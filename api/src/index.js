@@ -7,6 +7,7 @@ import { Router } from 'itty-router';
 import htmlContent from './html.js';
 import swSource, { swContentHash } from './sw-source.js';
 import { SW_KILL_SOURCE, swKillSwitchOn } from './sw-kill.js';
+import { SW_CLIENT_SCRIPT } from './sw-client.js';
 import { guides, renderGuidePage, renderGuidesIndex } from './guides/index.js';
 import { GUIDE_VIEW_SCRIPT, CAFFEINE_SCRIPT, BREATH_SCRIPT } from './guides/scripts.js';
 import { NATIVE_BRIDGE_SCRIPT } from './native-bridge.js';
@@ -2574,6 +2575,9 @@ router.get('/guides/breath.js', (request, env) => scriptResponse(request, env, B
 // Loaded by the app shell and /me/. Returns on its first line in a browser; in
 // the app it schedules check-in notifications and keeps the soundscape alive.
 router.get('/native-bridge.js', (request, env) => scriptResponse(request, env, NATIVE_BRIDGE_SCRIPT));
+// The page half of the service worker: registers it on / and /me/, and clears
+// caches + push on sign-out (FBQ-04 R3/R5 — see sw-client.js).
+router.get('/sw-client.js', (request, env) => scriptResponse(request, env, SW_CLIENT_SCRIPT));
 
 // ── FOCUSBRO PRO (one-time $9.99 unlock, website only — see pro.js) ──
 // POST /api/pro/checkout · GET /api/pro/status · GET /pro/ · GET /pro.js.
@@ -3376,7 +3380,9 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
     var legacyToken = token();
     var headers = {};
     if (legacyToken) headers.Authorization = 'Bearer ' + legacyToken;
-    fetch('/auth/logout', { method: 'POST', headers: headers }).catch(function () {
+    (window.FocusBroSW ? window.FocusBroSW.forget(headers) : Promise.resolve()).then(function () {
+      return fetch('/auth/logout', { method: 'POST', headers: headers });
+    }).catch(function () {
       // Local sign-out remains available if the network is temporarily down.
     }).then(function () {
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -3408,6 +3414,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/', label: 'Your word' }, {
   restoreCoachSession();
 })();
 </script>
+<script src="/sw-client.js" data-forget-only defer></script>
 </body></html>`;
   return new Response(page, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 });

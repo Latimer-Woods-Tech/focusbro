@@ -301,7 +301,11 @@ export const ACCOUNT_DELETE_SCRIPT = `(function () {
     }).then(function (r) {
       if (!r.ok) throw new Error('http ' + r.status);
       try { window.localStorage.removeItem('focusbro_token'); } catch (e2) {}
-      window.location.assign(${JSON.stringify(ACCOUNT_DELETED_PATH)});
+      // The server already deleted the push rows; this empties the caches, the
+      // browser's subscription and the phone's schedule (FBQ-04 R3).
+      return (window.FocusBroSW ? window.FocusBroSW.forget({}) : Promise.resolve()).then(function () {
+        window.location.assign(${JSON.stringify(ACCOUNT_DELETED_PATH)});
+      });
     }).catch(function () {
       confirmBtn.textContent = label; confirmBtn.disabled = false; cancel.disabled = false;
       err.textContent = ${JSON.stringify(accountDeleteCopy().error)};
