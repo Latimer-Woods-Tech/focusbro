@@ -1,212 +1,60 @@
 # FocusBro API Testing Guide
 
-## Setup
+Vitest for the worker (`api/src/__tests__/`, ~165 files), Playwright for the browser
+smoke (`api/e2e/`). CI (`.github/workflows/test.yml`) runs on **Node 24.x**; the real-D1
+helper needs `node:sqlite` (Node 22.5+), and its suites skip themselves on older Node.
 
-### Install Dependencies
+## Run
+
 ```bash
-cd api
-npm install
+cd api && npm ci
+npm run lint            # eslint src --max-warnings 0
+npm run build           # node --check on the worker files
+npm test                # vitest run
+npm run test:coverage   # what CI runs; enforces the floor in vitest.config.js
+npm run test:smoke      # Playwright (needs the browsers Playwright expects)
+npx vitest run src/__tests__/route-consent.test.js     # one file
+npx vitest run --sequence.shuffle                       # order-independence check
 ```
 
-### Configure Environment
-Create `.env.local` with test credentials:
-```bash
-# .env.local
-JWT_SECRET=test-secret-key
-STRIPE_SECRET_KEY=sk_test_xxx
-DEBUG=true
-```
+No `.env` is needed: tests build their own `env` (secrets are literals in the test).
 
-## Running Tests
+## Two ways to test a route
 
-### Run All Tests
-```bash
-npm test
-```
+1. **Real D1 (preferred for anything that reads or writes state).**
+   `helpers/real-d1.js` builds an in-memory SQLite from every `migrations/NNNN_*.sql`, so
+   CHECK constraints, unique indexes and foreign keys are the production ones.
+   `helpers/route-kit.js` wraps it: `makeEnv()`, `call(env, path, {method, body, cookie})`
+   through `worker.fetch`, and `register(env, email)` which signs up the way a person does
+   and returns the session cookie. Assert the status **and** read the table back
+   (`row`/`rows`/`count`). A 200 alone proves nothing.
+2. **Hand-rolled D1 stub** for pure unit tests of a helper. Never use one to claim a route
+   works; a stub returns whatever the test told it to.
 
-### Watch Mode (Auto-rerun on changes)
-```bash
-npm run test:watch
-```
+Every route test should cover the unhappy paths: 401 without a session (and with a forged
+cookie), 400 on bad input with nothing written, and cross-user 404/no-effect.
 
-### Generate Coverage Report
-```bash
-npm run test:coverage
-```
+## Schema source of truth
 
-### Run Specific Test File
-```bash
-npm test -- src/__tests__/auth.test.js
-```
+`migrations/` is the source of truth. `schema.sql` is a mirror; `schema-parity.test.js`
+fails if they drift.
 
-## Test Structure
+## Writing tests that stay honest
 
-```
-api/src/__tests__/
-├── auth.test.js          # Authentication endpoints
-├── validation.test.js    # Input validation
-├── cors.test.js          # CORS security
-└── rate-limit.test.js    # Rate limiting
-```
+- Import the real code from `src/`. A test that re-implements the validator inline and
+  asserts on literals (the old `auth.test.js` / `validation.test.js`) can never fail.
+- Prove a new gate can fail: break the source briefly, watch the test go red, revert.
+- Do not depend on module state leaking between files. `vi.mock` plus a top-level
+  `await import()` needs `vi.resetModules()` first and a `vi.doUnmock` + `vi.resetModules()`
+  in `afterAll`, or the file passes only under the default isolated pool.
+- No wall-clock literals without fake timers (the "burned fixture date" failure class).
 
-## Key Test Categories
+## Coverage floor
 
-### 1. Authentication Tests (`auth.test.js`)
-- ✅ Register with valid credentials
-- ✅ Login with correct password
-- ❌ Reject invalid email format
-- ❌ Reject short passwords
-- ❌ Reject duplicate registrations
-- ✅ Return proper JWT token
-- ✅ Validate session response structure
+`vitest.config.js` `thresholds` is a ratchet: kept about 3 points below actual so a
+regression fails CI. When you add coverage, raise it; never lower it to land a change.
 
-### 2. Input Validation Tests
-- ✅ String length validation
-- ✅ Number range validation
-- ✅ Array size limits
-- ✅ Type checking
-- ✅ Email format validation
+## CI
 
-### 3. Security Tests
-- ✅ CORS origin whitelist
-- ✅ Rate limiting (10 requests/15min)
-- ✅ No sensitive data in logs
-- ✅ No hardcoded secrets
-- ✅ Proper error messages
-
-### 4. Database Tests
-- ✅ User creation
-- ✅ Session storage
-- ✅ Event logging
-- ✅ Data consistency
-
-## Continuous Integration
-
-Tests run automatically on:
-- ✅ Push to `main` or `develop`
-- ✅ Pull requests to `main` or `develop`
-- ✅ Changes in `api/` directory
-
-### GitHub Actions Workflow
-
-1. **Test Job** - Runs on Node 18.x and 20.x
-   - Install dependencies
-   - Run linter
-   - Run test suite
-   - Generate coverage
-
-2. **Security Job** - Check for vulnerabilities
-   - npm audit
-   - Hardcoded secrets check
-   - Environment validation
-
-3. **Deploy Job** - Deploy on main branch
-   - Requires passing tests
-   - Requires security checks
-
-## Writing New Tests
-
-### Test Template
-```javascript
-describe('Feature Name', () => {
-  it('should do something', async () => {
-    // Arrange
-    const input = { /* test data */ };
-    
-    // Act
-    const result = await testFunction(input);
-    
-    // Assert
-    expect(result.valid).toBe(true);
-  });
-
-  it('should reject invalid input', async () => {
-    const input = { /* invalid data */ };
-    const result = await testFunction(input);
-    
-    expect(result.valid).toBe(false);
-  });
-});
-```
-
-### Testing Async Functions
-```javascript
-it('should handle async operations', async () => {
-  const result = await asyncFunction();
-  expect(result).toBeDefined();
-});
-```
-
-### Testing Error Cases
-```javascript
-it('should throw on invalid input', () => {
-  expect(() => {
-    functionThatThrows();
-  }).toThrow('Error message');
-});
-```
-
-## Coverage Goals
-
-- **Target: 80%** overall code coverage
-- Authentication: **90%+**
-- Validation: **85%+**
-- Database: **80%+**
-- API routes: **75%+**
-
-## Debug Tips
-
-### Enable Verbose Output
-```bash
-npm test -- --reporter=verbose
-```
-
-### Single Test Only
-```bash
-npm test -- -t "should validate email"
-```
-
-### Show Diff on Failures
-```bash
-npm test -- --reporter=verbose
-```
-
-## Common Issues
-
-### Tests fail with "fetch is not defined"
-**Solution:** Tests use node environment. Fetch is mocked for API calls.
-
-### Database tests fail
-**Solution:** Mock D1 responses in test setup:
-```javascript
-const mockEnv = {
-  DB: {
-    prepare: (sql) => ({
-      bind: (...args) => ({
-        first: async () => ({ id: 'test' }),
-        all: async () => []
-      })
-    })
-  }
-};
-```
-
-### Tests timeout
-**Solution:** Increase timeout in vitest.config.js:
-```javascript
-testTimeout: 30000 // 30 seconds
-```
-
-## Next Steps
-
-- [ ] Add 10+ more test cases per endpoint
-- [ ] Cover error scenarios
-- [ ] Add integration tests with real D1
-- [ ] Add performance benchmarks
-- [ ] Add load testing with k6
-
-## Resources
-
-- [Vitest Documentation](https://vitest.dev)
-- [Testing Best Practices](https://testing-library.com/docs)
-- [Cloudflare Workers Testing](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
+`test.yml`: content-ledger check, lint, `build:html`, `test:coverage`, then the Playwright
+smoke job. Merge-gate details live in `docs/QA_REMEDIATION_2026-10.md` (FBQ-25).

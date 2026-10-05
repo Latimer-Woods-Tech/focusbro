@@ -44,7 +44,7 @@ is dormant (`BILLING_ENABLED`).
 - **Build the served HTML before every deploy** — `npm run build:html` regenerates `api/src/html.js` from `public/index.html`. The `predeploy` npm hook runs it automatically on `npm run deploy`. (`build-complete-html.js` and `public/components/views/*.js` are one-time assembly artifacts — already inlined into `public/index.html`; do NOT run them in a routine build.)
 - Auth tokens are HS256 JWT signed with HMAC-SHA256 via Web Crypto — not jsonwebtoken
 - Stripe webhook handlers must verify signature before processing
-- D1 migrations live in `schema.sql` — never modify production schema without a migration file
+- D1 migrations live in `migrations/` (the source of truth); `schema.sql` is a mirror kept in parity by `api/src/__tests__/schema-parity.test.js` — never modify production schema without a migration file
 
 ## Surfaces
 
@@ -82,7 +82,7 @@ Ambient Sounds, Eye Rest, Hydration Reminder, Sleep Wind-Down.
 2. Read `PRODUCT_PRINCIPLES.md` — product philosophy, tier model, tool catalogue
 3. Run `npx vitest run` — note current baseline
 4. Read `src/index.js` (or main Worker entry) — router wiring and middleware
-5. Confirm D1 schema in `schema.sql` before any database work
+5. Confirm D1 schema in `migrations/` (`schema.sql` mirrors it) before any database work
 6. Check `git log --oneline -10` — understand recent changes
 7. **Before deploying**: run `npm run build:html` (or `npm run deploy`, whose `predeploy` hook auto-builds)
 
@@ -92,7 +92,7 @@ Ambient Sounds, Eye Rest, Hydration Reminder, Sleep Wind-Down.
 |-----|---------|
 | `ARCHITECTURE_PLAN.md` | 6-phase build plan, system architecture |
 | `PRODUCT_PRINCIPLES.md` | Product philosophy, tier model, tool catalogue |
-| `schema.sql` | D1 database schema |
+| `migrations/` · `schema.sql` | D1 schema (migrations are the source of truth; `schema.sql` is the mirror) |
 | `public/index.html` | Frontend SPA |
 
 ## Commit Format
