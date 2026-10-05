@@ -127,11 +127,11 @@ suite('POST /api/checkins/reply', () => {
     expect(env.DB.sqlite.prepare('SELECT status FROM commitments WHERE id = ?').get(commitmentId).status).toBe('active');
   });
 
-  it('only kept / missed can be answered in one tap; a reschedule needs the "when?" surface', async () => {
+  it('only kept can be answered in one tap (FBQ-02); a miss or a reschedule opens the word', async () => {
     const env = makeEnv();
     const { checkinId } = await wordWithCheckin(env);
     const ticket = await signReplyTicket(env.JWT_SECRET, checkinId);
-    for (const outcome of ['reschedule', 'snooze', '', undefined]) {
+    for (const outcome of ['missed', 'reschedule', 'snooze', '', undefined]) {
       expect((await reply(env, { ticket, outcome })).status, String(outcome)).toBe(400);
     }
   });

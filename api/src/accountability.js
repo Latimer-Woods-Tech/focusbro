@@ -198,6 +198,38 @@ function dueOpenParams(timezone, isRecurring, nowMs = Date.now()) {
   return [dueBefore, isRecurring ? today : '', dueBefore];
 }
 
+// FBQ-02 — the occurrence an answer was offered for. The reply ticket and the
+// native notification each name ONE occurrence; resolving "the soonest due row"
+// instead let a stale tap credit a later day and swallow its nudge. checkin_id
+// binds to that row (the ticket; the native notification for the server's next
+// row). occurrence_at — the instant a native notification was pre-scheduled for,
+// a later day whose row does not exist yet when the device plans it — binds to
+// that local calendar day. Neither present: the soonest due row, as before (the
+// /me/ card, older app builds).
+function occurrenceTarget(body) {
+  if (body.checkin_id !== undefined) {
+    const id = body.checkin_id;
+    if (typeof id !== 'string' || !id || id.length > 64) return { error: 'checkin_id must be a check-in id' };
+    return { checkinId: id };
+  }
+  if (body.occurrence_at !== undefined) {
+    const ms = typeof body.occurrence_at === 'string' ? Date.parse(body.occurrence_at) : NaN;
+    if (!Number.isFinite(ms)) return { error: 'occurrence_at must be an ISO time' };
+    return { occurrenceMs: ms };
+  }
+  return {};
+}
+
+/** A WHERE fragment (+ binds) narrowing DUE_OPEN_SQL to the bound occurrence. */
+function occurrenceSql(target, timezone) {
+  if (target.checkinId) return { sql: ' AND id = ?', params: [target.checkinId] };
+  if (target.occurrenceMs !== undefined) {
+    const [dayEnd, dayStart] = dueOpenParams(timezone, true, target.occurrenceMs);
+    return { sql: ' AND scheduled_for >= ? AND scheduled_for < ?', params: [dayStart, dayEnd] };
+  }
+  return { sql: '', params: [] };
+}
+
 /**
  * The next occurrence of a recurring check-in, strictly after `afterISO`, at
  * `localTime` wall-clock in `timezone`, honoring the weekday filter for
@@ -3629,18 +3661,23 @@ export function registerAccountabilityRoutes(router, ctx) {
       // person-side twin of the coach's next-check-in (R-224). No miss surfaced:
       // an outstanding row that is already past reads as "still waiting" in the
       // UI, never as a scold.
+      // `id` beside MIN(): SQLite returns the bare column from the row holding the
+      // minimum, so next_checkin_id names exactly that occurrence (FBQ-02 — the
+      // native notification carries it, and its answer resolves only that row).
       const outstanding = await env.DB.prepare(
-        `SELECT commitment_id, MIN(scheduled_for) AS next_checkin
+        `SELECT commitment_id, id, MIN(scheduled_for) AS next_checkin
            FROM commitment_checkins
           WHERE user_id = ? AND status IN ('pending', 'sent', 'deferred', 'awaiting_time')
           GROUP BY commitment_id`
       ).bind(auth.userId).all();
       const nextByCommitment = {};
       for (const row of (outstanding && outstanding.results) || []) {
-        nextByCommitment[row.commitment_id] = row.next_checkin;
+        nextByCommitment[row.commitment_id] = row;
       }
       for (const c of commitments) {
-        c.next_checkin = c.status === 'active' ? (nextByCommitment[c.id] || null) : null;
+        const n = c.status === 'active' ? nextByCommitment[c.id] : null;
+        c.next_checkin = n ? n.next_checkin : null;
+        c.next_checkin_id = n ? n.id : null;
       }
 
       // In-app fallback — the bro still shows up when we could not reach the
@@ -3658,7 +3695,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       const anyUnfilled = commitments.some((c) => c.status === 'active' && !c.next_checkin);
       if (anyUnfilled) {
         const unreachable = await env.DB.prepare(
-          `SELECT commitment_id, MAX(scheduled_for) AS next_checkin
+          `SELECT commitment_id, id, MAX(scheduled_for) AS next_checkin
              FROM commitment_checkins
             WHERE user_id = ? AND status = 'skipped'
               AND last_error IN (${UNREACHABLE_IN})
@@ -3666,11 +3703,13 @@ export function registerAccountabilityRoutes(router, ctx) {
         ).bind(auth.userId).all();
         const unreachableByCommitment = {};
         for (const row of (unreachable && unreachable.results) || []) {
-          unreachableByCommitment[row.commitment_id] = row.next_checkin;
+          unreachableByCommitment[row.commitment_id] = row;
         }
         for (const c of commitments) {
-          if (c.status === 'active' && !c.next_checkin && unreachableByCommitment[c.id]) {
-            c.next_checkin = unreachableByCommitment[c.id];
+          const u = unreachableByCommitment[c.id];
+          if (c.status === 'active' && !c.next_checkin && u) {
+            c.next_checkin = u.next_checkin;
+            c.next_checkin_id = u.id;
           }
         }
       }
@@ -3837,18 +3876,21 @@ export function registerAccountabilityRoutes(router, ctx) {
   // path as the in-app button, so streak credit, kept copy, events and the
   // recurring rhythm all behave identically. A settled word answers warmly
   // (already-settled guard inside), never twice.
+  // FBQ-02: the ticket answers ONLY its own occurrence (checkin_id below), and
+  // only with `kept`. A ticket outlives its day (72 h) and can be replayed, so
+  // a `missed` through it could reset the streak on a later day; "Not yet"
+  // opens the word instead, where the person answers in full.
   router.post('/api/checkins/reply', async (request, env) => {
     let body;
     try { body = await request.json(); } catch { body = {}; }
     const claim = await verifyReplyTicket(env.JWT_SECRET, body.ticket);
     if (!claim) return jsonResponse({ error: 'That notification has expired — open your words to answer.' }, 401);
-    const outcome = body.outcome === 'kept' ? 'kept' : body.outcome === 'missed' ? 'missed' : null;
-    if (!outcome) return jsonResponse({ error: 'outcome must be kept or missed' }, 400);
+    if (body.outcome !== 'kept') return jsonResponse({ error: 'outcome must be kept' }, 400);
     const row = await env.DB.prepare(
       `SELECT commitment_id, user_id FROM commitment_checkins WHERE id = ?`
     ).bind(claim.checkinId).first();
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
-    return resolveCheckinOutcome(env, row.user_id, row.commitment_id, { outcome });
+    return resolveCheckinOutcome(env, row.user_id, row.commitment_id, { outcome: 'kept', checkin_id: claim.checkinId });
   });
 
   /**
@@ -3860,7 +3902,7 @@ export function registerAccountabilityRoutes(router, ctx) {
    * @param {object} env
    * @param {string} userId
    * @param {string} id     commitment id
-   * @param {object} body   { outcome, note?, when_text?, new_start_at? }
+   * @param {object} body   { outcome, note?, when_text?, new_start_at?, checkin_id?, occurrence_at? }
    * @returns {Promise<Response>}
    */
   async function resolveCheckinOutcome(env, userId, id, body) {
@@ -3871,6 +3913,8 @@ export function registerAccountabilityRoutes(router, ctx) {
         return jsonResponse({ error: `outcome must be one of: ${OUTCOMES.join(', ')}` }, 400);
       }
       let note = typeof body.note === 'string' ? body.note.trim().slice(0, MAX_DETAILS) : '';
+      const target = occurrenceTarget(body);
+      if (target.error) return jsonResponse({ error: target.error }, 400);
 
       const commitment = await env.DB.prepare(
         `SELECT id, title, persona, channel, timezone, recurrence, local_time, status
@@ -3899,6 +3943,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       }
 
       const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
+      const bound = occurrenceSql(target, commitment.timezone);
 
       // Free-text carried on the in-app "Move it → when?" surface. Read up-front
       // because both the KEPT interception (just below) and the SNOOZE
@@ -3980,9 +4025,13 @@ export function registerAccountabilityRoutes(router, ctx) {
         // FBQ-01: only a DUE occurrence (DUE_OPEN_SQL) — never tomorrow's row.
         const open = await env.DB.prepare(
           `SELECT id FROM commitment_checkins
-            WHERE commitment_id = ? AND user_id = ? AND ${DUE_OPEN_SQL}
+            WHERE commitment_id = ? AND user_id = ? AND ${DUE_OPEN_SQL}${bound.sql}
             ORDER BY scheduled_for ASC LIMIT 1`
-        ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring)).first();
+        ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring), ...bound.params).first();
+        if (!(open && open.id) && bound.sql) {
+          // The bound occurrence is settled or not this word's: write nothing (FBQ-02).
+          return jsonResponse({ status: commitment.status, message: alreadyLoggedCopy({ persona }), recorded: false }, 200);
+        }
         if (open && open.id) {
           await env.DB.prepare(
             `UPDATE commitment_checkins
@@ -4101,14 +4150,15 @@ export function registerAccountabilityRoutes(router, ctx) {
             AND id = (
               SELECT id FROM commitment_checkins
                WHERE commitment_id = ? AND user_id = ?
-                 AND ${DUE_OPEN_SQL}
+                 AND ${DUE_OPEN_SQL}${bound.sql}
                ORDER BY scheduled_for ASC LIMIT 1
             )`
-      ).bind(outcome, note, auth.userId, id, id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring)).run();
+      ).bind(outcome, note, auth.userId, id, id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring), ...bound.params).run();
 
       // Nothing due was waiting: the current occurrence is already logged (a
       // double-tap / stale card / second device), or the only open row is a future
-      // day's not-yet-due one. Resolve NOTHING — no second streak credit for one
+      // day's not-yet-due one, or the occurrence the answer is bound to (FBQ-02) is
+      // settled or not this word's. Resolve NOTHING — no second streak credit for one
       // word, no swallowed future check-in, no duplicate kept event. Reply warm and
       // blameless; the rhythm keeps rolling on its own. 200 (nothing failed).
       if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {

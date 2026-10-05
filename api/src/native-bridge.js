@@ -89,8 +89,14 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
 
   function clip(s, n) { s = String(s == null ? '' : s).trim(); return s.length > n ? s.slice(0, n - 1) + '\\u2026' : s; }
 
-  function notification(c, atMs, slot) {
+  // FBQ-02: each notification carries the occurrence it was scheduled for, so
+  // its answer resolves THAT row, never a later day's. The server's next row is
+  // bound by its id (checkinId); a later day pre-scheduled here has no row yet,
+  // so it is bound by its own instant (occurrenceAt, matched to that local day).
+  function notification(c, atMs, slot, checkinId) {
     var title = clip(c.title, 60) || 'Your check-in';
+    var extra = { fb: 'checkin', commitmentId: String(c.id), url: '/me/?word=' + encodeURIComponent(String(c.id)), occurrenceAt: new Date(atMs).toISOString() };
+    if (checkinId) extra.checkinId = String(checkinId);
     return {
       id: hashId(String(c.id) + ':' + slot),
       title: title,
@@ -103,7 +109,7 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
       actionTypeId: ACTION_TYPE,
       schedule: { at: new Date(atMs), allowWhileIdle: true },
       // A tap lands on THIS word, never the toolkit (the web push does the same).
-      extra: { fb: 'checkin', commitmentId: String(c.id), url: '/me/?word=' + encodeURIComponent(String(c.id)) }
+      extra: extra
     };
   }
 
@@ -116,7 +122,7 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
     (commitments || []).forEach(function (c) {
       if (!c || c.status !== 'active' || !c.id) return;
       var next = c.next_checkin ? Date.parse(c.next_checkin) : NaN;
-      if (isFinite(next) && next > nowMs) out.push(notification(c, next, 'next'));
+      if (isFinite(next) && next > nowMs) out.push(notification(c, next, 'next', c.next_checkin_id));
       var rec = c.recurrence;
       var hm = parseHM(c.local_time);
       // Pre-schedule the following occurrences of a recurring word, in local
@@ -279,9 +285,14 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
         // the card's button — and the fetch wrapper above re-plans the schedule.
         // If it cannot be answered here (offline, signed out), or the server
         // wrote nothing (recorded:false — FBQ-01), land on the word.
+        // The occurrence rides along (FBQ-02); a notification scheduled by an
+        // older script carries neither and keeps the soonest-due behaviour.
+        var answer = { outcome: 'kept' };
+        if (n.extra.checkinId) answer.checkin_id = n.extra.checkinId;
+        if (n.extra.occurrenceAt) answer.occurrence_at = n.extra.occurrenceAt;
         w.fetch('/api/commitments/' + encodeURIComponent(id) + '/checkin', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ outcome: 'kept' })
+          body: JSON.stringify(answer)
         }).then(function (r) {
           if (!r || !r.ok) return openSafe(url);
           return r.json().then(function (j) { if (j && j.recorded === false) openSafe(url); }, function (e) { warn('checkin answer', e); });

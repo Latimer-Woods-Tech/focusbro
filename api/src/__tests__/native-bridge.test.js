@@ -126,7 +126,7 @@ describe('check-in schedule (plan)', () => {
     expect(n.title).toBe('Write the intro');
     expect(n.schedule.at.toISOString()).toBe(at);
     expect(n.schedule.allowWhileIdle).toBe(true);
-    expect(n.extra).toEqual({ fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1' });
+    expect(n.extra).toEqual({ fb: 'checkin', commitmentId: 'c1', url: '/me/?word=c1', occurrenceAt: at });
     expect(n.actionTypeId).toBe('checkin');
     expect(n.id).toBeGreaterThan(0);
     expect(n.id).not.toBe(SOUNDSCAPE_NOTIFICATION_ID);
@@ -236,6 +236,24 @@ describe('check-in schedule (device sync)', () => {
     expect(call[1].method).toBe('POST');
     expect(JSON.parse(call[1].body)).toEqual({ outcome: 'kept' });
     expect(b.assigned).toEqual([]);
+  });
+
+  it('FBQ-02: each notification carries its occurrence, and "I did it" sends it', async () => {
+    const next = new Date(); next.setDate(next.getDate() + 1); next.setHours(9, 30, 0, 0);
+    const b = boot();
+    const [first, second] = b.win.FocusBroNative.plan([{ id: 'd1', title: 'Run', status: 'active', next_checkin: next.toISOString(), next_checkin_id: 'ci-tue', recurrence: 'daily', local_time: '09:30', timezone: TZ }], Date.now(), TZ);
+    // The server's next row is bound by id; a pre-scheduled later day by its instant.
+    expect(first.extra).toMatchObject({ checkinId: 'ci-tue', occurrenceAt: next.toISOString() });
+    expect(second.extra.checkinId).toBeUndefined();
+    expect(second.extra.occurrenceAt).toBe(second.schedule.at.toISOString());
+    b.fetch.mockClear();
+    for (const n of [first, second]) b.listeners['LN:localNotificationActionPerformed']({ actionId: 'kept', notification: { extra: n.extra } });
+    await new Promise((r) => setTimeout(r, 0));
+    const bodies = b.fetch.mock.calls.filter((c) => String(c[0]).endsWith('/api/commitments/d1/checkin')).map((c) => JSON.parse(c[1].body));
+    expect(bodies).toEqual([
+      { outcome: 'kept', checkin_id: 'ci-tue', occurrence_at: next.toISOString() },
+      { outcome: 'kept', occurrence_at: second.extra.occurrenceAt },
+    ]);
   });
 
   it('when "I did it" cannot be answered here, it lands on the word instead of swallowing the tap', async () => {
