@@ -294,7 +294,7 @@ suite('FocusBro Pro — website-only purchase (Google Play): the app is never so
 
   it('every surface that can show a buy/upgrade control hides .pro-buy inside the app', async () => {
     const env = makeEnv();
-    const css = 'html[data-native-app] .pro-buy{display:none !important}';
+    const css = 'html[data-native-app] .pro-buy,html[data-native-app] .pro-framing{display:none !important}';
     for (const path of ['/pro/', '/me/', '/me/report', '/']) {
       const html = await (await worker.fetch(req('GET', path), env, ctx)).text();
       expect(html, path).toContain(css);

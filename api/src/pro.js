@@ -42,6 +42,10 @@ export const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 export const STRIPE_TIMEOUT_MS = 8000;
 /** Pending sessions examined per reconcile — bounds Stripe calls per request. */
 export const RECONCILE_LIMIT = 5;
+/** A paid purchase is re-read for refunds/disputes at most this often. */
+export const REFUND_RECHECK_MS = 24 * 60 * 60 * 1000;
+/** After a failed read, retry sooner than a day but not on every request. */
+export const REFUND_RETRY_MS = 60 * 60 * 1000;
 /** The native app's user-agent marker (mobile/capacitor.config.json appendUserAgent). */
 export const NATIVE_APP_UA = /\bFocusBroApp\//;
 
@@ -100,11 +104,20 @@ export function proConfigured(env) {
 export async function readProStatus(env, userId) {
   if (!userId || !env || !env.DB) return { pro: false, since: null };
   try {
-    const row = await env.DB.prepare(
-      `SELECT paid_at FROM pro_purchases
-        WHERE user_id = ? AND status = 'paid'
-        ORDER BY paid_at ASC LIMIT 1`
-    ).bind(userId).first();
+    let row;
+    try {
+      row = await env.DB.prepare(
+        `SELECT paid_at FROM pro_purchases
+          WHERE user_id = ? AND status = 'paid' AND refunded_at IS NULL
+          ORDER BY paid_at ASC LIMIT 1`
+      ).bind(userId).first();
+    } catch (colErr) {
+      // Migration 0016 not applied yet: behave exactly as before it (never lock paid people out).
+      if (!/refunded_at/.test(String(colErr && colErr.message))) throw colErr;
+      row = await env.DB.prepare(
+        `SELECT paid_at FROM pro_purchases WHERE user_id = ? AND status = 'paid' ORDER BY paid_at ASC LIMIT 1`
+      ).bind(userId).first();
+    }
     return row ? { pro: true, since: row.paid_at || null } : { pro: false, since: null };
   } catch (err) {
     console.warn('[pro] status read unavailable:', err && err.message);
@@ -180,7 +193,8 @@ export async function reconcileProPurchases(env, userId, { nowISO } = {}) {
     console.warn('[pro] pending read unavailable:', err && err.message);
     return summary;
   }
-  if (!rows.length || !env.STRIPE_SECRET_KEY) return summary;
+  if (!env.STRIPE_SECRET_KEY) return summary;
+  if (!rows.length) { await recheckPaidPurchases(env, userId, { nowISO }); return summary; }
 
   const stillOpen = [];
   for (const row of rows) {
@@ -192,7 +206,7 @@ export async function reconcileProPurchases(env, userId, { nowISO } = {}) {
       && s.client_reference_id === userId
       && s.metadata && s.metadata.app === PRO_METADATA_APP;
     try {
-      if (ours && s.payment_status === 'paid') {
+      if (ours && (s.payment_status === 'paid' || s.payment_status === 'no_payment_required')) {
         const amount = Number.isFinite(Number(s.amount_total)) ? Number(s.amount_total) : null;
         const currency = typeof s.currency === 'string' ? s.currency : null;
         await env.DB.prepare(
@@ -225,6 +239,69 @@ export async function reconcileProPurchases(env, userId, { nowISO } = {}) {
       } catch (err) {
         console.error('[pro] expire write failed:', err && err.message);
       }
+    }
+  }
+  await recheckPaidPurchases(env, userId, { nowISO });
+  return summary;
+}
+
+/**
+ * Decide from an expanded Checkout Session whether the money came back:
+ * a FULL refund (Stripe sets charge.refunded only when the whole amount is
+ * refunded) or a dispute the customer won. A partial refund, an open dispute, a
+ * missing/unexpanded payment (e.g. a 100%-off code has no charge) is NOT a revoke.
+ */
+export function chargeWasReturned(session) {
+  const pi = session && session.payment_intent;
+  const charge = pi && typeof pi === 'object' ? pi.latest_charge : null;
+  if (!charge || typeof charge !== 'object') return false;
+  if (charge.refunded === true) return true;
+  if (Number(charge.amount) > 0 && Number(charge.amount_refunded) >= Number(charge.amount)) return true;
+  const d = charge.dispute;
+  return Boolean(d && typeof d === 'object' && (d.status === 'lost' || d.status === 'charge_refunded'));
+}
+
+/**
+ * Re-read each PAID purchase (at most once per REFUND_RECHECK_MS) and revoke on
+ * a full refund / lost dispute. READ-ONLY at Stripe. Fail safe: a failed or
+ * unrecognisable read changes nothing about Pro (it only schedules an earlier retry).
+ * @returns {Promise<{checked:number, revoked:number}>}
+ */
+export async function recheckPaidPurchases(env, userId, { nowISO } = {}) {
+  const summary = { checked: 0, revoked: 0 };
+  if (!userId || !env || !env.DB || !env.STRIPE_SECRET_KEY) return summary;
+  const nowMs = nowISO ? Date.parse(nowISO) : Date.now();
+  const now = new Date(nowMs).toISOString();
+  let rows = [];
+  try {
+    const res = await env.DB.prepare(
+      `SELECT id, stripe_session_id FROM pro_purchases
+        WHERE user_id = ? AND status = 'paid' AND refunded_at IS NULL
+          AND (refund_checked_at IS NULL OR refund_checked_at < ?)
+        ORDER BY paid_at ASC LIMIT ?`
+    ).bind(userId, new Date(nowMs - REFUND_RECHECK_MS).toISOString(), RECONCILE_LIMIT).all();
+    rows = (res && res.results) || [];
+  } catch (err) {
+    console.warn('[pro] refund check unavailable:', err && err.message);
+    return summary;
+  }
+  for (const row of rows) {
+    const res = await stripeRequest(env, `/checkout/sessions/${encodeURIComponent(row.stripe_session_id)}?expand[]=payment_intent.latest_charge.dispute`);
+    const s = res.data || {};
+    const ours = res.ok && s.id === row.stripe_session_id && s.client_reference_id === userId
+      && s.metadata && s.metadata.app === PRO_METADATA_APP;
+    try {
+      if (ours && chargeWasReturned(s)) {
+        await env.DB.prepare(`UPDATE pro_purchases SET refunded_at = ?, refund_checked_at = ? WHERE id = ? AND refunded_at IS NULL`).bind(now, now, row.id).run();
+        summary.revoked++;
+      } else {
+        // Checked and still good — or the read failed (never revoke on an error): retry sooner.
+        const stamp = ours ? now : new Date(nowMs - REFUND_RECHECK_MS + REFUND_RETRY_MS).toISOString();
+        await env.DB.prepare(`UPDATE pro_purchases SET refund_checked_at = ? WHERE id = ?`).bind(stamp, row.id).run();
+      }
+      if (ours) summary.checked++;
+    } catch (err) {
+      console.error('[pro] refund write failed:', err && err.message);
     }
   }
   return summary;

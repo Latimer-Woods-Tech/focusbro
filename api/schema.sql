@@ -262,7 +262,9 @@ CREATE TABLE IF NOT EXISTS pro_purchases (
   amount_total INTEGER,
   currency TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  paid_at DATETIME
+  paid_at DATETIME,
+  refund_checked_at DATETIME,
+  refunded_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_pro_purchases_user ON pro_purchases(user_id);

@@ -642,7 +642,7 @@ ${pageNav([{ href: '/me/', label: 'Your words' }, { href: '/', label: 'Home' }, 
   <p class="muted" id="action-note"></p>
 </div>
 
-<div id="pro-preview" class="card hidden">
+<div id="pro-preview" class="card hidden pro-framing">
   <p class="muted" id="pro-preview-copy" style="margin-top:0;"></p>
   <div class="actions"><a class="pro-buy" href="/pro/">See FocusBro Pro</a></div>
 </div>

@@ -23,7 +23,7 @@ import { registerPushRoutes } from './push-routes.js';
 import { renderMePage } from './me.js';
 import { serveAudio } from './audio.js';
 import { registerReportRoutes, renderReportPage } from './report.js';
-import { registerProRoutes } from './pro.js';
+import { registerProRoutes, isNativeAppRequest } from './pro.js';
 import { registerAccountDeleteRoutes } from './account-delete.js';
 import { renderPrivacyPage } from './privacy.js';
 import {
@@ -3753,6 +3753,32 @@ router.all('*', () => new Response(JSON.stringify({ error: 'Not found' }), {
 // ── WORKER ENTRYPOINT ──
 // D1 schema changes are applied by Wrangler migrations in CI and deploy. Never
 // initialize or alter schema from a request or cron invocation.
+/**
+ * FBQ-21 R2: the native app's UA token (`FocusBroApp/`, appended by the Capacitor
+ * shell) is known to the server on the very first request, so stamp
+ * `<html data-native-app="app">` into every HTML page it gets. The CSS rule
+ * `html[data-native-app] .pro-framing` then hides all Pro framing on first paint,
+ * with no flash and no dependence on /native-bridge.js running first. Web UAs get
+ * the page unchanged; every HTML response varies on User-Agent.
+ */
+async function stampNativeApp(response, request) {
+  try {
+    const type = response.headers.get('content-type') || '';
+    if (!/^text\/html/i.test(type) || !response.body) return response;
+    const headers = new Headers(response.headers);
+    headers.append('Vary', 'User-Agent');
+    const init = { status: response.status, statusText: response.statusText, headers };
+    if (!isNativeAppRequest(request)) return new Response(response.body, init);
+    const html = await response.text();
+    headers.delete('Content-Length');
+    const body = /<html[^>]*data-native-app/i.test(html) ? html : html.replace(/<html(?=[\s>])/i, '<html data-native-app="app"');
+    return new Response(body, init);
+  } catch (err) {
+    console.error('[native-app] stamp failed:', err && err.message);
+    return response;
+  }
+}
+
 export default {
   async fetch(request, env, _ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
@@ -3766,7 +3792,8 @@ export default {
     // Call the router's fetch method which handles request routing
     const routeRequest = request.method === 'HEAD' ? new Request(request, { method: 'GET' }) : request;
     const response = await router.fetch(routeRequest, runtimeEnv);
-    const finalResponse = request.method === 'HEAD' ? responseWithoutBody(response) : response;
+    const stamped = await stampNativeApp(response, request);
+    const finalResponse = request.method === 'HEAD' ? responseWithoutBody(stamped) : stamped;
     return withSecurityHeaders(finalResponse, request);
   },
 
