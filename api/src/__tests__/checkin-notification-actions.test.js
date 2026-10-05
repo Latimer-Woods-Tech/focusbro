@@ -12,7 +12,7 @@
  * word with the warm reschedule open. /me/ honors that landing once.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const sent = [];
@@ -21,11 +21,22 @@ vi.mock('../webpush.js', () => ({
   sendWebPush: async (_env, sub, payload) => { sent.push({ sub, payload }); return { ok: true }; },
 }));
 
+// FBQ-24 R4: under `--no-isolate` the module registry is shared across files, so
+// checkins-cron.js may already be cached bound to the REAL webpush.js. Drop the
+// cache so the imports below are evaluated afresh against the mock above.
+vi.resetModules();
+
 const { deliverCheckin } = await import('../checkins-cron.js');
 const { checkinActionLabels, renderMePage } = await import('../me.js');
 const { verifyReplyTicket } = await import('../checkin-reply.js');
 const { pageShellStyle } = await import('../page-shell.js');
 const worker = (await import('../index.js')).default;
+
+// ...and do not leave the mock (or modules bound to it) behind for the next file.
+afterAll(() => {
+  vi.doUnmock('../webpush.js');
+  vi.resetModules();
+});
 
 const SECRET = 'test-secret-that-is-long-enough-for-hs256-0123456789';
 
