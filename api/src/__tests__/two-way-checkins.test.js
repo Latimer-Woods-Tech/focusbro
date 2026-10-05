@@ -1105,6 +1105,18 @@ describe('inbound webhook — a text check-in is a real two-way conversation', (
     expect(db.runs.some((x) => /SET status = 'pending', scheduled_for/.test(x.sql))).toBe(false);
   });
 
+  it('FBQ-18: an unsupported unit while awaiting ("in 2 months") re-asks warmly, nothing re-pended', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const awaiting = { ...openText, checkin_status: 'awaiting_time' };
+    const db = makeWebhookDB({ open: awaiting });
+    const res = await buildRouter(db).handle(inbound('in 2 months'), { ...TELNYX_ENV, DB: db });
+    expect((await res.json()).action).toBe('reschedule_when_unclear');
+    expect(db.runs.some((x) => /UPDATE commitment_checkins/.test(x.sql))).toBe(false);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.text.toLowerCase()).toMatch(/try something like/);
+  });
+
   it('an unreadable time while awaiting → re-asks warmly, still no miss', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
@@ -1277,7 +1289,7 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     // number stays a clock exactly as before — the guard that keeps "3" meaning
     // 3 o'clock, never "3 minutes". Removing the unit requirement would turn "3"
     // into a 3-minute nudge and this assertion red first.
-    expect(parseWhenReply('3', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('3', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z'); // FBQ-18: bare 3 reads PM, never 3 AM
     expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
     expect(parseWhenReply('3pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z');
     // A duration embedded in a dated/weekday/tomorrow reply is NOT matched by the
@@ -1643,10 +1655,10 @@ describe('parseWhenReply — natural-language time, DST-correct, never guesses a
     // GUARD 1 — a lone number (no separator) is still a clock, never a date.
     expect(parseWhenReply('8', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-06T20:00:00.000Z');
     // GUARD 2 — a clock range "3-4pm" (a meridiem right after the pair) is NOT a date.
-    expect(parseWhenReply('3-4pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('3-4pm', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z'); // FBQ-18: bare 3 reads PM, never 3 AM
     // UPGRADE-ONLY — an out-of-horizon numeric date (Mar 4) falls through to the
     // clock reading rather than regressing a previously-working reply to a re-ask.
-    expect(parseWhenReply('3/4', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T03:00:00.000Z');
+    expect(parseWhenReply('3/4', { nowISO: NOW, timezone: 'UTC' })).toBe('2026-07-07T15:00:00.000Z'); // FBQ-18: bare 3 reads PM, never 3 AM
     // An invalid month (>12) is not a date; it falls through, never asserting a miss.
     expect(parseWhenReply('13/5', { nowISO: NOW, timezone: 'UTC' })).not.toBeNull();
   });

@@ -119,6 +119,26 @@ describe('give-a-word accepts natural language via the shared parseWhenReply', (
     expect(b.commitment.local_time).toBe('09:00');
   });
 
+  // FBQ-18 - an unsupported unit is a re-ask (400 + shared copy, nothing written);
+  // a bare "5:30" starts the word in the DAYTIME, never at 5:30 AM.
+  it('FBQ-18: "in 2 months" is re-asked warmly and writes nothing; "5:30" never starts in the small hours', async () => {
+    const db = makeDB();
+    const res = await buildRouter(db)('POST', '/api/commitments', {
+      body: { title: 'Taxes', when_text: 'in 2 months', timezone: 'America/New_York' },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(smsWhenUnclearCopy({ persona: 'ally' }));
+    expect(insertedCommitment(db.runs)).toBe(false);
+
+    const ok = await buildRouter(makeDB())('POST', '/api/commitments', {
+      body: { title: 'Taxes', when_text: '5:30', timezone: 'America/New_York' },
+    });
+    expect(ok.status).toBe(201);
+    const hour = +new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23' })
+      .format(new Date((await ok.json()).commitment.start_at));
+    expect(hour).toBeGreaterThanOrEqual(7);
+  });
+
   it('refuses an unreadable time warmly and writes NOTHING (never assume, never a miss)', async () => {
     const db = makeDB();
     const call = buildRouter(db);
