@@ -23,6 +23,12 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
 
 <style>
+  /* FBQ-23b: DM Sans arrives late (font-display: swap), and the swap reflowed the hero and
+     moved the whole page by ~25px (CLS 0.1985). This local face is Arial/Liberation resized
+     to DM Sans's measured advance widths (x1.03 regular, x1.013 bold) and vertical metrics,
+     so the swap changes the letter shapes and nothing about where things sit. */
+  @font-face { font-family: 'DM Sans Fit'; font-weight: 400 599; src: local('Arial'), local('Liberation Sans'), local('Helvetica'); size-adjust: 102.9%; ascent-override: 96.4%; descent-override: 30.1%; line-gap-override: 0%; }
+  @font-face { font-family: 'DM Sans Fit'; font-weight: 600 800; src: local('Arial Bold'), local('Liberation Sans Bold'), local('Helvetica Bold'); size-adjust: 101.3%; ascent-override: 97.9%; descent-override: 30.6%; line-gap-override: 0%; }
   :root {
     /* Ink — warm near-black, one amber accent. Surfaces step up in lightness;
        borders are hairlines, not outlines. */
@@ -83,8 +89,8 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 24px 48px rgba(0, 0, 0, 0.35);
 
-    --font: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    --font-display: 'DM Sans', system-ui, sans-serif;
+    --font: 'DM Sans', 'DM Sans Fit', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'DM Sans', 'DM Sans Fit', system-ui, sans-serif;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
     color-scheme: dark;
   }
@@ -6898,7 +6904,11 @@ document.addEventListener('keydown', (e) => {
         body: JSON.stringify({ attribution, wd: navigator.webdriver === true }),
         keepalive: true
       }).then((response) => {
-        if (response.ok) sessionStorage.setItem(visitKey, '1');
+        // Read the body to the end. A response nobody consumes is never reported as
+        // finished, so the page never reached network idle (FBQ-23b); a few bytes, free.
+        return response.text().then(() => {
+          if (response.ok) sessionStorage.setItem(visitKey, '1');
+        });
       }).catch((error) => {
         console.warn('Acquisition visit tracking unavailable:', error && error.message);
       });
