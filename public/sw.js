@@ -4,93 +4,56 @@
  */
 
 const CACHE_NAME = 'focusbro-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json'
-];
-
-// ────────────────────────────────────────────────────────
-// INSTALLATION & ACTIVATION
-// ────────────────────────────────────────────────────────
+const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('[SW] Caching static assets');
-        return cache.addAll(STATIC_ASSETS).catch(err => {
-          console.warn('[SW] Some assets failed to cache:', err.message);
-          // Don't fail install if some assets can't be cached
-        });
-      })
+      .then(cache => cache.addAll(STATIC_ASSETS)
+        .catch(err => {
+          // ✅ LOGGING: SW cache failures (e.g., assets unavailable during install)
+          console.warn('[SW] Cache install failed:', err.message, '— Will retry on next update');
+        })
+      )
       .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating...');
   event.waitUntil(
     caches.keys()
-      .then(cacheNames => {
-        return Promise.all(
-          cacheNames
-            .filter(name => name !== CACHE_NAME)
-            .map(name => {
-              console.log('[SW] Deleting old cache:', name);
-              return caches.delete(name);
-            })
-        );
-      })
+      .then(cacheNames => Promise.all(
+        cacheNames
+          .filter(name => name !== CACHE_NAME)
+          .map(name => caches.delete(name))
+      ))
       .then(() => self.clients.claim())
   );
 });
 
-// ────────────────────────────────────────────────────────
-// PUSH NOTIFICATIONS
-// ────────────────────────────────────────────────────────
-
+// Push notifications
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push notification received');
-  
-  if (!event.data) {
-    console.warn('[SW] Push received without data');
-    return;
-  }
-
+  if (!event.data) return;
   let notificationData = {};
   try {
     notificationData = event.data.json();
   } catch (e) {
-    notificationData = {
-      title: 'FocusBro',
-      body: event.data.text()
-    };
+    notificationData = { title: 'FocusBro', body: event.data.text() };
   }
-
   const options = {
     icon: '/icon-192.png',
-    badge: '/badge-72.png',
     tag: notificationData.tag || 'focusbro-notification',
     data: notificationData.data || {},
-    ...notificationData // Spread all push data as notification options
+    ...notificationData
   };
-
   event.waitUntil(
     self.registration.showNotification(notificationData.title || 'FocusBro', options)
-      .catch(err => console.error('[SW] Notification display failed:', err.message))
   );
 });
 
-// ────────────────────────────────────────────────────────
-// NOTIFICATION CLICKS
-// ────────────────────────────────────────────────────────
-
+// Notification clicks
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Notification clicked:', event.notification.tag);
   event.notification.close();
-
   const data = event.notification.data || {};
   // A check-in's buttons answer it right here — no app open needed. "I did it"
   // resolves through the one-tap ticket the payload carried (a service worker
@@ -121,99 +84,64 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(clients.openWindow ? clients.openWindow(notYetUrl) : null);
     return;
   }
-  // Honor an explicit deep-link (data.url) first — e.g. the return nudge → /me/?from=return.
+  // Honor an explicit deep-link (data.url) first — this is what carries a tapped
+  // notification to the right surface (e.g. the return nudge → /me/?from=return).
+  // Fall back to the legacy action/view hash, then the app root.
   const targetUrl = data.url || (data.action === 'open' ? `/#${data.view || 'dashboard'}` : '/');
-
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(clientList => {
-        // Try to find an existing window
-        for (let client of clientList) {
-          if (client.url === new URL(targetUrl, self.location).href && 'focus' in client) {
+        for (let i = 0; i < clientList.length; i++) {
+          const client = clientList[i];
+          if (client.url === targetUrl && 'focus' in client) {
             return client.focus();
           }
         }
-        // If not found, open a new window
-        if (clients.openWindow) {
-          return clients.openWindow(targetUrl);
-        }
+        if (clients.openWindow) return clients.openWindow(targetUrl);
       })
-      .catch(err => console.error('[SW] Notification click handling failed:', err.message))
   );
 });
 
-// ────────────────────────────────────────────────────────
-// CACHE STRATEGIES
-// ────────────────────────────────────────────────────────
-
+// Fetch strategy: network-first for API, cache-first for assets
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') {
-    return;
+  const { request } = event;
+  const url = new URL(request.url);
+
+  if (request.method !== 'GET') return;
+
+  if (url.pathname.startsWith('/api/')) {
+    return event.respondWith(
+      fetch(request)
+        .then(response => {
+          // Clone immediately to avoid consuming the response
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(err => {
+          console.warn('SW network fetch failed, falling back to cache:', err && err.message || err);
+          return caches.match(request).then(cached => cached || new Response(
+            JSON.stringify({ error: 'Offline', offline: true }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+          ));
+        })
+    );
   }
 
-  // API calls: network-first, fall back to offline
-  if (event.request.url.includes('/api/')) {
-    event.respondWith(networkFirst(event.request));
-    return;
-  }
-
-  // Static assets: cache-first
-  if (shouldCacheStatic(event.request.url)) {
-    event.respondWith(cacheFirst(event.request));
-    return;
-  }
-
-  // Everything else: network-first
-  event.respondWith(networkFirst(event.request));
+  event.respondWith(
+    caches.match(request)
+      .then(cached => cached || fetch(request)
+        .then(response => {
+          // Clone immediately to avoid consuming the response
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
+          }
+          return response;
+        })
+      )
+      .catch(err => { console.warn('SW fetch for asset failed, returning index.html from cache:', err && err.message || err); return caches.match('/index.html'); })
+  );
 });
-
-/**
- * Cache-first strategy: try cache first, fall back to network
- */
-async function cacheFirst(request) {
-  try {
-    const cached = await caches.match(request);
-    if (cached) return cached;
-
-    const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch (err) {
-    console.warn('[SW] Cache-first failed for:', request.url, err.message);
-    return new Response('Offline', { status: 503 });
-  }
-}
-
-/**
- * Network-first strategy: try network first, fall back to cache
- */
-async function networkFirst(request) {
-  try {
-    const response = await fetch(request);
-    if (response && response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch (err) {
-    console.log('[SW] Network failed, trying cache for:', request.url);
-    const cached = await caches.match(request);
-    return cached || new Response('Offline', { status: 503 });
-  }
-}
-
-/**
- * Determine if a URL should be cached as a static asset
- */
-function shouldCacheStatic(url) {
-  const staticPatterns = [
-    /\.(js|css|woff|woff2|ttf|jpg|jpeg|png|gif|svg|ico)$/i,
-    /fonts\.googleapis/,
-    /manifest\.json/
-  ];
-  return staticPatterns.some(pattern => pattern.test(url));
-}

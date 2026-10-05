@@ -19,6 +19,10 @@ describe('the shell reads kept words from the ledger', () => {
     expect(servedHtml).toContain('id="statKept"');
     expect(servedHtml).toContain('Words kept');
     expect(servedHtml).not.toContain('Day Streak');
+    // the sleep log's own resetting streak went the same way (G799)
+    expect(servedHtml).not.toContain('Night Streak');
+    expect(servedHtml).not.toContain('sleepStreak');
+    expect(servedHtml).toContain('Nights logged');
     expect(servedHtml).not.toContain('id="statStreak"');
     // no definition AND no stray call (a stray call throws on load — the e2e suite caught one)
     expect(servedHtml).not.toContain('updateStreak');

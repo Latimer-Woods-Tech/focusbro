@@ -13,7 +13,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import worker, { generateToken, isGuestEmail, GUEST_EMAIL_DOMAIN } from '../index.js';
+import worker, { generateToken, isGuestEmail } from '../index.js';
+import { GUEST_EMAIL_DOMAIN } from '../config.js';
 import { EVENTS } from '../events.js';
 import { renderMePage } from '../me.js';
 
