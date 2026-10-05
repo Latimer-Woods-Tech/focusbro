@@ -444,6 +444,52 @@ export async function computeReturnCohorts(env, opts = {}) {
  * dimensions that created a word in the window. Internal aggregate only: no
  * task, email, phone, or note data is returned.
  */
+/**
+ * The promise-first home, measured (G796 / FB-COUNCIL1). `word_offered` rows
+ * carry `home: 'promise' | 'toolkit'` (rows from before #387 have no field and
+ * count as the toolkit, exactly as normalizeHomeVariant reads them). The flag
+ * is global, so read this as a BEFORE/AFTER when it flips, not as an A/B: the
+ * denominator is the window's qualified landing visits, which do not carry a
+ * variant. Non-fatal by construction — a missing table yields the empty shape.
+ *
+ * @param {object} env
+ * @param {{ sinceDays?: number, nowISO?: string }} [opts]
+ * @returns {Promise<{ qualified_visits: number, by_home: Array<{ home: string, words_offered: number, offers_per_qualified_visit: number|null, first_seen: string|null, last_seen: string|null }> }>}
+ */
+export async function computeHomeVariantMetrics(env, opts = {}) {
+  const empty = { qualified_visits: 0, by_home: [] };
+  if (!env || !env.DB) return empty;
+  const sinceDays = clampSinceDays(opts.sinceDays);
+  const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
+  const sinceSQL = sqliteDateTime(new Date(now.getTime() - sinceDays * 86400000).toISOString());
+  const visits = await env.DB.prepare(
+    `/* qualified_visits_window */
+     SELECT COUNT(*) AS n FROM analytics_events
+      WHERE event_type = 'acquisition_visit' AND created_at >= ?
+        AND COALESCE(json_extract(event_data, '$.bot'), 0) != 1`
+  ).bind(sinceSQL).first();
+  const rows = await env.DB.prepare(
+    `/* words_offered_by_home */
+     SELECT CASE WHEN json_extract(event_data, '$.home') = 'promise' THEN 'promise' ELSE 'toolkit' END AS home,
+            COUNT(*) AS words_offered, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
+       FROM analytics_events
+      WHERE event_type = 'word_offered' AND created_at >= ?
+      GROUP BY home ORDER BY home`
+  ).bind(sinceSQL).all();
+  const qualified = Number(visits && visits.n) || 0;
+  const by_home = ((rows && rows.results) || []).map((r) => {
+    const offered = Number(r.words_offered) || 0;
+    return {
+      home: r.home === 'promise' ? 'promise' : 'toolkit',
+      words_offered: offered,
+      offers_per_qualified_visit: qualified > 0 ? Number((offered / qualified).toFixed(4)) : null,
+      first_seen: r.first_seen || null,
+      last_seen: r.last_seen || null,
+    };
+  });
+  return { qualified_visits: qualified, by_home };
+}
+
 export async function computeAcquisitionMetrics(env, opts = {}) {
   const sinceDays = clampSinceDays(opts.sinceDays);
   const now = opts.nowISO ? new Date(opts.nowISO) : new Date();
@@ -899,6 +945,7 @@ export async function computeLoopMetrics(env, opts = {}) {
       reschedule_recovery: { rescheduled: 0, recovered: 0, rate: null },
     },
     acquisition: [],
+    home_variants: { qualified_visits: 0, by_home: [] },
     activation_gate: computeActivationGate([]),
   };
 
@@ -977,6 +1024,14 @@ export async function computeLoopMetrics(env, opts = {}) {
     console.warn('[events] computeAcquisitionMetrics failed:', err && err.message);
   }
 
+  // Which home made the offers (G796). Same non-fatal stance.
+  let home_variants = empty.home_variants;
+  try {
+    home_variants = await computeHomeVariantMetrics(env, { sinceDays, nowISO: now.toISOString() });
+  } catch (err) {
+    console.warn('[events] computeHomeVariantMetrics failed:', err && err.message);
+  }
+
   let decision = empty.decision;
   try {
     decision = await computeDecisionMetrics(env, {
@@ -999,6 +1054,7 @@ export async function computeLoopMetrics(env, opts = {}) {
     retention,
     decision,
     acquisition,
+    home_variants,
     // The single "N of 20 qualified visits" activation readout + documented
     // decision-tree verdict, rolled up from the per-tuple acquisition rows so
     // the gate is legible from /api/internal/metrics without a D1 query.

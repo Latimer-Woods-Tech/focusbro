@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   recordEvent, computeLoopMetrics, computeReturnCohorts, computeAcquisitionMetrics, computeDecisionMetrics,
   recordAcquisitionVisit, isBotVisitor, sanitizeAttribution, outcomeEvent, clampSinceDays, EVENTS,
-  recordWordOffered, normalizeHomeVariant,
+  recordWordOffered, normalizeHomeVariant, computeHomeVariantMetrics,
 } from '../events.js';
 
 // A representative real-browser UA — carries "Safari"/"Chrome"/"Mozilla" but
@@ -27,6 +27,7 @@ const HUMAN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
 function makeDB({
   counts = {}, active = 0, returning = 0, cohort = null,
   acquisitionVisits = [], acquisitionFunnel = [], acquisitionCohorts = [],
+  homeVariants = [], qualifiedVisits = 0,
   decisionCommitments = null, decisionResponse = null, decisionDelivery = [],
   decisionRecovery = null,
   throwOnCohort = false, throwOnDecision = false, throwOnRun = false,
@@ -43,6 +44,7 @@ function makeDB({
           if (/acquisition_visits/.test(sql)) return { results: acquisitionVisits };
           if (/acquisition_funnel/.test(sql)) return { results: acquisitionFunnel };
           if (/acquisition_cohorts/.test(sql)) return { results: acquisitionCohorts };
+          if (/words_offered_by_home/.test(sql)) return { results: homeVariants };
           if (/GROUP BY event_type/.test(sql)) {
             return { results: Object.entries(counts).map(([event_type, n]) => ({ event_type, n })) };
           }
@@ -54,6 +56,7 @@ function makeDB({
             return decisionCommitments;
           }
           if (/decision_response/.test(sql)) return decisionResponse;
+          if (/qualified_visits_window/.test(sql)) return { n: qualifiedVisits };
           if (/decision_reschedule_recovery/.test(sql)) return decisionRecovery;
           if (/WITH firsts AS/.test(sql)) {
             if (throwOnCohort) throw new Error('no such table: analytics_events');
@@ -266,6 +269,39 @@ describe('recordWordOffered — which home made the offer', () => {
     const db = makeDB();
     await recordWordOffered({ DB: db }, { attribution: { source: 'homepage' }, when: 'other' });
     expect(JSON.parse(db.runs[0].params[2]).home).toBe('toolkit');
+  });
+});
+
+describe('computeHomeVariantMetrics — which home made the offers (G796)', () => {
+  it('splits word_offered by home and divides by the window\'s qualified visits', async () => {
+    const db = makeDB({
+      qualifiedVisits: 40,
+      homeVariants: [
+        { home: 'promise', words_offered: 6, first_seen: '2026-10-06 09:00:00', last_seen: '2026-10-12 18:00:00' },
+        { home: 'toolkit', words_offered: 4, first_seen: '2026-10-01 09:00:00', last_seen: '2026-10-05 18:00:00' },
+      ],
+    });
+    expect(await computeHomeVariantMetrics({ DB: db }, { sinceDays: 14, nowISO: '2026-10-13T00:00:00.000Z' })).toEqual({
+      qualified_visits: 40,
+      by_home: [
+        { home: 'promise', words_offered: 6, offers_per_qualified_visit: 0.15, first_seen: '2026-10-06 09:00:00', last_seen: '2026-10-12 18:00:00' },
+        { home: 'toolkit', words_offered: 4, offers_per_qualified_visit: 0.1, first_seen: '2026-10-01 09:00:00', last_seen: '2026-10-05 18:00:00' },
+      ],
+    });
+  });
+
+  it('no visits → no rate (null), never a division by zero; no DB → the empty shape', async () => {
+    const db = makeDB({ qualifiedVisits: 0, homeVariants: [{ home: 'toolkit', words_offered: 2, first_seen: null, last_seen: null }] });
+    const out = await computeHomeVariantMetrics({ DB: db }, { sinceDays: 7 });
+    expect(out.by_home[0].offers_per_qualified_visit).toBeNull();
+    expect(await computeHomeVariantMetrics(null)).toEqual({ qualified_visits: 0, by_home: [] });
+  });
+
+  it('rides on the loop metrics, non-fatally', async () => {
+    const db = makeDB({ qualifiedVisits: 10, homeVariants: [{ home: 'promise', words_offered: 1, first_seen: 'a', last_seen: 'b' }] });
+    const m = await computeLoopMetrics({ DB: db }, { sinceDays: 7 });
+    expect(m.home_variants.qualified_visits).toBe(10);
+    expect(m.home_variants.by_home[0]).toMatchObject({ home: 'promise', words_offered: 1, offers_per_qualified_visit: 0.1 });
   });
 });
 
