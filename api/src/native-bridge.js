@@ -28,6 +28,8 @@
  * global is reached through `window` so the tests can run it against a stub.
  */
 
+import { checkinActionLabels } from './me.js';
+
 /** Notification id of the soundscape foreground service (outside the check-in id range). */
 export const SOUNDSCAPE_NOTIFICATION_ID = 7001;
 
@@ -36,6 +38,10 @@ export const RECURRING_LOOKAHEAD = 7;
 
 /** iOS keeps at most 64 pending local notifications per app; stay under it. */
 export const MAX_SCHEDULED = 60;
+
+// The two answers on the notification — the same two the /me/ card leads with,
+// in the same words (parity with the web push, #386). One source for the labels.
+const LABELS = checkinActionLabels();
 
 export const NATIVE_BRIDGE_SCRIPT = `(function () {
   'use strict';
@@ -49,6 +55,7 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
   var platform = typeof C.getPlatform === 'function' ? C.getPlatform() : 'native';
   var LN = P.LocalNotifications, FS = P.ForegroundService, KA = P.KeepAwake, AppP = P.App;
   var CHANNEL_ID = 'checkins';
+  var ACTION_TYPE = 'checkin';
   var SOUND_CHANNEL_ID = 'soundscape';
   var SOUND_ID = ${SOUNDSCAPE_NOTIFICATION_ID};
   var LOOKAHEAD = ${RECURRING_LOOKAHEAD};
@@ -93,8 +100,10 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
       iconColor: '#14b8a6',
       interruptionLevel: 'timeSensitive',
       autoCancel: true,
+      actionTypeId: ACTION_TYPE,
       schedule: { at: new Date(atMs), allowWhileIdle: true },
-      extra: { fb: 'checkin', commitmentId: String(c.id), url: '/me/' }
+      // A tap lands on THIS word, never the toolkit (the web push does the same).
+      extra: { fb: 'checkin', commitmentId: String(c.id), url: '/me/?word=' + encodeURIComponent(String(c.id)) }
     };
   }
 
@@ -250,10 +259,37 @@ export const NATIVE_BRIDGE_SCRIPT = `(function () {
       w.location.assign(u.pathname + u.search + u.hash);
     } catch (e) {}
   }
+  // The buttons on the check-in notification. Registered once per boot; an
+  // older plugin without registerActionTypes simply shows a plain notification.
+  if (LN && typeof LN.registerActionTypes === 'function') {
+    LN.registerActionTypes({ types: [{ id: ACTION_TYPE, actions: [
+      { id: 'kept', title: ${JSON.stringify(LABELS.kept)} },
+      { id: 'not-yet', title: ${JSON.stringify(LABELS.missed)} }
+    ] }] }).catch(function (e) { warn('action types', e); });
+  }
   if (LN && typeof LN.addListener === 'function') {
     LN.addListener('localNotificationActionPerformed', function (ev) {
       var n = ev && ev.notification;
-      if (n && n.extra && n.extra.fb === 'checkin') openSafe(n.extra.url);
+      if (!n || !n.extra || n.extra.fb !== 'checkin') return;
+      var url = n.extra.url || '/me/';
+      var id = n.extra.commitmentId;
+      if (ev.actionId === 'kept' && id) {
+        // "I did it" on the notification itself: the webview holds the session,
+        // so the in-app route answers it — same path, same ledger, same copy as
+        // the card's button — and the fetch wrapper above re-plans the schedule.
+        // If it cannot be answered here (offline, signed out), land on the word.
+        w.fetch('/api/commitments/' + encodeURIComponent(id) + '/checkin', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ outcome: 'kept' })
+        }).then(function (r) { if (!r || !r.ok) openSafe(url); }, function () { openSafe(url); });
+        return;
+      }
+      if (ev.actionId === 'not-yet') {
+        // The person's answer, honored on /me/ exactly as the card's own "Not yet".
+        openSafe(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'answer=not-yet');
+        return;
+      }
+      openSafe(url);
     });
   }
 
