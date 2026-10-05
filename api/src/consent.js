@@ -683,16 +683,28 @@ export function registerConsentRoutes(router, ctx) {
       // exact guilt-engine the LAW forbids. Parity with reconcileStrandedCheckins,
       // which already scopes its resolve to `m.status='active'`. A non-active parent
       // falls through to `no_open_checkin` (silent ack — never text unprompted).
+      //
+      // FBQ-11: the escalation IS a text about a PUSH check-in (the paid follow-up
+      // to an unanswered push) and says "Reply DONE / LATER / HELP ME START".
+      // Matching only `channel = 'text'` dropped every reply to it as
+      // `no_open_checkin`. A push row is answerable by text exactly when it was
+      // escalated (`escalated_at IS NOT NULL`); a plain push row was never texted,
+      // so a stray "yes" must not credit it. One row, newest escalation first, `id`
+      // as the final tiebreak; `c.user_id` (from the sender's number) keeps
+      // ownership strict. An in-app answer already set `responded_at`, so it is
+      // not open and cannot credit twice.
       const open = await env.DB.prepare(
         `SELECT c.id AS checkin_id, c.commitment_id, c.status AS checkin_status,
                 m.recurrence, m.timezone, m.local_time, m.channel, m.persona
            FROM commitment_checkins c
            JOIN commitments m ON m.id = c.commitment_id
-          WHERE c.user_id = ? AND c.channel = 'text' AND c.responded_at IS NULL
+          WHERE c.user_id = ? AND c.responded_at IS NULL
+            AND ( c.channel = 'text' OR (c.channel = 'push' AND c.escalated_at IS NOT NULL) )
             AND m.status = 'active'
             AND ( c.status IN ('sending', 'sent', 'awaiting_time')
                   OR (c.status = 'pending' AND c.delivered_at IS NOT NULL) )
-          ORDER BY (c.status = 'pending') ASC, c.scheduled_for DESC LIMIT 1`
+          ORDER BY (c.status = 'pending') ASC,
+                   COALESCE(c.escalated_at, c.scheduled_for) DESC, c.id DESC LIMIT 1`
       ).bind(user.id).first();
 
       if (!open) {
