@@ -118,6 +118,7 @@ export function pageShellStyle({ maxWidth = 720 } = {}) {
   /* first-run / re-entry */
   .firstrun { background: var(--primary-dim); border-color: var(--border-light); }
   .firstrun h2 { margin-bottom: 6px; }
+  .firstrun .muted { color: var(--text-muted); }
   .seedrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
   .seed { background: var(--bg-card-hover); color: var(--primary-light); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
   /* momentum sparkline */

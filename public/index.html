@@ -1356,7 +1356,7 @@
   .dopamine-del { background: none; border: none; color: var(--danger); cursor: pointer; font-weight: bold; }
   .dopamine-input-row { display: flex; gap: 8px; }
   .dopamine-input-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 12px; font-family: var(--font); }
-  .dopamine-input-row button { background: var(--purple); color: var(--on-accent); border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 500; font-size: 12px; }
+  .dopamine-input-row button { background: var(--accent-fill); color: var(--on-accent); border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 500; font-size: 12px; }
 
   /* ── ENERGY TRACKER ── */
   .energy-scale { display: flex; gap: 6px; margin: 12px 0; }
@@ -2304,7 +2304,7 @@
   .stat-value, .stat-value.green, .stat-value.blue, .stat-value.purple, .stat-value.warn {
     color: var(--text) !important; text-shadow: none !important; font-weight: 500; letter-spacing: -0.02em;
   }
-  .stat-label { color: var(--text-dim); letter-spacing: 0.06em; }
+  .stat-label { color: var(--text-muted); letter-spacing: 0.06em; }
 
   /* ── Sound tiles ── */
   .sound-btn, .preset-btn, .binaural-btn, .energy-btn, .tool-tile, .fidget-tool {
@@ -2414,6 +2414,17 @@
   .spinner { border-color: rgba(var(--line-rgb), 0.1) !important; border-top-color: var(--primary) !important; }
   .focus-room:has(#focusRoomText:empty) { display: none; }
   kbd, .kbd { background: var(--bg-inset); border: 1px solid var(--border-light); color: var(--text-muted); }
+
+  /* ── refresh: readability pass (measured — pixel-sampled WCAG audit, both themes) ──
+     Dimming text with opacity made it unreadable; dim with a colour token instead. */
+  .distraction-empty { opacity: 1; color: var(--text-dim); }
+  .sound-share[disabled] { opacity: 1; color: var(--text-dim); border-style: dashed; }
+  .task-empty-icon { opacity: 1; }
+  /* Focus-session recede: quieter than the old 0.28, and fully readable the moment
+     you reach for a card (hover, tap or keyboard focus). */
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard) { opacity: 0.9; filter: grayscale(1); }
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):hover,
+  body.session-active .dashboard .card:not(#pomoCard):not(#taskCard):not(#keepAwakeCard):not(#soundsCard):focus-within { opacity: 1; }
   @media (prefers-reduced-motion: reduce) {
     .awake-ring.active::after, .status-dot { animation: none !important; }
   }
