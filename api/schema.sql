@@ -187,6 +187,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_client_event ON analytics_events
 CREATE TABLE IF NOT EXISTS return_nudge_latch (
   user_id TEXT PRIMARY KEY,
   nudged_at TEXT NOT NULL,
+  retry_after TEXT,                            -- hold for a night-deferred candidate (FBQ-07b); NULL = none
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -336,6 +337,7 @@ CREATE TABLE IF NOT EXISTS commitment_checkins (
   last_error    TEXT,
   escalated_at  DATETIME,
   lease_until   TEXT,                          -- delivery claim expiry while 'sending' (FBQ-05)
+  escalation_sent_at TEXT,                     -- when the escalation SMS was actually sent (FBQ-11b)
   next_attempt_at TEXT,                        -- a held row is not scanned before this instant (FBQ-06)
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(commitment_id) REFERENCES commitments(id) ON DELETE CASCADE,

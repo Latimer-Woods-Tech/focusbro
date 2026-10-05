@@ -55,7 +55,8 @@ function makeDB({ candidates = [], pref = { persona: 'ally', timezone: 'UTC' }, 
         },
         async run() {
           if (/INSERT .*analytics_events/s.test(sql)) inserts.push({ sql, params });
-          if (/INSERT INTO return_nudge_latch/.test(sql)) latch.set(params[0], params[1]);
+          // FBQ-07b: a hold (retry_after) is NOT a latch; only the real latch write lands in `latch`.
+          if (/INSERT INTO return_nudge_latch/.test(sql) && !/SET retry_after/.test(sql)) latch.set(params[0], params[1]);
           return { success: true };
         },
       };
@@ -146,7 +147,7 @@ describe('runReturnNudges — one per dormancy episode (the anti-nag latch)', ()
     vi.stubGlobal('fetch', fetchSpy);
     const db = makeDB({ candidates: [cand()], textConsent: GRANTED, phone: '+1555' });
     await runReturnNudges({ DB: db, ...TELNYX_ENV }, { now: NOW });
-    const write = db.prepared.find((q) => /INSERT INTO return_nudge_latch/.test(q));
+    const write = db.prepared.find((q) => /INSERT INTO return_nudge_latch/.test(q) && !/SET retry_after/.test(q));
     expect(write).toMatch(/VALUES \(\?, datetime\(\?\)\)/);
     expect(write).toMatch(/ON CONFLICT\(user_id\) DO UPDATE/);
   });

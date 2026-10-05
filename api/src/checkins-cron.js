@@ -903,10 +903,14 @@ export async function runEscalations(rawEnv, opts = {}) {
     }
 
     // One-shot latch, whatever happened: an escalation is offered exactly once.
+    // FBQ-11b: `escalated_at` only says "never re-escalate"; whether a text
+    // actually went out is `escalation_sent_at`, written in the SAME statement and
+    // only on a successful send. The inbound reply match requires it, so a skipped
+    // or failed escalation can never be answered by a stray "yes".
     try {
       await env.DB.prepare(
-        `UPDATE commitment_checkins SET escalated_at = ? WHERE id = ?`
-      ).bind(now, row.checkin_id).run();
+        `UPDATE commitment_checkins SET escalated_at = ?, escalation_sent_at = ? WHERE id = ?`
+      ).bind(now, outcome.status === 'sent' ? now : null, row.checkin_id).run();
     } catch (err) {
       console.error('[checkins-cron] escalation latch failed:', err && err.message);
     }
@@ -1159,8 +1163,25 @@ async function latchReturnNudge(env, userId, nowISO) {
   try {
     await env.DB.prepare(
       `INSERT INTO return_nudge_latch (user_id, nudged_at) VALUES (?, datetime(?))
-       ON CONFLICT(user_id) DO UPDATE SET nudged_at = excluded.nudged_at`
+       ON CONFLICT(user_id) DO UPDATE SET nudged_at = excluded.nudged_at, retry_after = NULL`
     ).bind(userId, nowISO).run();
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Hold a deferred return-nudge candidate out of the scan until `until` (FBQ-07b).
+ * Writes only `retry_after`; a person never nudged gets a sentinel `nudged_at`
+ * that can never satisfy the latch test, so the hold is NOT a latch and the
+ * exactly-once-per-dormancy guarantee is untouched. A null `until` holds nothing
+ * (the person stays scannable, as before). Best-effort, like the latch.
+ */
+async function holdReturnNudge(env, userId, until) {
+  if (!until) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO return_nudge_latch (user_id, nudged_at, retry_after) VALUES (?, '1970-01-01 00:00:00', datetime(?))
+       ON CONFLICT(user_id) DO UPDATE SET retry_after = excluded.retry_after`
+    ).bind(userId, until).run();
   } catch { /* best-effort */ }
 }
 
@@ -1244,10 +1265,11 @@ export async function runReturnNudges(rawEnv, opts = {}) {
         AND NOT EXISTS (SELECT 1 FROM commitment_checkins ck
                      WHERE ck.user_id = q.user_id AND ck.status IN ('pending', 'sending'))
         AND NOT EXISTS (SELECT 1 FROM return_nudge_latch rn
-                     WHERE rn.user_id = q.user_id AND rn.nudged_at >= q.last_event_at)
+                     WHERE rn.user_id = q.user_id
+                       AND (rn.nudged_at >= q.last_event_at OR rn.retry_after > datetime(?)))
       ORDER BY q.last_event_at ASC
       LIMIT ?`
-  ).bind(cutoff, limit).all();
+  ).bind(cutoff, now, limit).all();
 
   const rows = (due && due.results) || [];
 
@@ -1331,7 +1353,11 @@ export async function runReturnNudges(rawEnv, opts = {}) {
     // were unset. Consent tz missing → fall back to the commitment zone (then UTC
     // inside withinReturnDaytime).
     const guardTimezone = channel === 'text' ? (consentTimezone || timezone) : timezone;
-    if (!withinReturnDaytime(now, guardTimezone)) { summary.deferred++; continue; }
+    if (!withinReturnDaytime(now, guardTimezone)) {
+      // FBQ-07b: hold until the daytime window opens, so a night full of deferred people never fills the batch.
+      await holdReturnNudge(env, userId, nextInstantWhere(now, (iso) => withinReturnDaytime(iso, guardTimezone)));
+      summary.deferred++; continue;
+    }
     if (channel === 'push') {
       try {
         outcome = await deliverReturnPush(env, userId, message);
@@ -1347,7 +1373,7 @@ export async function runReturnNudges(rawEnv, opts = {}) {
       } catch (err) {
         gate = { skip: (err && err.message) || 'consent_gate_error' };
       }
-      if (gate.defer) { summary.deferred++; continue; }
+      if (gate.defer) { await holdReturnNudge(env, userId, gate.until); summary.deferred++; continue; }
       if (gate.skip) {
         outcome = { status: 'skipped', detail: gate.skip };
       } else {
