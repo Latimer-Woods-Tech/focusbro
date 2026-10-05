@@ -21,15 +21,17 @@ export default defineConfig({
         'src/html.js',
         'src/html.js.bak.initGallery'
       ],
+      // FBQ-24 R5 (2026-10-05): actual 88.8/83.9/95.3/90.2 (stmts/branches/funcs/lines);
+      // the floor sits ~3 points under it. Raise it as coverage grows, never lower it.
       // Ratcheting floor: set just below the current Vitest 4/V8 result so
       // regressions fail CI. Vitest 4's AST-aware V8 remapping counts branches
       // differently from Vitest 1 (68.28% vs 82.47% on the same commit/tests);
       // this is a reporting-baseline reset, not deleted coverage.
       thresholds: {
-        statements: 71,
-        branches: 71,
-        functions: 81,
-        lines: 72
+        statements: 85,
+        branches: 80,
+        functions: 92,
+        lines: 87
       }
     }
   }
