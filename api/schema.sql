@@ -103,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash
   ON sessions(token_hash) WHERE token_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
 -- ── SINGLE-USE ACCOUNT ACTION TOKENS ──
 -- Only a SHA-256 digest is stored. A database read cannot recover a live link.
@@ -119,6 +120,7 @@ CREATE TABLE IF NOT EXISTS auth_action_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_auth_action_user_purpose
   ON auth_action_tokens(user_id, purpose, created_at);
+CREATE INDEX IF NOT EXISTS idx_auth_action_expires ON auth_action_tokens(expires_at);
 
 -- ── DEVICES TABLE (multi-device sync) ──
 CREATE TABLE IF NOT EXISTS devices (
