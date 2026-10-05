@@ -11,7 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import worker, { D1_SCHEMA_VERSION } from '../index.js';
+import worker from '../index.js';
+import { D1_SCHEMA_VERSION } from '../config.js';
 import { CRON_HEALTH_KEYS, recordCronHealth, readCronHealth } from '../checkins-cron.js';
 
 const newestMigrationFile = () => readdirSync(fileURLToPath(new URL('../../../migrations', import.meta.url)))

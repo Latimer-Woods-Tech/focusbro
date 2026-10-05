@@ -3,6 +3,17 @@
  * Centralized configuration for all hardcoded values
  */
 
+/**
+ * The D1 schema step this build expects (the newest migrations/NNNN_*.sql).
+ * Lives here, not in index.js: a Worker entry module may export only handlers —
+ * workerd refuses to start on any other named export ("Incorrect type for map
+ * entry 'D1_SCHEMA_VERSION'"), which is what broke `wrangler dev --local` (G798).
+ */
+export const D1_SCHEMA_VERSION = '0008_pro_purchases';
+
+/** A guest account's synthetic, non-routable address domain (also not an entry-module export, same reason). */
+export const GUEST_EMAIL_DOMAIN = 'guest.invalid';
+
 export const config = {
   // ── Authentication ──
   auth: {

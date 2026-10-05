@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import worker, { D1_SCHEMA_VERSION } from '../index.js';
+import worker from '../index.js';
+import { D1_SCHEMA_VERSION } from '../config.js';
 
 const workerSource = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 const entrypointSource = workerSource.slice(workerSource.indexOf('export default'));

@@ -3349,8 +3349,8 @@ function fbSyncThemeIcon() {
           <div style="font-size:10px;color:var(--text-muted);">Avg Quality</div>
         </div>
         <div style="text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--success);" id="sleepStreak">0</div>
-          <div style="font-size:10px;color:var(--text-muted);">Night Streak</div>
+          <div style="font-size:18px;font-weight:700;color:var(--success);" id="sleepNights">0</div>
+          <div style="font-size:10px;color:var(--text-muted);">Nights logged</div>
         </div>
       </div>
     </div>
@@ -6206,17 +6206,11 @@ function renderSleepHistory() {
     document.getElementById('sleepAvgQuality').textContent = avgQ + '/10';
   }
 
-  // Streak
-  let streak = 0;
-  const d = new Date();
-  for (let i = 0; i < 365; i++) {
-    const key = d.toDateString();
-    if (sleepLog.find(e => e.date === key)) {
-      streak++;
-      d.setDate(d.getDate() - 1);
-    } else break;
-  }
-  document.getElementById('sleepStreak').textContent = streak;
+  // Nights logged — a count that only climbs. This was a "night streak" that
+  // reset to 0 on any night you didn't log: the same mechanic the design LAW
+  // bans ("a kept-word record that only climbs") and that the stats card
+  // dropped in #385. One quiet night never erases what you logged.
+  document.getElementById('sleepNights').textContent = new Set(sleepLog.map(e => e.date)).size;
 }
 
 function newSleepTip() {
