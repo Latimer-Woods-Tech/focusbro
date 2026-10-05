@@ -14,6 +14,9 @@ test.describe('FocusBro client smoke', () => {
       { waitUntil: 'domcontentloaded' });
     const visit = await visitRequest;
     expect(visit.method()).toBe('POST');
+    // FBQ-15 R4: the Worker now 403s an acquisition POST with no Origin. The
+    // real browser beacon (fetch + keepalive) must carry its own origin.
+    expect(await visit.headerValue('origin')).toBe(new URL(page.url()).origin);
     // The beacon reports navigator.webdriver (R-316) so a JS-executing synthetic
     // monitor stays out of the qualified-visit denominator. This suite drives a
     // real automation framework (Playwright), so webdriver is true here — the

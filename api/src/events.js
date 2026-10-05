@@ -92,6 +92,41 @@ export const OUTREACH_EVENT_TYPES = Object.freeze([
 ]);
 
 /**
+ * The ONLY event types a client may post to `/sync/events` (FBQ-15). Derived
+ * from what the real clients send — public/index.html (`session_complete`, and
+ * `sound_start` / `sound_stop` / `sound_share` via recordSoundEvent) and me.js
+ * (`push_permission`); the native bridge and report.js post none. Everything
+ * else in EVENTS is written by the server itself, and a client that could post
+ * it could forge the kept-word rate, the public follow-through index, the
+ * acquisition funnel, or a "welcomed back" cue on someone else's coach view.
+ * A new client event type must be added here in the same PR that sends it;
+ * the ingest counts what it refuses (`rejected`) so a missed one is visible.
+ */
+export const CLIENT_EVENT_TYPES = Object.freeze([
+  'session_complete',
+  'sound_start',
+  'sound_stop',
+  'sound_share',
+  EVENTS.PUSH_PERMISSION,
+]);
+
+/** How far a client event time may sit from now: 7 days back, 5 minutes ahead. */
+export const CLIENT_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const CLIENT_EVENT_MAX_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * Is a client-supplied event time acceptable? Missing → yes (server time is
+ * used). Present but unparseable or outside [now − 7d, now + 5min] → no: a
+ * forged time could otherwise backfill a retention cohort or a past window.
+ */
+export function clientEventTimeOk(at, nowMs = Date.now()) {
+  if (at === null || at === undefined || at === '') return true;
+  const t = (at instanceof Date ? at : new Date(at)).getTime();
+  if (!Number.isFinite(t)) return false;
+  return t >= nowMs - CLIENT_EVENT_MAX_AGE_MS && t <= nowMs + CLIENT_EVENT_MAX_SKEW_MS;
+}
+
+/**
  * A SQL predicate that keeps only USER-INITIATED events — the person acting,
  * never the bro reaching out. Built from OUTREACH_EVENT_TYPES so the definition
  * can never drift between the queries that share it. The values are our own

@@ -38,25 +38,29 @@ function analyticsRuns(db) {
   return db.runs.filter((r) => /INTO analytics_events/.test(r.sql));
 }
 
-describe('event types are free-form (focusbro#352)', () => {
-  it('stores a type no list has ever named — the product vocabulary moves, the spine does not gate it', async () => {
+describe('event types are allowlisted (FBQ-15, reverses focusbro#352)', () => {
+  it('stores a client type and refuses one no client sends, counting the refusal', async () => {
     const db = makeDB();
     const res = await syncAnalyticsEvents({ DB: db }, 'user-1', [
       { id: 'e1', type: 'sound_share', at: '2026-09-04T12:00:00.000Z', reason: 'copied', sounds: ['rain', 'cafe'] },
       { id: 'e2', type: 'a_type_invented_tomorrow', at: '2026-09-04T12:00:01.000Z' },
-    ]);
-    expect(res.synced).toBe(2);
+    ], { nowMs: Date.parse('2026-09-04T12:01:00.000Z') });
+    expect(res).toMatchObject({ synced: 1, accepted: 1, rejected: 1 });
     const inserted = db.runs.filter((r) => /INSERT[\s\S]*analytics_events/i.test(r.sql));
-    expect(inserted.length).toBe(2);
-    expect(inserted.map((r) => r.params).flat()).toEqual(expect.arrayContaining(['sound_share', 'a_type_invented_tomorrow']));
+    expect(inserted.length).toBe(1);
+    expect(inserted[0].params[1]).toBe('sound_share');
   });
 });
+
+// The fixtures are timestamped 2026-07-02; FBQ-15 refuses an `at` more than 7
+// days old, so the ingest is run against a clock on that day.
+const JULY_2 = { nowMs: Date.parse('2026-07-02T12:00:00.000Z') };
 
 describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
   it('is a no-op for an empty or non-array batch', async () => {
     const db = makeDB();
-    expect(await syncAnalyticsEvents({ DB: db }, 'u1', [])).toEqual({ success: true, synced: 0 });
-    expect(await syncAnalyticsEvents({ DB: db }, 'u1', null)).toEqual({ success: true, synced: 0 });
+    expect(await syncAnalyticsEvents({ DB: db }, 'u1', [])).toEqual({ success: true, synced: 0, accepted: 0, rejected: 0 });
+    expect(await syncAnalyticsEvents({ DB: db }, 'u1', null)).toEqual({ success: true, synced: 0, accepted: 0, rejected: 0 });
     expect(analyticsRuns(db)).toHaveLength(0);
   });
 
@@ -64,8 +68,8 @@ describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
     const db = makeDB();
     const res = await syncAnalyticsEvents({ DB: db }, 'user-7', [
       { id: 'evt-1', type: 'session_complete', tool: 'pomodoro', duration_seconds: 1500, at: '2026-07-02T08:15:00.000Z' },
-    ]);
-    expect(res).toEqual({ success: true, synced: 1 });
+    ], JULY_2);
+    expect(res).toEqual({ success: true, synced: 1, accepted: 1, rejected: 0 });
     const rows = analyticsRuns(db);
     expect(rows).toHaveLength(1);
     expect(rows[0].sql).toMatch(/INSERT OR IGNORE INTO analytics_events/);
@@ -82,7 +86,7 @@ describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
       { id: 'dup', type: 'session_complete', tool: 'pomodoro', at: '2026-07-02T08:00:00Z' },
       { id: 'dup', type: 'session_complete', tool: 'pomodoro', at: '2026-07-02T08:00:00Z' },
       { id: 'other', type: 'session_complete', tool: 'pomodoro', at: '2026-07-02T09:00:00Z' },
-    ]);
+    ], JULY_2);
     expect(res.synced).toBe(2);
     expect(analyticsRuns(db)).toHaveLength(2);
   });
@@ -92,7 +96,7 @@ describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
     const res = await syncAnalyticsEvents({ DB: db }, 'u1', [
       { id: 'a', tool: 'pomodoro', at: '2026-07-02T08:00:00Z' }, // no type → skipped
       { id: 'b', type: 'session_complete', tool: 'pomodoro', at: '2026-07-02T08:30:00Z' },
-    ]);
+    ], JULY_2);
     expect(res.synced).toBe(1);
     expect(analyticsRuns(db)).toHaveLength(1);
     expect(analyticsRuns(db)[0].params[1]).toBe('session_complete');
@@ -102,7 +106,7 @@ describe('syncAnalyticsEvents — the live timer→retention ingest', () => {
     const db = makeDB();
     const res = await syncAnalyticsEvents({ DB: db }, 'u1', [
       { id: 'c', type: 'session_complete', at: '2026-07-02T08:00:00Z' },
-    ]);
+    ], JULY_2);
     expect(res.synced).toBe(1);
     expect(analyticsRuns(db)).toHaveLength(1);
   });

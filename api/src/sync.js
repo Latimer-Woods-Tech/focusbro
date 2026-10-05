@@ -5,7 +5,7 @@
  */
 
 import { generateUUID } from './middleware.js';
-import { recordEvent } from './events.js';
+import { recordEvent, CLIENT_EVENT_TYPES, clientEventTimeOk } from './events.js';
 
 // Keep a sync snapshot comfortably below browser storage limits and small enough
 // to validate at the edge without turning an upload into an expensive request.
@@ -481,6 +481,8 @@ export async function restoreFromSnapshot(env, userId, snapshotId) {
 
 /** Cap a single ingest batch so one request can't flood the spine. */
 const MAX_EVENTS_PER_BATCH = 100;
+/** Cap one event's stored payload; real client events are a few hundred bytes. */
+const MAX_EVENT_DATA_BYTES = 2048;
 
 /**
  * Ingest a batch of client-reported analytics events into the first-party
@@ -505,28 +507,38 @@ const MAX_EVENTS_PER_BATCH = 100;
  * `session_complete` event always has one, but requiring it here is what silently
  * dropped valid events before.
  *
- * There is NO type whitelist, by design. The client's vocabulary
- * (`session_complete`, `sound_start`, `sound_stop`, `sound_share`, …) moves with
- * the product, and a server-side list would silently drop the next one — which is
- * exactly what `config.api.validEventTypes` claimed to do while nothing read it
- * (focusbro#352). What bounds a batch is its SIZE (MAX_EVENTS_PER_BATCH), the
- * in-batch dedup, and recordEvent's own guards; a type is free-form text.
+ * TYPE ALLOWLIST (FBQ-15, reversing focusbro#352's "free-form"): only
+ * CLIENT_EVENT_TYPES are stored. The same table holds the server's own records
+ * (`commitment_kept`, `checkin_delivered`, `return_nudge_sent`, `acquisition_*`,
+ * …), and a free-form ingest let any guest forge the kept-word rate, the public
+ * follow-through index and other people's coach cues. A refused event is
+ * DROPPED and COUNTED, never a 400: the client queues retry until a 2xx, so a
+ * 400 would wedge an old client's whole queue on one stale type, while
+ * `{ accepted, rejected }` keeps the batch flowing and the miss visible.
+ * Also refused: an `at` outside [now − 7d, now + 5min]. A `user_id`/`userId`
+ * in the payload is stripped — a client event belongs to the session only.
  *
- * @returns {Promise<object>} { success, synced } (synced = events accepted this
- *   batch; a deduped replay is idempotent, not an error)
+ * @returns {Promise<object>} { success, synced, accepted, rejected } (synced =
+ *   accepted = events written this batch; a deduped replay is not an error)
  */
-export async function syncAnalyticsEvents(env, userId, events) {
+export async function syncAnalyticsEvents(env, userId, events, { nowMs = Date.now() } = {}) {
   try {
     if (!Array.isArray(events) || events.length === 0) {
-      return { success: true, synced: 0 };
+      return { success: true, synced: 0, accepted: 0, rejected: 0 };
     }
 
     const batch = events.slice(0, MAX_EVENTS_PER_BATCH);
     const seenClientIds = new Set();
     let synced = 0;
+    let rejected = 0;
 
     for (const event of batch) {
       if (!event || !event.type) continue; // must at least name an event type
+      const at = event.at || event.timestamp || event.ts || null;
+      if (!CLIENT_EVENT_TYPES.includes(event.type) || !clientEventTimeOk(at, nowMs)) {
+        rejected++;
+        continue;
+      }
 
       const clientEventId = event.id || event.cid || null;
       if (clientEventId) {
@@ -534,12 +546,14 @@ export async function syncAnalyticsEvents(env, userId, events) {
         seenClientIds.add(clientEventId);
       }
 
-      const at = event.at || event.timestamp || event.ts || null;
-
       // Store the meaningful payload (tool, duration, etc.), not the transport
       // envelope — id/at/timestamp/ts/type are columns or control fields, so
       // strip them (underscore-prefixed to mark them deliberately unused).
-      const { id: _id, cid: _cid, at: _at, ts: _ts, timestamp: _timestamp, type: _type, ...data } = event;
+      // user_id/userId are dropped too: coach queries read `$.user_id`, and a
+      // client event must never be attributable to anyone but the session.
+      const { id: _id, cid: _cid, at: _at, ts: _ts, timestamp: _timestamp, type: _type,
+        user_id: _uid, userId: _userId, ...data } = event;
+      if (JSON.stringify(data).length > MAX_EVENT_DATA_BYTES) { rejected++; continue; }
 
       const wrote = await recordEvent(env, {
         userId,
@@ -553,10 +567,11 @@ export async function syncAnalyticsEvents(env, userId, events) {
 
     await recordSync(env, userId, 'web', 'analytics_sync', synced > 0 ? 'success' : 'partial', 0, {
       events_synced: synced,
-      events_total: batch.length
+      events_total: batch.length,
+      events_rejected: rejected,
     });
 
-    return { success: true, synced };
+    return { success: true, synced, accepted: synced, rejected };
   } catch (error) {
     console.error('[SYNC] Error syncing analytics:', error.message);
     return { error: 'Failed to sync analytics', detail: error.message };
