@@ -16,7 +16,7 @@
 //   coach sharing ........ coach.js, coach_note_consent
 //   deletion ............. account-delete.js (/account/delete)
 
-export const PRIVACY_LAST_UPDATED = 'October 3, 2026';
+export const PRIVACY_LAST_UPDATED = 'October 5, 2026';
 
 /** [heading, html] pairs, in order. Headings are asserted by the tests. */
 export function privacySections() {
@@ -28,12 +28,12 @@ export function privacySections() {
     ['Your words and check-ins',
       '<p>When you give your word, we store what you said you&rsquo;ll do, when, your time zone, how often it repeats, and the tone you picked. When a check-in comes, we store your answer, any note you add, and your kept-word streak. If you turn on sync, we store the app data you choose to back up and the name of each device you sync from.</p>'],
     ['Phone number and text messages',
-      '<p>Only if you turn on text check-ins and agree to receive texts. Then we store your mobile number, the exact wording you agreed to and when, and your quiet hours. We use the number only to send the check-ins and follow-up texts you chose, and to read your replies (for example &ldquo;done&rdquo; or &ldquo;later&rdquo;) so we can record the check-in; we keep a copy of each reply so it is handled exactly once. Texts are sent and received through <strong>Telnyx</strong>, our text-message provider, which handles your number and the message text to deliver them. Reply STOP at any time and we stop texting you; message and data rates may apply. We never use your number for marketing and never sell or share it for anyone else&rsquo;s marketing.</p>'],
+      '<p>Only if you turn on text check-ins and agree to receive texts. Then we store your mobile number, the exact wording you agreed to and when, and your quiet hours. We use the number only to send the check-ins and follow-up texts you chose, and to read your replies (for example &ldquo;done&rdquo; or &ldquo;later&rdquo;) so we can record the check-in; we keep a copy of each reply so it is handled exactly once. Texts are sent and received through <strong>Telnyx</strong>, our text-message provider, which handles your number and the message text to deliver them. Before any text goes out we send a one-time code to the number and ask you to enter it; a number is used for texts only once you have confirmed it, and a confirmed number belongs to one account. Reply STOP at any time and we stop texting you; message and data rates may apply. We never use your number for marketing and never sell or share it for anyone else&rsquo;s marketing.</p>'],
     ['Notifications',
       '<p><strong>In a browser:</strong> if you allow notifications, your browser gives us a push address and keys, which we store so we can send your check-in reminders. Reminders travel through your browser maker&rsquo;s push service (for example Google, Mozilla, or Apple), encrypted so that only your browser can read them.</p>'
       + '<p><strong>In the FocusBro app:</strong> check-in reminders are scheduled on your phone as local notifications. They are not sent through any third-party push service.</p>'],
     ['Coaches',
-      '<p>If you accept a coach&rsquo;s invitation, that coach sees your kept-word momentum (counts and dates). Your own notes reach a coach only if you turn on note sharing, and you can turn it off at any time.</p>'],
+      '<p>If you accept a coach&rsquo;s invitation, that coach can see your words by title &mdash; the text you wrote, such as &ldquo;take my meds&rdquo; &mdash; for both the ones you are working on and the ones you kept, along with when and how often each repeats and your time zone. The coach also sees counts and dates: how many check-ins were delivered to you, how many you kept, how many you snoozed, and a short read of your week with a gentle cue when you have been away or are back. Your own notes reach a coach only if you turn on note sharing, and you can turn it off at any time. A coach also sets the voice and the opening line of the check-ins you get from them, so their wording shapes the messages you receive.</p>'],
     ['Payments',
       '<p>FocusBro Pro is a one-time purchase on the website, processed by <strong>Stripe</strong>. You enter card details on Stripe&rsquo;s page, never ours; we never see or store card numbers. We receive and store the purchase status, amount, currency, date, and Stripe&rsquo;s reference for the purchase. If your account has an email address, we give it to Stripe for your receipt. Stripe keeps its own payment records under its privacy policy.</p>'],
     ['Email',

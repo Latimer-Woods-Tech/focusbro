@@ -14,10 +14,13 @@
 /**
  * Google Play policy (FocusBro Pro is sold on the website only): inside the
  * native app — `html[data-native-app]`, set by /native-bridge.js — every buy /
- * upgrade control (`.pro-buy`) is hidden. Pro bought on the web still unlocks
- * in the app; only the way to buy is absent.
+ * upgrade control (`.pro-buy`) and every piece of Pro framing (`.pro-framing`:
+ * "part of Pro" notes, the Pro nav link, the report's Pro preview) is hidden.
+ * Pro bought on the web still unlocks in the app; the word "Pro" is absent.
+ * The Worker stamps `data-native-app` into the HTML itself for a FocusBroApp/ UA
+ * (index.js), so this applies on first paint, with no script.
  */
-export const PRO_BUY_HIDE_CSS = 'html[data-native-app] .pro-buy{display:none !important}';
+export const PRO_BUY_HIDE_CSS = 'html[data-native-app] .pro-buy,html[data-native-app] .pro-framing{display:none !important}';
 
 /**
  * The shared brand stylesheet + design tokens, themed to the home app.
@@ -181,11 +184,16 @@ ${pageShellStyle({ maxWidth })}</head>`;
 
 /**
  * A branded top nav for the moat pages.
- * @param {Array<{ href: string, label: string }>} items
+ * @param {Array<{ href: string, label: string, cls?: string }>} items
  * @returns {string} a `<nav class="pagenav">…</nav>` block
  */
 export function pageNav(items) {
-  return `<nav class="pagenav">${items
-    .map((it) => `<a href="${it.href}">${it.label}</a>`)
-    .join(' <span aria-hidden="true">·</span> ')}</nav>`;
+  const sep = '<span aria-hidden="true">·</span>';
+  // A hidden item (`cls` e.g. "pro-framing") carries its own separator so hiding it leaves no stray dot.
+  const links = items.map((it, i) => {
+    const a = `<a href="${it.href}">${it.label}</a>`;
+    const lead = i === 0 ? '' : ` ${sep} `;
+    return it.cls ? `<span class="${it.cls}">${lead}${a}</span>` : `${lead}${a}`;
+  }).join('');
+  return `<nav class="pagenav">${links}</nav>`;
 }

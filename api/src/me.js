@@ -578,7 +578,7 @@ export function renderMePage() {
   const NEXT_WAITING = listNextCheckinWaitingCopy();
   return `${pageHead({ title: 'Your word — FocusBro', description: 'Give your word, keep it, and watch your kept-word streak grow. FocusBro checks in — an ally, never a scold.', maxWidth: 720 })}
 <body>
-${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/pro/', label: 'Pro' }, { href: '/about.html', label: 'About' }])}
+${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly report' }, { href: '/coach/', label: 'Coach view' }, { href: '/pro/', label: 'Pro', cls: 'pro-framing' }, { href: '/about.html', label: 'About' }])}
 <main>
 <h1>Your word</h1>
 <p class="intro">${mePageIntroCopy()}</p>
@@ -657,7 +657,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
             <option value="push">Push notification</option>
             <option value="text">Text</option>
           </select>
-          <p class="muted hidden" id="channelPro">${proChannelNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
+          <p class="muted hidden pro-framing" id="channelPro">${proChannelNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
         </div>
         <div>
           <label for="repeat">Repeat</label>
@@ -739,7 +739,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       .map((o) => `<option value="${o.value}">${o.label.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`)
       .join('')}</select>
     <p class="muted" id="ceilingDesc"></p>
-    <p class="muted hidden" id="ceilingPro">${proCeilingNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
+    <p class="muted hidden pro-framing" id="ceilingPro">${proCeilingNoteCopy()} <a class="pro-buy" href="/pro/">See Pro</a></p>
     <p class="muted">${escalationCeilingVoiceSoonCopy()}</p>
     <p class="ok hidden" id="ceilingMsg"></p>
   </div>
@@ -1664,6 +1664,8 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // FocusBro Pro: the text rung is a Pro feature. A free person's choice is
   // still saved; the option reads "(Pro)" and a quiet note links to /pro/
   // (hidden inside the native app by the shared .pro-buy rule).
+  // The Worker stamps html[data-native-app] on first paint for the app's UA: no "(Pro)" there.
+  var NATIVE = document.documentElement.hasAttribute('data-native-app');
   function paintCeilingPro(data) {
     if (!data || typeof data.pro !== 'boolean') return;
     var sel = el('ceiling'); var note = el('ceilingPro');
@@ -1671,7 +1673,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       for (var i = 0; i < sel.options.length; i++) {
         var o = sel.options[i];
         if (!o.getAttribute('data-label')) o.setAttribute('data-label', o.textContent);
-        o.textContent = o.getAttribute('data-label') + (!data.pro && o.value !== 'none' ? ' (Pro)' : '');
+        o.textContent = o.getAttribute('data-label') + (!data.pro && !NATIVE && o.value !== 'none' ? ' (Pro)' : '');
       }
     }
     if (note) { if (!data.pro && data.ceiling !== 'none') show(note); else hide(note); }
@@ -1683,7 +1685,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
       for (var j = 0; j < ch.options.length; j++) {
         var co = ch.options[j];
         if (!co.getAttribute('data-label')) co.setAttribute('data-label', co.textContent);
-        co.textContent = co.getAttribute('data-label') + (!data.pro && co.value === 'text' ? ' (Pro)' : '');
+        co.textContent = co.getAttribute('data-label') + (!data.pro && !NATIVE && co.value === 'text' ? ' (Pro)' : '');
       }
     }
     paintChannelPro();
