@@ -71,7 +71,8 @@ describe('runDueCheckins — scan query shape', () => {
     await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z', limit: 25 });
     const scanSql = db.prepared.find((s) => /FROM commitment_checkins c/.test(s));
     expect(scanSql).toMatch(/status\s*=\s*'pending'/);
-    expect(scanSql).toMatch(/scheduled_for\s*<=\s*\?/);
+    // Due = eligible: scheduled_for, or a hold's end when one is set (FBQ-06).
+    expect(scanSql).toMatch(/COALESCE\(c\.next_attempt_at, c\.scheduled_for\)\s*<=\s*\?/);
     expect(scanSql).toMatch(/JOIN commitments/);
   });
 
@@ -172,8 +173,12 @@ describe('consent-by-construction gate (TCPA)', () => {
     expect(s.deferred).toBe(1);
     expect(s.sent).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
-    // The row is untouched (still pending, no attempt bump) so a later tick delivers it.
-    expect(updateFor(db, 'ci1')).toBeUndefined();
+    // The row stays pending, no attempt bump: the ONLY write parks it until the
+    // window ends at 08:00 (FBQ-06), when a later tick delivers it.
+    expect(updateFor(db, 'ci1')).toEqual({
+      sql: "UPDATE commitment_checkins SET next_attempt_at = ? WHERE id = ? AND status = 'pending'",
+      params: ['2026-07-06T08:00:00.000Z', 'ci1'],
+    });
   });
 
   it('sends once quiet hours have passed', async () => {
@@ -625,6 +630,8 @@ describe('runDueCheckins — a moment that has passed is retired, never nudged l
     const s = await runDueCheckins({ DB: db, ...TELNYX_ENV }, { now: QUIET_NOW });
     expect(s.deferred).toBe(1);
     expect(s.stale).toBe(0);
-    expect(updateFor(db, 'ci1')).toBeFalsy(); // left pending, untouched
+    // Left pending; the only write parks it until the window ends (FBQ-06).
+    expect(updateFor(db, 'ci1').sql).toMatch(/SET next_attempt_at = \? WHERE id = \? AND status = 'pending'$/);
+    expect(updateFor(db, 'ci1').params).toEqual(['2026-07-30T08:00:00.000Z', 'ci1']);
   });
 });

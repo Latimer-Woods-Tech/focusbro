@@ -25,7 +25,7 @@ import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { signReplyTicket } from './checkin-reply.js';
 import { checkinActionLabels } from './me.js';
-import { evaluateContactGate, localHour } from './consent.js';
+import { evaluateContactGate, localHour, nextInstantWhere } from './consent.js';
 import { isProUser } from './pro.js';
 import { generateUUID } from './middleware.js';
 import { recordEvent, EVENTS } from './events.js';
@@ -113,6 +113,34 @@ export function isPermanentDeliveryError(status) {
 
 /** Default batch size per cron tick. */
 const DEFAULT_LIMIT = 100;
+
+/**
+ * Pages one tick may scan (FBQ-06). A row held for quiet hours / the night guard
+ * is parked with `next_attempt_at` and drops out of the scan until its hold ends,
+ * but the tick that FIRST holds it still spends a batch slot on it. When a full
+ * page held rows, the tick scans again (now without them) so a due row queued
+ * behind a wall of newly held ones still goes out this tick. Bounded at 2 so a
+ * cold tick (every row newly held, ~3 queries each) stays well under the D1
+ * per-invocation call cap; a longer wall clears on the following ticks.
+ */
+const MAX_SCAN_PAGES = 2;
+
+/**
+ * Park a held row until its hold ends (FBQ-06): the scan skips it until then, so
+ * it costs nothing per tick and never occupies the batch. Conditional on
+ * 'pending' so an answer or re-pend that moved it is never overwritten. A null
+ * `until` (no end found) leaves the row scannable, as before. Non-fatal.
+ */
+async function holdUntil(env, checkinId, until) {
+  if (!until) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE commitment_checkins SET next_attempt_at = ? WHERE id = ? AND status = 'pending'`
+    ).bind(until, checkinId).run();
+  } catch (err) {
+    console.error('[checkins-cron] hold failed:', err && err.message);
+  }
+}
 
 /**
  * Minutes a claimed check-in stays `sending` before another tick may reclaim it
@@ -330,7 +358,7 @@ export async function runDueCheckins(env, opts = {}) {
   // as expired for the same reason.
   try {
     const swept = await env.DB.prepare(
-      `UPDATE commitment_checkins SET status = 'pending', lease_until = NULL, last_error = 'lease_expired'
+      `UPDATE commitment_checkins SET status = 'pending', lease_until = NULL, next_attempt_at = NULL, last_error = 'lease_expired'
         WHERE status = 'sending' AND (lease_until IS NULL OR lease_until < ?)`
     ).bind(now).run();
     summary.reclaimed = changed(swept) ? swept.meta.changes : 0;
@@ -338,7 +366,14 @@ export async function runDueCheckins(env, opts = {}) {
     console.error('[checkins-cron] lease sweep failed:', err && err.message);
   }
 
-  const due = await env.DB.prepare(
+  // FBQ-06: a held row (next_attempt_at in the future) is outside the scan, and
+  // idx_checkins_eligible orders pending rows by the instant they become due, so
+  // a held row is not even read until its hold ends. A hold is only ever set on
+  // a due row and every re-pend clears it, so the eligible instant is never
+  // before scheduled_for; the claim below re-checks scheduled_for regardless.
+  const seen = new Set();
+  const scanPage = async () => {
+    const due = await env.DB.prepare(
     `SELECT c.id AS checkin_id, c.commitment_id, c.user_id, c.channel,
             c.scheduled_for, COALESCE(c.attempts, 0) AS attempts, m.title, m.persona,
             m.recurrence, m.timezone, m.local_time, m.status AS commitment_status,
@@ -346,13 +381,26 @@ export async function runDueCheckins(env, opts = {}) {
                      WHERE pp.user_id = c.user_id AND pp.status = 'paid') AS is_pro
        FROM commitment_checkins c
        JOIN commitments m ON m.id = c.commitment_id
-      WHERE c.status = 'pending' AND c.scheduled_for <= ?
-      ORDER BY c.scheduled_for ASC
+      WHERE c.status = 'pending' AND COALESCE(c.next_attempt_at, c.scheduled_for) <= ?
+      ORDER BY COALESCE(c.next_attempt_at, c.scheduled_for) ASC
       LIMIT ?`
-  ).bind(now, limit).all();
+    ).bind(now, limit).all();
+    const fetched = (due && due.results) || [];
+    // A row this tick already handled (left pending for a retry) is not re-run.
+    return { rows: fetched.filter((r) => !seen.has(r.checkin_id)), full: fetched.length >= limit, held: 0 };
+  };
 
-  const rows = (due && due.results) || [];
-  for (const scanned of rows) {
+  let page = { rows: [], full: true, held: -1 };
+  for (let pages = 0; ;) {
+    if (!page.rows.length) {
+      // Scan again only while the last page was full AND held rows filled it.
+      if (!page.full || page.held === 0 || pages >= MAX_SCAN_PAGES) break;
+      page = await scanPage();
+      pages++;
+      if (!page.rows.length) break;
+    }
+    const scanned = page.rows.shift();
+    seen.add(scanned.checkin_id);
     summary.scanned++;
 
     // PRO (2026-10-01): a text check-in is a FocusBro Pro feature — every SMS
@@ -374,9 +422,11 @@ export async function runDueCheckins(env, opts = {}) {
         userId: row.user_id, channel: row.channel, nowISO: now,
       });
       if (gate.defer) {
-        // Held inside quiet hours: leave the row pending (no attempt bump) so a
-        // later tick delivers it once the window passes. Never dropped.
+        // Held inside quiet hours: leave the row pending (no attempt bump) and
+        // parked until the window ends, when a tick delivers it. Never dropped.
         summary.deferred++;
+        page.held++;
+        await holdUntil(env, row.checkin_id, gate.until);
         continue;
       }
       if (gate.skip) {
@@ -426,6 +476,8 @@ export async function runDueCheckins(env, opts = {}) {
         schedHour !== null && schedHour >= RETURN_NUDGE_DAY_START && schedHour < RETURN_NUDGE_DAY_END;
       if (schedWasDaytime && !withinUnscheduledDaytime(now, guardTz)) {
         summary.deferred++;
+        page.held++;
+        await holdUntil(env, row.checkin_id, nextInstantWhere(now, (iso) => withinUnscheduledDaytime(iso, guardTz)));
         continue;
       }
     }
@@ -440,7 +492,7 @@ export async function runDueCheckins(env, opts = {}) {
       let claim = null;
       try {
         claim = await env.DB.prepare(
-          `UPDATE commitment_checkins SET status = 'sending', lease_until = ?
+          `UPDATE commitment_checkins SET status = 'sending', lease_until = ?, next_attempt_at = NULL
             WHERE id = ? AND status = 'pending' AND scheduled_for <= ?`
         ).bind(leaseUntil, row.checkin_id, now).run();
       } catch (err) {

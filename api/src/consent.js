@@ -42,6 +42,7 @@ import {
   keptNoteFromReply,
   applyCheckinOutcome,
   rependCheckin,
+  clearHeldCheckins,
   parseWhenReply,
   smsKeptReplyCopy,
   smsAmbiguousReplyCopy,
@@ -180,6 +181,27 @@ export function isWithinQuietHours(nowISO, timezone, start, end) {
   return h >= s || h < e;            // overnight window (wraps midnight)
 }
 
+/**
+ * The first instant after `nowISO` at which `ok(instantISO)` holds — the end of
+ * an hour-based hold (quiet hours, the night guard). Every real UTC offset is a
+ * multiple of 15 minutes, so a local hour can only change on a 15-minute UTC
+ * boundary: stepping those boundaries finds the exact instant. Searches 26 hours
+ * (a full day across a DST shift); null when the hold never ends in that span.
+ * @param {string} nowISO
+ * @param {(iso: string) => boolean} ok
+ * @returns {string|null} ISO-8601 UTC instant
+ */
+export function nextInstantWhere(nowISO, ok) {
+  const step = 15 * 60 * 1000;
+  const t = Date.parse(nowISO);
+  if (Number.isNaN(t)) return null;
+  for (let x = Math.floor(t / step) * step + step; x <= t + 26 * 3600 * 1000; x += step) {
+    const iso = new Date(x).toISOString();
+    if (ok(iso)) return iso;
+  }
+  return null;
+}
+
 // ── ONE-WORD KEYWORDS (CTIA standard) ────────────────────────
 
 /**
@@ -299,7 +321,7 @@ export function consentCopySurface() {
  *
  * @param {object} env  Worker env with a D1-shaped `DB`
  * @param {object} args { userId, channel, nowISO }
- * @returns {Promise<{allow:true} | {skip:'no_consent'|'opted_out'} | {defer:'quiet_hours'}>}
+ * @returns {Promise<{allow:true} | {skip:'no_consent'|'opted_out'} | {defer:'quiet_hours', until:string|null}>}
  *   - push (and anything not in CONSENT_CHANNELS) is never gated → {allow:true}
  *   - no granted consent → {skip:'no_consent'} (terminal, no shame)
  *   - consent revoked (opted out) → {skip:'opted_out'}
@@ -318,7 +340,9 @@ export async function evaluateContactGate(env, { userId, channel, nowISO } = {})
   if (row.status !== 'granted') return { skip: 'no_consent' };
 
   if (isWithinQuietHours(nowISO, row.timezone, row.quiet_start, row.quiet_end)) {
-    return { defer: 'quiet_hours' };
+    // `until`: the instant the window ends, so the cron can park the row until then (FBQ-06).
+    const until = nextInstantWhere(nowISO, (iso) => !isWithinQuietHours(iso, row.timezone, row.quiet_start, row.quiet_end));
+    return { defer: 'quiet_hours', until };
   }
   return { allow: true };
 }
@@ -487,6 +511,9 @@ export function registerConsentRoutes(router, ctx) {
            updated_at = datetime('now')`
       ).bind(id, auth.userId, channel, consentText, CONSENT_VERSION, phone,
              quietStart, quietEnd, timezone, now).run();
+      // New quiet hours / timezone: release any hold computed under the old ones
+      // so the next tick re-evaluates against what was just saved (FBQ-06).
+      await clearHeldCheckins(env, auth.userId);
 
       return jsonResponse({
         ok: true,

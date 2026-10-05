@@ -183,7 +183,8 @@ describe('evaluateContactGate (delivery gate)', () => {
     const g = await evaluateContactGate(
       gateDB({ status: 'granted', quiet_start: 22, quiet_end: 8, timezone: 'UTC' }),
       { userId: 'u', channel: 'text', nowISO: '2026-07-06T02:00:00Z' });
-    expect(g).toEqual({ defer: 'quiet_hours' });
+    // `until` is the instant the window ends (FBQ-06): 08:00 UTC.
+    expect(g).toEqual({ defer: 'quiet_hours', until: '2026-07-06T08:00:00.000Z' });
   });
 });
 

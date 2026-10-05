@@ -104,8 +104,12 @@ describe('runDueCheckins — a late scheduled text never lands at 3am (design LA
     // Not one SMS left the building in the middle of the night.
     expect(fetchSpy).not.toHaveBeenCalled();
     // Deferred → the row is left pending (no status UPDATE written), so a later
-    // daytime tick delivers it. Never dropped, and never claimed (FBQ-05).
-    expect(db.runs.some((r) => /UPDATE commitment_checkins/.test(r.sql) && r.params.includes('ck1'))).toBe(false);
+    // daytime tick delivers it. Never dropped, and never claimed (FBQ-05). The
+    // only write parks it until the morning floor (FBQ-06).
+    const writes = db.runs.filter((r) => /UPDATE commitment_checkins/.test(r.sql) && r.params.includes('ck1'));
+    expect(writes.map((r) => r.sql)).toEqual([
+      "UPDATE commitment_checkins SET next_attempt_at = ? WHERE id = ? AND status = 'pending'",
+    ]);
   });
 
   it('SENDS the same text on time in the daytime (the guard narrows nothing it should not)', async () => {

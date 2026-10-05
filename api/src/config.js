@@ -9,7 +9,7 @@
  * workerd refuses to start on any other named export ("Incorrect type for map
  * entry 'D1_SCHEMA_VERSION'"), which is what broke `wrangler dev --local` (G798).
  */
-export const D1_SCHEMA_VERSION = '0011_checkin_open_occurrence_unique';
+export const D1_SCHEMA_VERSION = '0012_checkin_next_attempt';
 
 /** A guest account's synthetic, non-routable address domain (also not an entry-module export, same reason). */
 export const GUEST_EMAIL_DOMAIN = 'guest.invalid';
