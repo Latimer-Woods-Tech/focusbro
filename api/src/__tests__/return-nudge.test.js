@@ -94,7 +94,7 @@ describe('runReturnNudges — the dormant-person scan query shape', () => {
     expect(scan).toMatch(/NOT EXISTS[\s\S]*commitment_checkins[\s\S]*status IN \('pending', 'sending'\)/); // nothing in flight (FBQ-05: a claim is in flight too)
     expect(scan).toMatch(/last_event_at <= datetime\(\?\)/);              // dormant only, one time format (FBQ-07)
     expect(scan).toMatch(/NOT EXISTS[\s\S]*return_nudge_latch[\s\S]*nudged_at >= q\.last_event_at/); // already-nudged excluded IN SQL
-    expect(s).toEqual({ scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0 });
+    expect(s).toEqual({ scanned: 0, nudged: 0, deferred: 0, skipped: 0, failed: 0, skipped_for_budget: 0 });
   });
 
   it('passes a cutoff RETURN_NUDGE_QUIET_DAYS before now', async () => {

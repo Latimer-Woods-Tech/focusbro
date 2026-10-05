@@ -79,7 +79,7 @@ describe('runDueCheckins — scan query shape', () => {
   it('reports an all-zero summary when nothing is due', async () => {
     const db = makeDB({ due: [] });
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T14:00:00.000Z' });
-    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: expect.any(Number), contended: 0, superseded: 0 });
+    expect(s).toEqual({ scanned: 0, sent: 0, skipped: 0, failed: 0, retry: 0, deferred: 0, stale: 0, materialized: 0, reclaimed: expect.any(Number), contended: 0, superseded: 0, skipped_for_budget: 0 });
   });
 });
 
@@ -121,16 +121,12 @@ describe('recurring cadence — materialize the next occurrence', () => {
 
   it('is idempotent: skips materializing when a future pending check-in already exists', async () => {
     const db = makeDB({ due: [recurringRow()] });
-    // The existence probe (SELECT id FROM commitment_checkins ... scheduled_for > ?) uses .first().
-    // Override it to report an already-queued occurrence.
+    // FBQ-09: the existence probe is folded into the INSERT (WHERE NOT EXISTS), so
+    // "already queued" is the INSERT reporting zero changed rows.
     const origPrepare = db.prepare.bind(db);
     db.prepare = (sql) => {
       const stmt = origPrepare(sql);
-      if (/SELECT id FROM commitment_checkins/.test(sql) && /scheduled_for\s*>/.test(sql)) {
-        const origFirst = stmt.first.bind(stmt);
-        stmt.first = async () => ({ id: 'already-queued' });
-        void origFirst;
-      }
+      if (/INSERT INTO commitment_checkins/.test(sql)) stmt.run = async () => ({ success: true, meta: { changes: 0 } });
       return stmt;
     };
     const s = await runDueCheckins({ DB: db }, { now: '2026-07-06T09:00:00.000Z' });
@@ -500,7 +496,7 @@ describe('runEscalations — the one warm knock after a quiet push', () => {
     const db = makeDB({ esc: [escRow()], phone: '+15550002222' });
     const s = await runEscalations({ DB: db, ...TELNYX_ENV }, { now: NOW });
 
-    expect(s).toEqual({ scanned: 1, escalated: 1, deferred: 0, skipped: 0, failed: 0 });
+    expect(s).toEqual({ scanned: 1, escalated: 1, deferred: 0, skipped: 0, failed: 0, skipped_for_budget: 0 });
     const [url, opts] = fetchSpy.mock.calls[0];
     expect(url).toContain('telnyx.com');
     const body = JSON.parse(opts.body);
