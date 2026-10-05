@@ -20,12 +20,26 @@
 // copy lives here, inside the design-LAW scan) and the client only renders them.
 // ════════════════════════════════════════════════════════════
 
+import { spendLimits, retryAfterSeconds } from './rate-limit.js';
+
 /** How long a heartbeat keeps you "present" before you fade from the count. */
 export const PRESENCE_WINDOW_SEC = 120;
 /** Rows older than this are pruned opportunistically on write. */
 const PRUNE_AFTER_SEC = 600;
 /** Longest client id we'll store (anon uuid-ish); anything longer is rejected. */
 const MAX_CLIENT_ID = 64;
+/** FBQ-17 R1: a client id is token-shaped (uuid / `c-<base36>`); nothing else is stored. */
+const CLIENT_ID_RE = /^[A-Za-z0-9_-]+$/;
+/** FBQ-17 R1: per-IP heartbeat budget. The shell beats every 45s (~1.3/min); 30/min leaves room for NAT'd households. */
+export const HEARTBEAT_LIMIT = 30;
+export const HEARTBEAT_WINDOW_SECONDS = 60;
+
+async function heartbeatKey(request) {
+  const raw = (request.headers && request.headers.get && (request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For'))) || 'unknown';
+  const ip = String(raw).split(',')[0].trim() || 'unknown';
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
+  return 'room-heartbeat:ip:' + Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 /**
  * The presence line shown by the timer while you focus. `count` is the total
@@ -102,9 +116,20 @@ export function registerRoomRoutes(router, ctx) {
       let body;
       try { body = await request.json(); } catch { body = null; }
       const id = body && typeof body.client_id === 'string' ? body.client_id.trim() : '';
-      if (!id || id.length > MAX_CLIENT_ID) {
+      if (!id || id.length > MAX_CLIENT_ID || !CLIENT_ID_RE.test(id)) {
         return jsonResponse({ error: 'A valid client_id is required.' }, 400);
       }
+      // Anonymous + write-bearing, so spend a per-IP window BEFORE any write.
+      // Fails open: presence is best-effort and must never break the timer.
+      try {
+        const key = await heartbeatKey(request);
+        const hit = (await spendLimits(env, [key], HEARTBEAT_WINDOW_SECONDS))[key];
+        if (hit.count > HEARTBEAT_LIMIT) {
+          const res = jsonResponse({ error: 'Presence is taking a breather — your timer keeps running. Try again in a minute.' }, 429);
+          if (res && res.headers && res.headers.set) res.headers.set('Retry-After', String(retryAfterSeconds([hit.resetAt])));
+          return res;
+        }
+      } catch (e) { console.warn('[room] heartbeat limiter unavailable (allowing):', e && e.message); }
       const now = new Date().toISOString();
       // Prune stale rows opportunistically so the table stays tiny without a cron.
       const pruneCutoff = new Date(Date.now() - PRUNE_AFTER_SEC * 1000).toISOString();

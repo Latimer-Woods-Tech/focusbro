@@ -20,6 +20,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { generateUUID } from './middleware.js';
+import { config } from './config.js';
 import {
   buildMomentum, describePeakDay, MOMENTUM_WINDOW_DAYS,
   bucketKeptByHour, peakKeptHour, describeHourBand,
@@ -80,6 +81,14 @@ export function clampSnoozeMinutes(v) {
 }
 
 const MAX_TITLE = 200;
+const MAX_TIMEZONE = 64;
+const TZ_WARM_ERROR = 'I don’t recognise that time zone — pick one like America/Chicago, or leave it blank for UTC.';
+
+/** FBQ-17 R3: a usable IANA zone — short, and one Intl actually accepts. Pure. */
+export function isValidTimezone(tz) {
+  if (typeof tz !== 'string' || !tz || tz.length > MAX_TIMEZONE) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+}
 const MAX_DETAILS = 2000;
 const DEFAULT_CHECKIN_OFFSET_MS = 60 * 60 * 1000; // check back ~1h after start by default
 
@@ -1028,6 +1037,7 @@ export function validateCommitmentInput(body, nowISO) {
   const details = typeof body.details === 'string' ? body.details.trim().slice(0, MAX_DETAILS) : '';
 
   const timezone = typeof body.timezone === 'string' && body.timezone.trim() ? body.timezone.trim() : 'UTC';
+  if (!isValidTimezone(timezone)) return { ok: false, error: TZ_WARM_ERROR };
   const recurrence = pickRecurrence(body.recurrence);
   const localTimeIn = parseLocalTime(body.local_time);
 
@@ -1155,6 +1165,7 @@ export function buildCommitmentEdit(existing, body, nowISO) {
 
   if (wantsTimezone) {
     out.timezone = (typeof body.timezone === 'string' && body.timezone.trim()) ? body.timezone.trim() : 'UTC';
+    if (!isValidTimezone(out.timezone)) return { ok: false, error: TZ_WARM_ERROR };
     touched = true;
   }
   if (wantsRecurrence) { out.recurrence = pickRecurrence(body.recurrence); touched = true; }
@@ -1206,9 +1217,14 @@ export function buildCommitmentEdit(existing, body, nowISO) {
 function parseWhen(v) {
   if (typeof v !== 'string' && typeof v !== 'number') return null;
   const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return null;
+  const ms = d.getTime();
+  // FBQ-17 R2: a valid-but-absurd instant (year 275760, 8.64e15) used to survive
+  // here and throw RangeError in toISOString() one step later → 500. Keep the sane window.
+  if (Number.isNaN(ms) || ms < WHEN_MIN_MS || ms > WHEN_MAX_MS) return null;
   return d.toISOString();
 }
+const WHEN_MIN_MS = Date.UTC(2000, 0, 1);
+const WHEN_MAX_MS = Date.UTC(2200, 0, 1);
 
 /**
  * Pure kept-word-streak transition.
@@ -3630,6 +3646,17 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (!parsed.ok) return jsonResponse({ error: parsed.error }, 400);
       const v = parsed.value;
 
+      // FBQ-17 R4: a ceiling on ACTIVE words per person (kept/released ones are free).
+      const activeRow = await env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM commitments WHERE user_id = ? AND status = 'active'`
+      ).bind(auth.userId).first();
+      if (activeRow && Number(activeRow.c) >= config.data.maxActiveCommitments) {
+        return jsonResponse({
+          error: `You’re already holding ${config.data.maxActiveCommitments} words — that’s a lot to carry. Set one down or mark one kept, then give this one.`,
+          code: 'active_limit',
+        }, 409);
+      }
+
       const id = generateUUID();
       await env.DB.prepare(
         `INSERT INTO commitments
@@ -3701,13 +3728,42 @@ export function registerAccountabilityRoutes(router, ctx) {
       // the load.
       await reconcileStrandedCheckins(env, auth.userId, { nowISO: new Date().toISOString() });
 
+      // FBQ-17 R8: keyset pagination. No params = the old shape (first 200). `limit`
+      // (1..200) and an opaque `cursor` walk the whole list exactly once; `next_cursor`
+      // appears ONLY when more remain.
+      const qs = new URL(request.url).searchParams;
+      let limit = 200;
+      if (qs.has('limit')) {
+        limit = Number(qs.get('limit'));
+        if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+          return jsonResponse({ error: 'limit must be a whole number from 1 to 200.' }, 400);
+        }
+      }
+      let after = null;
+      if (qs.has('cursor')) {
+        try {
+          const c = JSON.parse(atob(qs.get('cursor').replace(/-/g, '+').replace(/_/g, '/')));
+          if (![0, 1].includes(c[0]) || typeof c[1] !== 'string' || typeof c[2] !== 'string') throw new Error('shape');
+          after = c;
+        } catch { return jsonResponse({ error: 'That cursor isn’t valid — start again from the top of the list.' }, 400); }
+      }
+      const keyset = after
+        ? `AND ((status = 'active') < ?2 OR ((status = 'active') = ?2 AND (start_at < ?3 OR (start_at = ?3 AND id < ?4))))`
+        : '';
       const rows = await env.DB.prepare(
         `SELECT id, title, details, start_at, checkin_at, channel, persona, timezone, recurrence, local_time, status, created_at
-           FROM commitments WHERE user_id = ?
-          ORDER BY (status = 'active') DESC, start_at DESC
-          LIMIT 200`
-      ).bind(auth.userId).all();
+           FROM commitments WHERE user_id = ?1 ${keyset}
+          ORDER BY (status = 'active') DESC, start_at DESC, id DESC
+          LIMIT ${limit + 1}`
+      ).bind(...(after ? [auth.userId, after[0], after[1], after[2]] : [auth.userId])).all();
       const commitments = (rows && rows.results) || [];
+      let nextCursor = null;
+      if (commitments.length > limit) {
+        commitments.length = limit;
+        const last = commitments[limit - 1];
+        nextCursor = btoa(JSON.stringify([last.status === 'active' ? 1 : 0, last.start_at, last.id]))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
 
       // Attach each active word's NEXT check-in — the concrete moment the bro
       // next shows up — so the person sees it across their whole list at a
@@ -3770,7 +3826,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         }
       }
 
-      return jsonResponse({ commitments }, 200);
+      return jsonResponse(nextCursor ? { commitments, next_cursor: nextCursor } : { commitments }, 200);
     } catch (err) {
       console.error('[accountability] list error:', err && err.message);
       return jsonResponse({ error: 'Could not load your commitments.' }, 500);

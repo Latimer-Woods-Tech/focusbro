@@ -48,7 +48,8 @@ export function parseRange(header, size) {
 
 export async function serveAudio(request, env) {
   const url = new URL(request.url);
-  const name = decodeURIComponent(url.pathname.slice('/audio/'.length));
+  let name;
+  try { name = decodeURIComponent(url.pathname.slice('/audio/'.length)); } catch { return json(400, { error: 'Bad request' }); }
   if (!AUDIO_FILE_RE.test(name)) return json(404, { error: 'Not found' });
   if (!env || !env.AUDIO) return json(503, { error: 'Audio storage is not configured' });
 
