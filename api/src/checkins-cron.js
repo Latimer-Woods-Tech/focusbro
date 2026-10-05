@@ -20,7 +20,7 @@
 // channel marks the check-in `skipped`, never crashes, never touches the timer.
 // ════════════════════════════════════════════════════════════
 
-import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy } from './accountability.js';
+import { checkinPromptCopy, checkinReplyHint, escalationCopy, nextOccurrenceISO, pickRecurrence, pickPersona, returnNudgeCopy, ON_OPEN_OCCURRENCE_CONFLICT } from './accountability.js';
 import { validateCheckinScript, mapCoachPersona } from './coach-onboarding.js';
 import { sendWebPush, vapidConfigured } from './webpush.js';
 import { signReplyTicket } from './checkin-reply.js';
@@ -57,11 +57,14 @@ export async function materializeNextOccurrence(env, row, nowISO) {
   ).bind(row.commitment_id, nowISO).first();
   if (existing) return false;
 
-  await env.DB.prepare(
+  // The SELECT above is a fast path, not the guarantee: the app's resolve path can
+  // insert the same occurrence between it and here, and the partial unique index
+  // (FBQ-05 R4) turns that lost race into a no-op instead of a second nudge.
+  const ins = await env.DB.prepare(
     `INSERT INTO commitment_checkins (id, commitment_id, user_id, scheduled_for, channel, status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`
+     VALUES (?, ?, ?, ?, ?, 'pending') ${ON_OPEN_OCCURRENCE_CONFLICT}`
   ).bind(generateUUID(), row.commitment_id, row.user_id, nextISO, row.channel).run();
-  return true;
+  return changed(ins);
 }
 
 /** True when a D1 write reports it changed at least one row. */

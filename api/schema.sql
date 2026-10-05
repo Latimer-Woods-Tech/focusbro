@@ -346,6 +346,8 @@ CREATE INDEX IF NOT EXISTS idx_checkins_commitment ON commitment_checkins(commit
 CREATE INDEX IF NOT EXISTS idx_checkins_scheduled ON commitment_checkins(user_id, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_checkins_due ON commitment_checkins(status, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_checkins_escalation ON commitment_checkins(status, delivered_at);
+-- One OPEN occurrence per (word, instant) — partial, so cancelled/settled history never conflicts (FBQ-05 R4).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_checkins_open_occurrence ON commitment_checkins(commitment_id, scheduled_for) WHERE status IN ('pending', 'sending');
 -- Kept-word log: every word a user KEPT, newest first (GET /api/accountability/kept). Momentum-only.
 CREATE INDEX IF NOT EXISTS idx_checkins_user_status ON commitment_checkins(user_id, status);
 
