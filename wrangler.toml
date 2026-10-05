@@ -42,7 +42,7 @@ kv_namespaces = [{ binding = "KV_CACHE", id = "732d985fd2b84650aa828f7982ba0f87"
 r2_buckets = [{ binding = "AUDIO", bucket_name = "focusbro-audio" }]
 # PRO_PRICE_ID: the FocusBro Pro one-time $9.99 price (Stripe prod_VMZ14lnJeKeFIM).
 # A price id is not a secret. STRIPE_SECRET_KEY is a worker SECRET, never here.
-vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com", PRO_PRICE_ID = "price_1ULptiAW1229TZtee4VTiTma" }
+vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com", PRO_PRICE_ID = "price_1ULptiAW1229TZtee4VTiTma", HOME_PROMISE_FIRST = "1" }
 triggers = { crons = ["* * * * *"] }
 
 [env.development]
