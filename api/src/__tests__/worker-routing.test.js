@@ -5,7 +5,7 @@ import worker, { generateToken, isBillingEnabled } from '../index.js';
 function makeEnv({ founderEmail, userEmail = founderEmail, metricsRows = [], webhookInbox = {} } = {}) {
   const stmt = {
     bind() { return stmt; },
-    first: async () => ({ email: userEmail, ...webhookInbox }),
+    first: async () => ({ email: userEmail, email_verified_at: '2026-01-01 00:00:00', ...webhookInbox }),
     all: async () => ({ results: metricsRows }),
     run: async () => ({ success: true })
   };

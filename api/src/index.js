@@ -1394,7 +1394,7 @@ router.post('/auth/claim', async (request, env) => {
     if (existing) return jsonResponse({ error: 'Email already registered' }, 409);
     const passwordHash = await hashPassword(password);
     await env.DB.prepare(
-      `UPDATE users SET email = ?, password_hash = ?, is_guest = 0, updated_at = datetime('now') WHERE id = ?`
+      `UPDATE users SET email = ?, password_hash = ?, is_guest = 0, email_verified_at = NULL, updated_at = datetime('now') WHERE id = ?`
     ).bind(email, passwordHash, user.id).run();
     await env.DB.prepare(
       `INSERT INTO audit_logs (user_id, action, details, created_at)
@@ -2631,8 +2631,7 @@ router.post('/api/content/view', async (request, env) => {
 // of waiting for the next cron tick.
 router.post('/api/internal/run-checkins', async (request, env) => {
   if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
-  const key = request.headers.get('x-cron-key') || '';
-  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!(await cronKeyMatches(request, env))) return jsonResponse({ error: 'Unauthorized' }, 401);
   try {
     const summary = await runDueCheckins(env, { now: new Date().toISOString(), limit: 100 });
     // Same escalation pass the cron runs (Wingspan W1), so a verification curl
@@ -2658,8 +2657,7 @@ router.post('/api/internal/run-checkins', async (request, env) => {
 // existing commitment rather than creating a duplicate.
 router.post('/api/internal/seed-dogfood', async (request, env) => {
   if (!env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Not found' }, 404);
-  const key = request.headers.get('x-cron-key') || '';
-  if (key !== env.CRON_TRIGGER_KEY) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!(await cronKeyMatches(request, env))) return jsonResponse({ error: 'Unauthorized' }, 401);
   try {
     let body;
     try { body = await request.json(); } catch { body = {}; }
@@ -2722,23 +2720,48 @@ router.post('/api/internal/seed-dogfood', async (request, env) => {
 // neither access path is configured. `?since_days=N` (default 7, clamp 1..90).
 export async function authorizeMetricsRequest(request, env) {
   const cronConfigured = Boolean(env && env.CRON_TRIGGER_KEY);
-  const key = request.headers.get('x-cron-key') || '';
-  if (cronConfigured && key === env.CRON_TRIGGER_KEY) {
+  if (cronConfigured && await cronKeyMatches(request, env)) {
     return { configured: true, authorized: true };
   }
 
+  // FBQ-14: FOUNDER_EMAIL is public (wrangler.toml) and anyone can REGISTER an
+  // address, so the email alone is never an identity. Founder = the pinned
+  // FOUNDER_USER_ID secret AND a verified email. Transition: until that secret
+  // is set, a VERIFIED account holding FOUNDER_EMAIL is accepted (verification
+  // proves inbox control); once it is set, only the id counts. An unverified
+  // account is always refused.
+  const founderId = String((env && env.FOUNDER_USER_ID) || '').trim();
   const founderEmail = String((env && env.FOUNDER_EMAIL) || '').trim().toLowerCase();
-  if (!founderEmail) return { configured: cronConfigured, authorized: false };
+  if (!founderId && !founderEmail) return { configured: cronConfigured, authorized: false };
   const token = getAuthToken(request);
   if (!token) return { configured: true, authorized: false };
   const payload = await verifyToken(token, env.JWT_SECRET, env);
   if (!payload || !payload.sub) return { configured: true, authorized: false };
-  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
-    .bind(payload.sub).first();
+  if (founderId && payload.sub !== founderId) return { configured: true, authorized: false };
+  const user = await env.DB.prepare(
+    'SELECT email, email_verified_at FROM users WHERE id = ? AND is_active = 1 AND is_guest = 0'
+  ).bind(payload.sub).first();
+  if (!user || !user.email_verified_at) return { configured: true, authorized: false };
   return {
     configured: true,
-    authorized: Boolean(user && String(user.email).trim().toLowerCase() === founderEmail),
+    authorized: Boolean(founderId) || String(user.email).trim().toLowerCase() === founderEmail,
   };
+}
+
+// FBQ-14 R2: compare the x-cron-key header to CRON_TRIGGER_KEY without an
+// early exit. Both sides are SHA-256'd first so the compare runs over equal
+// fixed-length digests: neither the matching prefix nor the key's length leaks
+// through timing. Workers-safe (crypto.subtle), no Node crypto.
+async function cronKeyMatches(request, env) {
+  const expected = env && env.CRON_TRIGGER_KEY;
+  if (!expected) return false;
+  const provided = request.headers.get('x-cron-key') || '';
+  const encoder = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(provided)),
+    crypto.subtle.digest('SHA-256', encoder.encode(String(expected))),
+  ]);
+  return constantTimeEqual(new Uint8Array(a), new Uint8Array(b));
 }
 
 export async function getWebhookInboxMetrics(env) {
