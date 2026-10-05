@@ -1,14 +1,20 @@
 /**
  * Stripe Billing Integration Module
  * Handles subscription management, checkout, and webhook processing
+ *
+ * DORMANT: every /api/billing/* route returns 404 unless BILLING_ENABLED === 'true'
+ * (never set in production). The `stripe_subscriptions` table these handlers write
+ * does not exist in migrations/ or schema.sql, so enabling the flag today would only
+ * make the handlers fail. The live money path is pro.js (one-time Pro purchase,
+ * read back from Stripe). Rebuild against the canonical `subscriptions` contract
+ * before ever enabling this (docs/ARCHITECTURE.md). The webhook signature check
+ * below meets the repo standard (FBQ-26b) so the rebuild starts from a safe verifier.
  */
 
 
 // ════════════════════════════════════════════════════════════
 // CONSTANTS
 // ════════════════════════════════════════════════════════════
-
-const STRIPE_WEBHOOK_SECRET_HEADER = 'stripe-signature';
 
 // Stripe product pricing (from environment variables)
 // ENV: STRIPE_PRODUCT_ID_PRO, STRIPE_PRICE_ID_PRO, etc.
@@ -109,49 +115,74 @@ export async function createCheckoutSession(env, userId, userEmail, plan = 'pro'
 // WEBHOOK PROCESSING
 // ════════════════════════════════════════════════════════════
 
+/** Stripe's documented replay tolerance: a signed timestamp more than 5 minutes off is rejected. */
+export const WEBHOOK_TOLERANCE_MS = 5 * 60 * 1000;
+
+function hexToBytes(hex) {
+  if (typeof hex !== 'string' || hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) return null;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** Compare two byte arrays without an early exit on the first differing byte. */
+function constantTimeEqualBytes(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
 /**
- * Verify Stripe webhook signature
- * Protects against spoofed webhooks
+ * Verify a Stripe webhook signature over the RAW body.
+ *
+ * The caller reads the request body ONCE (`await request.text()`), passes that
+ * string here, then parses the same string. A Request body can be read only
+ * once, so verifying from the Request and re-reading it in the route made every
+ * validly signed event fail after verification. The comparison is constant-time
+ * (Stripe may send several `v1=` signatures during secret rotation; any one may
+ * match), and the timestamp is bounded in BOTH directions.
+ * @param {string} rawBody exact request body text
+ * @param {string|null} signatureHeader the `stripe-signature` header value
+ * @param {object} env needs STRIPE_WEBHOOK_SECRET
+ * @param {number} [now] epoch ms (tests)
+ * @returns {Promise<{valid: boolean, reason: string|null}>}
  */
-export async function verifyWebhookSignature(request, env) {
+export async function verifyWebhookSignature(rawBody, signatureHeader, env, now = Date.now()) {
   try {
-    const signature = request.headers.get(STRIPE_WEBHOOK_SECRET_HEADER);
-    if (!signature) {
-      return { valid: false, reason: 'Missing signature header' };
+    if (!signatureHeader) return { valid: false, reason: 'Missing signature header' };
+    if (!env || !env.STRIPE_WEBHOOK_SECRET) return { valid: false, reason: 'Webhook secret not configured' };
+
+    let timestamp = null;
+    const candidates = [];
+    for (const part of String(signatureHeader).split(',')) {
+      const i = part.indexOf('=');
+      if (i < 0) continue;
+      const k = part.slice(0, i).trim();
+      const v = part.slice(i + 1).trim();
+      if (k === 't') timestamp = v;
+      else if (k === 'v1') candidates.push(v);
+    }
+    if (!timestamp || !/^\d+$/.test(timestamp)) return { valid: false, reason: 'Malformed signature header' };
+    if (!candidates.length) return { valid: false, reason: 'Malformed signature header' };
+
+    if (Math.abs(now - Number(timestamp) * 1000) > WEBHOOK_TOLERANCE_MS) {
+      return { valid: false, reason: 'Webhook timestamp outside tolerance' };
     }
 
-    const body = await request.text();
-    const timestamp = signature.split(',')[0].split('=')[1];
-    const receivedSignature = signature.split('v1=')[1];
-
-    // Construct signed content
-    const signedContent = `${timestamp}.${body}`;
-
-    // Sign with webhook secret
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(env.STRIPE_WEBHOOK_SECRET),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
+      'raw', encoder.encode(env.STRIPE_WEBHOOK_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
     );
+    const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.${rawBody}`)));
 
-    const signed = await crypto.subtle.sign('HMAC', key, encoder.encode(signedContent));
-    const hexSignature = Array.from(new Uint8Array(signed))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    const isValid = hexSignature === receivedSignature;
-
-    // Check timestamp (must be within 5 minutes)
-    const webhookTime = parseInt(timestamp) * 1000;
-    const timeDiff = Date.now() - webhookTime;
-    if (timeDiff > 5 * 60 * 1000) {
-      return { valid: false, reason: 'Webhook timestamp too old' };
+    // Check every candidate (no short-circuit) so timing does not reveal which matched.
+    let ok = false;
+    for (const c of candidates) {
+      const bytes = hexToBytes(c);
+      if (bytes && constantTimeEqualBytes(bytes, expected)) ok = true;
     }
-
-    return { valid: isValid, reason: isValid ? null : 'Invalid signature' };
+    return { valid: ok, reason: ok ? null : 'Invalid signature' };
   } catch (error) {
     console.error('[STRIPE] Webhook verification error:', error.message);
     return { valid: false, reason: `Verification error: ${error.message}` };

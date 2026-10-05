@@ -2273,8 +2273,9 @@ router.post('/api/billing/webhook', async (request, env) => {
   if (!isBillingEnabled(env)) return billingUnavailableResponse();
 
   try {
-    // Verify webhook signature
-    const verification = await billingModule.verifyWebhookSignature(request, env);
+    // Read the body ONCE: verify the signature over the raw text, then parse that same text.
+    const body = await request.text();
+    const verification = await billingModule.verifyWebhookSignature(body, request.headers.get('stripe-signature'), env);
     if (!verification.valid) {
       console.warn('[BILLING] Webhook signature verification failed:', verification.reason);
       return new Response(JSON.stringify({ error: 'Invalid signature' }), {
@@ -2282,11 +2283,9 @@ router.post('/api/billing/webhook', async (request, env) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
-    
-    // Parse event body
-    const body = await request.text();
+
     const event = JSON.parse(body);
-    
+
     // Process webhook
     const result = await billingModule.processWebhookEvent(env, event);
     
