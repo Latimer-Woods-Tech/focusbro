@@ -9,11 +9,7 @@
  * REAL migrated SQLite; every D1 call, push and Telnyx fetch is counted from the
  * outside by a wrapper that knows nothing about the budget under test.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import worker from '../index.js';
-import {
-  runDueCheckins, runEscalations, runReturnNudges, makeTickBudget, TICK_BUDGET, readCronHealth,
-} from '../checkins-cron.js';
+import { describe, it, expect, vi, afterEach, afterAll, beforeEach } from 'vitest';
 import { DatabaseSync, makeMigratedD1, makeKV } from './helpers/real-d1.js';
 
 const push = vi.hoisted(() => ({ calls: 0, perUser: new Map() }));
@@ -26,6 +22,21 @@ vi.mock('../webpush.js', async (importOriginal) => ({
     return { ok: true };
   },
 }));
+
+// FBQ-24 R4: under `--no-isolate` the module registry is shared across files, so
+// index.js / checkins-cron.js may already be cached bound to the REAL webpush.js
+// (or another file's mock). Drop the cache so the imports below are evaluated
+// afresh against the mock above, and do not leave this mock behind afterwards.
+vi.resetModules();
+const worker = (await import('../index.js')).default;
+const {
+  runDueCheckins, runEscalations, runReturnNudges, makeTickBudget, TICK_BUDGET, readCronHealth,
+} = await import('../checkins-cron.js');
+
+afterAll(() => {
+  vi.doUnmock('../webpush.js');
+  vi.resetModules();
+});
 
 const suite = DatabaseSync ? describe : describe.skip;
 const NOW = '2026-10-05T15:00:00.000Z'; // 11:00 New York, 15:00 UTC (daytime in both)

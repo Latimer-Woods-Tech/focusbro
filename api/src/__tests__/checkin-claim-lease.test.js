@@ -9,10 +9,8 @@
  * real cron and the real answer route on a real migrated SQLite; only the push
  * wire (sendWebPush) is intercepted, so every send is counted.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, afterAll, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import worker from '../index.js';
-import { runDueCheckins, SEND_LEASE_MIN } from '../checkins-cron.js';
 import { DatabaseSync, makeMigratedD1, makeKV } from './helpers/real-d1.js';
 
 const push = vi.hoisted(() => ({ impl: null, calls: 0 }));
@@ -21,6 +19,19 @@ vi.mock('../webpush.js', async (importOriginal) => ({
   vapidConfigured: () => true,
   sendWebPush: (...args) => { push.calls++; return push.impl(...args); },
 }));
+
+// FBQ-24 R4: under `--no-isolate` the module registry is shared across files, so
+// index.js / checkins-cron.js may already be cached bound to the REAL webpush.js
+// (or another file's mock). Drop the cache so the imports below are evaluated
+// afresh against the mock above, and do not leave this mock behind afterwards.
+vi.resetModules();
+const worker = (await import('../index.js')).default;
+const { runDueCheckins, SEND_LEASE_MIN } = await import('../checkins-cron.js');
+
+afterAll(() => {
+  vi.doUnmock('../webpush.js');
+  vi.resetModules();
+});
 
 const suite = DatabaseSync ? describe : describe.skip;
 const ORIGIN = 'https://focusbro.net';
