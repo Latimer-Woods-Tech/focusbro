@@ -422,7 +422,7 @@ export function registerConsentRoutes(router, ctx) {
         phone_present: !!(user && user.phone),
         consent_version: CONSENT_VERSION,
         disclosure: { text: consentLanguage('text') },
-      }, 200, 'short');
+      }, 200);
     } catch (err) {
       console.error('[consent] get error:', err && err.message);
       return jsonResponse({ error: 'Could not load your check-in settings.' }, 500);

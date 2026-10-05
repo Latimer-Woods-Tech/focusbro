@@ -114,7 +114,7 @@ export function registerRoomRoutes(router, ctx) {
          ON CONFLICT(client_id) DO UPDATE SET last_seen = excluded.last_seen`
       ).bind(id, now).run();
       const focusing = await currentFocusing(env, now);
-      return jsonResponse({ ok: true, focusing, line: presenceLine(focusing), next_sprint_line: nextSprintLine(now) }, 200, 'nocache');
+      return jsonResponse({ ok: true, focusing, line: presenceLine(focusing), next_sprint_line: nextSprintLine(now) }, 200);
     } catch (err) {
       console.error('[room] heartbeat error:', err && err.message);
       return jsonResponse({ error: 'Could not update the room just now.' }, 500);
@@ -125,7 +125,7 @@ export function registerRoomRoutes(router, ctx) {
     try {
       const now = new Date().toISOString();
       const focusing = await currentFocusing(env, now);
-      return jsonResponse({ focusing, line: presenceLine(focusing), next_sprint_line: nextSprintLine(now) }, 200, 'nocache');
+      return jsonResponse({ focusing, line: presenceLine(focusing), next_sprint_line: nextSprintLine(now) }, 200);
     } catch (err) {
       console.error('[room] count error:', err && err.message);
       return jsonResponse({ error: 'Could not read the room just now.' }, 500);

@@ -954,7 +954,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     personaHydrated = true;
   }
   function loadStreak() {
-    fetch('/api/accountability/streak', { headers: authHeaders() })
+    fetch('/api/accountability/streak', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) { applyDefaultPersona(data); renderStreak(data); })
       .catch(function () {});
@@ -1155,7 +1155,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   }
 
   function loadKept() {
-    fetch('/api/accountability/kept', { headers: authHeaders() })
+    fetch('/api/accountability/kept', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) {
         renderKept(data);
@@ -1280,7 +1280,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   }
 
   function loadList() {
-    fetch('/api/commitments', { headers: authHeaders() })
+    fetch('/api/commitments', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) {
         var commitments = (data && data.commitments) || [];
@@ -1464,7 +1464,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   // re-greet). Non-fatal: any failure just leaves the ordinary re-entry door in place.
   var HOMECOMING = false;
   function loadHomecoming() {
-    fetch('/api/accountability/homecoming', { headers: authHeaders() })
+    fetch('/api/accountability/homecoming', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (data && data.homecoming) {
@@ -1659,7 +1659,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   function loadCeiling() {
     var sel = el('ceiling');
     if (!sel) return;
-    fetch('/api/escalation', { headers: authHeaders() })
+    fetch('/api/escalation', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) { if (data && data.ceiling) { sel.value = data.ceiling; } paintCeilingPro(data); updateCeilingDesc(); })
       .catch(function () { updateCeilingDesc(); });
@@ -1691,7 +1691,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
   function loadNoteSharing() {
     var box = el('noteSharing');
     if (!box) return;
-    fetch('/api/coach/note-consent', { headers: authHeaders() })
+    fetch('/api/coach/note-consent', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) { box.checked = !!(data && data.shared); })
       .catch(function () {});
@@ -1733,7 +1733,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
 
   function loadConsent() {
     fillHoursOnce();
-    fetch('/api/consent', { headers: authHeaders() })
+    fetch('/api/consent', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { if (r.status === 401) throw new Error('unauthorized'); return r.json(); })
       .then(function (data) {
         var text = (data && data.channels && data.channels.text) || null;
@@ -1945,7 +1945,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
     if (!host.classList.contains('hidden')) { hide(host); host.innerHTML = ''; return; }
     host.innerHTML = '<p class="muted">Loading…</p>';
     show(host);
-    fetch('/api/commitments/' + encodeURIComponent(id) + '/detail', { headers: authHeaders() })
+    fetch('/api/commitments/' + encodeURIComponent(id) + '/detail', { headers: authHeaders(), cache: 'no-store' })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (!res.ok) { host.innerHTML = '<p class="err">' + esc((res.b && res.b.error) || 'Could not load that word.') + '</p>'; return; }
@@ -2191,14 +2191,14 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         // A rejected legacy token is no longer useful or safe to retain. The
         // cookie check still recovers a session created in another tab.
         try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        fetch('/auth/session').then(function (response) {
+        fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
           if (response.ok) enterFromSession(response); else showSigninDoor();
         }).catch(showSigninDoor);
       });
       return;
     }
 
-    fetch('/auth/session').then(function (response) {
+    fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
       if (response.ok) enterFromSession(response); else showSigninDoor();
     }).catch(showSigninDoor);
   }

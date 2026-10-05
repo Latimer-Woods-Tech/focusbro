@@ -3628,7 +3628,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         }
       }
 
-      return jsonResponse({ commitments }, 200, 'short');
+      return jsonResponse({ commitments }, 200);
     } catch (err) {
       console.error('[accountability] list error:', err && err.message);
       return jsonResponse({ error: 'Could not load your commitments.' }, 500);
@@ -3654,7 +3654,7 @@ export function registerAccountabilityRoutes(router, ctx) {
           ORDER BY scheduled_for ASC`
       ).bind(id, auth.userId).all();
 
-      return jsonResponse({ commitment, checkins: (checkins && checkins.results) || [] }, 200, 'short');
+      return jsonResponse({ commitment, checkins: (checkins && checkins.results) || [] }, 200);
     } catch (err) {
       console.error('[accountability] get error:', err && err.message);
       return jsonResponse({ error: 'Could not load that commitment.' }, 500);
@@ -3767,7 +3767,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         momentum,
         kept_since: keptSince,
         message: commitmentDetailCopy({ persona: commitment.persona, keptCount }),
-      }, 200, 'short');
+      }, 200);
     } catch (err) {
       console.error('[accountability] detail error:', err && err.message);
       return jsonResponse({ error: 'Could not load that word.' }, 500);
@@ -4614,7 +4614,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         // it can only describe a record on the way up, and it stands alone with no
         // current run to compare against — reassurance, never a decline.
         record: personalRecordCopy({ streak }),
-      }, 200, 'short');
+      }, 200);
     } catch (err) {
       console.error('[accountability] streak error:', err && err.message);
       return jsonResponse({ error: 'Could not load your streak.' }, 500);
@@ -4834,7 +4834,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         typical_day: typicalDay,
         keeping_since: keepingSince,
         message: keptLogCopy({ total }),
-      }, 200, 'short');
+      }, 200);
     } catch (err) {
       console.error('[accountability] kept-log error:', err && err.message);
       return jsonResponse({ error: 'Could not load your kept words.' }, 500);

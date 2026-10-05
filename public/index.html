@@ -3821,7 +3821,7 @@ function fbFlushTelemetry() {
 
 // Discover cookie-backed account state without exposing the credential to
 // JavaScript, then drain anything left from a prior offline session.
-fetch('/auth/session').then(function (response) {
+fetch('/auth/session', { cache: 'no-store' }).then(function (response) {
   fbAuthenticated = response.ok;
   if (fbAuthenticated) { fbFlushTelemetry(); loadKeptWords(); loadHomeWords(); }
 }).catch(function () {
@@ -5011,7 +5011,7 @@ function saveStats() {
 function loadHomeWords() {
   const host = document.getElementById('homeWords');
   if (!host) return;
-  fetch('/api/commitments')
+  fetch('/api/commitments', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
       const words = ((data && data.commitments) || []).filter((c) => c && c.status === 'active').slice(0, 5);
@@ -5044,7 +5044,7 @@ function fmtCheckin(iso) {
 function loadKeptWords() {
   const el = document.getElementById('statKept');
   if (!el) return;
-  fetch('/api/accountability/streak')
+  fetch('/api/accountability/streak', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
       const ledger = data && data.streak;
@@ -7101,7 +7101,7 @@ document.addEventListener('keydown', (e) => {
   function loadProStatus() {
     var cached = readCachedStatus();
     if (cached) { proState = { pro: cached.pro, signedIn: !!cached.signedIn, known: true }; paint(); return; }
-    fetch('/api/pro/status', { credentials: 'same-origin' })
+    fetch('/api/pro/status', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (s) {
         if (!s) return;
