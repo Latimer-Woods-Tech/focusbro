@@ -73,6 +73,15 @@ function makeDB(rows) {
   // pre-R-284 pending-first DESC) are modeled too, so a revert flips which row is
   // stamped and these tests fail (proof-of-rejection, Standing Law 1).
   function selectResolveTarget(sql, commitmentId, dueBefore) {
+    // The unreachable-skip fallback (found on the G795 emulator run): only a `skipped` row whose reason is
+    // in the listed set, due before tomorrow, most recent first.
+    const skip = sql.match(/status = 'skipped'\s+AND last_error IN \(([^)]*)\)/);
+    if (skip) {
+      const reasons = new Set(skip[1].split(',').map((s) => s.trim().replace(/'/g, '')));
+      return rows.filter((r) => r.commitment_id === commitmentId && r.status === 'skipped'
+          && reasons.has(r.last_error) && dueBefore != null && r.scheduled_for < dueBefore)
+        .sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for))[0] || null;
+    }
     const open = openSetFromSql(sql);
     const hasDueClause = /status = 'pending' AND scheduled_for < \?/.test(sql);
     let pool = rows.filter((r) => r.commitment_id === commitmentId).filter((r) => {

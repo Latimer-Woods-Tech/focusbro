@@ -82,6 +82,11 @@ export function clampSnoozeMinutes(v) {
 const MAX_TITLE = 200;
 const MAX_DETAILS = 2000;
 const DEFAULT_CHECKIN_OFFSET_MS = 60 * 60 * 1000; // check back ~1h after start by default
+// Cron skip reasons that mean "we could not reach the person", as opposed to a
+// `stale` skip that aged out on purpose. One list for the door the list surfaces
+// (GET /api/commitments) and the resolve that answers it — they must agree.
+const UNREACHABLE_SKIPS = ['no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured'];
+const UNREACHABLE_SKIPS_SQL = UNREACHABLE_SKIPS.map((r) => `'${r}'`).join(', ');
 
 /** Normalize a persona value to a known persona, defaulting to the calm ally. */
 export function pickPersona(p) {
@@ -3614,7 +3619,7 @@ export function registerAccountabilityRoutes(router, ctx) {
           `SELECT commitment_id, MAX(scheduled_for) AS next_checkin
              FROM commitment_checkins
             WHERE user_id = ? AND status = 'skipped'
-              AND last_error IN ('no_subscription', 'push_not_configured', 'no_phone', 'text_not_configured')
+              AND last_error IN (${UNREACHABLE_SKIPS_SQL})
             GROUP BY commitment_id`
         ).bind(auth.userId).all();
         const unreachableByCommitment = {};
@@ -4056,7 +4061,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         dueBefore = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       }
 
-      const resolveRes = await env.DB.prepare(
+      let resolveRes = await env.DB.prepare(
         `UPDATE commitment_checkins
             SET status = ?, responded_at = datetime('now'), note = ?
           WHERE user_id = ? AND commitment_id = ?
@@ -4068,6 +4073,30 @@ export function registerAccountabilityRoutes(router, ctx) {
                ORDER BY scheduled_for ASC LIMIT 1
             )`
       ).bind(outcome, note, auth.userId, id, id, auth.userId, dueBefore).run();
+
+      // The door the list holds open for an UNREACHABLE check-in must open. A
+      // check-in the cron parked `skipped` purely for a missing delivery channel
+      // (no web-push subscription — every Android-app user, whose phone shows the
+      // check-in as a LOCAL notification — or no number on file) is what GET
+      // /api/commitments surfaces as "still here whenever you're ready". Without
+      // this, its "I did it" / "Not yet" answered "got this one already" and wrote
+      // nothing. Only when nothing delivered is open; the MOST RECENT such row
+      // due by tonight, so an old day is never credited. A `stale` skip aged out
+      // on purpose and stays closed.
+      if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {
+        resolveRes = await env.DB.prepare(
+          `UPDATE commitment_checkins
+              SET status = ?, responded_at = datetime('now'), note = ?
+            WHERE user_id = ? AND commitment_id = ?
+              AND id = (
+                SELECT id FROM commitment_checkins
+                 WHERE commitment_id = ? AND user_id = ? AND status = 'skipped'
+                   AND last_error IN (${UNREACHABLE_SKIPS_SQL})
+                   AND scheduled_for < ?
+                 ORDER BY scheduled_for DESC LIMIT 1
+              )`
+        ).bind(outcome, note, auth.userId, id, id, auth.userId, dueBefore).run();
+      }
 
       // Nothing due was waiting: the current occurrence is already logged (a
       // double-tap / stale card / second device), or the only open row is a future
