@@ -27,8 +27,9 @@ async function trio() {
 async function invited() {
   const t = await trio();
   const res = await invite(t.env, t.coach, { email: t.client.email, label: 'Sam' });
-  expect(res.status).toBe(201);
-  return { ...t, linkId: (await res.json()).link_id };
+  expect(res.status).toBe(202);
+  // the response deliberately carries no link id (enumeration guard) — read it back
+  return { ...t, linkId: link(t.env, t.coach.id, t.client.id).id };
 }
 
 suite('POST /api/coach/clients — invite (real D1)', () => {
@@ -68,12 +69,19 @@ suite('POST /api/coach/clients — invite (real D1)', () => {
     expect(count(env, 'SELECT COUNT(*) AS n FROM coach_clients')).toBe(0);
   });
 
-  it('writes no link for an email with no account (and answers with the same invitation wording)', async () => {
+  it('writes no link for an email with no account, and answers IDENTICALLY (status and body) to one with an account', async () => {
     const { env, coach, client } = await trio();
-    const known = await (await invite(env, coach, { email: client.email })).json();
+    const known = await invite(env, coach, { email: client.email });
     const unknown = await invite(env, coach, { email: 'nobody@example.com' });
-    expect([200, 201, 202]).toContain(unknown.status);
-    expect((await unknown.json()).message.replace('nobody@example.com', 'X')).toBe(known.message.replace(client.email, 'X'));
+    expect(known.status).toBe(202);
+    expect(unknown.status).toBe(202);
+    const kb = await known.json();
+    const ub = await unknown.json();
+    expect(Object.keys(kb).sort()).toEqual(Object.keys(ub).sort());
+    expect(ub.message.replace('nobody@example.com', 'X')).toBe(kb.message.replace(client.email, 'X'));
+    expect(ub.status).toBe(kb.status);
+    // the pending link is still created for the real account, and only for it
+    expect(link(env, coach.id, client.id)).toMatchObject({ status: 'pending' });
     expect(count(env, 'SELECT COUNT(*) AS n FROM coach_clients')).toBe(1);
   });
 
@@ -87,8 +95,9 @@ suite('POST /api/coach/clients — invite (real D1)', () => {
   it('is idempotent: a repeat invite reuses the one link', async () => {
     const { env, coach, client, linkId } = await invited();
     const again = await invite(env, coach, { email: client.email.toUpperCase() });
-    expect(again.status).toBe(200);
-    expect((await again.json()).link_id).toBe(linkId);
+    expect(again.status).toBe(202);
+    expect((await again.json()).link_id).toBeUndefined();
+    expect(link(env, coach.id, client.id).id).toBe(linkId);
     expect(count(env, 'SELECT COUNT(*) AS n FROM coach_clients')).toBe(1);
   });
 
@@ -97,7 +106,7 @@ suite('POST /api/coach/clients — invite (real D1)', () => {
     await answer(env, client, linkId, 'decline');
     expect(link(env, coach.id, client.id).status).toBe('declined');
     const again = await invite(env, coach, { email: client.email });
-    expect(again.status).toBe(200);
+    expect(again.status).toBe(202);
     expect(link(env, coach.id, client.id)).toMatchObject({ id: linkId, status: 'pending', responded_at: null });
 
     await answer(env, client, linkId, 'accept');
