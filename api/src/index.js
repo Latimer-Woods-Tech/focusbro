@@ -2489,27 +2489,68 @@ registerPushRoutes(router, { getAuthToken, verifyToken, jsonResponse, generateUU
 // person can copy or share with a coach. The reading PAGE is /me/report (below).
 registerReportRoutes(router, { getAuthToken, verifyToken, jsonResponse });
 
+// ── ANONYMOUS ACQUISITION BEACON GUARD (FBQ-15 R3/R4) ──
+// The /api/acquisition/* endpoints take no credential, so the only things that
+// stop a script from padding the funnel are here: a REQUIRED same-site Origin
+// (every browser fetch/sendBeacon POST carries one; a missing header used to be
+// waved through), a body bounded by bytes actually read (Content-Length is
+// optional on a chunked POST), and a per-IP budget. The budget is a simple KV
+// counter per fixed window — not atomic, so it can overshoot by a few under a
+// race, which is fine for a denominator; a real visitor sends one or two.
+const ACQUISITION_ORIGINS = new Set(['https://focusbro.net', 'https://www.focusbro.net',
+  'http://localhost:8787', 'http://localhost:3000']);
+const ACQUISITION_RATE_LIMIT = 30;
+const ACQUISITION_RATE_WINDOW_SECONDS = 15 * 60;
+async function acquisitionRateLimited(request, env) {
+  if (!env.KV_CACHE) return false;
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const slot = Math.floor(Date.now() / 1000 / ACQUISITION_RATE_WINDOW_SECONDS);
+  const key = `ratelimit:acquisition:${ip}:${slot}`;
+  try {
+    const count = Number(await env.KV_CACHE.get(key)) || 0;
+    if (count >= ACQUISITION_RATE_LIMIT) return true;
+    await env.KV_CACHE.put(key, String(count + 1), { expirationTtl: ACQUISITION_RATE_WINDOW_SECONDS });
+  } catch (e) {
+    console.warn('acquisition rate limit unavailable (allowing):', e && e.message);
+  }
+  return false;
+}
+/** Returns `{ response }` to send back, or `{ body }` — the parsed JSON object. */
+async function readAcquisitionBeacon(request, env, maxBytes) {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('application/json')) {
+    return { response: jsonResponse({ error: 'Content-Type must be application/json' }, 415) };
+  }
+  const origin = request.headers.get('origin');
+  if (!origin || !(ACQUISITION_ORIGINS.has(origin) || origin === new URL(request.url).origin)) {
+    return { response: jsonResponse({ error: 'Forbidden' }, 403) };
+  }
+  if ((Number(request.headers.get('content-length')) || 0) > maxBytes) {
+    return { response: jsonResponse({ error: 'Payload is too large' }, 413) };
+  }
+  if (await acquisitionRateLimited(request, env)) {
+    const limited = jsonResponse({ error: 'Too many requests' }, 429);
+    limited.headers.set('Retry-After', String(ACQUISITION_RATE_WINDOW_SECONDS));
+    return { response: limited };
+  }
+  let text = '';
+  try { text = await request.text(); } catch { text = ''; }
+  if (text.length > maxBytes) return { response: jsonResponse({ error: 'Payload is too large' }, 413) };
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = null; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { response: jsonResponse({ error: 'Invalid payload' }, 400) };
+  }
+  return { body };
+}
+
 // ── ACQUISITION DENOMINATOR ──
 // One aggregate-safe visit event per browser session. The payload is limited to
 // four short campaign dimensions: no visitor ID, task text, account, or contact
 // data. This supplies the missing landing→word denominator in the founder view.
 router.post('/api/acquisition/visit', async (request, env) => {
-  const contentType = request.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().startsWith('application/json')) {
-    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
-  }
-  const contentLength = Number(request.headers.get('content-length')) || 0;
-  if (contentLength > 2048) return jsonResponse({ error: 'Visit payload is too large' }, 413);
-  const origin = request.headers.get('origin');
-  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
-      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
-    return jsonResponse({ error: 'Forbidden' }, 403);
-  }
-  let body;
-  try { body = await request.json(); } catch { body = null; }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return jsonResponse({ error: 'Invalid visit payload' }, 400);
-  }
+  const { response, body } = await readAcquisitionBeacon(request, env, 2048);
+  if (response) return response;
   // Pass request context so the visit is classified human vs. automated — the
   // qualified-visit denominator the activation decision tree is read against
   // (see isBotVisitor in events.js). The result is a single boolean on the
@@ -2530,22 +2571,8 @@ router.post('/api/acquisition/visit', async (request, env) => {
 // in events.js). Privacy-minimal exactly like the visit beacon: a coarse
 // start-time bucket and acquisition attribution only, never the task text.
 router.post('/api/acquisition/word-offered', async (request, env) => {
-  const contentType = request.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().startsWith('application/json')) {
-    return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
-  }
-  const contentLength = Number(request.headers.get('content-length')) || 0;
-  if (contentLength > 2048) return jsonResponse({ error: 'Payload is too large' }, 413);
-  const origin = request.headers.get('origin');
-  if (origin && origin !== 'https://focusbro.net' && origin !== 'https://www.focusbro.net'
-      && origin !== 'http://localhost:8787' && origin !== 'http://localhost:3000') {
-    return jsonResponse({ error: 'Forbidden' }, 403);
-  }
-  let body;
-  try { body = await request.json(); } catch { body = null; }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return jsonResponse({ error: 'Invalid payload' }, 400);
-  }
+  const { response, body } = await readAcquisitionBeacon(request, env, 2048);
+  if (response) return response;
   const recorded = await recordWordOffered(env, { attribution: body.attribution, when: body.when, home: body.home });
   return jsonResponse({ ok: recorded }, recorded ? 202 : 503);
 });

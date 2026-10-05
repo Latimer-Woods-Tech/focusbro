@@ -21,9 +21,10 @@ describe('config.js carries no dead validation block', () => {
     expect(src).not.toContain('maxEventsPerRequest');
   });
 
-  it('the ingest documents the absence of a whitelist where the loop is', () => {
+  it('the ingest documents its type allowlist where the loop is, and the loop reads it (FBQ-15)', () => {
     const sync = readFileSync(fileURLToPath(new URL('../sync.js', import.meta.url)), 'utf8');
-    expect(sync).toContain('There is NO type whitelist, by design.');
+    expect(sync).toContain('TYPE ALLOWLIST (FBQ-15');
+    expect(sync).toContain('CLIENT_EVENT_TYPES.includes(event.type)');
     expect(sync).toContain('const MAX_EVENTS_PER_BATCH = 100;');
   });
 });
