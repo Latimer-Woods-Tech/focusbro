@@ -4114,13 +4114,28 @@ export function registerAccountabilityRoutes(router, ctx) {
    * request (made the follow-up, rejected the time, or found one already made), or
    * null to fall through to the ordinary settled-word reply (a recurring word).
    */
+  /**
+   * FBQ-01b: the 200 "nothing was written" reply (`recorded: false`), now also a
+   * counted `checkin_answer_unrecorded` event — the P0 class (an answer that
+   * silently records nothing) was invisible until a person complained. The
+   * reason is a closed vocabulary; the event never carries the title or text.
+   */
+  async function unrecordedAnswer(env, userId, commitment, outcome, reason, message) {
+    await recordEvent(env, {
+      userId,
+      type: EVENTS.CHECKIN_ANSWER_UNRECORDED,
+      data: { commitment_id: commitment.id, outcome: String(outcome), reason },
+    });
+    return jsonResponse({ status: commitment.status, message, recorded: false }, 200);
+  }
+
   async function restartMissedWord(env, userId, commitment, body, persona) {
     if (pickRecurrence(commitment.recurrence) !== 'none') return null;
     const made = await env.DB.prepare(
       `SELECT id FROM commitments WHERE rescheduled_from = ? AND user_id = ? LIMIT 1`
     ).bind(commitment.id, userId).first();
     if (made) {
-      return jsonResponse({ status: commitment.status, message: alreadyLoggedCopy({ persona }), recorded: false }, 200);
+      return unrecordedAnswer(env, userId, commitment, 'reschedule', 'restart_already_made', alreadyLoggedCopy({ persona }));
     }
     const v = parseRescheduleValue(commitment, body, persona);
     if (v.error) return v.error;
@@ -4191,11 +4206,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       }
 
       if (commitment.status !== 'active') {
-        return jsonResponse({
-          status: commitment.status,
-          message: alreadySettledCopy({ persona }),
-          recorded: false,
-        }, 200);
+        return unrecordedAnswer(env, auth.userId, commitment, outcome, 'word_settled', alreadySettledCopy({ persona }));
       }
 
       const isRecurring = pickRecurrence(commitment.recurrence) !== 'none';
@@ -4286,7 +4297,7 @@ export function registerAccountabilityRoutes(router, ctx) {
         ).bind(id, auth.userId, ...dueOpenParams(commitment.timezone, isRecurring), ...bound.params).first();
         if (!(open && open.id) && bound.sql) {
           // The bound occurrence is settled or not this word's: write nothing (FBQ-02).
-          return jsonResponse({ status: commitment.status, message: alreadyLoggedCopy({ persona }), recorded: false }, 200);
+          return unrecordedAnswer(env, auth.userId, commitment, outcome, 'occurrence_settled', alreadyLoggedCopy({ persona }));
         }
         if (open && open.id) {
           await rependCheckin(env, { checkinId: open.id, userId: auth.userId, scheduledFor: snoozedUntil });
@@ -4401,11 +4412,7 @@ export function registerAccountabilityRoutes(router, ctx) {
       if (!(resolveRes && resolveRes.meta && resolveRes.meta.changes > 0)) {
         // `recorded: false` is the machine-readable "nothing was written" (FBQ-01
         // R3): the native notification opens the word instead of claiming success.
-        return jsonResponse({
-          status: commitment.status,
-          message: alreadyLoggedCopy({ persona }),
-          recorded: false,
-        }, 200);
+        return unrecordedAnswer(env, auth.userId, commitment, outcome, 'nothing_to_resolve', alreadyLoggedCopy({ persona }));
       }
 
       await env.DB.prepare(

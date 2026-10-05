@@ -42,6 +42,9 @@ export const EVENTS = Object.freeze({
   CHECKIN_RESPONDED: 'checkin_responded',
   CHECKIN_ESCALATED: 'checkin_escalated',
   CHECKIN_START_HELP: 'checkin_start_help',
+  // FBQ-01b: an answer that returned `recorded: false` — the request wrote nothing.
+  // Counted so a silent-no-op answer (the FBQ-01 P0 class) shows up in the metrics.
+  CHECKIN_ANSWER_UNRECORDED: 'checkin_answer_unrecorded',
   RETURN_NUDGE_SENT: 'return_nudge_sent',
   RETURN_WELCOME_SHOWN: 'return_welcome_shown',
   // The activation funnel (docs/IMPROVEMENT_PLAN.md decision tree): the word
@@ -1008,6 +1011,9 @@ export async function computeLoopMetrics(env, opts = {}) {
     // never a miss, so it is counted on its own and deliberately kept OUT of
     // `resolved` below (it must not move the kept-word rate).
     commitments_snoozed: by_type[EVENTS.COMMITMENT_SNOOZE] || 0,
+    // FBQ-01b: answers that wrote nothing (`recorded: false`). A diagnostic, kept
+    // OUT of `resolved` — it is not a resolution and never moves the kept-word rate.
+    answers_unrecorded: by_type[EVENTS.CHECKIN_ANSWER_UNRECORDED] || 0,
   };
 
   const resolved = totals.commitments_kept + totals.commitments_reschedule + totals.commitments_missed;
