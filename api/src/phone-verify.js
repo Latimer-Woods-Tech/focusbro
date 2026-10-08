@@ -107,7 +107,7 @@ export function registerPhoneVerifyRoutes(router, { jsonResponse, requireUser, n
            expires_at = excluded.expires_at, attempts = 0, created_at = CURRENT_TIMESTAMP`,
       ).bind(auth.userId, phone, await hashCode(secretOf(env), auth.userId, phone, code), nowS() + CODE_TTL_SECONDS).run();
 
-      const sent = await sendSms(env, phone, verifyCodeSms(code));
+      const sent = await sendSms(env, phone, verifyCodeSms(code), env.TELNYX_VERIFY_FROM_NUMBER);
       if (!sent) {
         await env.DB.prepare(`DELETE FROM phone_verifications WHERE user_id = ?`).bind(auth.userId).run();
         return jsonResponse({ error: copy.sendFailed }, 503);

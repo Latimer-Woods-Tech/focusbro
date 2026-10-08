@@ -833,6 +833,7 @@ ${pageNav([{ href: '/', label: 'Home' }, { href: '/me/report', label: 'Weekly re
         <input id="agree" type="checkbox" style="width:auto; margin-top:3px;" />
         <span>${consentLanguage('text')}</span>
       </label>
+      <p class="muted" style="margin-top:6px;">Read our <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a> and <a href="/terms.html" target="_blank" rel="noopener noreferrer">Terms of Service</a>.</p>
       <div class="actions">
         <button type="submit" id="consentSave">${consentPanelCopy().saveButton}</button>
         <button type="button" class="secondary" id="consentOptOut">${consentPanelCopy().optOutButton}</button>
