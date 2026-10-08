@@ -24,7 +24,7 @@ const B_PHONE = '+15550100002';
 function makeEnv() {
   const DB = makeMigratedD1();
   DB.sqlite.exec(`INSERT INTO users (id, email, password_hash) VALUES ('a', 'a@x.test', 'x'), ('b', 'b@x.test', 'x')`);
-  return { DB, JWT_SECRET: 'test-secret', TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550109999', TELNYX_PUBLIC_KEY: 'test' };
+  return { DB, JWT_SECRET: 'test-secret', TELNYX_API_KEY: 'k', TELNYX_FROM_NUMBER: '+15550109999', TELNYX_VERIFY_FROM_NUMBER: '+15550108888', TELNYX_PUBLIC_KEY: 'test' };
 }
 
 let sent;
@@ -37,7 +37,7 @@ function app(sendVerificationSms) {
     generateUUID,
     jsonResponse: (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } }),
     verifyInboundSignature: async () => true,
-    sendVerificationSms: sendVerificationSms || (async (_env, to, text) => { sent.push({ to, text }); return true; }),
+    sendVerificationSms: sendVerificationSms || (async (_env, to, text, from) => { sent.push({ to, text, from }); return true; }),
   });
   return router;
 }
@@ -93,6 +93,7 @@ suite('FBQ-12: phone verification', () => {
       expect(r.status).toBe(200);
       expect(sent).toHaveLength(1);
       expect(sent[0].to).toBe(A_PHONE);
+      expect(sent[0].from).toBe('+15550108888');
       const code = lastCode();
       expect(code).toMatch(/^\d{6}$/);
       const row = env.DB.sqlite.prepare('SELECT * FROM phone_verifications WHERE user_id = ?').get('a');

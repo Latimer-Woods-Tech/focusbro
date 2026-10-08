@@ -43,7 +43,7 @@ export function phoneVerifyCopy() {
 
 /** The text of the code message itself (also in the design-law scan surface). */
 export const verifyCodeSms = (code) =>
-  `Your FocusBro code is ${code}. It works for 10 minutes. If this was not you, ignore it.`;
+  `FocusBro: Your code is ${code}. It works for 10 minutes. If this was not you, ignore it. Reply STOP to stop texts, HELP for help.`;
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const sha = async (s) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
@@ -107,7 +107,7 @@ export function registerPhoneVerifyRoutes(router, { jsonResponse, requireUser, n
            expires_at = excluded.expires_at, attempts = 0, created_at = CURRENT_TIMESTAMP`,
       ).bind(auth.userId, phone, await hashCode(secretOf(env), auth.userId, phone, code), nowS() + CODE_TTL_SECONDS).run();
 
-      const sent = await sendSms(env, phone, verifyCodeSms(code));
+      const sent = await sendSms(env, phone, verifyCodeSms(code), env.TELNYX_VERIFY_FROM_NUMBER);
       if (!sent) {
         await env.DB.prepare(`DELETE FROM phone_verifications WHERE user_id = ?`).bind(auth.userId).run();
         return jsonResponse({ error: copy.sendFailed }, 503);

@@ -268,11 +268,11 @@ export function optOutConfirmCopy() {
 }
 /** Coming back is easy and celebrated. */
 export function optInConfirmCopy() {
-  return "Good to have you back — I'll text you at the times you choose. Text STOP anytime to pause.";
+  return 'FocusBro text check-ins are on. I will text at the times you choose; message frequency varies. Msg & data rates may apply. Reply STOP to stop or HELP for help.';
 }
 /** HELP reply — plain, honest, the controls in one line. */
 export function helpReplyCopy() {
-  return 'FocusBro check-ins: I text you at the times you pick. Text STOP to stop, START to resume. Msg & data rates may apply.';
+  return 'FocusBro check-ins: I text you at the times you pick. Text STOP to stop, START to resume. Help: support@focusbro.net. Msg & data rates may apply.';
 }
 /** Confirmation after granting consent in the app. */
 export function consentSavedCopy() {
@@ -394,9 +394,9 @@ export async function verifyTelnyxSignature(publicKeyB64, rawBody, timestamp, si
  * inbound reply so a text check-in is a real two-way conversation.
  * @returns {Promise<boolean>} true if the carrier accepted the message
  */
-export async function sendSms(env, to, text) {
+export async function sendSms(env, to, text, fromOverride) {
   try {
-    if (!env || !env.TELNYX_API_KEY || !env.TELNYX_FROM_NUMBER) return false;
+    if (!env || !env.TELNYX_API_KEY || !(fromOverride || env.TELNYX_FROM_NUMBER)) return false;
     if (!to || !text) return false;
     const res = await fetch('https://api.telnyx.com/v2/messages', {
       method: 'POST',
@@ -404,7 +404,7 @@ export async function sendSms(env, to, text) {
         'Authorization': `Bearer ${env.TELNYX_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: env.TELNYX_FROM_NUMBER, to, text }),
+      body: JSON.stringify({ from: fromOverride || env.TELNYX_FROM_NUMBER, to, text }),
     }).catch(() => ({ ok: false }));
     return !!(res && res.ok);
   } catch (err) {
