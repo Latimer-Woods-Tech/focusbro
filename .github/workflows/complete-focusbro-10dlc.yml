@@ -1,0 +1,39 @@
+name: Complete FocusBro 10DLC assignment
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check completion marker
+        id: marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh issue view 443 --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' | grep -qx 'sms-assigned'; then
+            echo 'done=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Assign after carrier approval
+        if: steps.marker.outputs.done != 'true'
+        id: assignment
+        env:
+          TELNYX_API_KEY: ${{ secrets.TELNYX_API_KEY }}
+        run: node scripts/assign-focusbro-10dlc.mjs
+      - name: Switch verification codes to the dedicated number
+        if: steps.assignment.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm ci --no-audit --no-fund
+          printf '%s' '+17176070456' | npx wrangler secret put TELNYX_VERIFY_FROM_NUMBER --env production
+          gh issue edit 443 --repo "$GITHUB_REPOSITORY" --add-label sms-assigned
