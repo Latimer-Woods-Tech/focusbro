@@ -268,11 +268,11 @@ export function optOutConfirmCopy() {
 }
 /** Coming back is easy and celebrated. */
 export function optInConfirmCopy() {
-  return "Good to have you back — I'll text you at the times you choose. Text STOP anytime to pause.";
+  return 'FocusBro text check-ins are on. I will text at the times you choose; message frequency varies. Msg & data rates may apply. Reply STOP to stop or HELP for help.';
 }
 /** HELP reply — plain, honest, the controls in one line. */
 export function helpReplyCopy() {
-  return 'FocusBro check-ins: I text you at the times you pick. Text STOP to stop, START to resume. Msg & data rates may apply.';
+  return 'FocusBro check-ins: I text you at the times you pick. Text STOP to stop, START to resume. Help: support@focusbro.net. Msg & data rates may apply.';
 }
 /** Confirmation after granting consent in the app. */
 export function consentSavedCopy() {

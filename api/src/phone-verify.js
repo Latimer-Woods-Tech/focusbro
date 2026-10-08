@@ -43,7 +43,7 @@ export function phoneVerifyCopy() {
 
 /** The text of the code message itself (also in the design-law scan surface). */
 export const verifyCodeSms = (code) =>
-  `Your FocusBro code is ${code}. It works for 10 minutes. If this was not you, ignore it.`;
+  `FocusBro: Your code is ${code}. It works for 10 minutes. If this was not you, ignore it. Reply STOP to stop texts, HELP for help.`;
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const sha = async (s) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
