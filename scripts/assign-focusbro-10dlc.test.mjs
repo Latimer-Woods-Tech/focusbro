@@ -6,11 +6,11 @@ const campaign = '4b3001a1-1919-1fc2-1b54-7a04777910f8';
 const number = '+17176070456';
 const reply = (body) => ({ ok: true, json: async () => body });
 
-function fakeFetch(campaignStatus, assignments, created) {
+function fakeFetch(campaignStatus, assignments, created, carrierStatus = campaignStatus === 'ACTIVE' ? 'MNO_PROVISIONED' : campaignStatus) {
   const calls = [];
   const fetchImpl = async (url, options) => {
     calls.push({ url, method: options.method || 'GET', body: options.body });
-    if (url.endsWith(`/10dlc/campaign/${campaign}`)) return reply({ status: campaignStatus, campaignStatus });
+    if (url.endsWith(`/10dlc/campaign/${campaign}`)) return reply({ status: campaignStatus, campaignStatus: carrierStatus });
     if (options.method === 'POST') return reply(created);
     return reply({ records: assignments });
   };
@@ -21,6 +21,13 @@ test('waits for campaign approval without attempting an assignment', async () =>
   const fake = fakeFetch('TCR_PENDING', []);
   assert.deepEqual(await assignFocusBroNumber({ apiKey: 'test', fetchImpl: fake.fetchImpl }),
     { ready: false, state: 'TCR_PENDING' });
+  assert.equal(fake.calls.length, 1);
+});
+
+test('waits for carrier provisioning even when Telnyx marks the campaign active', async () => {
+  const fake = fakeFetch('ACTIVE', [], undefined, 'TCR_ACCEPTED');
+  assert.deepEqual(await assignFocusBroNumber({ apiKey: 'test', fetchImpl: fake.fetchImpl }),
+    { ready: false, state: 'TCR_ACCEPTED' });
   assert.equal(fake.calls.length, 1);
 });
 
