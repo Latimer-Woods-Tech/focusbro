@@ -26,7 +26,7 @@ export async function assignFocusBroNumber({ apiKey, fetchImpl = fetch } = {}) {
   }
 
   const campaign = await request(`/10dlc/campaign/${CAMPAIGN}`);
-  if (campaign.status !== 'ACTIVE') {
+  if (campaign.status !== 'ACTIVE' || campaign.campaignStatus !== 'MNO_PROVISIONED') {
     return { ready: false, state: campaign.campaignStatus || campaign.status || 'pending' };
   }
 
