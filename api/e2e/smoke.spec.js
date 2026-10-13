@@ -10,7 +10,10 @@ test.describe('FocusBro client smoke', () => {
 
     const visitRequest = page.waitForRequest((request) =>
       request.url().endsWith('/api/acquisition/visit'));
-    await page.goto('/?utm_source=tiktok&utm_campaign=landing-01&utm_content=demo-01',
+    // ?home=toolkit: this test asserts the toolkit home. A deployed worker
+    // serves the promise home by default (HOME_PROMISE_FIRST=1); serve.mjs
+    // serves the toolkit home. Both honour the override.
+    await page.goto('/?home=toolkit&utm_source=tiktok&utm_campaign=landing-01&utm_content=demo-01',
       { waitUntil: 'domcontentloaded' });
     const visit = await visitRequest;
     expect(visit.method()).toBe('POST');
@@ -164,7 +167,10 @@ test.describe('FocusBro client smoke', () => {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     // Enter the way a guide reader does: the sounds deep-link lands ON the card.
-    await page.goto('/?tool=sounds', { waitUntil: 'domcontentloaded' });
+    // ?home=toolkit: the ritual needs the Pomodoro card, which the promise home
+    // (the deployed default, HOME_PROMISE_FIRST=1) does not show. serve.mjs
+    // serves the toolkit home; a deployed worker needs the override.
+    await page.goto('/?home=toolkit&tool=sounds', { waitUntil: 'domcontentloaded' });
     // The consent banner owns the bottom of a phone viewport; a person taps it
     // away first. Then let the card's ring animation settle before tapping.
     const consent = page.getByRole('button', { name: 'Got it' });
@@ -370,7 +376,7 @@ test.describe('FocusBro client smoke', () => {
     expect(await page.evaluate(() => Object.keys(activeSounds))).toEqual([]);
   });
 
-  test('the caffeine calculator computes the cited arithmetic in a real browser', async ({ page }) => {
+  test('the caffeine calculator computes the cited arithmetic in a real browser', { tag: '@local-fixture' }, async ({ page }) => {
     // 200 mg at 15:00, bedtime 23:00, half-life 5 h → 200 · 0.5^(8/5) ≈ 66 mg.
     // Deterministic: every input is set explicitly, so "now" never leaks in.
     const pageErrors = [];
@@ -404,7 +410,7 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('the breathing pacer counts the guide\u2019s own pattern, phase by phase, in a real browser', async ({ page }) => {
+  test('the breathing pacer counts the guide\u2019s own pattern, phase by phase, in a real browser', { tag: '@local-fixture' }, async ({ page }) => {
     // 4-7-8: in 4, hold 7, out 8 — three phases, 19 s, capped at four rounds.
     // The clock is faked so a full round takes no wall time and the count
     // shown at each instant is deterministic; rAF and performance.now() are
@@ -456,7 +462,7 @@ test.describe('FocusBro client smoke', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('the Follow-Through Index page states its floors and never prints a rate it has not earned', async ({ page }) => {
+  test('the Follow-Through Index page states its floors and never prints a rate it has not earned', { tag: '@local-fixture' }, async ({ page }) => {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto('/follow-through-index.html', { waitUntil: 'domcontentloaded' });
@@ -490,7 +496,7 @@ test.describe('FocusBro client smoke', () => {
 
   test('renders a stored meeting name as text, never markup', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('focusbro_cookie_consent_v1', 'accepted'));
-    await page.goto('/');
+    await page.goto('/?home=toolkit'); // the meeting field lives on the toolkit home
     await page.locator('#meetingName').fill('<img src=x onerror="window.meetingXss=true">Study');
     await page.locator('#meetingTime').fill('23:59');
     await page.locator('button[onclick="setMeeting()"]').evaluate((button) => button.click());

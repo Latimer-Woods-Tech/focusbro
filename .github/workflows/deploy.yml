@@ -288,7 +288,9 @@ jobs:
         exit 1
 
     - name: Client smoke against staging (Playwright, BASE_URL)
-      run: cd api && npx playwright test smoke.spec.js
+      # @local-fixture tests read hooks only e2e/serve.mjs has (/__smoke/views,
+      # ?fixture=published); they run per-PR in test.yml, not against a host.
+      run: cd api && npx playwright test smoke.spec.js --grep-invert @local-fixture
       env:
         BASE_URL: https://staging.focusbro.net
 

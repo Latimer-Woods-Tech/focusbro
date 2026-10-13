@@ -7,6 +7,11 @@
 // so a typo fails loudly instead of quietly testing localhost.
 export const LOCAL_BASE_URL = 'http://localhost:4173';
 
+// Smoke tests that read a hook only e2e/serve.mjs provides (/__smoke/views,
+// ?fixture=published) carry this tag; a remote run excludes them with
+// `--grep-invert @local-fixture`. Guarded by src/__tests__/smoke-target.test.js.
+export const LOCAL_FIXTURE_TAG = '@local-fixture';
+
 /** @param {Record<string, string | undefined>} env usually process.env */
 export function smokeTarget(env) {
   const raw = (env.BASE_URL || '').trim();
