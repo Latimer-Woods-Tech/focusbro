@@ -71,6 +71,7 @@ function findStagingDeployViolations(text) {
     if (!/curl[^\n]*-[A-Za-z]*I[A-Za-z]*\b[^\n]*https:\/\/staging\.focusbro\.net\/health/.test(job)) bad.push(`staging job "${stgId}" does not curl -I https://staging.focusbro.net/health`);
     if (!/x-robots-tag:\s*noindex/i.test(job)) bad.push(`staging job "${stgId}" does not check X-Robots-Tag: noindex`);
     if (!/BASE_URL:\s*https:\/\/staging\.focusbro\.net/.test(job) || !/playwright test/.test(job)) bad.push(`staging job "${stgId}" does not run the Playwright smoke against BASE_URL=https://staging.focusbro.net`);
+    if (!/playwright test[^\n]*--grep-invert @local-fixture/.test(job)) bad.push(`staging job "${stgId}" does not exclude the @local-fixture smoke tests`);
   }
   return bad;
 }
@@ -105,7 +106,7 @@ jobs:
     - run: |
         h=$(curl -sI https://staging.focusbro.net/health)
         echo "$h" | grep -qi '^x-robots-tag: noindex'
-    - run: npx playwright test smoke.spec.js
+    - run: npx playwright test smoke.spec.js --grep-invert @local-fixture
       env:
         BASE_URL: https://staging.focusbro.net
 `;
@@ -131,6 +132,10 @@ jobs:
     it('rejects a staging job that runs the smoke against the local server', () => {
       const v = findStagingDeployViolations(good.replace('        BASE_URL: https://staging.focusbro.net\n', '        CI: true\n'));
       expect(v).toEqual(['staging job "deploy-staging" does not run the Playwright smoke against BASE_URL=https://staging.focusbro.net']);
+    });
+    it('rejects a staging smoke that also runs the serve.mjs-only tests', () => {
+      const v = findStagingDeployViolations(good.replace(' --grep-invert @local-fixture', ''));
+      expect(v).toEqual(['staging job "deploy-staging" does not exclude the @local-fixture smoke tests']);
     });
     it('rejects staging sharing the production concurrency group', () => {
       const v = findStagingDeployViolations(good.replace(/group: .*/, 'group: deploy-production'));

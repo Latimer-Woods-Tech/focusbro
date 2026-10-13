@@ -9,7 +9,9 @@
  * report a green "staging" run that never left the runner.
  */
 import { describe, expect, it } from 'vitest';
-import { smokeTarget, LOCAL_BASE_URL } from '../../e2e/target.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { smokeTarget, LOCAL_BASE_URL, LOCAL_FIXTURE_TAG } from '../../e2e/target.mjs';
 
 describe('smokeTarget', () => {
   it('defaults to the local static server (unchanged behaviour)', () => {
@@ -52,5 +54,45 @@ describe('smokeTarget', () => {
     ['https://staging.focusbro.net/me/'],
   ])('refuses %s', (bad) => {
     expect(() => smokeTarget({ BASE_URL: bad })).toThrow(/BASE_URL/);
+  });
+});
+
+/**
+ * A smoke test that reads a hook only e2e/serve.mjs provides (`/__smoke/*`,
+ * `?fixture=`) cannot pass against a deployed host. It must carry the
+ * @local-fixture tag, which the staging job excludes with --grep-invert, so a
+ * remote run fails only on real defects. Every other test must be portable.
+ */
+function untaggedFixtureTests(specText) {
+  const blocks = specText.split(/\n(?=\s{2}test\()/).slice(1);
+  return blocks
+    .filter((b) => /\/__smoke\/|[?&]fixture=/.test(b))
+    .filter((b) => !b.split('\n')[0].includes(`tag: '${LOCAL_FIXTURE_TAG}'`))
+    .map((b) => (/test\('([^']+)'/.exec(b) || [])[1]);
+}
+
+describe('smoke.spec.js local-fixture tagging', () => {
+  const spec = readFileSync(fileURLToPath(new URL('../../e2e/smoke.spec.js', import.meta.url)), 'utf8');
+
+  it('the tag is @local-fixture', () => {
+    expect(LOCAL_FIXTURE_TAG).toBe('@local-fixture');
+  });
+
+  it('every test that reads a serve.mjs-only hook is tagged @local-fixture', () => {
+    expect(untaggedFixtureTests(spec)).toEqual([]);
+  });
+
+  it('most of the smoke still runs remotely (the tag is not a blanket opt-out)', () => {
+    const total = (spec.match(/\n\s{2}test\(/g) || []).length;
+    const tagged = (spec.match(/tag: '@local-fixture'/g) || []).length;
+    expect(tagged).toBeLessThanOrEqual(3);
+    expect(total - tagged).toBeGreaterThanOrEqual(10);
+  });
+
+  it('proof-of-rejection: an untagged /__smoke/ reader is named', () => {
+    const bad = `x\n  test('reads the view log', async ({ page }) => {\n    await page.request.get('/__smoke/views');\n  });\n  test('portable', async () => {});\n`;
+    expect(untaggedFixtureTests(bad)).toEqual(['reads the view log']);
+    const good = bad.replace("test('reads the view log', async", "test('reads the view log', { tag: '@local-fixture' }, async");
+    expect(untaggedFixtureTests(good)).toEqual([]);
   });
 });
