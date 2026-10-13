@@ -53,5 +53,32 @@ r2_buckets = [{ binding = "AUDIO", bucket_name = "focusbro-audio" }]
 vars = { ENV = "production", API_ORIGIN = "https://focusbro.net", FOUNDER_EMAIL = "adrper79@gmail.com", AUTH_EMAIL_FROM = "support@latwoodtech.com", PRO_PRICE_ID = "price_1ULptiAW1229TZtee4VTiTma", HOME_PROMISE_FIRST = "1", ANALYTICS_RETENTION_DAYS = "395" }
 triggers = { crons = ["* * * * *"] }
 
+# Staging (Site Quality Battery R-06, PLATFORM_STANDARDS §15.1): its own worker,
+# its own D1 + KV, never indexed. Deployed by the deploy-staging job in
+# .github/workflows/deploy.yml (push to `staging`, or workflow_dispatch).
+# Guarded by api/src/__tests__/staging-env.test.js.
+#  - ZONE ROUTE, not a Custom Domain: production owns `*.focusbro.net/*`, and a
+#    route runs before a Custom Domain's worker, so a staging Custom Domain
+#    would be served by focusbro-production with production data. The more
+#    specific `staging.focusbro.net/*` wins over the wildcard. It needs a
+#    proxied DNS record for staging.focusbro.net (one-time live step).
+#  - ENV = "staging" switches on X-Robots-Tag: noindex and a Disallow-all
+#    robots.txt (api/src/index.js isStagingEnv).
+#  - Bindings are not inherited by an env, so every production binding is
+#    declared again. AUDIO is the one shared resource: read-only public
+#    recordings (api/src/audio.js only reads it), not user data.
+#  - No PRO_PRICE_ID (the live $9.99 price) and no secrets copied from
+#    production: staging holds synthetic data only.
+[env.staging]
+name = "focusbro-staging"
+routes = [
+  { pattern = "staging.focusbro.net/*", zone_name = "focusbro.net" }
+]
+d1_databases = [{ binding = "DB", database_id = "e577d581-c498-4fce-9b45-87ba99c81f62", database_name = "focusbro-staging-db", migrations_dir = "migrations" }]
+kv_namespaces = [{ binding = "KV_CACHE", id = "328659471937490a85870a3cc39d935d" }]
+r2_buckets = [{ binding = "AUDIO", bucket_name = "focusbro-audio" }]
+vars = { ENV = "staging", API_ORIGIN = "https://staging.focusbro.net", AUTH_EMAIL_FROM = "support@latwoodtech.com", HOME_PROMISE_FIRST = "1", ANALYTICS_RETENTION_DAYS = "395" }
+triggers = { crons = ["* * * * *"] }
+
 [env.development]
 vars = { ENV = "development", API_ORIGIN = "http://localhost:8787" }

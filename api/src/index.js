@@ -129,8 +129,17 @@ export function cspModeFor(url) {
 // One response boundary keeps pages, APIs, redirects, and fallbacks on the same
 // browser-security baseline. The CSP is the SAME string on every response; only
 // whether the browser enforces it or reports it depends on the surface.
-export function withSecurityHeaders(response, request) {
+// Site Quality Battery R-06: the staging worker (wrangler [env.staging],
+// ENV = "staging", staging.focusbro.net) must never be indexed
+// (PLATFORM_STANDARDS §15.1). Exact match only: production, development and
+// an env with no ENV at all are never treated as staging.
+export function isStagingEnv(env) {
+  return Boolean(env && env.ENV === 'staging');
+}
+
+export function withSecurityHeaders(response, request, env) {
   const headers = new Headers(response.headers);
+  if (isStagingEnv(env)) headers.set('X-Robots-Tag', 'noindex');
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
@@ -3421,8 +3430,13 @@ guides.forEach((guide) => {
   });
 });
 
-router.get('/robots.txt', async () => {
-  return new Response('User-agent: *\nAllow: /\n\nSitemap: https://focusbro.net/sitemap.xml\n', {
+router.get('/robots.txt', async (_request, env) => {
+  // Staging disallows everything and advertises no sitemap (the sitemap lists
+  // focusbro.net URLs); X-Robots-Tag: noindex is added at the response boundary.
+  const body = isStagingEnv(env)
+    ? 'User-agent: *\nDisallow: /\n'
+    : 'User-agent: *\nAllow: /\n\nSitemap: https://focusbro.net/sitemap.xml\n';
+  return new Response(body, {
     status: 200,
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }
   });
@@ -3715,10 +3729,10 @@ export default {
   async fetch(request, env, _ctx) {
     const runtimeEnv = withJwtSecretFallback(env);
     const httpsRedirect = redirectHttpToHttps(request);
-    if (httpsRedirect) return withSecurityHeaders(httpsRedirect, request);
+    if (httpsRedirect) return withSecurityHeaders(httpsRedirect, request, env);
 
     const csrfRejection = rejectCrossSiteCookieMutation(request);
-    if (csrfRejection) return withSecurityHeaders(csrfRejection, request);
+    if (csrfRejection) return withSecurityHeaders(csrfRejection, request, env);
 
     // ✅ BEST PRACTICE: Single unified router with all endpoints
     // Call the router's fetch method which handles request routing
@@ -3726,7 +3740,7 @@ export default {
     const response = await router.fetch(routeRequest, runtimeEnv);
     const stamped = await stampNativeApp(response, request);
     const finalResponse = request.method === 'HEAD' ? responseWithoutBody(stamped) : stamped;
-    return withSecurityHeaders(finalResponse, request);
+    return withSecurityHeaders(finalResponse, request, env);
   },
 
   // ── SCHEDULED: accountability check-in delivery (Contender #10 · R-205) ──
