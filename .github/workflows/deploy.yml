@@ -4,18 +4,26 @@ on:
   push:
     branches:
       - main
+      # Site Quality Battery R-06: a push to `staging` deploys [env.staging]
+      # (staging.focusbro.net) through the deploy-staging job below. It can
+      # never start the production job, which is fenced to push on main.
+      - staging
+  # Dispatch deploys STAGING only, from the chosen ref.
+  workflow_dispatch:
 
 # One production deploy at a time, newest last. Without this, two merges a few
 # seconds apart deploy concurrently and the OLDER commit can finish last and
 # roll prod back (2026-10-05, #408/#409: won by 4 s). cancel-in-progress is
 # false so a running deploy — and its D1 migration step — always completes;
-# GitHub keeps only the newest pending run queued behind it.
+# GitHub keeps only the newest pending run queued behind it. Staging runs queue
+# in their own group, so they never hold up (or get held by) production.
 concurrency:
-  group: deploy-production
+  group: deploy-${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'production' || 'staging' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     
     steps:
@@ -207,3 +215,87 @@ jobs:
 
         echo "❌ Production did not converge to release ${expected}"
         exit 1
+
+  # Site Quality Battery R-06 (TB4): staging.focusbro.net, PLATFORM_STANDARDS
+  # §15.1. Own worker (focusbro-staging), own D1 + KV, noindex. Guarded by
+  # api/src/__tests__/deploy-staging.test.js. Nothing here may name the
+  # production env or host.
+  deploy-staging:
+    if: github.ref == 'refs/heads/staging' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      STAGING_URL: https://staging.focusbro.net
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+        cache-dependency-path: |
+          package-lock.json
+          api/package-lock.json
+
+    - name: Install dependencies (pinned wrangler + API)
+      run: npm ci && cd api && npm ci
+
+    - name: Apply D1 migrations to the STAGING database
+      run: npx wrangler d1 migrations apply focusbro-staging-db --remote --env staging
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    - name: Build HTML module
+      run: node create-html-module.js
+
+    - name: Deploy the staging worker
+      run: |
+        set -o pipefail
+        npx wrangler deploy --env staging --var "BUILD_SHA:${GITHUB_SHA}" --keep-vars 2>&1 | tee staging-deploy.log
+        exit ${PIPESTATUS[0]}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    - name: Verify staging /health is 200, serves this build, and is noindex
+      # Wait for the edge to serve THIS commit (wrangler returns before every
+      # PoP has it), then read the headers the way a crawler would.
+      run: |
+        set -euo pipefail
+        deadline=$((SECONDS + 180))
+        until [ "$(curl -s -H 'Cache-Control: no-cache' "${STAGING_URL}/health" | jq -r '.build_sha // empty' 2>/dev/null)" = "$GITHUB_SHA" ]; do
+          [ $SECONDS -lt $deadline ] || { echo "::error::${STAGING_URL}/health never reported $GITHUB_SHA within 180s"; exit 1; }
+          echo "waiting for the edge to serve $GITHUB_SHA…"; sleep 5
+        done
+        h=$(curl -sI -H 'Cache-Control: no-cache' https://staging.focusbro.net/health)
+        echo "$h"
+        echo "$h" | head -1 | grep -qE '^HTTP/[0-9.]+ 200' || { echo "::error::staging /health is not 200"; exit 1; }
+        echo "$h" | grep -qi '^x-robots-tag: noindex' || { echo "::error::staging /health has no X-Robots-Tag: noindex"; exit 1; }
+        r=$(curl -s -H 'Cache-Control: no-cache' "${STAGING_URL}/robots.txt")
+        echo "$r" | grep -qx 'Disallow: /' || { echo "::error::staging robots.txt does not disallow crawling"; exit 1; }
+        echo "staging serves $GITHUB_SHA: /health 200, noindex, robots Disallow"
+
+    - name: Install Playwright (chromium)
+      timeout-minutes: 15
+      run: |
+        cd api
+        for attempt in 1 2 3; do
+          sudo rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock 2>/dev/null || true
+          if timeout 240 npx playwright install --with-deps chromium; then exit 0; fi
+          echo "Playwright install attempt $attempt failed; retrying in 10s..."; sleep 10
+        done
+        exit 1
+
+    - name: Client smoke against staging (Playwright, BASE_URL)
+      run: cd api && npx playwright test smoke.spec.js
+      env:
+        BASE_URL: https://staging.focusbro.net
+
+    - name: Upload Playwright report on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report-staging
+        path: api/playwright-report/
+        retention-days: 7
