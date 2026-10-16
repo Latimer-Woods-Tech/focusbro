@@ -13,6 +13,11 @@
  *   ref). `github.ref == 'refs/heads/main'` excludes pull_request only when its `types` is absent or
  *   lacks `closed` (a merged `closed` event runs on refs/heads/main); it never excludes
  *   pull_request_target (whose ref is the base branch).
+ *   `workflow_run` is PR-reachable too (it runs on the default branch even when the upstream run was a fork PR,
+ *   so a ref gate says nothing). In a workflow with a `workflow_run` trigger an identity job violates rule 1
+ *   unless its `if` requires, as top-level conjuncts, `github.event_name != 'workflow_run'`, or BOTH
+ *   `github.event.workflow_run.event == 'push'` and `github.event.workflow_run.head_branch == 'main'`.
+ *   Upstream workflows are not traced (names can be renamed); negative checks on `.event` do not count.
  * RULE 2: in a workflow that can run from an arbitrary ref (workflow_dispatch, workflow_call,
  *   workflow_run, repository_dispatch, or `push` whose `branches` is missing / not exactly [main]),
  *   every identity job needs an `if` whose WHOLE expression requires `github.ref == 'refs/heads/main'`
@@ -27,7 +32,7 @@
  * remote `uses:` matching is case-insensitive (GitHub action refs are); local `./` paths are kept byte-exact.
  * An external reusable on a PR-reachable job with explicitly named secrets (not `inherit`) prints WARN, exit 0.
  *
- * The workflow is parsed with PyYAML (python3). If it is unavailable the guard exits 2 (fail closed).
+ * Not dependency-free: the workflow is parsed with PyYAML, so it needs Python 3 + PyYAML. If unavailable the guard exits 2 (fail closed).
  *
  * Usage: node scripts/check-pr-workflow-identity.mjs [workflows-dir [allowlist.json]]   (default .github/workflows)
  * Exit 1 lists `file:job` per violation; exit 2 on parser/environment error.
@@ -143,6 +148,19 @@ export function excludesPrEvents(cond, prEvents, closedPossible = false) {
     new RegExp(`^github\\.event_name\\s*!=\\s*'${ev}'$`).test(a) ||
     /^github\.event_name\s*==\s*'(push|workflow_dispatch|schedule)'$/.test(a) ||
     (ev === 'pull_request' ? !closedPossible && isRefAtom(a) : REF_TAG.test(a))));
+}
+
+/**
+ * rule 1 for `workflow_run`: it runs with GITHUB_REF = the default branch even when the upstream run was a
+ * (fork) pull_request, so a ref gate proves nothing. The `if` must require, as top-level conjuncts, either
+ * `github.event_name != 'workflow_run'` or BOTH `workflow_run.event == 'push'` and `workflow_run.head_branch == 'main'`.
+ */
+export function excludesPrViaWorkflowRun(cond) {
+  if (cond === undefined || cond === null || cond === false) return false;
+  const expr = stripExpr(cond);
+  return requiresAll(expr, (a) => /^github\.event_name\s*!=\s*'workflow_run'$/.test(a)) ||
+    (requiresAll(expr, (a) => /^github\.event\.workflow_run\.event\s*==\s*'push'$/.test(a)) &&
+     requiresAll(expr, (a) => /^github\.event\.workflow_run\.head_branch\s*==\s*'main'$/.test(a)));
 }
 
 /** can the workflow's pull_request trigger fire on `closed`? Absent `types` = defaults (no); odd shapes fail closed. */
@@ -265,7 +283,8 @@ export function analyzeWorkflow(text, root = process.cwd()) {
     }
     if (!isIdentityJob(job, doc.permissions, root)) continue;
     const cond = job?.if;
-    if (prEvents.length && !excludesPrEvents(cond, prEvents, closed)) {
+    if ((prEvents.length && !excludesPrEvents(cond, prEvents, closed)) ||
+        (events.includes('workflow_run') && !excludesPrViaWorkflowRun(cond))) {
       result.violations.push({ job: name, rule: 1 });
     }
     if (anyRef && !requiresMainOrTagRef(cond)) {

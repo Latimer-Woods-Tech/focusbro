@@ -333,3 +333,41 @@ test('R7 PASS: default types with main-ref gate', () => assert.deepEqual(checkWo
   wrap('on:\n  pull_request:', prJob(mainGate))), []));
 test('R7 PASS: types [closed] with event_name != pull_request', () => assert.deepEqual(checkWorkflow(
   wrap('on:\n  pull_request:\n    types: [closed]\n  push:\n    branches: [main]', prJob("    if: github.event_name != 'pull_request'\n"))), []));
+
+// ---- round 8: workflow_run is PR-reachable (runs on the default branch even for a fork PR); a main-ref gate does not exclude it ----
+const wrOn = 'on:\n  workflow_run:\n    workflows: [A]\n    types: [completed]';
+const wrRef = "    if: github.ref == 'refs/heads/main' && ";
+const WR_PUSH = "github.event.workflow_run.event == 'push'";
+const WR_MAIN = "github.event.workflow_run.head_branch == 'main'";
+const runDir = (files) => {
+  const d = mkdtempSync(join(tmpdir(), 'wfr8-'));
+  for (const [n, t] of Object.entries(files)) writeFileSync(join(d, n), t);
+  const f = join(mkdtempSync(join(tmpdir(), 'wfallow-')), 'a.json');
+  writeFileSync(f, '[]');
+  return spawnSync('node', ['scripts/check-pr-workflow-identity.mjs', d, f], { encoding: 'utf8' });
+};
+const authJob = (cond) => `  deploy:\n    runs-on: ubuntu-latest\n${cond}    permissions:\n      id-token: write\n    steps:\n      - uses: google-github-actions/auth@abc\n`;
+test('R8 FAIL: closed-PR upstream, downstream main-ref gate only (two-workflow chain)', () => {
+  const r = runDir({
+    'a.yml': 'name: A\non:\n  pull_request:\n    types: [closed]\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n',
+    'b.yml': wrap(wrOn, authJob("    if: github.ref == 'refs/heads/main'\n")),
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /b\.yml:deploy \(rule 1\)/);
+});
+test('R8 FAIL: ref gate + conclusion == success', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(wrRef + "github.event.workflow_run.conclusion == 'success'\n".replace(/^/, '')))), ['deploy']));
+test('R8 FAIL: event == push without head_branch', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`${wrRef}${WR_PUSH}\n`))), ['deploy']));
+test('R8 FAIL: event != pull_request (negative check)', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`${wrRef}github.event.workflow_run.event != 'pull_request'\n`))), ['deploy']));
+test('R8 FAIL: push and head_branch joined by ||', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`${wrRef}(${WR_PUSH} || ${WR_MAIN})\n`))), ['deploy']));
+test('R8 PASS: ref gate + event == push && head_branch == main', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`${wrRef}${WR_PUSH} && ${WR_MAIN}\n`))), []));
+test('R8 PASS: ${{ }} wrapped push && head_branch gate', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`    if: \${{ github.ref == 'refs/heads/main' && ${WR_PUSH} && ${WR_MAIN} }}\n`))), []));
+test('R8 PASS: workflow_run + workflow_dispatch, event_name != workflow_run && main ref', () => assert.deepEqual(checkWorkflow(
+  wrap(`${wrOn}\n  workflow_dispatch:`, authJob("    if: github.event_name != 'workflow_run' && github.ref == 'refs/heads/main'\n"))), []));
+test('R8 PASS: non-identity workflow_run job with no gate', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, '  lh:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - run: echo\n')), []));
