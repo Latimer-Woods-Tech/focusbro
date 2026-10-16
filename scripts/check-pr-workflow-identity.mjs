@@ -23,7 +23,7 @@
  *   `push` is main-only only with `branches` exactly [main] and no tags / tags-ignore / branches-ignore.
  * A PR-reachable job that reads `secrets.X` (other than GITHUB_TOKEN) in steps / env / with prints WARN, exit 0.
  * Local `uses:` paths resolve with realpath and must stay inside the repo root (else identity, fail closed);
- * `uses:` matching is case-insensitive (GitHub action refs are).
+ * remote `uses:` matching is case-insensitive (GitHub action refs are); local `./` paths are kept byte-exact.
  * An external reusable on a PR-reachable job with explicitly named secrets (not `inherit`) prints WARN, exit 0.
  *
  * The workflow is parsed with PyYAML (python3). If it is unavailable the guard exits 2 (fail closed).
@@ -180,9 +180,10 @@ function compositeUsesAuth(root, ref, depth) {
 function stepsUseAuth(steps, root, depth) {
   return steps.some((s) => {
     if (typeof s?.uses !== 'string') return false;
-    const u = s.uses.trim().toLowerCase();
-    if (AUTH_USES.test(u)) return true;
-    return u.startsWith('./') && compositeUsesAuth(root, u, depth + 1);
+    const u = s.uses.trim();
+    // local `./` paths stay byte-exact (case-sensitive on Linux); only remote refs match case-insensitively
+    if (u.startsWith('./')) return compositeUsesAuth(root, u, depth + 1);
+    return AUTH_USES.test(u);
   });
 }
 

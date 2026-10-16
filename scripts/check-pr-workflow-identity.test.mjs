@@ -196,6 +196,14 @@ test('R5 FAIL: malformed allowlist exits 2', () => assert.equal(run(disp(''), '{
 test('R5 FAIL: mixed-case google-github-actions/auth on a PR job', () => assert.deepEqual(
   checkWorkflow('on: pull_request\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: Google-GitHub-Actions/Auth@abc\n'), ['j']));
 
+test('R6 FAIL: ./Action has auth, clean decoy ./action (local paths are case-sensitive)', () => {
+  const root = repo({
+    'Action/action.yml': authAction,
+    'action/action.yml': 'runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n',
+  });
+  assert.deepEqual(checkWorkflow(prCaller('    runs-on: x\n    steps:\n      - uses: ./Action\n'), root), ['j']);
+});
+
 test('R5 FAIL: job permissions: write-all on a PR workflow', () => assert.deepEqual(
   checkWorkflow('on: pull_request\njobs:\n  j:\n    runs-on: x\n    permissions: write-all\n    steps:\n      - run: echo\n'), ['j']));
 test('R5 FAIL: top-level write-all, no job permissions', () => assert.deepEqual(
