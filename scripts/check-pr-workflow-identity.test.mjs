@@ -322,3 +322,14 @@ test('unparseable YAML exits 2 (fail closed)', () => {
   writeFileSync(join(d, 'b.yml'), 'on: [\n');
   assert.equal(spawnSync('node', ['scripts/check-pr-workflow-identity.mjs', d], { encoding: 'utf8' }).status, 2);
 });
+
+// ---- round 7: a main-ref gate does not exclude pull_request `closed` (merged closed runs on refs/heads/main) ----
+const mainGate = "    if: github.ref == 'refs/heads/main'\n";
+test('R7 FAIL: types [closed] with main-ref gate', () => assert.deepEqual(checkWorkflow(
+  wrap('on:\n  pull_request:\n    types: [closed]', prJob(mainGate))), ['cal']));
+test('R7 FAIL: types [opened, closed] with main-ref gate', () => assert.deepEqual(checkWorkflow(
+  wrap('on:\n  pull_request:\n    types: [opened, closed]', prJob(mainGate))), ['cal']));
+test('R7 PASS: default types with main-ref gate', () => assert.deepEqual(checkWorkflow(
+  wrap('on:\n  pull_request:', prJob(mainGate))), []));
+test('R7 PASS: types [closed] with event_name != pull_request', () => assert.deepEqual(checkWorkflow(
+  wrap('on:\n  pull_request:\n    types: [closed]\n  push:\n    branches: [main]', prJob("    if: github.event_name != 'pull_request'\n"))), []));

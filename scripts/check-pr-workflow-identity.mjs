@@ -10,8 +10,9 @@
  * RULE 1: in a workflow triggered by pull_request / pull_request_target, no identity job may be able
  *   to run on those events. A job `if` counts only if it excludes EVERY PR-family event the workflow
  *   listens on (`github.event_name != 'ev'` per event, a positive `event_name == 'push'|...`, or a tag
- *   ref). `github.ref == 'refs/heads/main'` excludes pull_request but NOT pull_request_target (whose
- *   ref is the base branch).
+ *   ref). `github.ref == 'refs/heads/main'` excludes pull_request only when its `types` is absent or
+ *   lacks `closed` (a merged `closed` event runs on refs/heads/main); it never excludes
+ *   pull_request_target (whose ref is the base branch).
  * RULE 2: in a workflow that can run from an arbitrary ref (workflow_dispatch, workflow_call,
  *   workflow_run, repository_dispatch, or `push` whose `branches` is missing / not exactly [main]),
  *   every identity job needs an `if` whose WHOLE expression requires `github.ref == 'refs/heads/main'`
@@ -132,14 +133,24 @@ export function requiresMainOrTagRef(cond) {
   return requiresAll(stripExpr(cond), isRefAtom);
 }
 
-/** rule 1: `if` provably excludes every PR event in `prEvents`. */
-export function excludesPrEvents(cond, prEvents) {
+/**
+ * rule 1: `if` provably excludes every PR event in `prEvents`. A ref conjunct only excludes
+ * pull_request when `closedPossible` is false: a merged `closed` event runs on the base ref (refs/heads/main).
+ */
+export function excludesPrEvents(cond, prEvents, closedPossible = false) {
   if (cond === undefined || cond === null || cond === false) return false;
   return prEvents.every((ev) => requiresAll(stripExpr(cond), (a) =>
     new RegExp(`^github\\.event_name\\s*!=\\s*'${ev}'$`).test(a) ||
     /^github\.event_name\s*==\s*'(push|workflow_dispatch|schedule)'$/.test(a) ||
-    REF_TAG.test(a) ||
-    (ev === 'pull_request' && REF_MAIN.test(a))));
+    (ev === 'pull_request' ? !closedPossible && isRefAtom(a) : REF_TAG.test(a))));
+}
+
+/** can the workflow's pull_request trigger fire on `closed`? Absent `types` = defaults (no); odd shapes fail closed. */
+function prClosedPossible(cfg) {
+  if (!cfg || typeof cfg !== 'object' || cfg.types === undefined || cfg.types === null) return false;
+  const t = cfg.types;
+  if (typeof t === 'string') return t.trim().toLowerCase() === 'closed';
+  return !Array.isArray(t) || t.some((x) => typeof x !== 'string' || x.trim().toLowerCase() === 'closed');
 }
 
 // ---- job inspection -----------------------------------------------------------------------
@@ -230,6 +241,7 @@ export function analyzeWorkflow(text, root = process.cwd()) {
   const triggers = triggerMap(doc);
   const events = Object.keys(triggers);
   const prEvents = PR_EVENTS.filter((e) => events.includes(e));
+  const closed = prClosedPossible(triggers.pull_request);
 
   const pushCfg = triggers.push;
   const pushBranches = pushCfg && typeof pushCfg === 'object' ? pushCfg.branches : undefined;
@@ -242,18 +254,18 @@ export function analyzeWorkflow(text, root = process.cwd()) {
 
   for (const [name, job] of Object.entries(doc.jobs)) {
     const ext = typeof job?.uses === 'string' && !job.uses.trim().startsWith('./');
-    const prReachable = prEvents.length > 0 && !excludesPrEvents(job?.if, prEvents);
+    const prReachable = prEvents.length > 0 && !excludesPrEvents(job?.if, prEvents, closed);
     const read = prReachable ? secretsRead(job, doc.env) : [];
     if (read.length) {
       result.warnings.push({ job: name, reason: `reads secrets ${read.join(', ')} on a PR-reachable job (D227 scope is identity; see leader ruling)` });
     }
     const named = ext && job.secrets && typeof job.secrets === 'object' ? Object.keys(job.secrets) : [];
-    if (named.length && prEvents.length && !excludesPrEvents(job.if, prEvents)) {
+    if (named.length && prEvents.length && !excludesPrEvents(job.if, prEvents, closed)) {
       result.warnings.push({ job: name, reason: `passes secrets ${named.join(', ')} to external reusable ${job.uses.trim()}` });
     }
     if (!isIdentityJob(job, doc.permissions, root)) continue;
     const cond = job?.if;
-    if (prEvents.length && !excludesPrEvents(cond, prEvents)) {
+    if (prEvents.length && !excludesPrEvents(cond, prEvents, closed)) {
       result.violations.push({ job: name, rule: 1 });
     }
     if (anyRef && !requiresMainOrTagRef(cond)) {
