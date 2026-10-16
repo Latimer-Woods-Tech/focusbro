@@ -371,3 +371,15 @@ test('R8 PASS: workflow_run + workflow_dispatch, event_name != workflow_run && m
   wrap(`${wrOn}\n  workflow_dispatch:`, authJob("    if: github.event_name != 'workflow_run' && github.ref == 'refs/heads/main'\n"))), []));
 test('R8 PASS: non-identity workflow_run job with no gate', () => assert.deepEqual(checkWorkflow(
   wrap(wrOn, '  lh:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - run: echo\n')), []));
+
+// ---- round 9: a partial `${{ }}` interpolation makes GitHub evaluate the whole `if` as a format string (always true)
+test('R9 FAIL: ${{ true }} && event_name != workflow_run && main ref (Codex XV-wordis-bond-407G)', () => assert.deepEqual(checkWorkflow(
+  wrap('on: workflow_run', authJob("    if: ${{ true }} && github.event_name != 'workflow_run' && github.ref == 'refs/heads/main'\n"))), ['deploy']));
+test('R9 FAIL: partial interpolation before the push + head_branch gates', () => assert.deepEqual(checkWorkflow(
+  wrap(wrOn, authJob(`    if: \${{ true }} && github.ref == 'refs/heads/main' && ${WR_PUSH} && ${WR_MAIN}\n`))), ['deploy']));
+test('R9 FAIL: two interpolations joined by && on a pull_request workflow', () => assert.deepEqual(checkWorkflow(
+  wrap('on: pull_request', prJob("    if: ${{ github.event_name != 'pull_request' }} && ${{ github.ref == 'refs/heads/main' }}\n"))), ['cal']));
+test('R9 FAIL: trailing interpolation after a safe gate (rule 2, workflow_dispatch)', () => assert.deepEqual(checkWorkflow(
+  wrap('on: workflow_dispatch', prJob("    if: github.ref == 'refs/heads/main' && ${{ true }}\n"))), ['cal']));
+test('R9 PASS: one whole ${{ }} wrap around a safe gate', () => assert.deepEqual(checkWorkflow(
+  wrap('on: workflow_dispatch', prJob("    if: ${{ github.ref == 'refs/heads/main' }}\n"))), []));

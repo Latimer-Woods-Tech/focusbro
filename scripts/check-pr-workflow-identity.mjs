@@ -80,8 +80,12 @@ function stripExpr(cond) {
   let c = String(cond).trim();
   const m = c.match(/^\$\{\{([\s\S]*)\}\}$/);
   if (m) c = m[1].trim();
+  // Any `${{`/`}}` left over means a partial interpolation (`${{ true }} && x`, `${{ a }} && ${{ b }}`).
+  // GitHub then evaluates the whole `if` as a format string: non-empty, so always truthy. Fail closed.
+  if (/\$\{\{|\}\}/.test(c)) return PARTIAL_INTERPOLATION;
   return c;
 }
+const PARTIAL_INTERPOLATION = '<partial-interpolation: always true>';
 
 /** Split on a top-level operator, ignoring parentheses and quoted strings. */
 function splitTop(expr, op) {
