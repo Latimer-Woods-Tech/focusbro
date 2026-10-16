@@ -8,11 +8,12 @@ name: Android Release — build + sign (AAB + APK)
 #   - workflow_dispatch: signed AAB + APK; optional Firebase App Distribution
 #     to the emails in `distribute_to`.
 #   - tags android-vX.Y.Z: signed AAB + APK (versionName from the tag).
-#   - pull_request touching mobile/** or this file: the same signed build, so a
-#     native change proves the build + signing rail before merge. Never distributes.
+#   - pull_request touching mobile/** or this file: an UNSIGNED build, no secrets
+#     and no GCP identity (the repo is public and PR code is untrusted). Proves
+#     the native build + package + App Link before merge. Never distributes.
 #
-# Secrets: GCP Secret Manager (factory-495015) via WIF ONLY — no GitHub secrets
-# (Standing Law 3). factory-sa needs secretAccessor on:
+# Secrets (signed `build` job only, never on pull_request): GCP Secret Manager
+# (factory-495015) via WIF ONLY — no GitHub secrets (Standing Law 3). factory-sa needs secretAccessor on:
 #   focusbro-android-keystore-b64       base64 PKCS12 upload keystore (alias focusbro-upload)
 #   focusbro-android-keystore-password  store password == key password (PKCS12)
 #
@@ -48,10 +49,13 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write   # WIF → GCP Secret Manager
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v'))
+    permissions:
+      contents: read
+      id-token: write   # WIF → GCP Secret Manager (never granted to pull_request)
     # Android SDK build tools (aapt2) are x86_64-only.
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -188,3 +192,76 @@ jobs:
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/focusbro-upload.jks"
+
+  # Unsigned PR build: no id-token, no GCP auth, no keystore. build.gradle signs
+  # only when KEYSTORE_FILE is set, so this release build is unsigned. Enforced by
+  # scripts/check-pr-workflow-identity.mjs.
+  build-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Determine version
+        id: version
+        run: |
+          VERSION_NAME=$(node -p "require('./mobile/package.json').version")
+          VERSION_CODE=$(( 10000 + ${{ github.run_number }} ))
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Building unsigned v$VERSION_NAME (code $VERSION_CODE)"
+
+      - name: Capacitor sync
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Build unsigned release APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -PVERSION_CODE=${{ steps.version.outputs.VERSION_CODE }} \
+            -PVERSION_NAME=${{ steps.version.outputs.VERSION_NAME }} \
+            --no-daemon
+
+      # The signature check is skipped on purpose: this build has no keystore, so
+      # the APK is unsigned (the signed rail runs on dispatch/tags only).
+      - name: Verify package and App Links
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          "$BT/aapt2" dump badging "$APK" | grep -q "^package: name='net.focusbro.app' versionCode='${{ steps.version.outputs.VERSION_CODE }}'" \
+            || { echo "::error::wrong package or versionCode"; exit 1; }
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -q 'host(0x01010028)="focusbro.net"' \
+            || { echo "::error::App Link host missing from the manifest"; exit 1; }
+          echo "verified (unsigned): net.focusbro.app v${{ steps.version.outputs.VERSION_NAME }} (${{ steps.version.outputs.VERSION_CODE }})"

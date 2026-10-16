@@ -30,6 +30,11 @@ jobs:
     - name: Install API dependencies
       run: cd api && npm ci
 
+    - name: No cloud identity in pull_request jobs
+      run: |
+        python3 -c 'import yaml' || python3 -m pip install --quiet --user pyyaml==6.0.2
+        node scripts/check-pr-workflow-identity.mjs
+
     - name: Content ledger up to date (un-ledgered guides are a hard fail)
       run: node scripts/generate-content-ledger.mjs --check
 
