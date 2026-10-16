@@ -41,6 +41,22 @@ test('(d) the repo workflows pass', () => {
   assert.deepEqual(checkDir(dir), []);
 });
 
+// ── pull_request_target is a PR event too (round 3) ────────────────────────
+const prt = (ifLine) =>
+  `on: [pull_request_target]\npermissions:\n  id-token: write\njobs:\n  j:\n    if: ${ifLine}\n    runs-on: ubuntu-latest\n    steps:\n${STEP}      - uses: google-github-actions/auth@abc\n`;
+test('PRT: != pull_request does not exclude pull_request_target -> FAIL (Codex repro)', () => {
+  assert.equal(analyze(prt("github.event_name != 'pull_request'"), 'p.yml').length, 1);
+});
+test('PRT: main-ref if does not exclude pull_request_target -> FAIL', () => {
+  assert.equal(analyze(prt("github.ref == 'refs/heads/main'"), 'p.yml').length, 1);
+});
+test('PRT: positive push requirement is unreachable -> PASS', () => {
+  assert.deepEqual(analyze(prt("github.event_name == 'push'"), 'p.yml'), []);
+});
+test('PRT: both PR events excluded by separate != clauses -> PASS', () => {
+  assert.deepEqual(analyze(prt("github.event_name != 'pull_request' && github.event_name != 'pull_request_target'"), 'p.yml'), []);
+});
+
 // ── RULE 2: dispatch / non-main push must be ref-gated ─────────────────────
 import { analyzeRef } from './check-pr-workflow-identity.mjs';
 

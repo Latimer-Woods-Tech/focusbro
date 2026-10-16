@@ -3,8 +3,9 @@
 // cloud identity. This repo is public; PR-controlled code must never run next to
 // `id-token: write` or google-github-actions/auth (SA-LEAST-PRIV1, D227).
 //
-// Parsing shells out to python3 + PyYAML (preinstalled on GitHub ubuntu runners);
-// no npm dependency. Exit 1 listing file:job for each violation.
+// Parsing shells out to python3 + PyYAML (an explicit dependency: no npm package,
+// but PyYAML must be importable; missing PyYAML exits 2, fail closed).
+// Exit 1 listing file:job for each violation.
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -16,7 +17,7 @@ const AUTH_RE = /^google-github-actions\/auth(@|$)/i;
 export function parseYaml(text) {
   const r = spawnSync(
     'python3',
-    ['-I', '-c', 'import sys, json\ntry:\n    import yaml\nexcept ImportError:\n    sys.stderr.write("PyYAML missing: install python3-yaml\\n"); sys.exit(3)\nprint(json.dumps(yaml.safe_load(sys.stdin.read())))'],
+    ['-I', '-c', 'import sys, json\ntry:\n    import yaml\nexcept ImportError:\n    sys.stderr.write("PyYAML missing: pip install pyyaml==6.0.2\\n"); sys.exit(3)\nprint(json.dumps(yaml.safe_load(sys.stdin.read())))'],
     { input: text, encoding: 'utf8' },
   );
   if (r.error) throw new Error(`python3 unavailable: ${r.error.message}`);
@@ -31,16 +32,22 @@ function triggers(doc) {
   return on && typeof on === 'object' ? Object.keys(on) : [];
 }
 
-// False only when the job `if` clearly excludes pull_request events.
-export function canRunOnPr(cond) {
+// A PR-family event is excluded only by a clause that names it, or by one that
+// positively requires a non-PR event. A ref check (github.ref == main) excludes
+// nothing: pull_request_target runs on the base ref.
+function clauseExcludes(cl, ev) {
+  const neq = cl.match(/^github\.event_name\s*!=\s*['"](\w+)['"]$/);
+  if (neq) return neq[1] === ev;
+  return /^github\.event_name\s*==\s*['"](push|workflow_dispatch|schedule|release|workflow_run)['"]$/.test(cl);
+}
+
+// False only when the job `if` excludes EVERY PR-family event in `events`.
+export function canRunOnPr(cond, events = PR_EVENTS) {
   if (cond === undefined || cond === null) return true;
   let c = String(cond).trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, '$1').trim();
   if (splitTop(c, '||').length > 1 || /\bor\b/.test(c)) return true; // top-level disjunction: assume it can run
   const clauses = splitTop(c, '&&');
-  return !clauses.some((cl) => {
-    if (/^github\.event_name\s*!=\s*['"]pull_request(_target)?['"]$/.test(cl)) return true;
-    return /^github\.event_name\s*==\s*['"](push|workflow_dispatch|schedule|release|workflow_run)['"]$/.test(cl);
-  });
+  return !events.every((ev) => clauses.some((cl) => clauseExcludes(cl, ev)));
 }
 
 const idTokenWrite = (perms) =>
@@ -49,10 +56,11 @@ const idTokenWrite = (perms) =>
 export function analyze(text, file = 'workflow') {
   const doc = parseYaml(text);
   if (!doc || typeof doc !== 'object') return [];
-  if (!triggers(doc).some((t) => PR_EVENTS.includes(t))) return [];
+  const prEvents = triggers(doc).filter((t) => PR_EVENTS.includes(t));
+  if (!prEvents.length) return [];
   const bad = [];
   for (const [name, job] of Object.entries(doc.jobs ?? {})) {
-    if (!canRunOnPr(job.if)) continue;
+    if (!canRunOnPr(job.if, prEvents)) continue;
     const perms = job.permissions !== undefined ? job.permissions : doc.permissions;
     const reasons = [];
     if (idTokenWrite(perms)) reasons.push('effective id-token: write');
