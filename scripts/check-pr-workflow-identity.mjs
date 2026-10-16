@@ -1,185 +1,305 @@
 #!/usr/bin/env node
-// Guard: no job that can run on pull_request / pull_request_target may hold a
-// cloud identity. This repo is public; PR-controlled code must never run next to
-// `id-token: write` or google-github-actions/auth (SA-LEAST-PRIV1, D227).
-//
-// Parsing shells out to python3 + PyYAML (an explicit dependency: no npm package,
-// but PyYAML must be importable; missing PyYAML exits 2, fail closed).
-// Exit 1 listing file:job for each violation.
-import { spawnSync } from 'node:child_process';
+/**
+ * Workflow identity guard (D227, SA-LEAST-PRIV1).
+ *
+ * An "identity job" has effective `id-token: write` (job `permissions`, else top-level), uses
+ * `google-github-actions/auth` (directly, or inside a local `./` composite action, depth <= 3), calls a
+ * local reusable workflow containing an identity job, or calls an external reusable workflow with
+ * `secrets: inherit`. Local paths resolve against the repo root (cwd); unresolvable = identity (fail closed).
+ *
+ * RULE 1: in a workflow triggered by pull_request / pull_request_target, no identity job may be able
+ *   to run on those events. A job `if` counts only if it excludes EVERY PR-family event the workflow
+ *   listens on (`github.event_name != 'ev'` per event, a positive `event_name == 'push'|...`, or a tag
+ *   ref). `github.ref == 'refs/heads/main'` excludes pull_request but NOT pull_request_target (whose
+ *   ref is the base branch).
+ * RULE 2: in a workflow that can run from an arbitrary ref (workflow_dispatch, workflow_call,
+ *   workflow_run, repository_dispatch, or `push` whose `branches` is missing / not exactly [main]),
+ *   every identity job needs an `if` whose WHOLE expression requires `github.ref == 'refs/heads/main'`
+ *   and/or `startsWith(github.ref, 'refs/tags/...')`. A top-level `||` with any disjunct lacking a ref
+ *   check does not count. Opt-out (rule 2 only): `# identity-guard: allow <reason>` directly above the
+ *   job key line (a direct child of top-level `jobs:`, never inside a block scalar); prints WARN and passes.
+ *   `push` is main-only only with `branches` exactly [main] and no tags / tags-ignore / branches-ignore.
+ * An external reusable on a PR-reachable job with explicitly named secrets (not `inherit`) prints WARN, exit 0.
+ *
+ * The workflow is parsed with PyYAML (python3). If it is unavailable the guard exits 2 (fail closed).
+ *
+ * Usage: node scripts/check-pr-workflow-identity.mjs [workflows-dir]   (default .github/workflows)
+ * Exit 1 lists `file:job` per violation; exit 2 on parser/environment error.
+ */
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const PR_EVENTS = ['pull_request', 'pull_request_target'];
-const AUTH_RE = /^google-github-actions\/auth(@|$)/i;
+const ANY_REF_EVENTS = ['workflow_dispatch', 'workflow_call', 'workflow_run', 'repository_dispatch'];
+const SAFE_EVENTS = ['schedule', ...PR_EVENTS];
+
+const PY = `
+import sys, json
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write("PyYAML is not importable (pip install pyyaml==6.0.2)\\n"); sys.exit(3)
+try:
+    json.dump(yaml.safe_load(sys.stdin.read()), sys.stdout, default=str)
+except Exception as e:
+    sys.stderr.write("YAML parse error: %s\\n" % e); sys.exit(4)
+`;
 
 export function parseYaml(text) {
-  const r = spawnSync(
-    'python3',
-    ['-I', '-c', 'import sys, json\ntry:\n    import yaml\nexcept ImportError:\n    sys.stderr.write("PyYAML missing: pip install pyyaml==6.0.2\\n"); sys.exit(3)\nprint(json.dumps(yaml.safe_load(sys.stdin.read())))'],
-    { input: text, encoding: 'utf8' },
-  );
-  if (r.error) throw new Error(`python3 unavailable: ${r.error.message}`);
-  if (r.status !== 0) throw new Error(`YAML parse failed: ${r.stderr.trim()}`);
+  const r = spawnSync('python3', ['-c', PY], { input: text, encoding: 'utf8' });
+  if (r.error || r.status !== 0) {
+    throw new Error(`cannot parse workflow YAML: ${(r.error?.message ?? r.stderr ?? '').trim()}`);
+  }
   return JSON.parse(r.stdout);
 }
 
-function triggers(doc) {
-  const on = doc.on ?? doc.true ?? doc['true'];
-  if (typeof on === 'string') return [on];
-  if (Array.isArray(on)) return on;
-  return on && typeof on === 'object' ? Object.keys(on) : [];
+/** event name -> config, from `on` (PyYAML loads the key `on` as boolean true). */
+function triggerMap(doc) {
+  const on = doc && typeof doc === 'object' ? (doc.on ?? doc.true) : undefined;
+  if (typeof on === 'string') return { [on]: null };
+  if (Array.isArray(on)) return Object.fromEntries(on.map((e) => [String(e), null]));
+  if (on && typeof on === 'object') return on;
+  return {};
 }
 
-// A PR-family event is excluded only by a clause that names it, or by one that
-// positively requires a non-PR event. A ref check (github.ref == main) excludes
-// nothing: pull_request_target runs on the base ref.
-function clauseExcludes(cl, ev) {
-  const neq = cl.match(/^github\.event_name\s*!=\s*['"](\w+)['"]$/);
-  if (neq) return neq[1] === ev;
-  return /^github\.event_name\s*==\s*['"](push|workflow_dispatch|schedule|release|workflow_run)['"]$/.test(cl);
+// ---- `if` expression analysis -------------------------------------------------------------
+function stripExpr(cond) {
+  let c = String(cond).trim();
+  const m = c.match(/^\$\{\{([\s\S]*)\}\}$/);
+  if (m) c = m[1].trim();
+  return c;
 }
 
-// False only when the job `if` excludes EVERY PR-family event in `events`.
-export function canRunOnPr(cond, events = PR_EVENTS) {
-  if (cond === undefined || cond === null) return true;
-  let c = String(cond).trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, '$1').trim();
-  if (splitTop(c, '||').length > 1 || /\bor\b/.test(c)) return true; // top-level disjunction: assume it can run
-  const clauses = splitTop(c, '&&');
-  return !events.every((ev) => clauses.some((cl) => clauseExcludes(cl, ev)));
-}
-
-const idTokenWrite = (perms) =>
-  perms === 'write-all' || (perms && typeof perms === 'object' && perms['id-token'] === 'write');
-
-export function analyze(text, file = 'workflow') {
-  const doc = parseYaml(text);
-  if (!doc || typeof doc !== 'object') return [];
-  const prEvents = triggers(doc).filter((t) => PR_EVENTS.includes(t));
-  if (!prEvents.length) return [];
-  const bad = [];
-  for (const [name, job] of Object.entries(doc.jobs ?? {})) {
-    if (!canRunOnPr(job.if, prEvents)) continue;
-    const perms = job.permissions !== undefined ? job.permissions : doc.permissions;
-    const reasons = [];
-    if (idTokenWrite(perms)) reasons.push('effective id-token: write');
-    if ((job.steps ?? []).some((s) => typeof s.uses === 'string' && AUTH_RE.test(s.uses))) {
-      reasons.push('uses google-github-actions/auth');
-    }
-    if (reasons.length) bad.push(`${file}:${name} (${reasons.join('; ')})`);
+/** Split on a top-level operator, ignoring parentheses and quoted strings. */
+function splitTop(expr, op) {
+  const out = [];
+  let depth = 0, quote = null, cur = '';
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) { cur += ch; if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (depth === 0 && expr.startsWith(op, i)) { out.push(cur.trim()); cur = ''; i += op.length - 1; continue; }
+    cur += ch;
   }
-  return bad;
+  out.push(cur.trim());
+  return out;
 }
 
-// RULE 2: a workflow reachable by dispatch (or a push from a non-main ref)
-// lets the caller pick any ref, so identity jobs must be gated to trusted refs.
-const DISPATCH_EVENTS = ['workflow_dispatch', 'workflow_call', 'workflow_run', 'repository_dispatch'];
-
-function reachableFromAnyRef(doc) {
-  const ts = triggers(doc);
-  if (ts.some((t) => DISPATCH_EVENTS.includes(t))) return true;
-  if (!ts.includes('push')) return false;
-  const on = doc.on ?? doc.true;
-  const br = on && typeof on === 'object' && !Array.isArray(on) ? on.push?.branches : undefined;
-  return !(Array.isArray(br) && br.length === 1 && br[0] === 'main');
+function unwrap(atom) {
+  let a = atom.trim();
+  while (a.startsWith('(') && a.endsWith(')') && balanced(a.slice(1, -1))) a = a.slice(1, -1).trim();
+  return a;
 }
-
-// Split on a top-level operator, ignoring parentheses and quoted strings.
-function splitTop(e, op) {
-  const parts = [];
-  let depth = 0, q = null, last = 0;
-  for (let i = 0; i < e.length; i++) {
-    const ch = e[i];
+function balanced(s) {
+  let d = 0, q = null;
+  for (const ch of s) {
     if (q) { if (ch === q) q = null; continue; }
     if (ch === "'" || ch === '"') q = ch;
-    else if (ch === '(') depth++;
-    else if (ch === ')') depth--;
-    else if (depth === 0 && e.startsWith(op, i)) { parts.push(e.slice(last, i)); last = i + op.length; i += op.length - 1; }
+    else if (ch === '(') d++;
+    else if (ch === ')' && --d < 0) return false;
   }
-  parts.push(e.slice(last));
-  return parts.map((x) => x.trim());
+  return d === 0 && !q;
 }
 
-const REF_ATOM = /^(github\.ref\s*==\s*'refs\/heads\/main'|startsWith\(\s*github\.ref\s*,\s*'refs\/tags\/[^']+'\s*\))$/;
-
-// True only when every path through the expression requires a trusted ref.
-export function requiresTrustedRef(expr) {
-  let e = String(expr ?? '').trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, '$1').trim();
-  if (!e) return false;
-  const ors = splitTop(e, '||');
-  if (ors.length > 1) return ors.every(requiresTrustedRef);
-  const ands = splitTop(e, '&&');
-  if (ands.length > 1) return ands.some(requiresTrustedRef);
-  if (/^\(.*\)$/.test(e) && splitTop(e.slice(1, -1), '||').length >= 1 && balanced(e)) return requiresTrustedRef(e.slice(1, -1));
-  return REF_ATOM.test(e);
+/**
+ * Every disjunct must satisfy `atomOk` through at least one conjunct (recursing into parentheses).
+ * Unknown shapes return false (fail closed).
+ */
+function requiresAll(expr, atomOk) {
+  const disj = splitTop(expr, '||');
+  return disj.every((d) => splitTop(d, '&&').some((conj) => {
+    const u = unwrap(conj);
+    return u !== conj.trim() ? requiresAll(u, atomOk) : atomOk(u);
+  }));
 }
 
-// Outer parens wrap the whole expression (not "(a) && (b)").
-function balanced(e) {
-  let d = 0;
-  for (let i = 0; i < e.length; i++) {
-    if (e[i] === '(') d++;
-    else if (e[i] === ')' && --d === 0 && i < e.length - 1) return false;
+const REF_MAIN = /^github\.ref\s*==\s*'refs\/heads\/main'$/;
+const REF_TAG = /^startsWith\(\s*github\.ref\s*,\s*'refs\/tags\/[^']+'\s*\)$/;
+const isRefAtom = (a) => REF_MAIN.test(a) || REF_TAG.test(a);
+
+/** rule 2: `if` requires a main/tag ref as a conjunct of the whole expression. */
+export function requiresMainOrTagRef(cond) {
+  if (cond === undefined || cond === null || cond === false) return false;
+  return requiresAll(stripExpr(cond), isRefAtom);
+}
+
+/** rule 1: `if` provably excludes every PR event in `prEvents`. */
+export function excludesPrEvents(cond, prEvents) {
+  if (cond === undefined || cond === null || cond === false) return false;
+  return prEvents.every((ev) => requiresAll(stripExpr(cond), (a) =>
+    new RegExp(`^github\\.event_name\\s*!=\\s*'${ev}'$`).test(a) ||
+    /^github\.event_name\s*==\s*'(push|workflow_dispatch|schedule)'$/.test(a) ||
+    REF_TAG.test(a) ||
+    (ev === 'pull_request' && REF_MAIN.test(a))));
+}
+
+// ---- job inspection -----------------------------------------------------------------------
+/** true / false when `permissions` is declared, null when absent. */
+function grantsIdToken(perms) {
+  if (perms === undefined || perms === null) return null;
+  if (typeof perms === 'string') return perms === 'write-all';
+  if (typeof perms === 'object') return perms['id-token'] === 'write';
+  return true; // unexpected shape: fail closed
+}
+
+const AUTH_USES = /^google-github-actions\/auth@/;
+const MAX_DEPTH = 3;
+
+/** Parse a repo-relative local file; null when missing, unparseable or outside the root (caller fails closed). */
+function readLocal(root, rel) {
+  const abs = resolve(root, rel);
+  if (abs !== root && !abs.startsWith(root + sep)) return null;
+  try { return parseYaml(readFileSync(abs, 'utf8')); } catch { return null; }
+}
+
+/** local composite action (`./path`): do its steps, recursively, use google-github-actions/auth? Unresolvable = true. */
+function compositeUsesAuth(root, ref, depth) {
+  if (depth > MAX_DEPTH) return true;
+  for (const name of ['action.yml', 'action.yaml']) {
+    const doc = readLocal(root, join(ref, name));
+    if (doc === null) continue;
+    const steps = Array.isArray(doc?.runs?.steps) ? doc.runs.steps : [];
+    return stepsUseAuth(steps, root, depth);
   }
   return true;
 }
 
-const OPT_OUT = /^\s*#\s*identity-guard:\s*allow\s+(\S.*?)\s*$/;
+function stepsUseAuth(steps, root, depth) {
+  return steps.some((s) => {
+    if (typeof s?.uses !== 'string') return false;
+    const u = s.uses.trim();
+    if (AUTH_USES.test(u)) return true;
+    return u.startsWith('./') && compositeUsesAuth(root, u, depth + 1);
+  });
+}
 
-export function analyzeRef(text, file = 'workflow') {
-  const warn = [];
-  const bad = [];
-  const doc = parseYaml(text);
-  if (!doc || typeof doc !== 'object' || !reachableFromAnyRef(doc)) return { bad, warn };
-  const lines = text.split('\n');
-  for (const [name, job] of Object.entries(doc.jobs ?? {})) {
-    const perms = job.permissions !== undefined ? job.permissions : doc.permissions;
-    const reasons = [];
-    if (idTokenWrite(perms)) reasons.push('effective id-token: write');
-    if ((job.steps ?? []).some((s) => typeof s.uses === 'string' && AUTH_RE.test(s.uses))) {
-      reasons.push('uses google-github-actions/auth');
+/** local reusable workflow: is any of its jobs an identity job? Unresolvable = true. */
+function reusableHasIdentity(root, ref, depth) {
+  if (depth > MAX_DEPTH) return true;
+  const doc = readLocal(root, ref);
+  if (!doc || typeof doc !== 'object') return true;
+  if (!doc.jobs || typeof doc.jobs !== 'object') return false;
+  return Object.values(doc.jobs).some((j) => isIdentityJob(j, doc.permissions, root, depth + 1));
+}
+
+function isIdentityJob(job, topPerms, root, depth = 0) {
+  const effective = grantsIdToken(job?.permissions) ?? grantsIdToken(topPerms) ?? false;
+  if (effective) return true;
+  const steps = Array.isArray(job?.steps) ? job.steps : [];
+  if (stepsUseAuth(steps, root, depth)) return true;
+  if (typeof job?.uses === 'string') {
+    const u = job.uses.trim();
+    if (u.startsWith('./')) return reusableHasIdentity(root, u, depth + 1);
+    // external reusable workflow: opaque, so fail closed when it can receive secrets
+    return job.secrets === 'inherit';
+  }
+  return false;
+}
+
+/**
+ * reason text of a `# identity-guard: allow <reason>` comment on the line immediately above the job's
+ * key line, where the key is a direct child of top-level `jobs:` (matched by exact indentation, never
+ * inside a block scalar). Else null.
+ */
+function optOutReason(text, job) {
+  const ls = text.split('\n');
+  const indentOf = (l) => l.length - l.trimStart().length;
+  const jobsAt = ls.findIndex((l) => /^jobs\s*:\s*(#.*)?$/.test(l));
+  if (jobsAt < 0) return null;
+  const esc = job.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let childIndent = null, scalarIndent = null;
+  for (let i = jobsAt + 1; i < ls.length; i++) {
+    const l = ls[i];
+    if (!l.trim()) continue;
+    const ind = indentOf(l);
+    if (scalarIndent !== null) {
+      if (ind > scalarIndent) continue; // inside a | or > block scalar
+      scalarIndent = null;
     }
-    if (!reasons.length || requiresTrustedRef(job.if)) continue;
-    const idx = lines.findIndex((l) => new RegExp(`^\\s+['"]?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*:\\s*$`).test(l));
-    const m = idx > 0 ? lines[idx - 1].match(OPT_OUT) : null;
-    if (m) warn.push(`WARN ${file}:${name} ${m[1]}`);
-    else bad.push(`${file}:${name} (${reasons.join('; ')}) reachable from any ref without a main/release-tag if`);
+    if (l.trim().startsWith('#')) continue;
+    if (ind === 0) return null; // left the jobs mapping
+    childIndent ??= ind;
+    if (ind === childIndent && new RegExp(`^ {${ind}}['"]?${esc}['"]?\\s*:\\s*(#.*)?$`).test(l)) {
+      const m = ls[i - 1]?.match(new RegExp(`^ {${ind}}#\\s*identity-guard:\\s*allow\\s+(\\S.*?)\\s*$`));
+      return m ? m[1] : null;
+    }
+    if (/(^|[\s:-])[|>][+-]?\d*\s*(#.*)?$/.test(l)) scalarIndent = ind;
   }
-  return { bad, warn };
+  return null;
 }
 
-export function checkDirFull(dir) {
-  const bad = [];
-  const warn = [];
-  for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n)).sort()) {
-    const text = readFileSync(join(dir, f), 'utf8');
-    bad.push(...analyze(text, `${dir}/${f}`));
-    const r = analyzeRef(text, `${dir}/${f}`);
-    bad.push(...r.bad);
-    warn.push(...r.warn);
+/** @returns {{violations: {job: string, rule: number}[], warnings: {job: string, reason: string}[]}} */
+export function analyzeWorkflow(text, root = process.cwd()) {
+  const doc = parseYaml(text);
+  const result = { violations: [], warnings: [] };
+  if (!doc || typeof doc !== 'object' || !doc.jobs || typeof doc.jobs !== 'object') return result;
+  const triggers = triggerMap(doc);
+  const events = Object.keys(triggers);
+  const prEvents = PR_EVENTS.filter((e) => events.includes(e));
+
+  const pushCfg = triggers.push;
+  const pushBranches = pushCfg && typeof pushCfg === 'object' ? pushCfg.branches : undefined;
+  // main-only: branches exactly [main] and nothing that widens the ref set (a tag push runs on refs/tags/*)
+  const pushMainOnly = Array.isArray(pushBranches) && pushBranches.length === 1 && pushBranches[0] === 'main' &&
+    !['tags', 'tags-ignore', 'branches-ignore'].some((k) => pushCfg[k] !== undefined);
+  const anyRef = events.some((e) => ANY_REF_EVENTS.includes(e)) ||
+    (events.includes('push') && !pushMainOnly) ||
+    events.some((e) => e !== 'push' && !SAFE_EVENTS.includes(e) && !ANY_REF_EVENTS.includes(e)); // unknown event: fail closed
+
+  for (const [name, job] of Object.entries(doc.jobs)) {
+    const ext = typeof job?.uses === 'string' && !job.uses.trim().startsWith('./');
+    const named = ext && job.secrets && typeof job.secrets === 'object' ? Object.keys(job.secrets) : [];
+    if (named.length && prEvents.length && !excludesPrEvents(job.if, prEvents)) {
+      result.warnings.push({ job: name, reason: `passes secrets ${named.join(', ')} to external reusable ${job.uses.trim()}` });
+    }
+    if (!isIdentityJob(job, doc.permissions, root)) continue;
+    const cond = job?.if;
+    if (prEvents.length && !excludesPrEvents(cond, prEvents)) {
+      result.violations.push({ job: name, rule: 1 });
+    }
+    if (anyRef && !requiresMainOrTagRef(cond)) {
+      const reason = optOutReason(text, name);
+      if (reason) result.warnings.push({ job: name, reason });
+      else result.violations.push({ job: name, rule: 2 });
+    }
   }
-  return { bad, warn };
+  return result;
 }
 
-export function checkDir(dir) {
-  return checkDirFull(dir).bad;
+/** @returns {string[]} violating job names */
+export function checkWorkflow(text, root) {
+  return [...new Set(analyzeWorkflow(text, root).violations.map((v) => v.job))];
+}
+
+export function checkDir(dir, root = process.cwd()) {
+  const violations = [], warnings = [];
+  for (const f of readdirSync(dir).sort()) {
+    if (!/\.ya?ml$/.test(f)) continue;
+    const r = analyzeWorkflow(readFileSync(join(dir, f), 'utf8'), root);
+    for (const v of r.violations) violations.push(`${f}:${v.job} (rule ${v.rule})`);
+    for (const w of r.warnings) warnings.push(`${f}:${w.job} ${w.reason}`);
+  }
+  return { violations, warnings };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const dir = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), '..', '.github', 'workflows');
-  let bad, warn;
+  const dir = process.argv[2] ?? '.github/workflows';
+  let res;
   try {
-    ({ bad, warn } = checkDirFull(dir));
+    res = checkDir(dir);
   } catch (e) {
     console.error(`check-pr-workflow-identity: ${e.message}`);
     process.exit(2);
   }
-  for (const w of warn) console.log(w);
-  if (bad.length) {
-    console.error('FAIL: identity jobs are reachable from pull_request or from any ref:');
-    for (const b of bad) console.error(`  ${b}`);
+  for (const w of res.warnings) console.warn(`WARN ${w}`);
+  if (res.violations.length) {
+    console.error('Identity violation: rule 1 = no PR-reachable id-token/auth job; rule 2 = identity jobs on any-ref triggers must require main or a release tag:');
+    for (const b of res.violations) console.error(`  ${b}`);
     process.exit(1);
   }
-  console.log('OK: identity jobs are off pull_request and gated to main / release tags');
+  console.log(`check-pr-workflow-identity: ok (${dir})`);
 }
