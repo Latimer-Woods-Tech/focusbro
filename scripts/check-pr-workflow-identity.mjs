@@ -16,18 +16,23 @@
  *   workflow_run, repository_dispatch, or `push` whose `branches` is missing / not exactly [main]),
  *   every identity job needs an `if` whose WHOLE expression requires `github.ref == 'refs/heads/main'`
  *   and/or `startsWith(github.ref, 'refs/tags/...')`. A top-level `||` with any disjunct lacking a ref
- *   check does not count. Opt-out (rule 2 only): `# identity-guard: allow <reason>` directly above the
- *   job key line (a direct child of top-level `jobs:`, never inside a block scalar); prints WARN and passes.
+ *   check does not count. Exceptions come ONLY from the allowlist file
+ *   `check-pr-workflow-identity.allow.json` next to this script: `[{file, job, rule: 2, reason}]` (file = workflow
+ *   basename). It never silences rule 1; a matching violation prints WARN and passes; an entry matching no
+ *   violating job prints `WARN stale allowlist entry`. Comments in workflows are never consulted.
  *   `push` is main-only only with `branches` exactly [main] and no tags / tags-ignore / branches-ignore.
+ * A PR-reachable job that reads `secrets.X` (other than GITHUB_TOKEN) in steps / env / with prints WARN, exit 0.
+ * Local `uses:` paths resolve with realpath and must stay inside the repo root (else identity, fail closed);
+ * `uses:` matching is case-insensitive (GitHub action refs are).
  * An external reusable on a PR-reachable job with explicitly named secrets (not `inherit`) prints WARN, exit 0.
  *
  * The workflow is parsed with PyYAML (python3). If it is unavailable the guard exits 2 (fail closed).
  *
- * Usage: node scripts/check-pr-workflow-identity.mjs [workflows-dir]   (default .github/workflows)
+ * Usage: node scripts/check-pr-workflow-identity.mjs [workflows-dir [allowlist.json]]   (default .github/workflows)
  * Exit 1 lists `file:job` per violation; exit 2 on parser/environment error.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -146,14 +151,18 @@ function grantsIdToken(perms) {
   return true; // unexpected shape: fail closed
 }
 
-const AUTH_USES = /^google-github-actions\/auth@/;
+const AUTH_USES = /^google-github-actions\/auth@/i;
+const ALLOW_FILE = join(dirname(fileURLToPath(import.meta.url)), 'check-pr-workflow-identity.allow.json');
 const MAX_DEPTH = 3;
 
-/** Parse a repo-relative local file; null when missing, unparseable or outside the root (caller fails closed). */
+/** Parse a repo-relative local file; null when missing, unparseable or (after realpath) outside the root (caller fails closed). */
 function readLocal(root, rel) {
-  const abs = resolve(root, rel);
-  if (abs !== root && !abs.startsWith(root + sep)) return null;
-  try { return parseYaml(readFileSync(abs, 'utf8')); } catch { return null; }
+  try {
+    const realRoot = realpathSync(root);
+    const abs = realpathSync(resolve(root, rel));
+    if (abs !== realRoot && !abs.startsWith(realRoot + sep)) return null;
+    return parseYaml(readFileSync(abs, 'utf8'));
+  } catch { return null; }
 }
 
 /** local composite action (`./path`): do its steps, recursively, use google-github-actions/auth? Unresolvable = true. */
@@ -171,7 +180,7 @@ function compositeUsesAuth(root, ref, depth) {
 function stepsUseAuth(steps, root, depth) {
   return steps.some((s) => {
     if (typeof s?.uses !== 'string') return false;
-    const u = s.uses.trim();
+    const u = s.uses.trim().toLowerCase();
     if (AUTH_USES.test(u)) return true;
     return u.startsWith('./') && compositeUsesAuth(root, u, depth + 1);
   });
@@ -200,36 +209,16 @@ function isIdentityJob(job, topPerms, root, depth = 0) {
   return false;
 }
 
-/**
- * reason text of a `# identity-guard: allow <reason>` comment on the line immediately above the job's
- * key line, where the key is a direct child of top-level `jobs:` (matched by exact indentation, never
- * inside a block scalar). Else null.
- */
-function optOutReason(text, job) {
-  const ls = text.split('\n');
-  const indentOf = (l) => l.length - l.trimStart().length;
-  const jobsAt = ls.findIndex((l) => /^jobs\s*:\s*(#.*)?$/.test(l));
-  if (jobsAt < 0) return null;
-  const esc = job.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  let childIndent = null, scalarIndent = null;
-  for (let i = jobsAt + 1; i < ls.length; i++) {
-    const l = ls[i];
-    if (!l.trim()) continue;
-    const ind = indentOf(l);
-    if (scalarIndent !== null) {
-      if (ind > scalarIndent) continue; // inside a | or > block scalar
-      scalarIndent = null;
-    }
-    if (l.trim().startsWith('#')) continue;
-    if (ind === 0) return null; // left the jobs mapping
-    childIndent ??= ind;
-    if (ind === childIndent && new RegExp(`^ {${ind}}['"]?${esc}['"]?\\s*:\\s*(#.*)?$`).test(l)) {
-      const m = ls[i - 1]?.match(new RegExp(`^ {${ind}}#\\s*identity-guard:\\s*allow\\s+(\\S.*?)\\s*$`));
-      return m ? m[1] : null;
-    }
-    if (/(^|[\s:-])[|>][+-]?\d*\s*(#.*)?$/.test(l)) scalarIndent = ind;
+const SECRET_REF = /secrets\s*(?:\.\s*([A-Za-z_][\w-]*)|\[\s*['"]([^'"]+)['"]\s*\])/g;
+/** names of secrets (other than GITHUB_TOKEN) referenced anywhere in the job's own steps / env / with. */
+function secretsRead(job, topEnv) {
+  const { secrets: _passed, ...rest } = job ?? {};
+  const names = new Set();
+  for (const m of JSON.stringify([rest, topEnv ?? null]).matchAll(SECRET_REF)) {
+    const n = m[1] ?? m[2];
+    if (n.toUpperCase() !== 'GITHUB_TOKEN') names.add(n);
   }
-  return null;
+  return [...names].sort();
 }
 
 /** @returns {{violations: {job: string, rule: number}[], warnings: {job: string, reason: string}[]}} */
@@ -252,6 +241,11 @@ export function analyzeWorkflow(text, root = process.cwd()) {
 
   for (const [name, job] of Object.entries(doc.jobs)) {
     const ext = typeof job?.uses === 'string' && !job.uses.trim().startsWith('./');
+    const prReachable = prEvents.length > 0 && !excludesPrEvents(job?.if, prEvents);
+    const read = prReachable ? secretsRead(job, doc.env) : [];
+    if (read.length) {
+      result.warnings.push({ job: name, reason: `reads secrets ${read.join(', ')} on a PR-reachable job (D227 scope is identity; see leader ruling)` });
+    }
     const named = ext && job.secrets && typeof job.secrets === 'object' ? Object.keys(job.secrets) : [];
     if (named.length && prEvents.length && !excludesPrEvents(job.if, prEvents)) {
       result.warnings.push({ job: name, reason: `passes secrets ${named.join(', ')} to external reusable ${job.uses.trim()}` });
@@ -262,9 +256,7 @@ export function analyzeWorkflow(text, root = process.cwd()) {
       result.violations.push({ job: name, rule: 1 });
     }
     if (anyRef && !requiresMainOrTagRef(cond)) {
-      const reason = optOutReason(text, name);
-      if (reason) result.warnings.push({ job: name, reason });
-      else result.violations.push({ job: name, rule: 2 });
+      result.violations.push({ job: name, rule: 2 });
     }
   }
   return result;
@@ -275,13 +267,31 @@ export function checkWorkflow(text, root) {
   return [...new Set(analyzeWorkflow(text, root).violations.map((v) => v.job))];
 }
 
-export function checkDir(dir, root = process.cwd()) {
+/** Load the rule-2 allowlist; a missing file is empty, a malformed one throws (fail closed). */
+export function loadAllowlist(file = ALLOW_FILE) {
+  if (!existsSync(file)) return [];
+  const list = JSON.parse(readFileSync(file, 'utf8'));
+  if (!Array.isArray(list)) throw new Error(`${file}: allowlist must be a JSON array`);
+  return list;
+}
+
+export function checkDir(dir, root = process.cwd(), allowFile = ALLOW_FILE) {
   const violations = [], warnings = [];
+  const allow = loadAllowlist(allowFile).map((e) => ({ ...e, used: false }));
   for (const f of readdirSync(dir).sort()) {
     if (!/\.ya?ml$/.test(f)) continue;
     const r = analyzeWorkflow(readFileSync(join(dir, f), 'utf8'), root);
-    for (const v of r.violations) violations.push(`${f}:${v.job} (rule ${v.rule})`);
     for (const w of r.warnings) warnings.push(`${f}:${w.job} ${w.reason}`);
+    for (const v of r.violations) {
+      const hit = v.rule === 2 ? allow.find((e) => e.rule === 2 && e.file === basename(f) && e.job === v.job && e.reason) : undefined;
+      if (hit) {
+        hit.used = true;
+        warnings.push(`${f}:${v.job} ${hit.reason}`);
+      } else violations.push(`${f}:${v.job} (rule ${v.rule})`);
+    }
+  }
+  for (const e of allow) {
+    if (!e.used) warnings.push(`stale allowlist entry ${e.file}:${e.job} (rule ${e.rule}) matches no violating job`);
   }
   return { violations, warnings };
 }
@@ -290,7 +300,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = process.argv[2] ?? '.github/workflows';
   let res;
   try {
-    res = checkDir(dir);
+    res = checkDir(dir, process.cwd(), process.argv[3] ?? ALLOW_FILE);
   } catch (e) {
     console.error(`check-pr-workflow-identity: ${e.message}`);
     process.exit(2);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkWorkflow } from './check-pr-workflow-identity.mjs';
@@ -147,49 +147,75 @@ test('R2 FAIL: push with tags only (branches missing)', () => assert.deepEqual(
   checkWorkflow(disp('', "on:\n  push:\n    tags: ['v*']")), ['cal']));
 test('R2 FAIL: ref check only in a disjunct of a parenthesised ||', () => assert.deepEqual(
   checkWorkflow(disp("    if: (github.ref == 'refs/heads/main' || success()) && always()\n")), ['cal']));
-test('R2 opt-out: WARN and exit 0', () => {
-  const d = mkdtempSync(join(tmpdir(), 'wfopt-'));
-  writeFileSync(join(d, 'o.yml'), disp('').replace('  cal:', '  # identity-guard: allow staging runs\n  cal:'));
-  const r = spawnSync('node', ['scripts/check-pr-workflow-identity.mjs', d], { encoding: 'utf8' });
+// ---- round 5: allowlist file replaces comment opt-outs ----
+const emptyAllow = '[]';
+const run = (yml, allow = emptyAllow) => {
+  const d = mkdtempSync(join(tmpdir(), 'wfopt5-'));
+  writeFileSync(join(d, 'o.yml'), yml);
+  const f = join(mkdtempSync(join(tmpdir(), 'wfallow-')), 'a.json');
+  writeFileSync(f, typeof allow === 'string' ? allow : JSON.stringify(allow));
+  return spawnSync('node', ['scripts/check-pr-workflow-identity.mjs', d, f], { encoding: 'utf8' });
+};
+const entry = (o = {}) => ({ file: 'o.yml', job: 'cal', rule: 2, reason: 'staging runs', ...o });
+test('R5 FAIL: comment opt-out is ignored', () => {
+  const r = run(disp('').replace('  cal:', '  # identity-guard: allow staging runs\n  cal:'));
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /o\.yml:cal \(rule 2\)/);
+});
+test('R5 FAIL: forged comment above flow-mapping decoy.env.real is ignored', () => {
+  const y = `on:\n  workflow_dispatch:\njobs:\n  decoy: {env: {\n  # identity-guard: allow sneaky\n  real: x}}\n  real:\n    permissions:\n      id-token: write\n    steps:\n      - run: echo\n`;
+  assert.equal(run(y).status, 1);
+});
+test('R5 FAIL: fake job key in a run block with comment is ignored', () => {
+  const y = `on:\n  workflow_dispatch:\njobs:\n  decoy:\n    steps:\n      - run: |\n          # identity-guard: allow sneaky\n          real:\n  real:\n    permissions:\n      id-token: write\n    steps:\n      - run: echo\n`;
+  const r = run(y);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /o\.yml:real \(rule 2\)/);
+});
+test('R5 PASS: allowlist rule-2 entry gives WARN, exit 0', () => {
+  const r = run(disp(''), [entry()]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WARN o\.yml:cal staging runs/);
+  assert.doesNotMatch(r.stderr, /stale/);
 });
-// ---- round 3: opt-out scope, composite and reusable workflows ----
-const optOutDir = (yml) => {
-  const d = mkdtempSync(join(tmpdir(), 'wfopt3-'));
-  writeFileSync(join(d, 'o.yml'), yml);
-  return spawnSync('node', ['scripts/check-pr-workflow-identity.mjs', d], { encoding: 'utf8' });
-};
-const fakeOptOut = `on:
-  workflow_dispatch:
-jobs:
-  decoy:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          # identity-guard: allow sneaky
-          real:
-  real:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - run: echo
-`;
-test('R3 FAIL: opt-out + fake job key inside another job\'s run block does not authorize', () => {
-  const r = optOutDir(fakeOptOut);
+test('R5 FAIL: allowlist cannot silence rule 1', () => {
+  const r = run('on: pull_request\njobs:\n' + prJob(), [entry(), entry({ rule: 1 })]);
   assert.equal(r.status, 1, r.stderr);
-  assert.match(r.stderr, /o\.yml:real \(rule 2\)/);
-  assert.doesNotMatch(r.stderr, /WARN/);
+  assert.match(r.stderr, /o\.yml:cal \(rule 1\)/);
 });
-test('R3 FAIL: opt-out comment not immediately above the key', () => {
-  assert.equal(optOutDir(disp('').replace('  cal:', '  # identity-guard: allow x\n\n  cal:')).status, 1);
+test('R5 FAIL: allowlist entry for another job/file does not match', () => {
+  assert.equal(run(disp(''), [entry({ job: 'other' }), entry({ file: 'x.yml' })]).status, 1);
 });
-test('R3 PASS: genuine opt-out with 4-space job indentation', () => {
-  const y = 'on:\n  workflow_dispatch:\njobs:\n    # identity-guard: allow staging\n    cal:\n        permissions:\n            id-token: write\n        steps:\n            - run: echo\n';
-  const r = optOutDir(y);
+test('R5 WARN: stale allowlist entry, exit 0', () => {
+  const r = run('on: push\njobs:\n  cal:\n    steps:\n      - run: echo\n', [entry()]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /WARN o\.yml:cal staging/);
+  assert.match(r.stderr, /WARN stale allowlist entry o\.yml:cal/);
+});
+test('R5 FAIL: malformed allowlist exits 2', () => assert.equal(run(disp(''), '{').status, 2));
+
+test('R5 FAIL: mixed-case google-github-actions/auth on a PR job', () => assert.deepEqual(
+  checkWorkflow('on: pull_request\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: Google-GitHub-Actions/Auth@abc\n'), ['j']));
+
+test('R5 FAIL: job permissions: write-all on a PR workflow', () => assert.deepEqual(
+  checkWorkflow('on: pull_request\njobs:\n  j:\n    runs-on: x\n    permissions: write-all\n    steps:\n      - run: echo\n'), ['j']));
+test('R5 FAIL: top-level write-all, no job permissions', () => assert.deepEqual(
+  checkWorkflow('on: pull_request\npermissions: write-all\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: echo\n'), ['j']));
+test('R5 PASS: permissions: read-all is not identity', () => assert.deepEqual(
+  checkWorkflow('on: pull_request\npermissions: read-all\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: echo\n'), []));
+
+test('R5 WARN: plain secret use in env on a PR job', () => {
+  const r = run('on: pull_request\njobs:\n  j:\n    runs-on: x\n    env:\n      KEY: ${{ secrets.MY_KEY }}\n    steps:\n      - run: echo\n        env:\n          T: ${{ secrets.GITHUB_TOKEN }}\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /WARN o\.yml:j reads secrets MY_KEY on a PR-reachable job \(D227 scope is identity; see leader ruling\)/);
+});
+test('R5 WARN: secret in a step `with:`', () => {
+  const r = run('on: pull_request\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: a/b@1\n        with:\n          t: ${{ secrets.TOK }}\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /WARN o\.yml:j reads secrets TOK /);
+});
+test('R5 no WARN: GITHUB_TOKEN only, or non-PR workflow', () => {
+  assert.doesNotMatch(run('on: pull_request\njobs:\n  j:\n    steps:\n      - run: echo ${{ secrets.GITHUB_TOKEN }}\n').stderr, /WARN/);
+  assert.doesNotMatch(run('on: push\njobs:\n  j:\n    steps:\n      - run: echo ${{ secrets.K }}\n').stderr, /WARN/);
 });
 
 const repo = (files) => {
@@ -219,6 +245,20 @@ test('R3 PASS: local composite without auth', () => {
 });
 test('R3 FAIL: missing local composite fails closed', () => {
   assert.deepEqual(checkWorkflow(prCaller('    runs-on: x\n    steps:\n      - uses: ./nope\n'), repo({})), ['j']);
+});
+test('R5 FAIL: symlink to a clean composite outside the root fails closed', () => {
+  const outside = mkdtempSync(join(tmpdir(), 'wfout-'));
+  writeFileSync(join(outside, 'action.yml'), 'runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n');
+  const root = repo({});
+  mkdirSync(join(root, '.github/actions'), { recursive: true });
+  symlinkSync(outside, join(root, '.github/actions/x'));
+  assert.deepEqual(checkWorkflow(prCaller('    runs-on: x\n    steps:\n      - uses: ./.github/actions/x\n'), root), ['j']);
+});
+test('R5 PASS: symlink inside the root to a clean composite', () => {
+  const root = repo({ 'real/action.yml': 'runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n' });
+  mkdirSync(join(root, '.github/actions'), { recursive: true });
+  symlinkSync(join(root, 'real'), join(root, '.github/actions/x'));
+  assert.deepEqual(checkWorkflow(prCaller('    runs-on: x\n    steps:\n      - uses: ./.github/actions/x\n'), root), []);
 });
 test('R3 FAIL: local reusable workflow containing auth', () => {
   const root = repo({ '.github/workflows/r.yml': 'on: workflow_call\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: google-github-actions/auth@abc\n' });
@@ -256,12 +296,12 @@ test('R4 PASS: branches [main] + tags with a ref gate', () => assert.deepEqual(
 test('R4 FAIL: external reusable secrets: inherit stays a failure', () => assert.deepEqual(
   checkWorkflow(prCaller('    uses: o/r/.github/workflows/w.yml@abc\n    secrets: inherit\n'), repo({})), ['j']));
 test('R4 WARN: external reusable with named secrets passes with a WARN', () => {
-  const r = optOutDir(prCaller('    uses: o/r/.github/workflows/w.yml@abc\n    secrets:\n      A: ${{ secrets.A }}\n      B: ${{ secrets.B }}\n'));
+  const r = run(prCaller('    uses: o/r/.github/workflows/w.yml@abc\n    secrets:\n      A: ${{ secrets.A }}\n      B: ${{ secrets.B }}\n'));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WARN o\.yml:j passes secrets A, B to external reusable o\/r\/\.github\/workflows\/w\.yml@abc/);
 });
 test('R4 no WARN: named secrets on a job that excludes PR events', () => {
-  const r = optOutDir("on:\n  pull_request:\n  push:\n    branches: [main]\njobs:\n  j:\n    if: github.event_name != 'pull_request'\n    uses: o/r/.github/workflows/w.yml@abc\n    secrets:\n      A: x\n");
+  const r = run("on:\n  pull_request:\n  push:\n    branches: [main]\njobs:\n  j:\n    if: github.event_name != 'pull_request'\n    uses: o/r/.github/workflows/w.yml@abc\n    secrets:\n      A: x\n");
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /WARN/);
 });
