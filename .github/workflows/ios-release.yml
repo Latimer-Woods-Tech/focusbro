@@ -6,14 +6,15 @@ name: iOS Release — unsigned compile, then gated signing
 # iOS Simulator with CODE_SIGNING_ALLOWED=NO. It has NO id-token permission, NO GCP
 # auth and fetches NO secret, so a cloud compile never touches credentials.
 #
-# Job 2 `signed`: needs `unsigned`, and runs ONLY on refs/heads/main or a tag
-# ios-vX.Y.Z. It reads the App Store Connect API key from GCP Secret Manager
+# Job 2 `signed`: needs `unsigned`, and runs ONLY for a manual dispatch with mode=signed on
+# refs/heads/main at the exact commit named in expected_sha. There is NO tag trigger and NO push trigger: a signed
+# run is always a deliberate dispatch, one per security GO (jc-security #30297). It reads the App Store Connect API key from GCP Secret Manager
 # (factory-495015) via WIF — never GitHub secrets (Standing Law 3):
 #   ASC_KEY_ID        App Store Connect API key ID (10 chars)
 #   ASC_ISSUER_ID     issuer UUID (Users and Access → Integrations → App Store Connect API)
 #   ASC_PRIVATE_KEY   contents of the AuthKey_<KEYID>.p8 file
-# It archives with automatic signing. The TestFlight upload happens only for a tag
-# push, or a dispatch with skip_upload=false (default true: build, never upload).
+# It archives with automatic signing, and FAILS CLOSED if any ASC secret is missing. The TestFlight upload happens only
+# for a dispatch with skip_upload=false (default true: build, never upload).
 # Founder steps: docs/MOBILE_APP.md → "iOS".
 
 on:
@@ -22,14 +23,20 @@ on:
       version_name:
         description: 'Version name (digits and dots, e.g. 0.1.0) — blank = mobile/package.json'
         required: false
+      mode:
+        description: 'unsigned = compile only, the credentialed job is SKIPPED; signed = archive with the App Store Connect key (main only, one run per GO)'
+        required: false
+        type: choice
+        options: [unsigned, signed]
+        default: unsigned
+      expected_sha:
+        description: 'mode=signed only: the exact 40-hex commit this run must be on (the GO names it); blank otherwise'
+        required: false
       skip_upload:
         description: 'true = archive only, never upload to TestFlight (set false to upload)'
         required: false
         type: boolean
         default: true
-  push:
-    tags:
-      - 'ios-v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     paths:
       - 'mobile/ios/**'
@@ -80,7 +87,7 @@ jobs:
   signed:
     name: Archive (automatic signing) and optional TestFlight upload
     needs: unsigned
-    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/ios-v') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'signed' && github.ref == 'refs/heads/main' }}
     runs-on: macos-latest
     timeout-minutes: 45
     permissions:
@@ -92,6 +99,7 @@ jobs:
     env:
       VERSION_INPUT: ${{ inputs.version_name }}
       SKIP_UPLOAD_INPUT: ${{ inputs.skip_upload }}
+      EXPECTED_SHA_INPUT: ${{ inputs.expected_sha }}
       RUN_NUMBER: ${{ github.run_number }}
     steps:
       - name: Checkout
@@ -100,16 +108,18 @@ jobs:
       - name: Determine version and upload mode
         id: version
         run: |
+          # The signed run is fenced to the exact commit the GO names (checked BEFORE any credential step).
+          if ! [[ "$EXPECTED_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]] || [ "$EXPECTED_SHA_INPUT" != "$GITHUB_SHA" ]; then
+            echo "::error::expected_sha must be the 40-hex commit this run is on"; exit 1
+          fi
           if [ -n "$VERSION_INPUT" ]; then V="$VERSION_INPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then V="${GITHUB_REF_NAME#ios-v}"
           else V=$(node -p "require('./mobile/package.json').version"); fi
           if ! [[ "$V" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
             echo "::error::version must be digits and dots (got a non-matching value)"; exit 1
           fi
-          # Upload only for a tag push, or a dispatch that set skip_upload=false.
+          # Upload only for a dispatch that set skip_upload=false.
           UPLOAD=false
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then UPLOAD=true
-          elif [[ "$SKIP_UPLOAD_INPUT" == "false" ]]; then UPLOAD=true; fi
+          if [[ "$SKIP_UPLOAD_INPUT" == "false" ]]; then UPLOAD=true; fi
           echo "VERSION_NAME=$V" >> "$GITHUB_OUTPUT"
           echo "BUILD_NUMBER=$(( 10000 + RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
           echo "UPLOAD=$UPLOAD" >> "$GITHUB_OUTPUT"
@@ -142,7 +152,9 @@ jobs:
             cp "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
             echo "key_path=$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::App Store Connect API key not in Secret Manager — nothing to sign. See docs/MOBILE_APP.md (iOS)."
+            echo "::error::App Store Connect API key not complete in Secret Manager — a signed run fails closed. See docs/MOBILE_APP.md (iOS)."
+            rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$RUNNER_TEMP/ASC_KEY_ID" "$RUNNER_TEMP/ASC_ISSUER_ID"
+            exit 1
           fi
           rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY"
           echo "signing=$have" >> "$GITHUB_OUTPUT"

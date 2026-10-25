@@ -127,7 +127,7 @@ iOS universal links are **not** wired yet (needs the Team ID, an
 | Signed release | Actions → **Android Release** → Run workflow (or push tag `android-vX.Y.Z`). Produces `…-release.aab` and `…-sideload.apk` artifacts, verified in-job: signer = upload key, package, versionCode, App Link host |
 | Testers | Same workflow with `distribute_to` = comma-separated emails → Firebase App Distribution. Or locally: `mobile/scripts/firebase-distribute.sh <apk> "<notes>" <emails>` |
 | PR check | Any PR touching `mobile/**` runs the same signed build (no distribution) |
-| iOS | Actions → **iOS Release**. Job `unsigned` (every run, any ref) compiles for the Simulator with `CODE_SIGNING_ALLOWED=NO` and touches no secret. Job `signed` runs only on `main` or a tag `ios-vX.Y.Z`, needs `unsigned`, reads the ASC key from Secret Manager and archives. It uploads to TestFlight only for a tag push or a dispatch with `skip_upload=false` (default `true`). `version_name` must be digits and dots. See "iOS privacy and notifications" below |
+| iOS | Actions → **iOS Release**. Job `unsigned` (every run, any ref) compiles for the Simulator with `CODE_SIGNING_ALLOWED=NO` and touches no secret. Job `signed` runs only for a manual dispatch with `mode=signed` on `main` at the exact commit named in `expected_sha` (no tag or push trigger), needs `unsigned`, reads the ASC key from Secret Manager, archives, and fails closed if a secret is missing. It uploads to TestFlight only with `skip_upload=false` (default `true`); `mode` defaults to `unsigned`, which skips the credentialed job entirely. `version_name` must be digits and dots. See "iOS privacy and notifications" below |
 
 `versionCode` = 10000 + workflow run number (monotonic; Play rejects reuse).
 Signing material lives only in GCP Secret Manager (`factory-495015`), read by
@@ -219,9 +219,10 @@ before submission.
   data), purchase history; plus product interaction for analytics (first-party
   events, not sent to an analytics vendor). It must match `public/privacy.html`.
 - **Unsigned compile:** runs automatically on PRs touching `mobile/ios/**` (or the
-  workflow / capacitor config / mobile lockfile), on tag pushes, and on any
-  manual dispatch from any branch; it never touches a secret.
-- **Signed dispatch:** Run workflow on `main` (or push tag `ios-vX.Y.Z`); leave
+  workflow / capacitor config / mobile lockfile) and on any manual dispatch from
+  any branch; it never touches a secret.
+- **Signed dispatch:** one deliberate run per security GO: Run workflow on `main`
+  with `mode=signed` and `expected_sha` = the 40-hex commit the GO names; leave
   `skip_upload` true to archive only, set it to false to upload to TestFlight.
 
 ## What has and has not been verified (2026-10-01)
