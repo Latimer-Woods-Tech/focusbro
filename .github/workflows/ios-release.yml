@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Version name (digits and dots, e.g. 0.1.0) — blank = mobile/package.json'
+        description: 'Version name (exactly x.y.z, e.g. 0.1.0) — blank = mobile/package.json'
         required: false
       mode:
         description: 'unsigned = compile only, the credentialed job is SKIPPED; signed = archive with the App Store Connect key (main only, one run per GO)'
@@ -76,7 +76,7 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        shell: bash -eo pipefail {0}
+        shell: bash -euo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -110,9 +110,11 @@ jobs:
     permissions:
       contents: read
       id-token: write   # WIF → GCP Secret Manager
+    env:
+      ASC_SECRET_VERSION: '1'   # the plan's isolated v1; never latest
     defaults:
       run:
-        shell: bash -eo pipefail {0}
+        shell: bash -euo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -161,41 +163,36 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
 
-      - name: Resolve App Store Connect key (gate)
-        id: asc
-        run: |
-          have=true
-          for s in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
-            if gcloud secrets versions access latest --secret="$s" --project=factory-495015 > "$RUNNER_TEMP/$s" 2>/dev/null && [ -s "$RUNNER_TEMP/$s" ]; then
-              echo "$s: present ($(wc -c < "$RUNNER_TEMP/$s") bytes)"
-            else
-              echo "$s: absent"; have=false
-            fi
-          done
-          if [ "$have" = true ]; then
-            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
-            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
-            mkdir -p "$HOME/.appstoreconnect/private_keys"
-            KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
-            cp "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
-            echo "key_path=$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::App Store Connect API key not complete in Secret Manager — a signed run fails closed. See docs/MOBILE_APP.md (iOS)."
-            rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$RUNNER_TEMP/ASC_KEY_ID" "$RUNNER_TEMP/ASC_ISSUER_ID"
-            exit 1
-          fi
-          rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY"
-          echo "signing=$have" >> "$GITHUB_OUTPUT"
-
-      - name: Archive (automatic signing via the ASC API key)
-        if: ${{ steps.asc.outputs.signing == 'true' }}
+      # ONE credentialed step: fetch, archive, export/upload share one shell, so ONE EXIT trap covers the whole key
+      # lifetime (including SIGTERM/INT). Key lives only in a run-owned 0700 dir as a 0600 file; the key id, issuer and PEM
+      # lines are masked; key content never goes through env vars or argv (only the PATH does). The always() step below is
+      # the fallback. Honest limit: a runner loss or hard cancel can skip every step and trap; the runner is ephemeral.
+      - name: Fetch ASC key, archive, export/upload (run-owned key dir, trap cleanup)
         working-directory: mobile/ios/App
         env:
-          KEY_PATH: ${{ steps.asc.outputs.key_path }}
           MARKETING_VERSION_VALUE: ${{ steps.version.outputs.VERSION_NAME }}
           BUILD_NUMBER_VALUE: ${{ steps.build.outputs.BUILD_NUMBER }}
+          UPLOAD: ${{ steps.version.outputs.UPLOAD }}
         run: |
-          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
+          umask 077
+          KEYDIR="$(mktemp -d "$RUNNER_TEMP/asc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
+          trap 'rm -rf "$KEYDIR"' EXIT
+          echo "ASC_KEYDIR=$KEYDIR" >> "$GITHUB_ENV"
+          read_secret() { # pinned numeric version; any failure or empty value aborts before anything is written
+            local v
+            v="$(gcloud secrets versions access "$ASC_SECRET_VERSION" --secret="$1" --project=factory-495015 2>/dev/null)" || { echo "::error::$1 unreadable at version $ASC_SECRET_VERSION"; exit 1; }
+            [ -n "$v" ] || { echo "::error::$1 empty at version $ASC_SECRET_VERSION"; exit 1; }
+            printf '%s' "$v"
+          }
+          KEY_ID="$(read_secret ASC_KEY_ID)"; ISSUER="$(read_secret ASC_ISSUER_ID)"; PEM="$(read_secret ASC_PRIVATE_KEY)"
+          echo "::add-mask::$KEY_ID"; echo "::add-mask::$ISSUER"
+          while IFS= read -r line; do
+            case "$line" in ''|-----*) ;; *) echo "::add-mask::$line" ;; esac
+          done <<< "$PEM"
+          KEY_PATH="$KEYDIR/AuthKey_${KEY_ID}.p8"
+          : > "$KEY_PATH"; chmod 600 "$KEY_PATH"; printf '%s\n' "$PEM" > "$KEY_PATH"
+          [ "$(stat -f %Lp "$KEY_PATH")" = "600" ] || { echo "::error::key file mode is not 600"; exit 1; }
+          unset PEM
           xcodebuild -project App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
             -allowProvisioningUpdates \
@@ -204,23 +201,23 @@ jobs:
             MARKETING_VERSION="$MARKETING_VERSION_VALUE" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER_VALUE" \
             archive | tail -30
+          if [ "$UPLOAD" = "true" ]; then
+            /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
+              -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
+              "$RUNNER_TEMP/ExportOptions.plist"
+            xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$KEY_PATH" \
+              -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
+            echo "Uploaded to App Store Connect (destination=upload); it appears in TestFlight after processing."
+          fi
 
-      - name: Export IPA + upload to TestFlight
-        if: ${{ steps.asc.outputs.signing == 'true' && steps.version.outputs.UPLOAD == 'true' }}
-        env:
-          KEY_PATH: ${{ steps.asc.outputs.key_path }}
-        run: |
-          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
-          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
-            -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
-            "$RUNNER_TEMP/ExportOptions.plist"
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
-          echo "Uploaded to App Store Connect (destination=upload); it appears in TestFlight after processing."
-
-      - name: Remove key material
+      # Fallback: removes ONLY the run-owned key dir, then reads back that it is gone and fails loudly if not.
+      - name: Remove run-owned key dir (read-back)
         if: always()
-        run: rm -rf "$HOME/.appstoreconnect" "$RUNNER_TEMP"/ASC_*
+        run: |
+          if [ -n "${ASC_KEYDIR:-}" ]; then
+            rm -rf "$ASC_KEYDIR"
+            if [ -e "$ASC_KEYDIR" ]; then echo "::error::run-owned key dir still exists after removal"; exit 1; fi
+          fi

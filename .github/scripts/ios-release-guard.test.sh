@@ -58,7 +58,10 @@ reject "version five parts" VERSION_INPUT=1.0.0.0.0
 reject "version command substitution" 'VERSION_INPUT=$(touch x)'
 reject "version backtick" 'VERSION_INPUT=`touch x`'
 reject "version blank and no package version" VERSION_INPUT= PKG_VERSION=
+reject "version two parts" VERSION_INPUT=1.2
+reject "version four parts" VERSION_INPUT=1.2.3.4
 reject "version bad package version" VERSION_INPUT= PKG_VERSION=1.0-beta
+accept "version exactly x.y.z" 1.2.3 false VERSION_INPUT=1.2.3
 accept "valid signed, upload off by default" 1.2.3 false
 accept "valid signed, skip_upload=false" 1.2.3 true SKIP_UPLOAD_INPUT=false
 accept "skip_upload=False stays off" 1.2.3 false SKIP_UPLOAD_INPUT=False
@@ -80,6 +83,31 @@ mutate no-ref 'REF:-' REF=refs/heads/feature
 mutate no-sha-format 'EXPECTED_SHA:-}" =~' EXPECTED_SHA=$UP40 SHA=$UP40
 mutate no-sha-equality 'EXPECTED_SHA:-}" = ' EXPECTED_SHA=$BAD40
 mutate no-version-regex '\$V" =~' 'VERSION_INPUT=1.0; touch x'
+
+# Custody static assertions, each with a mutation proof: the mutated workflow text MUST fail the matching check.
+WFT="$(cat "$WF")"
+custody() { # prints failing check names for workflow text on stdin
+  python3 -I -c '
+import sys,re
+t=sys.stdin.read(); f=[]
+if re.search(r"versions access\s+latest",t): f.append("latest-version")
+if not re.search(r"ASC_SECRET_VERSION:\s*.[0-9]+.",t): f.append("numeric-version")
+u=t.find("umask 077"); c=t.find("chmod 600"); w=t.find("printf \x27%s\\n\x27 \"$PEM\"")
+if not (0<=u<c<w): f.append("umask-chmod-before-write")
+if not ("trap \x27rm -rf \"$KEYDIR\"\x27 EXIT" in t or ("if: always()" in t and "-e \"$ASC_KEYDIR\"" in t)): f.append("cleanup")
+if re.search(r"rm -rf[^\n]*(appstoreconnect|ASC_\*)",t): f.append("broad-rm")
+if "bash -euo pipefail" not in t or re.search(r"bash -eo pipefail",t): f.append("shell-u")
+print(" ".join(f))'
+}
+cchk() { local n="$1" want="$2" txt="$3" got; got="$(printf '%s' "$txt" | custody)"; if [ "$got" = "$want" ]; then ok "$n"; else bad "$n (got '$got' want '$want')"; fi; }
+cchk "custody: real workflow clean" "" "$WFT"
+cchk "custody mutation: latest read" "latest-version" "${WFT/versions access \"\$ASC_SECRET_VERSION\"/versions access latest}"
+cchk "custody mutation: non-numeric version" "numeric-version" "${WFT/ASC_SECRET_VERSION: \'1\'/ASC_SECRET_VERSION: \'latest\'}"
+cchk "custody mutation: no chmod 600" "umask-chmod-before-write" "${WFT/chmod 600/chmod 644}"
+cchk "custody mutation: no EXIT trap" "" "${WFT/trap \'rm -rf \"\$KEYDIR\"\' EXIT/true}"
+cchk "custody mutation: no trap and no cleanup step" "cleanup" "$(M="${WFT/trap \'rm -rf \"\$KEYDIR\"\' EXIT/true}"; printf '%s' "${M//if: always()/if: success()}")"
+cchk "custody mutation: broad rm" "broad-rm" "$WFT"$'\n''run: rm -rf "$HOME/.appstoreconnect"'
+cchk "custody mutation: shell without -u" "shell-u" "${WFT//bash -euo pipefail/bash -eo pipefail}"
 
 # Workflow structure assertions (PyYAML).
 set +e

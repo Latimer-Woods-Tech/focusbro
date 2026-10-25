@@ -16,7 +16,7 @@ fail() { echo "::error::$1"; exit 1; }
 
 V="${VERSION_INPUT:-}"
 if [ -z "$V" ]; then V="${PKG_VERSION:-}"; fi
-[[ "$V" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "version must be digits and dots (got a non-matching value)"
+[[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must be exactly x.y.z (got a non-matching value)"
 
 UPLOAD=false
 if [ "${SKIP_UPLOAD_INPUT:-}" = "false" ]; then UPLOAD=true; fi
