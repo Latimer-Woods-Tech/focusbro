@@ -127,7 +127,7 @@ iOS universal links are **not** wired yet (needs the Team ID, an
 | Signed release | Actions → **Android Release** → Run workflow (or push tag `android-vX.Y.Z`). Produces `…-release.aab` and `…-sideload.apk` artifacts, verified in-job: signer = upload key, package, versionCode, App Link host |
 | Testers | Same workflow with `distribute_to` = comma-separated emails → Firebase App Distribution. Or locally: `mobile/scripts/firebase-distribute.sh <apk> "<notes>" <emails>` |
 | PR check | Any PR touching `mobile/**` runs the same signed build (no distribution) |
-| iOS | Actions → **iOS Release**: always a simulator build; archive + TestFlight upload only once the ASC key exists (below) |
+| iOS | Actions → **iOS Release**. Job `unsigned` (every run, any ref) compiles for the Simulator with `CODE_SIGNING_ALLOWED=NO` and touches no secret. Job `signed` runs only on `main` or a tag `ios-vX.Y.Z`, needs `unsigned`, reads the ASC key from Secret Manager and archives. It uploads to TestFlight only for a tag push or a dispatch with `skip_upload=false` (default `true`). `version_name` must be digits and dots. See "iOS privacy and notifications" below |
 
 `versionCode` = 10000 + workflow run number (monotonic; Play rejects reuse).
 Signing material lives only in GCP Secret Manager (`factory-495015`), read by
@@ -202,6 +202,27 @@ before submission.
    SELF:PRIME's Sign in with Apple key and **cannot** do this.
 5. Run **iOS Release**. iOS background audio additionally needs the app's
    `AVAudioSession` category set to playback — verify on a device; not yet done.
+
+### iOS privacy and notifications
+
+- **Push notifications are not used.** The app has no `aps-environment`
+  entitlement and registers for no remote notifications; check-ins are *local*
+  notifications scheduled on the device (`@capacitor/local-notifications`, the
+  Time Sensitive entitlement). Do not add Push Notifications to the App ID until
+  FCM/APNs push is actually built.
+- **Privacy manifest:** `mobile/ios/App/App/PrivacyInfo.xcprivacy` declares no
+  tracking and no tracking domains; required-reason APIs (UserDefaults CA92.1,
+  file timestamp C617.1, system boot time 35F9.1, disk space E174.1, declared
+  conservatively as Capacitor itself uses them); and collected data linked to the
+  user, for app functionality: email address, user id, phone number (optional text
+  check-ins), other user content (words, check-in answers and notes, synced
+  data), purchase history; plus product interaction for analytics (first-party
+  events, not sent to an analytics vendor). It must match `public/privacy.html`.
+- **Unsigned compile:** runs automatically on PRs touching `mobile/ios/**` (or the
+  workflow / capacitor config / mobile lockfile), on tag pushes, and on any
+  manual dispatch from any branch; it never touches a secret.
+- **Signed dispatch:** Run workflow on `main` (or push tag `ios-vX.Y.Z`); leave
+  `skip_upload` true to archive only, set it to false to upload to TestFlight.
 
 ## What has and has not been verified (2026-10-01)
 
