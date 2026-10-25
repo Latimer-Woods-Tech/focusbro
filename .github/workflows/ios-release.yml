@@ -6,6 +6,9 @@ name: iOS Release — unsigned compile, then gated signing
 # iOS Simulator with CODE_SIGNING_ALLOWED=NO. It has NO id-token permission, NO GCP
 # auth and fetches NO secret, so a cloud compile never touches credentials.
 #
+# Job `guard-tests` (ubuntu, no secrets, no id-token): .github/scripts/ios-release-guard.test.sh proves the guard rejects bad
+# inputs with FAKE stubs, and that deleting each check makes its case fail. Cloud-only; never run on a dev host.
+#
 # Job 2 `signed`: needs `unsigned`, and runs ONLY for a manual dispatch with mode=signed on
 # refs/heads/main at the exact commit named in expected_sha. There is NO tag trigger and NO push trigger: a signed
 # run is always a deliberate dispatch, one per security GO (jc-security #30297). It reads the App Store Connect API key from GCP Secret Manager
@@ -44,6 +47,7 @@ on:
       - 'mobile/package-lock.json'
       - 'mobile/capacitor.config.json'
       - '.github/workflows/ios-release.yml'
+      - '.github/scripts/ios-release-guard*'
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -53,6 +57,19 @@ permissions:
   contents: read
 
 jobs:
+  guard-tests:
+    name: Guard script + workflow structure tests (fake stubs, no secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Run guard harness (fake gcloud/xcodebuild, proof of rejection)
+        run: bash .github/scripts/ios-release-guard.test.sh
+
   unsigned:
     name: Unsigned simulator compile (no secrets)
     runs-on: macos-latest
@@ -96,33 +113,44 @@ jobs:
     defaults:
       run:
         shell: bash -eo pipefail {0}
-    env:
-      VERSION_INPUT: ${{ inputs.version_name }}
-      SKIP_UPLOAD_INPUT: ${{ inputs.skip_upload }}
-      EXPECTED_SHA_INPUT: ${{ inputs.expected_sha }}
-      RUN_NUMBER: ${{ github.run_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
-      - name: Determine version and upload mode
+      # FIRST step, before any credential: every input is passed as env data, never interpolated into shell text.
+      - name: Guard (event, mode, ref, sha, version)
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ inputs.mode }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          VERSION_INPUT: ${{ inputs.version_name }}
+          SKIP_UPLOAD_INPUT: ${{ inputs.skip_upload }}
         run: |
-          # The signed run is fenced to the exact commit the GO names (checked BEFORE any credential step).
-          if ! [[ "$EXPECTED_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]] || [ "$EXPECTED_SHA_INPUT" != "$GITHUB_SHA" ]; then
-            echo "::error::expected_sha must be the 40-hex commit this run is on"; exit 1
-          fi
-          if [ -n "$VERSION_INPUT" ]; then V="$VERSION_INPUT"
-          else V=$(node -p "require('./mobile/package.json').version"); fi
-          if ! [[ "$V" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
-            echo "::error::version must be digits and dots (got a non-matching value)"; exit 1
-          fi
-          # Upload only for a dispatch that set skip_upload=false.
-          UPLOAD=false
-          if [[ "$SKIP_UPLOAD_INPUT" == "false" ]]; then UPLOAD=true; fi
-          echo "VERSION_NAME=$V" >> "$GITHUB_OUTPUT"
-          echo "BUILD_NUMBER=$(( 10000 + RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
-          echo "UPLOAD=$UPLOAD" >> "$GITHUB_OUTPUT"
+          if [ -z "$VERSION_INPUT" ]; then PKG_VERSION="$(node -p "require('./mobile/package.json').version")"; export PKG_VERSION; fi
+          bash .github/scripts/ios-release-guard.sh
+
+      - name: Build number
+        id: build
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: echo "BUILD_NUMBER=$(( 10000 + RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
+
+      # npm lifecycle scripts run here, BEFORE any credential exists on the runner disk (jc-security #30314).
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies + sync iOS
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync ios
 
       - name: Authenticate to GCP (WIF)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
@@ -159,28 +187,13 @@ jobs:
           rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY"
           echo "signing=$have" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Node.js
-        if: ${{ steps.asc.outputs.signing == 'true' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: mobile/package-lock.json
-
-      - name: Install mobile dependencies + sync iOS
-        if: ${{ steps.asc.outputs.signing == 'true' }}
-        working-directory: mobile
-        run: |
-          npm ci
-          npx cap sync ios
-
       - name: Archive (automatic signing via the ASC API key)
         if: ${{ steps.asc.outputs.signing == 'true' }}
         working-directory: mobile/ios/App
         env:
           KEY_PATH: ${{ steps.asc.outputs.key_path }}
           MARKETING_VERSION_VALUE: ${{ steps.version.outputs.VERSION_NAME }}
-          BUILD_NUMBER_VALUE: ${{ steps.version.outputs.BUILD_NUMBER }}
+          BUILD_NUMBER_VALUE: ${{ steps.build.outputs.BUILD_NUMBER }}
         run: |
           KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
           xcodebuild -project App.xcodeproj -scheme App -configuration Release \
