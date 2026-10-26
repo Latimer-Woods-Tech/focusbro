@@ -97,6 +97,11 @@ if not (0<=u<c<w): f.append("umask-chmod-before-write")
 if not ("trap \x27rm -rf \"$KEYDIR\"\x27 EXIT" in t or ("if: always()" in t and "-e \"$ASC_KEYDIR\"" in t)): f.append("cleanup")
 if re.search(r"rm -rf[^\n]*(appstoreconnect|ASC_\*)",t): f.append("broad-rm")
 if "bash -euo pipefail" not in t or re.search(r"bash -eo pipefail",t): f.append("shell-u")
+if "npm ci --ignore-scripts" not in t[t.find("  signed:"):]: f.append("ignore-scripts")
+if not re.search(r"ASC_SECRET_VERSION:-\}\" =~ \^\[0-9\]\+\$",t): f.append("version-regex")
+if not re.search(r"\"\$KEY_ID\" =~ \^\[A-Z0-9\]\{10\}\$",t): f.append("keyid-regex")
+for s in ("ASC_KEY_ID","ASC_ISSUER_ID","ASC_PRIVATE_KEY"):
+    if not re.search(r"read_secret "+s+r"\)\" \|\| exit 1",t): f.append("read-exit-"+s)
 print(" ".join(f))'
 }
 cchk() { local n="$1" want="$2" txt="$3" got; got="$(printf '%s' "$txt" | custody)"; if [ "$got" = "$want" ]; then ok "$n"; else bad "$n (got '$got' want '$want')"; fi; }
@@ -106,6 +111,11 @@ cchk "custody mutation: non-numeric version" "numeric-version" "${WFT/ASC_SECRET
 cchk "custody mutation: no chmod 600" "umask-chmod-before-write" "${WFT/chmod 600/chmod 644}"
 cchk "custody mutation: no EXIT trap" "" "${WFT/trap \'rm -rf \"\$KEYDIR\"\' EXIT/true}"
 cchk "custody mutation: no trap and no cleanup step" "cleanup" "$(M="${WFT/trap \'rm -rf \"\$KEYDIR\"\' EXIT/true}"; printf '%s' "${M//if: always()/if: success()}")"
+cchk "custody mutation: npm ci without --ignore-scripts in signed" "ignore-scripts" "${WFT/npm ci --ignore-scripts/npm ci}"
+cchk "custody mutation: no digit-only version check" "version-regex" "${WFT/'=~ ^[0-9]+$ ]] || { echo "::error::ASC_SECRET'/'=~ ^.*$ ]] || { echo "::error::ASC_SECRET'}"
+cchk "custody mutation: no key id format check" "keyid-regex" "${WFT/'"$KEY_ID" =~ ^[A-Z0-9]{10}$'/'"$KEY_ID" =~ ^.*$'}"
+cchk "custody mutation: ASC_PRIVATE_KEY read without exit" "read-exit-ASC_PRIVATE_KEY" "${WFT/'read_secret ASC_PRIVATE_KEY)" || exit 1'/'read_secret ASC_PRIVATE_KEY)"'}"
+cchk "custody mutation: ASC_KEY_ID read without exit" "read-exit-ASC_KEY_ID" "${WFT/'read_secret ASC_KEY_ID)" || exit 1'/'read_secret ASC_KEY_ID)"'}"
 cchk "custody mutation: broad rm" "broad-rm" "$WFT"$'\n''run: rm -rf "$HOME/.appstoreconnect"'
 cchk "custody mutation: shell without -u" "shell-u" "${WFT//bash -euo pipefail/bash -eo pipefail}"
 

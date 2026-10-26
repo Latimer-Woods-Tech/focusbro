@@ -140,7 +140,10 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: echo "BUILD_NUMBER=$(( 10000 + RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
 
-      # npm lifecycle scripts run here, BEFORE any credential exists on the runner disk (jc-security #30314).
+      # Install + cap sync run here, BEFORE the WIF auth step and before any credential exists on the runner disk
+      # (jc-security #30314). id-token: write is JOB-wide (Actions cannot scope it per step), so this job holds it while
+      # npm runs: --ignore-scripts stops every dependency lifecycle script (none exist in mobile/package-lock.json today),
+      # and the order keeps `cap sync` (plugin CLI code) ahead of any minted token use. Do NOT move auth above this.
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
         with:
@@ -151,7 +154,7 @@ jobs:
       - name: Install mobile dependencies + sync iOS
         working-directory: mobile
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npx cap sync ios
 
       - name: Authenticate to GCP (WIF)
@@ -178,13 +181,18 @@ jobs:
           KEYDIR="$(mktemp -d "$RUNNER_TEMP/asc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
           trap 'rm -rf "$KEYDIR"' EXIT
           echo "ASC_KEYDIR=$KEYDIR" >> "$GITHUB_ENV"
+          # ASC_SECRET_VERSION must be a digit string (never empty, never latest); checked before any gcloud call.
+          [[ "${ASC_SECRET_VERSION:-}" =~ ^[0-9]+$ ]] || { echo "::error::ASC_SECRET_VERSION must match ^[0-9]+$"; exit 1; }
           read_secret() { # pinned numeric version; any failure or empty value aborts before anything is written
             local v
             v="$(gcloud secrets versions access "$ASC_SECRET_VERSION" --secret="$1" --project=factory-495015 2>/dev/null)" || { echo "::error::$1 unreadable at version $ASC_SECRET_VERSION"; exit 1; }
             [ -n "$v" ] || { echo "::error::$1 empty at version $ASC_SECRET_VERSION"; exit 1; }
             printf '%s' "$v"
           }
-          KEY_ID="$(read_secret ASC_KEY_ID)"; ISSUER="$(read_secret ASC_ISSUER_ID)"; PEM="$(read_secret ASC_PRIVATE_KEY)"
+          KEY_ID="$(read_secret ASC_KEY_ID)" || exit 1
+          ISSUER="$(read_secret ASC_ISSUER_ID)" || exit 1
+          PEM="$(read_secret ASC_PRIVATE_KEY)" || exit 1
+          [[ "$KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::ASC_KEY_ID is not a 10-char A-Z0-9 key id"; exit 1; }
           echo "::add-mask::$KEY_ID"; echo "::add-mask::$ISSUER"
           while IFS= read -r line; do
             case "$line" in ''|-----*) ;; *) echo "::add-mask::$line" ;; esac
