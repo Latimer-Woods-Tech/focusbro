@@ -3,7 +3,7 @@
 No network, no secrets. Asserts: exit 0 within seconds (a FIFO must not hang it), no stdout line starts with '::' except the
 random-token stop/resume pair that wraps the block, no raw markup in the summary, the good manifest and a Latest/ source hit
 are listed, and a FooTests/ source hit is not."""
-import os, plistlib, re, subprocess, sys, tempfile, time
+import os, plistlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "ios-privacy-evidence.py")
@@ -43,6 +43,9 @@ for rel_, data in (("Info.plist", plistlib.dumps({"CFBundleExecutable": "App"}))
     fp = os.path.join(APPDIR, rel_)
     os.makedirs(os.path.dirname(fp), exist_ok=True)
     open(fp, "wb").write(data)
+DEEP = "/".join(["d%d" % i for i in range(27)])
+os.makedirs(os.path.join(APPDIR, "public", DEEP))
+open(os.path.join(APPDIR, "public", DEEP, "page.html"), "w").write("<html></html>")
 STUBS = os.path.join(T, "stubs")
 FAILSTUBS = os.path.join(T, "failstubs")
 os.makedirs(STUBS)
@@ -122,6 +125,7 @@ check("FooTests/ source is skipped", "FooTests" not in r.stdout)
 def row(fam):
     return next((l for l in lines if l.startswith("  | " + fam + " |")), "")
 check("(c) debug dylib discovered by magic bytes (and the .txt decoy is not)", "App.debug.dylib" in r.stdout and "notes.txt" not in r.stdout)
+check("(c) deep resource dir: note lists the dir and COVERAGE stays COMPLETE", "NOTE: depth limit (24) hit only in resource dirs" in r.stdout and "public/d0/d1" in r.stdout)
 check("(c) coverage table comes before the roll-up and is COMPLETE", "COVERAGE: COMPLETE" in r.stdout and "| App.debug.dylib |" in r.stdout and r.stdout.index("COVERAGE:") < r.stdout.index("Roll-up"))
 check("(c) fat (cafebabe) framework is covered", "Capacitor.framework/Capacitor" in r.stdout)
 check("(c) nm/strings line counts printed", re.search(r"App\.debug\.dylib \| \d+ \| dylib \| both OK \| 3 / 4\d", r.stdout) is not None)
@@ -134,8 +138,8 @@ check("(c) per-binary ABSENT is printed", "Active keyboards: ABSENT" in r.stdout
 check("(c) hostile symbol name is escaped, not echoed raw", "NSUserDefaults::error::pwn" in r.stdout and "<img" not in r.stdout and "<img" not in sm)
 check("(c) hostile strings line never becomes output", "injected line" not in r.stdout)
 
-def run_variant(path, extra=None):
-    env = {"PATH": path, "HOME": HOME, "GITHUB_WORKSPACE": ROOT}
+def run_variant(path, extra=None, home=HOME):
+    env = {"PATH": path, "HOME": home, "GITHUB_WORKSPACE": ROOT}
     env.update(extra or {})
     return subprocess.run([sys.executable, "-I", SCRIPT], cwd=ROOT, capture_output=True, text=True, timeout=60, env=env)
 def vrow(res, fam):
@@ -159,6 +163,35 @@ check("(c) truncated tool output => UNKNOWN, never ABSENT", r4.returncode == 0 a
       and "DECLARED+UNKNOWN" in vrow(r4, "Active keyboards") and "ABSENT-everywhere" not in r4.stdout)
 
 check("app UserDefaults use is DECLARED", "UserDefaults (expected reason CA92.1): DECLARED" in r.stdout)
+def variant_home(name, rel_dir, filename, data):
+    """A copy of the fake app under a fresh HOME with an extra file deep inside rel_dir (relative to the .app)."""
+    h = os.path.join(T, "home-" + name)
+    dst = os.path.join(h, "Library/Developer/Xcode/DerivedData/Proj-x/Build/Products/Debug-iphonesimulator/App.app")
+    shutil.copytree(APPDIR, dst)
+    os.makedirs(os.path.join(dst, rel_dir), exist_ok=True)
+    open(os.path.join(dst, rel_dir, filename), "wb").write(data)
+    return h
+PATH_OK = STUBS + ":/usr/bin:/bin"
+
+# Deep dir that hides a nested dylib (not under Frameworks/): reported and scanned, but coverage stays INCOMPLETE => UNKNOWN.
+h5 = variant_home("nested", "public/" + DEEP, "hidden.dylib", MH64 + b"\0" * 12)
+r5 = run_variant(PATH_OK, home=h5)
+check("(c) Mach-O inside a depth-skipped dir is reported and coverage stays INCOMPLETE/UNKNOWN",
+      "Mach-O found inside depth-skipped dirs" in r5.stdout and "hidden.dylib" in r5.stdout and "COVERAGE: INCOMPLETE" in r5.stdout
+      and "DECLARED+UNKNOWN" in vrow(r5, "Active keyboards") and "ABSENT-everywhere" not in r5.stdout and r5.returncode == 0)
+
+# Deep dir under Frameworks/: code-bearing path, no confirmation shortcut => INCOMPLETE.
+h6 = variant_home("fw", "Frameworks/Capacitor.framework/" + DEEP, "x.bin", b"data")
+r6 = run_variant(PATH_OK, home=h6)
+check("(c) depth limit under Frameworks/ keeps coverage INCOMPLETE", "hit under code-bearing paths" in r6.stdout
+      and "DECLARED+UNKNOWN" in vrow(r6, "Active keyboards") and "ABSENT-everywhere" not in r6.stdout)
+
+# Resource dir that is deeper than the confirmation walk can see: the confirmation itself hits a limit => INCOMPLETE.
+h7 = variant_home("toodeep", "public/" + DEEP + "/" + "/".join("e%d" % i for i in range(6)), "p.txt", b"x")
+r7 = run_variant(PATH_OK, home=h7)
+check("(c) confirmation walk that hits its own limit stays INCOMPLETE", "confirmation walk also hit a limit" in r7.stdout
+      and "DECLARED+UNKNOWN" in vrow(r7, "Active keyboards") and "ABSENT-everywhere" not in r7.stdout)
+
 import shutil
 shutil.rmtree(T, ignore_errors=True)
 print("---")

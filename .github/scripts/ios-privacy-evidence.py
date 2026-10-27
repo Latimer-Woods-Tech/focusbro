@@ -21,10 +21,12 @@ try:  # test hook only: lowers the per-tool output cap so the truncation path ca
     MAX_TOOL_BYTES = int(os.environ.get("EVIDENCE_TOOL_CAP_BYTES", "") or 96 * 1024 * 1024)
 except ValueError:
     MAX_TOOL_BYTES = 96 * 1024 * 1024
-LIMIT_HIT = []  # a walk stopped early (file count, depth or time): any "absent" conclusion is then unsafe
+LIMIT_HIT = []  # (kind, path) for walks that use the default sink; the app walk passes its own list
 MACHO_MAGIC = {bytes.fromhex(h) for h in ("feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca", "cafebabf", "bfbafeca")}
 TOOL_TIMEOUT = 20
-MAX_DEPTH = 12
+MAX_DEPTH = 24
+CONFIRM_DEPTH = 3     # extra levels enumerated (names + magic only) inside a directory the main walk skipped
+CONFIRM_FILES = 5000
 DEADLINE = time.monotonic() + 150
 BEGIN = "=== IOS-PRIVACY-EVIDENCE BEGIN ==="
 END = "=== IOS-PRIVACY-EVIDENCE END ==="
@@ -48,22 +50,23 @@ def regular(p, cap):
         return False
 
 
-def safe_walk(root, prune=None):
-    """Bounded os.walk: never follows symlinks, depth/file/time capped. Yields (dir, subdirs, files)."""
+def safe_walk(root, prune=None, hits=None):
+    """Bounded os.walk: never follows symlinks, depth/file/time capped. Yields (dir, subdirs, files).
+    Every limit hit is appended to `hits` as (kind, path); for depth, path is the skipped subdirectory."""
+    hits = LIMIT_HIT if hits is None else hits
     n = 0
     base = root.rstrip(os.sep).count(os.sep)
     for d, ds, fs in os.walk(root, followlinks=False):
         if time.monotonic() > DEADLINE:
-            LIMIT_HIT.append("time")
+            hits.append(("time", d))
             return
         ds[:] = sorted(x for x in ds if not os.path.islink(os.path.join(d, x)) and not (prune and prune(d, x)))
         if d.count(os.sep) - base >= MAX_DEPTH:
-            if ds:
-                LIMIT_HIT.append("depth")
+            hits.extend(("depth", os.path.join(d, x)) for x in ds)
             ds[:] = []
         n += len(fs)
         if n > MAX_FILES:
-            LIMIT_HIT.append("file count")
+            hits.append(("file count", d))
             return
         yield d, ds, fs
 
@@ -248,24 +251,56 @@ def scan_binary(f):
     return {k: list(v) for k, v in found.items()}, notes, (nm_err is None and st_err is None), nm_n, st_n
 
 
+def is_macho(p):
+    if not regular(p, MAX_BIN_BYTES):
+        return False
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(4) in MACHO_MAGIC
+    except OSError:
+        return False
+
+
 def macho_files(app):
-    """Every regular, non-symlink file under the .app whose first 4 bytes are a Mach-O / fat magic. -> (paths, skipped_dylibs)."""
-    out, bad_dylib = [], []
-    for d, _, fs in safe_walk(app):
+    """Every regular, non-symlink file under the .app whose first 4 bytes are a Mach-O / fat magic.
+    -> (macho paths, .dylib-named non-Mach-O paths, limit hits [(kind, path)])."""
+    out, bad_dylib, lim = [], [], []
+    for d, _, fs in safe_walk(app, hits=lim):
         for f in sorted(fs):
             p = os.path.join(d, f)
-            if not regular(p, MAX_BIN_BYTES):
-                continue
-            try:
-                with open(p, "rb") as fh:
-                    magic = fh.read(4)
-            except OSError:
-                continue
-            if magic in MACHO_MAGIC:
+            if is_macho(p):
                 out.append(p)
-            elif f.endswith(".dylib"):
+            elif f.endswith(".dylib") and regular(p, MAX_BIN_BYTES):
                 bad_dylib.append(p)
-    return out, bad_dylib
+    return out, bad_dylib, lim
+
+
+def confirm_skipped(dirs):
+    """Bounded look INSIDE directories the main walk skipped for depth: file names + Mach-O magic, at most CONFIRM_DEPTH more
+    levels. -> (mach-o paths found, confirmed) where confirmed is False if THIS walk also hit any limit."""
+    found, n, ok = [], 0, True
+    for root in dirs:
+        if os.path.islink(root) or not os.path.isdir(root):
+            continue
+        base = root.rstrip(os.sep).count(os.sep)
+        for d, ds, fs in os.walk(root, followlinks=False):
+            if time.monotonic() > DEADLINE:
+                return found, False
+            ds[:] = sorted(x for x in ds if not os.path.islink(os.path.join(d, x)))
+            if d.count(os.sep) - base >= CONFIRM_DEPTH and ds:
+                ok = False
+                ds[:] = []
+            n += len(fs)
+            if n > CONFIRM_FILES:
+                return found, False
+            found += [os.path.join(d, f) for f in sorted(fs) if is_macho(os.path.join(d, f))]
+    return found, ok
+
+
+def codey(rel_path):
+    """True if a path under the .app could plausibly hold code: Frameworks/, PlugIns/, or a *.dylib/*.framework/*.appex segment."""
+    segs = rel_path.split(os.sep)
+    return any(s in ("Frameworks", "PlugIns") or s.endswith((".dylib", ".framework", ".appex")) for s in segs)
 
 
 def main():
@@ -383,13 +418,36 @@ def main():
       "to a purpose. System-framework internals are out of scope. This is the Debug simulator build, not the Release archive." % TOOL_TIMEOUT)
     comps = []  # (label, kind, path, size, app)
     reasons = []  # reasons coverage is incomplete
+    notes_cov = []  # non-blocking notes (a limit was hit but confirmed harmless)
     for a in apps[:3]:
         try:
             info, _ = parse(os.path.join(a, "Info.plist"))
             exe = (info or {}).get("CFBundleExecutable")
             exe = exe if isinstance(exe, str) and exe and "/" not in exe else os.path.basename(a)[:-4]
             mains = os.path.join(a, exe)
-            files, bad = macho_files(a)
+            files, bad, lim = macho_files(a)
+            hard = sorted({k for k, _ in lim if k != "depth"})
+            if hard:
+                reasons.append("app walk hit its %s limit" % " and ".join(hard))
+            skipped = sorted({pth for k, pth in lim if k == "depth"})
+            if skipped:
+                shown = ", ".join("`%s`" % esc(os.path.relpath(x, a), 80) for x in skipped[:5]) + (" (+%d more)" % (len(skipped) - 5) if len(skipped) > 5 else "")
+                hot = [x for x in skipped if codey(os.path.relpath(x, a))]
+                if hot:
+                    reasons.append("depth limit (%d) hit under code-bearing paths: %s" % (MAX_DEPTH, ", ".join("`%s`" % esc(os.path.relpath(x, a), 80) for x in hot[:5])))
+                else:
+                    extra, confirmed = confirm_skipped(skipped)
+                    for x in extra:
+                        if x not in files:
+                            files.append(x)
+                    if extra:
+                        reasons.append("Mach-O found inside depth-skipped dirs (reported and scanned, walk still incomplete): %s"
+                                       % ", ".join("`%s`" % esc(os.path.relpath(x, a), 80) for x in extra[:5]))
+                    elif not confirmed:
+                        reasons.append("depth limit (%d) hit at %s and the confirmation walk also hit a limit" % (MAX_DEPTH, shown))
+                    else:
+                        notes_cov.append("depth limit (%d) hit only in resource dirs: %s; their file names were enumerated %d more levels and none has a Mach-O magic, so coverage is not reduced"
+                                         % (MAX_DEPTH, shown, CONFIRM_DEPTH))
             if mains not in files:
                 reasons.append("main executable `%s` is missing or not a Mach-O" % esc(exe, 60))
             if not any(x.endswith(".debug.dylib") for x in files) and mains in files and os.lstat(mains).st_size < 256 * 1024:
@@ -416,8 +474,6 @@ def main():
             reasons.append("component discovery failed: " + esc(e, 100))
     if not apps:
         reasons.append("no built .app found")
-    if LIMIT_HIT:
-        reasons.append("a directory walk hit its limit (%s)" % ", ".join(sorted(set(LIMIT_HIT))))
     results = {}
     for cname, kind, cpath, size, _a in comps:
         if time.monotonic() > DEADLINE:
@@ -438,6 +494,8 @@ def main():
         w("- COVERAGE INCOMPLETE: " + rs)
     if len(reasons) > 8:
         w("- ... %d more reasons" % (len(reasons) - 8))
+    for nt in notes_cov[:3]:
+        w("- NOTE: " + nt)
     w("| Mach-O (relative to .app) | Size | Kind | nm / strings | nm lines / strings lines |")
     for cname, kind, cpath, size, a in comps:
         r_ = results.get(cname)
