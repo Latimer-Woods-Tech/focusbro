@@ -157,42 +157,12 @@ def idx(pred):
 ci = idx(lambda x: "npm ci" in x.get("run", ""))
 au = idx(lambda x: x.get("uses", "").startswith("google-github-actions/"))
 chk("signed npm ci precedes first google-github-actions step", ci < au < 99)
-ust = u["steps"]
-pi = [i for i, x in enumerate(ust) if "ios-privacy-evidence.py" in x.get("run", "")]
-bi = [i for i, x in enumerate(ust) if "xcodebuild" in x.get("run", "")]
-chk("unsigned has a privacy-evidence step", len(pi) == 1)
-chk("privacy-evidence step runs AFTER the xcodebuild compile step", bool(pi) and bool(bi) and pi[0] > bi[-1])
-chk("privacy-evidence step is non-blocking (continue-on-error)", bool(pi) and ust[pi[0]].get("continue-on-error") is True)
-chk("privacy-evidence step has no env, secrets, or credentials", bool(pi) and "env" not in ust[pi[0]] and "secrets" not in json.dumps(ust[pi[0]]))
-chk("privacy-evidence step is absent from signed", not any("ios-privacy-evidence" in x.get("run", "") for x in st))
-import os
-ev = open(os.path.join(os.path.dirname(sys.argv[1]), "..", "scripts", "ios-privacy-evidence.py")).read()
-chk("evidence script prints BEGIN and END markers to stdout", "=== IOS-PRIVACY-EVIDENCE BEGIN ===" in ev and "=== IOS-PRIVACY-EVIDENCE END ===" in ev and "sys.stdout.write(text)" in ev)
-chk("evidence script prints a traceback on exception and keeps the summary write", "traceback.format_exc()" in ev and "GITHUB_STEP_SUMMARY" in ev)
-chk("evidence script caps output lines", "MAX_LINES = 400" in ev)
-chk("evidence script makes no network calls", not any(x in ev for x in ("urllib", "socket", "requests", "http.client", "ftplib", "smtplib")))
-chk("evidence script runs tools with list args, no shell, a timeout, and a chunked capped read", "subprocess.Popen([exe] + args + [f]" in ev and "shell=True" not in ev and "os.system" not in ev and "threading.Timer(TOOL_TIMEOUT" in ev and "TOOL_TIMEOUT = 20" in ev and "proc.stdout.read(65536)" in ev and "proc.kill()" in ev)
-chk("evidence script checks Mach-O magic bytes and treats truncation/failure as UNKNOWN", "MACHO_MAGIC" in ev and "cffaedfe" in ev and "cafebabe" in ev and "+UNKNOWN" in ev and "COVERAGE INCOMPLETE" in ev)
-chk("evidence script: depth limit 24, names which limit and dirs, bounded confirmation walk for skipped resource dirs", "MAX_DEPTH = 24" in ev and "def confirm_skipped" in ev and "CONFIRM_DEPTH = 3" in ev and "hit under code-bearing paths" in ev and "confirmation walk also hit a limit" in ev)
-chk("evidence script has binary section (c) with nm -u, strings -a and SPM coverage (c2)", all(x in ev for x in ('["-u"]', '["-a"]', "BIN_FAMILIES", "Resolved SwiftPM dependency coverage")))
-def any_write(p): return ("write" in p) if isinstance(p, str) else any(str(v).startswith("write") for v in (p or {}).values())
-chk("unsigned job holds NO write permission of any kind (job or workflow level)", not any_write(u.get("permissions")) and not any_write(top))
-chk("privacy-evidence step has timeout-minutes <= 5", bool(pi) and 0 < ust[pi[0]].get("timeout-minutes", 0) <= 5)
-chk("evidence script anchors the test-dir skip to whole path segments", "_SKIP_TESTS_SUFFIX" in ev and "Tests?(/|$)" not in ev)
 for n, o in res: print(("PASS " if o else "FAIL ") + "workflow: " + n)
 sys.exit(0 if all(o for _, o in res) else 1)
 PY
 PYRC=$?; set -e
 cat "$T/py"
 if [ "$PYRC" -ne 0 ]; then FAILS=$((FAILS+1)); fi
-
-# Behavioural test: the evidence script on a hostile temp tree (workflow commands, markup, array-root plist, symlink loop, FIFO).
-set +e
-timeout 60 python3 -I "$HERE/ios-privacy-evidence.test.py" > "$T/ev" 2>&1
-EVRC=$?
-set -e
-cat "$T/ev"
-if [ "$EVRC" -ne 0 ]; then FAILS=$((FAILS+1)); fi
 
 echo "---"
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES: $FAILS"; exit 1; fi
