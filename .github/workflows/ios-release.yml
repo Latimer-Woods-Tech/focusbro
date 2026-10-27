@@ -48,6 +48,7 @@ on:
       - 'mobile/capacitor.config.json'
       - '.github/workflows/ios-release.yml'
       - '.github/scripts/ios-release-guard*'
+      - '.github/scripts/ios-privacy-evidence*'
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -100,6 +101,13 @@ jobs:
           xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO build | tail -40
+
+      # READ-ONLY evidence for jc-privacy (#32039): manifest inventory of the built .app + SwiftPM checkouts, and
+      # required-reason API hits vs the app manifest, written to the job summary. NON-BLOCKING on purpose: it searches
+      # the runner's default DerivedData, whose layout is not under our control. It gates nothing and edits nothing.
+      - name: Privacy evidence (READ-ONLY, job summary, non-blocking)
+        continue-on-error: true
+        run: python3 -I .github/scripts/ios-privacy-evidence.py
 
   signed:
     name: Archive (automatic signing) and optional TestFlight upload

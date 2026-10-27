@@ -157,6 +157,15 @@ def idx(pred):
 ci = idx(lambda x: "npm ci" in x.get("run", ""))
 au = idx(lambda x: x.get("uses", "").startswith("google-github-actions/"))
 chk("signed npm ci precedes first google-github-actions step", ci < au < 99)
+ust = u["steps"]
+pi = [i for i, x in enumerate(ust) if "ios-privacy-evidence.py" in x.get("run", "")]
+bi = [i for i, x in enumerate(ust) if "xcodebuild" in x.get("run", "")]
+chk("unsigned has a privacy-evidence step", len(pi) == 1)
+chk("privacy-evidence step runs AFTER the xcodebuild compile step", bool(pi) and bool(bi) and pi[0] > bi[-1])
+chk("privacy-evidence step is non-blocking (continue-on-error)", bool(pi) and ust[pi[0]].get("continue-on-error") is True)
+chk("privacy-evidence step has no env, secrets, or credentials", bool(pi) and "env" not in ust[pi[0]] and "secrets" not in json.dumps(ust[pi[0]]))
+chk("privacy-evidence step is absent from signed", not any("ios-privacy-evidence" in x.get("run", "") for x in st))
+chk("unsigned job still has no permissions block granting write", "id-token" not in perms("unsigned"))
 for n, o in res: print(("PASS " if o else "FAIL ") + "workflow: " + n)
 sys.exit(0 if all(o for _, o in res) else 1)
 PY
