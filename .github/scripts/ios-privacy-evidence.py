@@ -9,14 +9,20 @@ Hostile-input rules (sgt-b1 #32089): every value and path is escaped before prin
 < > & ` | [ ] are neutralised); every report line is indented so none can start with '::'; the stdout block sits under a
 random-token ::stop-commands::; only regular, non-symlink, size-capped files are opened (no FIFO/device hang); walks
 are bounded in depth, file count and time; one bad file never aborts the report."""
-import glob, hashlib, json, os, plistlib, re, secrets, shutil, stat, subprocess, sys, time, traceback
+import glob, hashlib, json, os, plistlib, re, secrets, shutil, stat, subprocess, sys, threading, time, traceback
 
 MAX_LINES = 400
 MAX_PLIST_BYTES = 1024 * 1024
 MAX_SRC_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20000
-MAX_BIN_BYTES = 300 * 1024 * 1024
-MAX_TOOL_BYTES = 30 * 1024 * 1024
+MAX_BIN_BYTES = 200 * 1024 * 1024
+MAX_MACHO = 40
+try:  # test hook only: lowers the per-tool output cap so the truncation path can be exercised
+    MAX_TOOL_BYTES = int(os.environ.get("EVIDENCE_TOOL_CAP_BYTES", "") or 96 * 1024 * 1024)
+except ValueError:
+    MAX_TOOL_BYTES = 96 * 1024 * 1024
+LIMIT_HIT = []  # a walk stopped early (file count, depth or time): any "absent" conclusion is then unsafe
+MACHO_MAGIC = {bytes.fromhex(h) for h in ("feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca", "cafebabf", "bfbafeca")}
 TOOL_TIMEOUT = 20
 MAX_DEPTH = 12
 DEADLINE = time.monotonic() + 150
@@ -48,12 +54,16 @@ def safe_walk(root, prune=None):
     base = root.rstrip(os.sep).count(os.sep)
     for d, ds, fs in os.walk(root, followlinks=False):
         if time.monotonic() > DEADLINE:
+            LIMIT_HIT.append("time")
             return
         ds[:] = sorted(x for x in ds if not os.path.islink(os.path.join(d, x)) and not (prune and prune(d, x)))
         if d.count(os.sep) - base >= MAX_DEPTH:
+            if ds:
+                LIMIT_HIT.append("depth")
             ds[:] = []
         n += len(fs)
         if n > MAX_FILES:
+            LIMIT_HIT.append("file count")
             return
         yield d, ds, fs
 
@@ -139,20 +149,54 @@ def discover(roots):
 
 
 def run_tool(tool, f, args):
-    """Run an absolute-path tool on one file: list args, no shell, timeout, output cap. -> (text, None) or (None, reason)."""
+    """Run a tool on one file: list args, no shell, wall-clock timeout (kill), output sliced WHILE reading and the process
+    killed at the cap. -> (text, error or None, lines). Truncation and timeout are errors: never evidence of absence."""
     exe = shutil.which(tool)
     if not exe:
-        return None, "tool not found"
+        return None, "tool not found", 0
     try:
-        r = subprocess.run([exe] + args + [f], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=TOOL_TIMEOUT, check=False)
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
+        proc = subprocess.Popen([exe] + args + [f], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except OSError as e:
-        return None, "error " + esc(e, 60)
-    if r.returncode != 0:
-        return None, "exit %d" % r.returncode
-    return r.stdout[:MAX_TOOL_BYTES].decode("utf-8", "replace"), None
+        return None, "error " + esc(e, 60), 0
+    timed_out = []
+
+    def _kill():
+        timed_out.append(1)
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    timer = threading.Timer(TOOL_TIMEOUT, _kill)
+    timer.start()
+    chunks, size, truncated = [], 0, False
+    try:
+        while True:
+            c = proc.stdout.read(65536)
+            if not c:
+                break
+            size += len(c)
+            chunks.append(c)
+            if size > MAX_TOOL_BYTES:
+                truncated = True
+                proc.kill()
+                break
+    except OSError:
+        pass
+    finally:
+        timer.cancel()
+        try:
+            proc.stdout.close()
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+    if timed_out:
+        return None, "timeout", 0
+    if truncated:
+        return None, "truncated at the %d byte output cap" % MAX_TOOL_BYTES, 0
+    if proc.returncode != 0:
+        return None, "exit %d" % proc.returncode, 0
+    data = b"".join(chunks)
+    return data.decode("utf-8", "replace"), None, data.count(b"\n")
 
 
 # (family, manifest category, regex on one `nm -u` symbol, regex over `strings -a` text). A hit means "referenced", not "called".
@@ -177,11 +221,11 @@ _NM_LINE = re.compile(r"^\s*(?:[0-9a-fA-F]+\s+)?[A-Za-z]\s+(.*)$")  # [addr] <ty
 
 
 def scan_binary(f):
-    """-> ({family: [escaped names]}, notes). Never raises."""
+    """-> ({family: [escaped names]}, notes, ok, nm_lines, strings_lines). ok = BOTH tools ran to completion untruncated."""
     found = {b[0]: {} for b in BIN_FAMILIES}
     notes = []
-    nm_out, nm_err = run_tool("nm", f, ["-u"])
-    st_out, st_err = run_tool("strings", f, ["-a"])
+    nm_out, nm_err, nm_n = run_tool("nm", f, ["-u"])
+    st_out, st_err, st_n = run_tool("strings", f, ["-a"])
     if nm_err:
         notes.append("nm: " + nm_err)
     if st_err:
@@ -201,7 +245,27 @@ def scan_binary(f):
                 if len(found[name]) >= 40:
                     break
                 found[name][esc(m.group(0), 80)] = 1
-    return {k: list(v) for k, v in found.items()}, notes, (nm_err is None or st_err is None)
+    return {k: list(v) for k, v in found.items()}, notes, (nm_err is None and st_err is None), nm_n, st_n
+
+
+def macho_files(app):
+    """Every regular, non-symlink file under the .app whose first 4 bytes are a Mach-O / fat magic. -> (paths, skipped_dylibs)."""
+    out, bad_dylib = [], []
+    for d, _, fs in safe_walk(app):
+        for f in sorted(fs):
+            p = os.path.join(d, f)
+            if not regular(p, MAX_BIN_BYTES):
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    magic = fh.read(4)
+            except OSError:
+                continue
+            if magic in MACHO_MAGIC:
+                out.append(p)
+            elif f.endswith(".dylib"):
+                bad_dylib.append(p)
+    return out, bad_dylib
 
 
 def main():
@@ -238,7 +302,7 @@ def main():
     w("Generated by .github/scripts/ios-privacy-evidence.py after the simulator compile. Nothing here edits a manifest.")
     w("All values and paths below are escaped; a character shown as ? was a control character.")
     w()
-    begin("a", 120)
+    begin("a", 110)
     w("### (a) PrivacyInfo.xcprivacy inventory")
     w()
     apps, checkouts = discover(DD + [os.path.join(ROOT, "mobile/ios")])
@@ -311,63 +375,107 @@ def main():
             w("- ... %d more" % (len(hits[name]) - 10))
         w()
     # ---- (c) built binaries ----
-    begin("c", 110)
+    begin("c", 130)
     w("### (c) Built binaries: imported symbols and strings vs the app manifest (Debug simulator build)")
-    w("Method: `nm -u` (imported symbols) and `strings -a` on the App.app main executable and each embedded framework executable "
-      "(no shell, %d s timeout per call). A symbol import means the binary REFERENCES the API, not why or whether it runs: a human "
-      "maps each hit to a purpose. System-framework internals are out of scope. This is the Debug simulator build, not the Release archive." % TOOL_TIMEOUT)
-    comps = []  # (component name, path)
+    w("Method: EVERY regular non-symlink file under the built .app is checked for a Mach-O / fat magic; each Mach-O (main executable, "
+      "*.debug.dylib, __preview.dylib, other dylibs, frameworks, appex) gets `nm -u` (imported symbols) and `strings -a` (no shell, %d s timeout, "
+      "output sliced while reading). A symbol import means the binary REFERENCES the API, not why or whether it runs: a human maps each hit "
+      "to a purpose. System-framework internals are out of scope. This is the Debug simulator build, not the Release archive." % TOOL_TIMEOUT)
+    comps = []  # (label, kind, path, size, app)
+    reasons = []  # reasons coverage is incomplete
     for a in apps[:3]:
         try:
             info, _ = parse(os.path.join(a, "Info.plist"))
             exe = (info or {}).get("CFBundleExecutable")
             exe = exe if isinstance(exe, str) and exe and "/" not in exe else os.path.basename(a)[:-4]
-            comps.append(("App" if len(comps) == 0 else os.path.basename(a), os.path.join(a, exe)))
-            fw = os.path.join(a, "Frameworks")
-            if os.path.isdir(fw) and not os.path.islink(fw):
-                for e in sorted(os.listdir(fw))[:8]:
-                    if e.endswith(".framework") and not os.path.islink(os.path.join(fw, e)):
-                        comps.append((e, os.path.join(fw, e, e[:-len(".framework")])))
+            mains = os.path.join(a, exe)
+            files, bad = macho_files(a)
+            if mains not in files:
+                reasons.append("main executable `%s` is missing or not a Mach-O" % esc(exe, 60))
+            if not any(x.endswith(".debug.dylib") for x in files) and mains in files and os.lstat(mains).st_size < 256 * 1024:
+                reasons.append("the main executable is launcher-sized but no *.debug.dylib was found (the app code may live elsewhere)")
+            for b in bad[:5]:
+                reasons.append("`%s` has a .dylib name but no Mach-O magic" % rel(b))
+            if len(files) > MAX_MACHO:
+                reasons.append("%d Mach-O files found, only the first %d scanned" % (len(files), MAX_MACHO))
+            for fp in files[:MAX_MACHO]:
+                r_ = os.path.relpath(fp, a)
+                base = os.path.basename(fp)
+                if fp == mains:
+                    label, kind = ("App" if not comps else os.path.basename(a)), "executable"
+                elif ".framework/" in r_ and r_.split("/")[-2] == base + ".framework":
+                    label, kind = base + ".framework", "framework"
+                elif base.endswith(".dylib"):
+                    label, kind = base, "dylib"
+                else:
+                    label, kind = r_, "other Mach-O (e.g. appex)"
+                while any(c[0] == label for c in comps):
+                    label += "#"
+                comps.append((label, kind, fp, os.lstat(fp).st_size, a))
         except Exception as e:
-            w("- component discovery skipped: " + esc(e, 100))
+            reasons.append("component discovery failed: " + esc(e, 100))
+    if not apps:
+        reasons.append("no built .app found")
+    if LIMIT_HIT:
+        reasons.append("a directory walk hit its limit (%s)" % ", ".join(sorted(set(LIMIT_HIT))))
     results = {}
-    if not comps:
-        w("No built .app found, so no binary was scanned.")
-    for cname, cpath in comps:
+    for cname, kind, cpath, size, _a in comps:
         if time.monotonic() > DEADLINE:
-            w("- time budget (150 s) exhausted: remaining binaries not scanned, starting at `%s`" % esc(cname))
+            reasons.append("time budget (150 s) exhausted before `%s`" % esc(cname))
             break
-        if not regular(cpath, MAX_BIN_BYTES):
-            w("- `%s`: executable not found or not a regular file at `%s`" % (esc(cname), rel(cpath)))
-            continue
         try:
-            found, notes, ran = scan_binary(cpath)
+            found, notes, ok, nmn, stn = scan_binary(cpath)
         except Exception as e:
-            w("- `%s`: scan failed: %s" % (esc(cname), esc(e, 100)))
+            reasons.append("scan of `%s` failed: %s" % (esc(cname), esc(e, 80)))
             continue
-        results[cname] = (found, ran)
-        w("- `%s` (`%s`)%s" % (esc(cname), rel(cpath), ("  [" + "; ".join(notes) + "]") if notes else ""))
-        for name, _, _, _ in BIN_FAMILIES:
-            w("  - %s: %s" % (name, ("PRESENT: " + ", ".join(found[name])) if found[name] else ("ABSENT" if ran else "n/a (no tool output)")))
+        results[cname] = (found, ok, notes, nmn, stn)
+        if not ok:
+            reasons.append("`%s`: %s" % (esc(cname), esc("; ".join(notes) or "tool failure", 120)))
+    complete = not reasons and bool(results) and len(results) == len(comps)
+    w("#### COVERAGE: " + ("COMPLETE - every Mach-O below ran both tools to completion" if complete else
+      "INCOMPLETE - no family below may be read as absent where it says UNKNOWN"))
+    for rs in reasons[:8]:
+        w("- COVERAGE INCOMPLETE: " + rs)
+    if len(reasons) > 8:
+        w("- ... %d more reasons" % (len(reasons) - 8))
+    w("| Mach-O (relative to .app) | Size | Kind | nm / strings | nm lines / strings lines |")
+    for cname, kind, cpath, size, a in comps:
+        r_ = results.get(cname)
+        w("| %s | %d | %s | %s | %s |" % (esc(os.path.relpath(cpath, a), 90), size, esc(kind, 40),
+          "not run" if not r_ else ("both OK" if r_[1] else "FAILED"),
+          "-" if not r_ else "%d / %d" % (r_[3], r_[4])))
+    if not comps:
+        w("_no Mach-O files found_")
     w()
-    w("Roll-up (declared reason from the app manifest; verdict covers ONLY the binaries scanned above):")
-    cols = [c for c, _ in comps if c in results]
+    w("Per binary (symbol names are evidence of reference only; no purpose is claimed here):")
+    for cname, kind, cpath, size, a in comps:
+        r_ = results.get(cname)
+        if not r_:
+            continue
+        found, ok = r_[0], r_[1]
+        w("- `%s`%s" % (esc(cname), "" if ok else "  [TOOL FAILURE: unmatched families are UNKNOWN]"))
+        for name, _, _, _ in BIN_FAMILIES:
+            w("  - %s: %s" % (name, ("PRESENT: " + ", ".join(found[name])) if found[name] else ("ABSENT" if ok else "UNKNOWN")))
+    w()
+    w("Roll-up (declared reason from the app manifest; ABSENT only when coverage is COMPLETE):")
+    cols = [c[0] for c in comps if c[0] in results]
     w("| Family | Declared | " + " | ".join(esc(c, 40) for c in cols) + " | Verdict |")
     for name, cat, _, _ in BIN_FAMILIES:
         decl = cat in declared
         cells, present = [], []
         for c in cols:
-            found, ran = results[c]
+            found, ok = results[c][0], results[c][1]
             if found[name]:
                 cells.append("PRESENT(%d)" % len(found[name])); present.append(c)
             else:
-                cells.append("ABSENT" if ran else "n/a")
-        if not cols:
-            verdict = "NO BINARY SCANNED"
-        elif present:
-            verdict = ("DECLARED+PRESENT-in-" if decl else "NOT-DECLARED+PRESENT-in-") + ",".join(esc(c, 40) for c in present)
+                cells.append("ABSENT" if ok else "UNKNOWN")
+        d_ = "DECLARED" if decl else "NOT-DECLARED"
+        if present:
+            verdict = d_ + "+PRESENT-in-" + ",".join(esc(c, 40) for c in present)
+        elif complete:
+            verdict = d_ + ("+ABSENT-everywhere-scanned" if decl else "+ABSENT")
         else:
-            verdict = "DECLARED+ABSENT-everywhere-scanned" if decl else "NOT-DECLARED+ABSENT"
+            verdict = d_ + "+UNKNOWN"
         w("| %s | %s | %s | %s |" % (name, esc("/".join(declared[cat]) if decl else "none", 40), " | ".join(cells), verdict))
     w()
 

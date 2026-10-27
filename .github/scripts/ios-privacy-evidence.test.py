@@ -33,24 +33,37 @@ mk("mobile/ios/App/App/PrivacyInfo.xcprivacy", plistlib.dumps(app_manifest))
 
 # Fake built .app + stub nm/strings (absolute shebang, printf builtin only: no recursion, no real binaries touched).
 APPDIR = os.path.join(HOME, "Library/Developer/Xcode/DerivedData/Proj-x/Build/Products/Debug-iphonesimulator/App.app")
-for rel_, data in (("Info.plist", plistlib.dumps({"CFBundleExecutable": "App"})), ("App", b"APPBIN"),
-                   ("Frameworks/Capacitor.framework/Capacitor", b"CAPBIN"), ("Frameworks/Cordova.framework/Cordova", b"CORBIN")):
+MH64, FAT = bytes.fromhex("cffaedfe"), bytes.fromhex("cafebabe")
+for rel_, data in (("Info.plist", plistlib.dumps({"CFBundleExecutable": "App"})),
+                   ("App", bytes.fromhex("feedfacf") + b"\0" * 12),            # launcher: no symbols of its own
+                   ("App.debug.dylib", MH64 + b"\0" * 12),                       # the real app code (Debug layout)
+                   ("Frameworks/Capacitor.framework/Capacitor", FAT + b"\0" * 12),
+                   ("Frameworks/Cordova.framework/Cordova", MH64 + b"\0" * 12),
+                   ("notes.txt", b"UserDefaults mach_absolute_time but not a Mach-O")):
     fp = os.path.join(APPDIR, rel_)
     os.makedirs(os.path.dirname(fp), exist_ok=True)
     open(fp, "wb").write(data)
 STUBS = os.path.join(T, "stubs")
+FAILSTUBS = os.path.join(T, "failstubs")
 os.makedirs(STUBS)
-def stub(name, body):
-    sp = os.path.join(STUBS, name)
+os.makedirs(FAILSTUBS)
+def stub(name, body, d=STUBS):
+    sp = os.path.join(d, name)
     open(sp, "w").write("#!/bin/bash\nf=\"${@: -1}\"\ncase \"$f\" in\n" + body + "esac\nexit 0\n")
     os.chmod(sp, 0o755)
-stub("nm", """*/App.app/App) printf '%s\\n' '                 U _OBJC_CLASS_$_NSUserDefaults::error::pwn<img src=x>' '                 U _printf' ;;
+NM = """*/App.app/App.debug.dylib) printf '%s\\n' '                 U _OBJC_CLASS_$_NSUserDefaults::error::pwn<img src=x>' '                 U _stat' '                 U _printf' ;;
 */Capacitor.framework/Capacitor) printf '%s\\n' '                 U _stat' '                 U _OBJC_CLASS_$_NSUserDefaults' ;;
 */Cordova.framework/Cordova) printf '%s\\n' '                 U _statfs' ;;
-""")
-stub("strings", """*/App.app/App) printf '%s\\n' 'systemUptime' '::error::injected line' ;;
+*/App.app/App) printf '%s\\n' '                 U _printf' ;;
+"""
+STR = """*/App.app/App.debug.dylib) printf '%s\\n' 'systemUptime' '::error::injected line'; for i in {1..40}; do printf 'filler line number %s\\n' $i; done ;;
 */Capacitor.framework/Capacitor) printf '%s\\n' 'NSFileModificationDate' ;;
-""")
+*/App.app/App) printf '%s\\n' 'launcher' ;;
+"""
+stub("nm", NM)
+stub("strings", STR)
+stub("nm", "*/Capacitor.framework/Capacitor) exit 3 ;;\n" + NM, FAILSTUBS)  # nm fails on one binary
+stub("strings", STR, FAILSTUBS)
 EMPTY = os.path.join(T, "emptybin")
 os.makedirs(EMPTY)
 mk("mobile/ios/App/App/A.swift", "let d = UserDefaults.standard\n")
@@ -108,20 +121,43 @@ check("Contests/ source is scanned (disk space hit)", "Contests/D.swift" in r.st
 check("FooTests/ source is skipped", "FooTests" not in r.stdout)
 def row(fam):
     return next((l for l in lines if l.startswith("  | " + fam + " |")), "")
-check("(c) UserDefaults: DECLARED+PRESENT in App and Capacitor", "DECLARED+PRESENT-in-App,Capacitor.framework" in row("UserDefaults") and "NOT-DECLARED" not in row("UserDefaults"))
-check("(c) File timestamp: NOT-DECLARED+PRESENT in Capacitor only", "NOT-DECLARED+PRESENT-in-Capacitor.framework" in row("File timestamp"))
-check("(c) System boot time: NOT-DECLARED+PRESENT in App (strings only)", "NOT-DECLARED+PRESENT-in-App" in row("System boot time"))
+check("(c) debug dylib discovered by magic bytes (and the .txt decoy is not)", "App.debug.dylib" in r.stdout and "notes.txt" not in r.stdout)
+check("(c) coverage table comes before the roll-up and is COMPLETE", "COVERAGE: COMPLETE" in r.stdout and "| App.debug.dylib |" in r.stdout and r.stdout.index("COVERAGE:") < r.stdout.index("Roll-up"))
+check("(c) fat (cafebabe) framework is covered", "Capacitor.framework/Capacitor" in r.stdout)
+check("(c) nm/strings line counts printed", re.search(r"App\.debug\.dylib \| \d+ \| dylib \| both OK \| 3 / 4\d", r.stdout) is not None)
+check("(c) UserDefaults: DECLARED+PRESENT in App.debug.dylib and Capacitor", "DECLARED+PRESENT-in-App.debug.dylib,Capacitor.framework" in row("UserDefaults") and "NOT-DECLARED" not in row("UserDefaults"))
+check("(c) File timestamp: NOT-DECLARED+PRESENT (stat) in debug dylib and Capacitor", "NOT-DECLARED+PRESENT-in-App.debug.dylib,Capacitor.framework" in row("File timestamp"))
+check("(c) System boot time: NOT-DECLARED+PRESENT in debug dylib (strings only)", "NOT-DECLARED+PRESENT-in-App.debug.dylib" in row("System boot time"))
 check("(c) Disk space: NOT-DECLARED+PRESENT in Cordova only", "NOT-DECLARED+PRESENT-in-Cordova.framework" in row("Disk space"))
-check("(c) Active keyboards: DECLARED+ABSENT-everywhere-scanned", "DECLARED+ABSENT-everywhere-scanned" in row("Active keyboards"))
+check("(c) Active keyboards: DECLARED+ABSENT-everywhere-scanned (coverage complete)", "DECLARED+ABSENT-everywhere-scanned" in row("Active keyboards"))
 check("(c) per-binary ABSENT is printed", "Active keyboards: ABSENT" in r.stdout)
 check("(c) hostile symbol name is escaped, not echoed raw", "NSUserDefaults::error::pwn" in r.stdout and "<img" not in r.stdout and "<img" not in sm)
 check("(c) hostile strings line never becomes output", "injected line" not in r.stdout)
 
-# Same tree with no nm/strings on PATH: still exit 0, reports 'tool not found'.
-r2 = subprocess.run([sys.executable, "-I", SCRIPT], cwd=ROOT, capture_output=True, text=True, timeout=30,
-                    env={"PATH": EMPTY, "HOME": HOME, "GITHUB_WORKSPACE": ROOT})
-check("(c) missing nm/strings: exit 0 and 'tool not found' reported", r2.returncode == 0 and "tool not found" in r2.stdout and "SCRIPT EXCEPTION" not in r2.stdout)
+def run_variant(path, extra=None):
+    env = {"PATH": path, "HOME": HOME, "GITHUB_WORKSPACE": ROOT}
+    env.update(extra or {})
+    return subprocess.run([sys.executable, "-I", SCRIPT], cwd=ROOT, capture_output=True, text=True, timeout=60, env=env)
+def vrow(res, fam):
+    return next((l for l in res.stdout.split("\n") if l.startswith("  | " + fam + " |")), "")
+
+# No nm/strings at all: exit 0, every unmatched family UNKNOWN, never ABSENT.
+r2 = run_variant(EMPTY)
+check("(c) missing nm/strings: exit 0, 'tool not found', UNKNOWN, never ABSENT", r2.returncode == 0 and "tool not found" in r2.stdout
+      and "DECLARED+UNKNOWN" in vrow(r2, "Active keyboards") and "ABSENT" not in vrow(r2, "Active keyboards") and "COVERAGE: INCOMPLETE" in r2.stdout and "SCRIPT EXCEPTION" not in r2.stdout)
 check("(c) missing tools: output stays within the 400-line cap", len(r2.stdout.split("\n")) <= 410 and len(lines) <= 410)
+
+# nm fails on one binary: that binary UNKNOWN, roll-up UNKNOWN (not ABSENT); PRESENT hits elsewhere still reported.
+r3 = run_variant(FAILSTUBS + ":/usr/bin:/bin")
+check("(c) tool failure on one binary => roll-up DECLARED+UNKNOWN, not ABSENT", "DECLARED+UNKNOWN" in vrow(r3, "Active keyboards")
+      and "ABSENT-everywhere" not in r3.stdout and "COVERAGE INCOMPLETE" in r3.stdout and "TOOL FAILURE" in r3.stdout and r3.returncode == 0)
+check("(c) tool failure: PRESENT evidence from the other binaries is kept", "PRESENT-in-App.debug.dylib" in vrow(r3, "UserDefaults"))
+
+# Output cap hit (truncation): that binary UNKNOWN, never ABSENT.
+r4 = run_variant(STUBS + ":/usr/bin:/bin", {"EVIDENCE_TOOL_CAP_BYTES": "200"})
+check("(c) truncated tool output => UNKNOWN, never ABSENT", r4.returncode == 0 and "truncated" in r4.stdout
+      and "DECLARED+UNKNOWN" in vrow(r4, "Active keyboards") and "ABSENT-everywhere" not in r4.stdout)
+
 check("app UserDefaults use is DECLARED", "UserDefaults (expected reason CA92.1): DECLARED" in r.stdout)
 import shutil
 shutil.rmtree(T, ignore_errors=True)
