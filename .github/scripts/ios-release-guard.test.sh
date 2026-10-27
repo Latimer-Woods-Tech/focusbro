@@ -100,6 +100,9 @@ if "bash -euo pipefail" not in t or re.search(r"bash -eo pipefail",t): f.append(
 if "npm ci --ignore-scripts" not in t[t.find("  signed:"):]: f.append("ignore-scripts")
 if not re.search(r"ASC_SECRET_VERSION:-\}\" =~ \^\[0-9\]\+\$",t): f.append("version-regex")
 if not re.search(r"\"\$KEY_ID\" =~ \^\[A-Z0-9\]\{10\}\$",t): f.append("keyid-regex")
+if not re.search(r"APPLE_TEAM_ID:\s*.[A-Z0-9]{10}.",t): f.append("team-id-env")
+if "DEVELOPMENT_TEAM=\"$APPLE_TEAM_ID\"" not in t: f.append("team-id-archive")
+if "Add :teamID string $APPLE_TEAM_ID" not in t: f.append("team-id-export")
 for s in ("ASC_KEY_ID","ASC_ISSUER_ID","ASC_PRIVATE_KEY"):
     if not re.search(r"read_secret "+s+r"\)\" \|\| exit 1",t): f.append("read-exit-"+s)
 print(" ".join(f))'
@@ -116,6 +119,9 @@ cchk "custody mutation: no digit-only version check" "version-regex" "${WFT/'=~ 
 cchk "custody mutation: no key id format check" "keyid-regex" "${WFT/'"$KEY_ID" =~ ^[A-Z0-9]{10}$'/'"$KEY_ID" =~ ^.*$'}"
 cchk "custody mutation: ASC_PRIVATE_KEY read without exit" "read-exit-ASC_PRIVATE_KEY" "${WFT/'read_secret ASC_PRIVATE_KEY)" || exit 1'/'read_secret ASC_PRIVATE_KEY)"'}"
 cchk "custody mutation: ASC_KEY_ID read without exit" "read-exit-ASC_KEY_ID" "${WFT/'read_secret ASC_KEY_ID)" || exit 1'/'read_secret ASC_KEY_ID)"'}"
+cchk "custody mutation: no team id value" "team-id-env" "${WFT/APPLE_TEAM_ID: \'22W56AM87W\'/APPLE_TEAM_ID: \'\'}"
+cchk "custody mutation: archive without DEVELOPMENT_TEAM" "team-id-archive" "${WFT/DEVELOPMENT_TEAM=\"\$APPLE_TEAM_ID\"/FOO=1}"
+cchk "custody mutation: export without teamID" "team-id-export" "${WFT/Add :teamID string \$APPLE_TEAM_ID/Add :x string y}"
 cchk "custody mutation: broad rm" "broad-rm" "$WFT"$'\n''run: rm -rf "$HOME/.appstoreconnect"'
 cchk "custody mutation: shell without -u" "shell-u" "${WFT//bash -euo pipefail/bash -eo pipefail}"
 
