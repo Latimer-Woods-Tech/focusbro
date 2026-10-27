@@ -171,13 +171,24 @@ chk("evidence script prints BEGIN and END markers to stdout", "=== IOS-PRIVACY-E
 chk("evidence script prints a traceback on exception and keeps the summary write", "traceback.format_exc()" in ev and "GITHUB_STEP_SUMMARY" in ev)
 chk("evidence script caps output lines", "MAX_LINES = 400" in ev)
 chk("evidence script makes no network calls", not any(x in ev for x in ("urllib", "socket", "requests", "http.client", "subprocess")))
-chk("unsigned job still has no permissions block granting write", "id-token" not in perms("unsigned"))
+def any_write(p): return ("write" in p) if isinstance(p, str) else any(str(v).startswith("write") for v in (p or {}).values())
+chk("unsigned job holds NO write permission of any kind (job or workflow level)", not any_write(u.get("permissions")) and not any_write(top))
+chk("privacy-evidence step has timeout-minutes <= 5", bool(pi) and 0 < ust[pi[0]].get("timeout-minutes", 0) <= 5)
+chk("evidence script anchors the test-dir skip to whole path segments", "_SKIP_TESTS_SUFFIX" in ev and "Tests?(/|$)" not in ev)
 for n, o in res: print(("PASS " if o else "FAIL ") + "workflow: " + n)
 sys.exit(0 if all(o for _, o in res) else 1)
 PY
 PYRC=$?; set -e
 cat "$T/py"
 if [ "$PYRC" -ne 0 ]; then FAILS=$((FAILS+1)); fi
+
+# Behavioural test: the evidence script on a hostile temp tree (workflow commands, markup, array-root plist, symlink loop, FIFO).
+set +e
+timeout 60 python3 -I "$HERE/ios-privacy-evidence.test.py" > "$T/ev" 2>&1
+EVRC=$?
+set -e
+cat "$T/ev"
+if [ "$EVRC" -ne 0 ]; then FAILS=$((FAILS+1)); fi
 
 echo "---"
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES: $FAILS"; exit 1; fi

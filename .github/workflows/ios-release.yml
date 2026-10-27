@@ -107,6 +107,7 @@ jobs:
       # the runner's default DerivedData, whose layout is not under our control. It gates nothing and edits nothing.
       - name: Privacy evidence (READ-ONLY, job summary, non-blocking)
         continue-on-error: true
+        timeout-minutes: 5
         run: python3 -I .github/scripts/ios-privacy-evidence.py
 
   signed:
