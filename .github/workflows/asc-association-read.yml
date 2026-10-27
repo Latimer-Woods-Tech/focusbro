@@ -1,0 +1,96 @@
+name: ASC association read (one shot, read-only)
+
+# jc-security GO #32421 (Lane A2): ONE read-only App Store Connect GET to learn which seedId owns net.focusbro.app.
+# Triggered ONLY by pushing a tag asc-read-once-*; a permanent fence tag (asc-read-used) is created BEFORE any credential
+# step, so the read can run once per repository, ever. No retry, no redirect, no signing, no upload, no write.
+# Reads ASC_KEY_ID / ASC_ISSUER_ID / ASC_PRIVATE_KEY at numeric version 1 only, once each, via the existing WIF identity.
+# Prints only: HTTP status, identifier + seedId, cleanup read-back. Window ends 2026-10-27T12:00:00Z (enforced in code).
+on:
+  push:
+    tags: ['asc-read-once-*']
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'asc-read-once-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # creates the fence tag only
+      id-token: write   # WIF
+    env:
+      ASC_SECRET_VERSION: '1'
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Window and single-use fence (before any credential)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          now="$(date -u +%Y%m%d%H%M%S)"
+          [ "$now" -lt 20261027120000 ] || { echo "::error::window ended 2026-10-27T12:00:00Z"; exit 1; }
+          gh api -X POST "repos/$REPO/git/refs" -f ref=refs/tags/asc-read-used -f sha="$SHA" >/dev/null \
+            || { echo "::error::fence tag asc-read-used exists or cannot be created: this read is spent"; exit 1; }
+          echo "fence created at $(date -u +%FT%TZ)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/891842778224/locations/global/workloadIdentityPools/github-factory/providers/github
+          service_account: factory-sa@factory-495015.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+      - name: Read the three ASC values once, one GET, cleanup
+        run: |
+          KEYDIR="$(mktemp -d)"; chmod 700 "$KEYDIR"
+          echo "ASC_KEYDIR=$KEYDIR" >> "$GITHUB_ENV"
+          trap 'rm -rf "$KEYDIR"' EXIT INT TERM
+          [[ "${ASC_SECRET_VERSION:-}" =~ ^[0-9]+$ ]] || { echo "::error::ASC_SECRET_VERSION must be digits"; exit 1; }
+          read_secret() {
+            local v
+            v="$(gcloud secrets versions access "$ASC_SECRET_VERSION" --secret="$1" --project=factory-495015 2>/dev/null)" || { echo "::error::$1 unreadable"; exit 1; }
+            [ -n "$v" ] || { echo "::error::$1 empty"; exit 1; }
+            printf '%s' "$v"
+          }
+          KEY_ID="$(read_secret ASC_KEY_ID)" || exit 1
+          ISSUER="$(read_secret ASC_ISSUER_ID)" || exit 1
+          PEM="$(read_secret ASC_PRIVATE_KEY)" || exit 1
+          [[ "$KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::ASC_KEY_ID is not a 10-char key id"; exit 1; }
+          echo "::add-mask::$KEY_ID"; echo "::add-mask::$ISSUER"
+          while IFS= read -r line; do
+            case "$line" in ''|-----*) ;; *) echo "::add-mask::$line" ;; esac
+          done <<< "$PEM"
+          KEY_PATH="$KEYDIR/AuthKey_${KEY_ID}.p8"
+          : > "$KEY_PATH"; chmod 600 "$KEY_PATH"; printf '%s\n' "$PEM" > "$KEY_PATH"
+          [ "$(stat -c %a "$KEY_PATH")" = "600" ] || { echo "::error::key file mode is not 600"; exit 1; }
+          unset PEM
+          rc=0
+          ASC_KEY_ID="$KEY_ID" ASC_ISSUER_ID="$ISSUER" ASC_KEY_PATH="$KEY_PATH" node .github/scripts/asc-association-read.mjs || rc=$?
+          echo "read exit code: $rc"
+          exit "$rc"
+
+      - name: Remove run-owned key dir (read-back)
+        if: always()
+        run: |
+          if [ -n "${ASC_KEYDIR:-}" ]; then
+            rm -rf "$ASC_KEYDIR"
+            if [ -e "$ASC_KEYDIR" ]; then echo "::error::run-owned key dir still exists after removal"; exit 1; fi
+            echo "cleanup read-back: key dir gone"
+          else
+            echo "cleanup read-back: no key dir was created"
+          fi
