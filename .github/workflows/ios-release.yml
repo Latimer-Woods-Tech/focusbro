@@ -1,29 +1,53 @@
-name: iOS Release — build (signing gated on App Store Connect key)
+name: iOS Release — unsigned compile, then gated signing
 
 # FocusBro iOS shell (mobile/ios — Capacitor, Swift Package Manager, remote-URL).
 #
-# Always: compiles the app for the iOS Simulator with signing disabled, so the
-# iOS project is proven buildable on every run.
+# Job 1 `unsigned` (every run, every ref, including PRs that touch mobile/ios): npm ci + cap sync + xcodebuild for the
+# iOS Simulator with CODE_SIGNING_ALLOWED=NO. It has NO id-token permission, NO GCP
+# auth and fetches NO secret, so a cloud compile never touches credentials.
 #
-# Gated: archive + sign + TestFlight upload runs ONLY when all three App Store
-# Connect API key secrets exist in GCP Secret Manager (factory-495015), fetched
-# via WIF — never GitHub secrets (Standing Law 3):
+# Job `guard-tests` (ubuntu, no secrets, no id-token): .github/scripts/ios-release-guard.test.sh proves the guard rejects bad
+# inputs with FAKE stubs, and that deleting each check makes its case fail. Cloud-only; never run on a dev host.
+#
+# Job 2 `signed`: needs `unsigned`, and runs ONLY for a manual dispatch with mode=signed on
+# refs/heads/main at the exact commit named in expected_sha. There is NO tag trigger and NO push trigger: a signed
+# run is always a deliberate dispatch, one per security GO (jc-security #30297). It reads the App Store Connect API key from GCP Secret Manager
+# (factory-495015) via WIF — never GitHub secrets (Standing Law 3):
 #   ASC_KEY_ID        App Store Connect API key ID (10 chars)
 #   ASC_ISSUER_ID     issuer UUID (Users and Access → Integrations → App Store Connect API)
 #   ASC_PRIVATE_KEY   contents of the AuthKey_<KEYID>.p8 file
-# They do not exist yet: the APPLE_* secrets in SM are SELF:PRIME's Sign in with
-# Apple key, not an App Store Connect API key (no issuer ID). Founder steps:
-# docs/MOBILE_APP.md → "iOS".
+# It archives with automatic signing, and FAILS CLOSED if any ASC secret is missing. The TestFlight upload happens only
+# for a dispatch with skip_upload=false (default true: build, never upload).
+# Founder steps: docs/MOBILE_APP.md → "iOS".
 
 on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Version name (e.g. 0.1.0) — blank = mobile/package.json'
+        description: 'Version name (exactly x.y.z, e.g. 0.1.0) — blank = mobile/package.json'
         required: false
-  push:
-    tags:
-      - 'ios-v[0-9]+.[0-9]+.[0-9]+'
+      mode:
+        description: 'unsigned = compile only, the credentialed job is SKIPPED; signed = archive with the App Store Connect key (main only, one run per GO)'
+        required: false
+        type: choice
+        options: [unsigned, signed]
+        default: unsigned
+      expected_sha:
+        description: 'mode=signed only: the exact 40-hex commit this run must be on (the GO names it); blank otherwise'
+        required: false
+      skip_upload:
+        description: 'true = archive only, never upload to TestFlight (set false to upload)'
+        required: false
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - 'mobile/ios/**'
+      - 'mobile/package.json'
+      - 'mobile/package-lock.json'
+      - 'mobile/capacitor.config.json'
+      - '.github/workflows/ios-release.yml'
+      - '.github/scripts/ios-release-guard*'
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -31,52 +55,31 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write   # WIF → GCP Secret Manager
 
 jobs:
-  build:
-    runs-on: macos-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
+  guard-tests:
+    name: Guard script + workflow structure tests (fake stubs, no secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
-      - name: Authenticate to GCP (WIF)
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
-        with:
-          workload_identity_provider: projects/891842778224/locations/global/workloadIdentityPools/github-factory/providers/github
-          service_account: factory-sa@factory-495015.iam.gserviceaccount.com
+      - name: Run guard harness (fake gcloud/xcodebuild, proof of rejection)
+        run: bash .github/scripts/ios-release-guard.test.sh
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
-
-      - name: Resolve App Store Connect key (gate)
-        id: asc
-        run: |
-          set -euo pipefail
-          have=true
-          for s in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
-            if gcloud secrets versions access latest --secret="$s" --project=factory-495015 > "$RUNNER_TEMP/$s" 2>/dev/null && [ -s "$RUNNER_TEMP/$s" ]; then
-              echo "$s: present ($(wc -c < "$RUNNER_TEMP/$s") bytes)"
-            else
-              echo "$s: absent"; have=false
-            fi
-          done
-          if [ "$have" = true ]; then
-            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
-            echo "::add-mask::$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
-            mkdir -p "$HOME/.appstoreconnect/private_keys"
-            KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"
-            cp "$RUNNER_TEMP/ASC_PRIVATE_KEY" "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
-            echo "key_path=$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::App Store Connect API key not in Secret Manager — simulator build only. See docs/MOBILE_APP.md (iOS)."
-          fi
-          rm -f "$RUNNER_TEMP/ASC_PRIVATE_KEY"
-          echo "signing=$have" >> "$GITHUB_OUTPUT"
+  unsigned:
+    name: Unsigned simulator compile (no secrets)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
@@ -91,53 +94,138 @@ jobs:
           npm ci
           npx cap sync ios
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ -n "${{ inputs.version_name }}" ]; then V="${{ inputs.version_name }}"
-          elif [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then V="${GITHUB_REF_NAME#ios-v}"
-          else V=$(node -p "require('./mobile/package.json').version"); fi
-          echo "VERSION_NAME=$V" >> "$GITHUB_OUTPUT"
-          echo "BUILD_NUMBER=$(( 10000 + ${{ github.run_number }} ))" >> "$GITHUB_OUTPUT"
-
       - name: Simulator build (no signing) — proves the project compiles
         working-directory: mobile/ios/App
         run: |
           xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO build | tail -20
+            CODE_SIGNING_ALLOWED=NO build | tail -40
 
-      # ── Gated: only with an App Store Connect API key ──────────────────────
-      - name: Archive (automatic signing via the ASC API key)
-        if: ${{ steps.asc.outputs.signing == 'true' }}
-        working-directory: mobile/ios/App
+  signed:
+    name: Archive (automatic signing) and optional TestFlight upload
+    needs: unsigned
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'signed' && github.ref == 'refs/heads/main' }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write   # WIF → GCP Secret Manager
+    env:
+      ASC_SECRET_VERSION: '1'   # the plan's isolated v1; never latest
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      # FIRST step, before any credential: every input is passed as env data, never interpolated into shell text.
+      - name: Guard (event, mode, ref, sha, version)
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ inputs.mode }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          VERSION_INPUT: ${{ inputs.version_name }}
+          SKIP_UPLOAD_INPUT: ${{ inputs.skip_upload }}
         run: |
-          set -euo pipefail
-          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
+          if [ -z "$VERSION_INPUT" ]; then PKG_VERSION="$(node -p "require('./mobile/package.json').version")"; export PKG_VERSION; fi
+          bash .github/scripts/ios-release-guard.sh
+
+      - name: Build number
+        id: build
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: echo "BUILD_NUMBER=$(( 10000 + RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
+
+      # Install + cap sync run here, BEFORE the WIF auth step and before any credential exists on the runner disk
+      # (jc-security #30314). id-token: write is JOB-wide (Actions cannot scope it per step), so this job holds it while
+      # npm runs: --ignore-scripts stops every dependency lifecycle script (none exist in mobile/package-lock.json today),
+      # and the order keeps `cap sync` (plugin CLI code) ahead of any minted token use. Do NOT move auth above this.
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies + sync iOS
+        working-directory: mobile
+        run: |
+          npm ci --ignore-scripts
+          npx cap sync ios
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/891842778224/locations/global/workloadIdentityPools/github-factory/providers/github
+          service_account: factory-sa@factory-495015.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+      # ONE credentialed step: fetch, archive, export/upload share one shell, so ONE EXIT trap covers the whole key
+      # lifetime (including SIGTERM/INT). Key lives only in a run-owned 0700 dir as a 0600 file; the key id, issuer and PEM
+      # lines are masked; key content never goes through env vars or argv (only the PATH does). The always() step below is
+      # the fallback. Honest limit: a runner loss or hard cancel can skip every step and trap; the runner is ephemeral.
+      - name: Fetch ASC key, archive, export/upload (run-owned key dir, trap cleanup)
+        working-directory: mobile/ios/App
+        env:
+          MARKETING_VERSION_VALUE: ${{ steps.version.outputs.VERSION_NAME }}
+          BUILD_NUMBER_VALUE: ${{ steps.build.outputs.BUILD_NUMBER }}
+          UPLOAD: ${{ steps.version.outputs.UPLOAD }}
+        run: |
+          umask 077
+          KEYDIR="$(mktemp -d "$RUNNER_TEMP/asc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
+          trap 'rm -rf "$KEYDIR"' EXIT
+          echo "ASC_KEYDIR=$KEYDIR" >> "$GITHUB_ENV"
+          # ASC_SECRET_VERSION must be a digit string (never empty, never latest); checked before any gcloud call.
+          [[ "${ASC_SECRET_VERSION:-}" =~ ^[0-9]+$ ]] || { echo "::error::ASC_SECRET_VERSION must match ^[0-9]+$"; exit 1; }
+          read_secret() { # pinned numeric version; any failure or empty value aborts before anything is written
+            local v
+            v="$(gcloud secrets versions access "$ASC_SECRET_VERSION" --secret="$1" --project=factory-495015 2>/dev/null)" || { echo "::error::$1 unreadable at version $ASC_SECRET_VERSION"; exit 1; }
+            [ -n "$v" ] || { echo "::error::$1 empty at version $ASC_SECRET_VERSION"; exit 1; }
+            printf '%s' "$v"
+          }
+          KEY_ID="$(read_secret ASC_KEY_ID)" || exit 1
+          ISSUER="$(read_secret ASC_ISSUER_ID)" || exit 1
+          PEM="$(read_secret ASC_PRIVATE_KEY)" || exit 1
+          [[ "$KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::ASC_KEY_ID is not a 10-char A-Z0-9 key id"; exit 1; }
+          echo "::add-mask::$KEY_ID"; echo "::add-mask::$ISSUER"
+          while IFS= read -r line; do
+            case "$line" in ''|-----*) ;; *) echo "::add-mask::$line" ;; esac
+          done <<< "$PEM"
+          KEY_PATH="$KEYDIR/AuthKey_${KEY_ID}.p8"
+          : > "$KEY_PATH"; chmod 600 "$KEY_PATH"; printf '%s\n' "$PEM" > "$KEY_PATH"
+          [ "$(stat -f %Lp "$KEY_PATH")" = "600" ] || { echo "::error::key file mode is not 600"; exit 1; }
+          unset PEM
           xcodebuild -project App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "${{ steps.asc.outputs.key_path }}" \
+            -authenticationKeyPath "$KEY_PATH" \
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" \
-            MARKETING_VERSION=${{ steps.version.outputs.VERSION_NAME }} \
-            CURRENT_PROJECT_VERSION=${{ steps.version.outputs.BUILD_NUMBER }} \
+            MARKETING_VERSION="$MARKETING_VERSION_VALUE" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER_VALUE" \
             archive | tail -30
+          if [ "$UPLOAD" = "true" ]; then
+            /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
+              -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
+              "$RUNNER_TEMP/ExportOptions.plist"
+            xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$KEY_PATH" \
+              -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
+            echo "Uploaded to App Store Connect (destination=upload); it appears in TestFlight after processing."
+          fi
 
-      - name: Export IPA + upload to TestFlight
-        if: ${{ steps.asc.outputs.signing == 'true' }}
-        run: |
-          set -euo pipefail
-          KEY_ID="$(cat "$RUNNER_TEMP/ASC_KEY_ID")"; ISSUER="$(cat "$RUNNER_TEMP/ASC_ISSUER_ID")"
-          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
-            -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
-            "$RUNNER_TEMP/ExportOptions.plist"
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "${{ steps.asc.outputs.key_path }}" \
-            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
-          echo "Uploaded to App Store Connect (destination=upload); it appears in TestFlight after processing."
-
-      - name: Remove key material
+      # Fallback: removes ONLY the run-owned key dir, then reads back that it is gone and fails loudly if not.
+      - name: Remove run-owned key dir (read-back)
         if: always()
-        run: rm -rf "$HOME/.appstoreconnect" "$RUNNER_TEMP"/ASC_*
+        run: |
+          if [ -n "${ASC_KEYDIR:-}" ]; then
+            rm -rf "$ASC_KEYDIR"
+            if [ -e "$ASC_KEYDIR" ]; then echo "::error::run-owned key dir still exists after removal"; exit 1; fi
+          fi
