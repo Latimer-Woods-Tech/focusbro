@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # iOS signed-job guard (jc-security #30297/#30314). Runs BEFORE any credential step.
 # Inputs come ONLY from env vars, never from interpolated shell text:
-#   EVENT_NAME MODE REF SHA EXPECTED_SHA VERSION_INPUT SKIP_UPLOAD_INPUT PKG_VERSION
+#   EVENT_NAME MODE REF SHA EXPECTED_SHA VERSION_INPUT SKIP_UPLOAD_INPUT PKG_VERSION APPLE_TEAM_ID
 # Writes VERSION_NAME and UPLOAD to $GITHUB_OUTPUT (stdout if unset). Any violation: ::error:: + non-zero exit.
 # Each check is ONE line on purpose: ios-release-guard.test.sh deletes them one at a time (proof of rejection).
 set -euo pipefail
@@ -13,6 +13,7 @@ fail() { echo "::error::$1"; exit 1; }
 [ "${REF:-}" = "refs/heads/main" ] || fail "signed run is allowed on refs/heads/main only"
 [[ "${EXPECTED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || fail "expected_sha must be 40 lowercase hex characters"
 [ "${EXPECTED_SHA:-}" = "${SHA:-}" ] || fail "expected_sha must equal the commit this run is on"
+[[ "${APPLE_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] || fail "APPLE_TEAM_ID must be the 10-character Apple team identifier (archive and export need it)"
 
 V="${VERSION_INPUT:-}"
 if [ -z "$V" ]; then V="${PKG_VERSION:-}"; fi

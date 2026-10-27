@@ -29,7 +29,7 @@ run_guard() {
   set +e
   (cd "$WORK" && /usr/bin/env -i PATH="$STUBS:/usr/bin:/bin" HOME="$HOME_DIR" GITHUB_OUTPUT="$OUT" \
      EVENT_NAME=workflow_dispatch MODE=signed REF=refs/heads/main SHA=$SHA40 EXPECTED_SHA=$SHA40 \
-     VERSION_INPUT=1.2.3 SKIP_UPLOAD_INPUT=true PKG_VERSION=0.9.0 "$@" bash "$script" >"$T/stdout" 2>&1)
+     VERSION_INPUT=1.2.3 SKIP_UPLOAD_INPUT=true PKG_VERSION=0.9.0 APPLE_TEAM_ID=22W56AM87W "$@" bash "$script" >"$T/stdout" 2>&1)
   RC=$?; set -e
 }
 reject() {
@@ -52,6 +52,10 @@ reject "sha wrong" EXPECTED_SHA=$BAD40
 reject "sha short" EXPECTED_SHA=aaaaaaa SHA=aaaaaaa
 reject "sha uppercase" EXPECTED_SHA=$UP40 SHA=$UP40
 reject "sha empty" EXPECTED_SHA=
+reject "team id missing" APPLE_TEAM_ID=
+reject "team id lowercase" APPLE_TEAM_ID=22w56am87w
+reject "team id nine characters" APPLE_TEAM_ID=22W56AM87
+reject "team id injection" 'APPLE_TEAM_ID=22W56AM87W; touch x'
 reject "version injection" 'VERSION_INPUT=1.0; touch x'
 reject "version double dot" VERSION_INPUT=1..2
 reject "version five parts" VERSION_INPUT=1.0.0.0.0
@@ -82,6 +86,7 @@ mutate no-mode 'MODE:-' MODE=unsigned
 mutate no-ref 'REF:-' REF=refs/heads/feature
 mutate no-sha-format 'EXPECTED_SHA:-}" =~' EXPECTED_SHA=$UP40 SHA=$UP40
 mutate no-sha-equality 'EXPECTED_SHA:-}" = ' EXPECTED_SHA=$BAD40
+mutate no-team-id 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=
 mutate no-version-regex '\$V" =~' 'VERSION_INPUT=1.0; touch x'
 
 # Custody static assertions, each with a mutation proof: the mutated workflow text MUST fail the matching check.
