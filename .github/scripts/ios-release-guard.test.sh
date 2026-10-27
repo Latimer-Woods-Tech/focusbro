@@ -165,6 +165,12 @@ chk("privacy-evidence step runs AFTER the xcodebuild compile step", bool(pi) and
 chk("privacy-evidence step is non-blocking (continue-on-error)", bool(pi) and ust[pi[0]].get("continue-on-error") is True)
 chk("privacy-evidence step has no env, secrets, or credentials", bool(pi) and "env" not in ust[pi[0]] and "secrets" not in json.dumps(ust[pi[0]]))
 chk("privacy-evidence step is absent from signed", not any("ios-privacy-evidence" in x.get("run", "") for x in st))
+import os
+ev = open(os.path.join(os.path.dirname(sys.argv[1]), "..", "scripts", "ios-privacy-evidence.py")).read()
+chk("evidence script prints BEGIN and END markers to stdout", "=== IOS-PRIVACY-EVIDENCE BEGIN ===" in ev and "=== IOS-PRIVACY-EVIDENCE END ===" in ev and "sys.stdout.write(text)" in ev)
+chk("evidence script prints a traceback on exception and keeps the summary write", "traceback.format_exc()" in ev and "GITHUB_STEP_SUMMARY" in ev)
+chk("evidence script caps output lines", "MAX_LINES = 400" in ev)
+chk("evidence script makes no network calls", not any(x in ev for x in ("urllib", "socket", "requests", "http.client", "subprocess")))
 chk("unsigned job still has no permissions block granting write", "id-token" not in perms("unsigned"))
 for n, o in res: print(("PASS " if o else "FAIL ") + "workflow: " + n)
 sys.exit(0 if all(o for _, o in res) else 1)
