@@ -56,6 +56,8 @@ reject "team id missing" APPLE_TEAM_ID=
 reject "team id lowercase" APPLE_TEAM_ID=22w56am87w
 reject "team id nine characters" APPLE_TEAM_ID=22W56AM87
 reject "team id injection" 'APPLE_TEAM_ID=22W56AM87W; touch x'
+reject "team id eleven characters" APPLE_TEAM_ID=22W56AM87WX
+reject "team id wrong character" APPLE_TEAM_ID=22W56AM-7W
 reject "version injection" 'VERSION_INPUT=1.0; touch x'
 reject "version double dot" VERSION_INPUT=1..2
 reject "version five parts" VERSION_INPUT=1.0.0.0.0
@@ -86,7 +88,13 @@ mutate no-mode 'MODE:-' MODE=unsigned
 mutate no-ref 'REF:-' REF=refs/heads/feature
 mutate no-sha-format 'EXPECTED_SHA:-}" =~' EXPECTED_SHA=$UP40 SHA=$UP40
 mutate no-sha-equality 'EXPECTED_SHA:-}" = ' EXPECTED_SHA=$BAD40
+# One mutation per reject class (Codex #33215, D1140): deleting the one team-id check must make EACH class accepted.
 mutate no-team-id 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=
+mutate no-team-id-lowercase 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22w56am87w
+mutate no-team-id-nine 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM87
+mutate no-team-id-eleven 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM87WX
+mutate no-team-id-wrong-char 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM-7W
+mutate no-team-id-injection 'APPLE_TEAM_ID:-' 'APPLE_TEAM_ID=22W56AM87W; touch x'
 mutate no-version-regex '\$V" =~' 'VERSION_INPUT=1.0; touch x'
 
 # Custody static assertions, each with a mutation proof: the mutated workflow text MUST fail the matching check.
