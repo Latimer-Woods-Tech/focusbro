@@ -112,6 +112,7 @@ jobs:
       id-token: write   # WIF → GCP Secret Manager
     env:
       ASC_SECRET_VERSION: '1'   # the plan's isolated v1; never latest
+      APPLE_TEAM_ID: '22W56AM87W'   # the Apple Developer team identifier (public, not a secret); archive and export need it, automatic signing has no project team
     defaults:
       run:
         shell: bash -euo pipefail {0}
@@ -206,12 +207,13 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$KEY_PATH" \
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$MARKETING_VERSION_VALUE" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER_VALUE" \
             archive | tail -30
           if [ "$UPLOAD" = "true" ]; then
             /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
-              -c "Add :destination string upload" -c "Add :signingStyle string automatic" \
+              -c "Add :destination string upload" -c "Add :signingStyle string automatic" -c "Add :teamID string $APPLE_TEAM_ID" \
               "$RUNNER_TEMP/ExportOptions.plist"
             xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/FocusBro.xcarchive" \
               -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \

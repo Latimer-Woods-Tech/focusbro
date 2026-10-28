@@ -29,7 +29,7 @@ run_guard() {
   set +e
   (cd "$WORK" && /usr/bin/env -i PATH="$STUBS:/usr/bin:/bin" HOME="$HOME_DIR" GITHUB_OUTPUT="$OUT" \
      EVENT_NAME=workflow_dispatch MODE=signed REF=refs/heads/main SHA=$SHA40 EXPECTED_SHA=$SHA40 \
-     VERSION_INPUT=1.2.3 SKIP_UPLOAD_INPUT=true PKG_VERSION=0.9.0 "$@" bash "$script" >"$T/stdout" 2>&1)
+     VERSION_INPUT=1.2.3 SKIP_UPLOAD_INPUT=true PKG_VERSION=0.9.0 APPLE_TEAM_ID=22W56AM87W "$@" bash "$script" >"$T/stdout" 2>&1)
   RC=$?; set -e
 }
 reject() {
@@ -52,6 +52,12 @@ reject "sha wrong" EXPECTED_SHA=$BAD40
 reject "sha short" EXPECTED_SHA=aaaaaaa SHA=aaaaaaa
 reject "sha uppercase" EXPECTED_SHA=$UP40 SHA=$UP40
 reject "sha empty" EXPECTED_SHA=
+reject "team id missing" APPLE_TEAM_ID=
+reject "team id lowercase" APPLE_TEAM_ID=22w56am87w
+reject "team id nine characters" APPLE_TEAM_ID=22W56AM87
+reject "team id injection" 'APPLE_TEAM_ID=22W56AM87W; touch x'
+reject "team id eleven characters" APPLE_TEAM_ID=22W56AM87WX
+reject "team id wrong character" APPLE_TEAM_ID=22W56AM-7W
 reject "version injection" 'VERSION_INPUT=1.0; touch x'
 reject "version double dot" VERSION_INPUT=1..2
 reject "version five parts" VERSION_INPUT=1.0.0.0.0
@@ -82,6 +88,13 @@ mutate no-mode 'MODE:-' MODE=unsigned
 mutate no-ref 'REF:-' REF=refs/heads/feature
 mutate no-sha-format 'EXPECTED_SHA:-}" =~' EXPECTED_SHA=$UP40 SHA=$UP40
 mutate no-sha-equality 'EXPECTED_SHA:-}" = ' EXPECTED_SHA=$BAD40
+# One mutation per reject class (Codex #33215, D1140): deleting the one team-id check must make EACH class accepted.
+mutate no-team-id 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=
+mutate no-team-id-lowercase 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22w56am87w
+mutate no-team-id-nine 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM87
+mutate no-team-id-eleven 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM87WX
+mutate no-team-id-wrong-char 'APPLE_TEAM_ID:-' APPLE_TEAM_ID=22W56AM-7W
+mutate no-team-id-injection 'APPLE_TEAM_ID:-' 'APPLE_TEAM_ID=22W56AM87W; touch x'
 mutate no-version-regex '\$V" =~' 'VERSION_INPUT=1.0; touch x'
 
 # Custody static assertions, each with a mutation proof: the mutated workflow text MUST fail the matching check.
@@ -100,6 +113,9 @@ if "bash -euo pipefail" not in t or re.search(r"bash -eo pipefail",t): f.append(
 if "npm ci --ignore-scripts" not in t[t.find("  signed:"):]: f.append("ignore-scripts")
 if not re.search(r"ASC_SECRET_VERSION:-\}\" =~ \^\[0-9\]\+\$",t): f.append("version-regex")
 if not re.search(r"\"\$KEY_ID\" =~ \^\[A-Z0-9\]\{10\}\$",t): f.append("keyid-regex")
+if not re.search(r"APPLE_TEAM_ID:\s*.[A-Z0-9]{10}.",t): f.append("team-id-env")
+if "DEVELOPMENT_TEAM=\"$APPLE_TEAM_ID\"" not in t: f.append("team-id-archive")
+if "Add :teamID string $APPLE_TEAM_ID" not in t: f.append("team-id-export")
 for s in ("ASC_KEY_ID","ASC_ISSUER_ID","ASC_PRIVATE_KEY"):
     if not re.search(r"read_secret "+s+r"\)\" \|\| exit 1",t): f.append("read-exit-"+s)
 print(" ".join(f))'
@@ -116,6 +132,9 @@ cchk "custody mutation: no digit-only version check" "version-regex" "${WFT/'=~ 
 cchk "custody mutation: no key id format check" "keyid-regex" "${WFT/'"$KEY_ID" =~ ^[A-Z0-9]{10}$'/'"$KEY_ID" =~ ^.*$'}"
 cchk "custody mutation: ASC_PRIVATE_KEY read without exit" "read-exit-ASC_PRIVATE_KEY" "${WFT/'read_secret ASC_PRIVATE_KEY)" || exit 1'/'read_secret ASC_PRIVATE_KEY)"'}"
 cchk "custody mutation: ASC_KEY_ID read without exit" "read-exit-ASC_KEY_ID" "${WFT/'read_secret ASC_KEY_ID)" || exit 1'/'read_secret ASC_KEY_ID)"'}"
+cchk "custody mutation: no team id value" "team-id-env" "${WFT/APPLE_TEAM_ID: \'22W56AM87W\'/APPLE_TEAM_ID: \'\'}"
+cchk "custody mutation: archive without DEVELOPMENT_TEAM" "team-id-archive" "${WFT/DEVELOPMENT_TEAM=\"\$APPLE_TEAM_ID\"/FOO=1}"
+cchk "custody mutation: export without teamID" "team-id-export" "${WFT/Add :teamID string \$APPLE_TEAM_ID/Add :x string y}"
 cchk "custody mutation: broad rm" "broad-rm" "$WFT"$'\n''run: rm -rf "$HOME/.appstoreconnect"'
 cchk "custody mutation: shell without -u" "shell-u" "${WFT//bash -euo pipefail/bash -eo pipefail}"
 
