@@ -131,6 +131,14 @@ jobs:
         working-directory: mobile
         run: npx cap sync android
 
+      # APP-LOCK1 S0: the JVM unit tests (routine bounds, the one store's lifecycle, the web channel's caller contract, the
+      # manifest/backup/source contracts). A failure stops the build before anything is signed.
+      - name: Android unit tests
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew testReleaseUnitTest --no-daemon
+
       - name: Build signed release AAB + APK
         working-directory: mobile/android
         run: |
