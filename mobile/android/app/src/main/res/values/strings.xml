@@ -4,4 +4,6 @@
     <string name="title_activity_main">FocusBro</string>
     <string name="package_name">net.focusbro.app</string>
     <string name="custom_url_scheme">net.focusbro.app</string>
+    <string name="routine_short">Routine</string>
+    <string name="routine_long">Morning routine</string>
 </resources>

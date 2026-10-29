@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- APP-LOCK1 S0: a long-press on the FocusBro icon opens the native routine screen, so the routine and its escape are
+     reachable with notifications denied (spec r4 §5.1, Arch PF-G1 condition). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="routine"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/routine_short"
+        android:shortcutLongLabel="@string/routine_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="net.focusbro.app"
+            android:targetClass="net.focusbro.app.focuslock.RoutineActivity" />
+    </shortcut>
+</shortcuts>

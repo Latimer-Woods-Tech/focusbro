@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and lower (fullBackupContent). The routine store never goes to a backup (spec r4 §4, AL-P2/P4). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="focuslock.xml" />
+</full-backup-content>

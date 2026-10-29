@@ -3,6 +3,8 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/focuslock_backup_rules"
+        android:dataExtractionRules="@xml/focuslock_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -21,6 +23,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
 
             <!-- HTTPS App Links for focusbro.net, verified against
                  https://focusbro.net/.well-known/assetlinks.json (served by the
@@ -59,6 +63,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- APP-LOCK1 S0 (spec r4): the native routine screen, its alarm and the boot re-arm. Every one is exported=false:
+             no other app can open, trigger or change the routine (AL-S3). No new <uses-permission> (spec r4 §5.3). -->
+        <activity android:name=".focuslock.RoutineActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar" />
+        <receiver android:name=".focuslock.RoutineAlarm" android:exported="false" />
+        <receiver android:name=".focuslock.BootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Soundscape keeps playing with the screen off: a mediaPlayback
              foreground service (with its ongoing "Soundscape playing" notification
